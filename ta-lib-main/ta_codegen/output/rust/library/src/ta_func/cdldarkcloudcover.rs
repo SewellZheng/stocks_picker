@@ -73,97 +73,26 @@ impl Core {
     ///   penetrate below close\[i-1]; larger values require deeper penetration (default 0.5,
     ///   minimum 0)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Real parameters accept `-4e37` to
-    /// select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Real parameters accept
+    /// [`Core::REAL_DEFAULT`] to select their default value.
     #[inline]
     pub fn CDLDARKCLOUDCOVER_Lookback(&self, mut optInPenetration: f64) -> usize {
-        if optInPenetration == REAL_DEFAULT {
+        if optInPenetration == Self::REAL_DEFAULT {
             optInPenetration = 5e-1;
-        } else if (optInPenetration < 0e0) || (optInPenetration > REAL_MAX) {
+        } else if !((optInPenetration >= 0e0) && (optInPenetration <= Self::REAL_MAX)) {
             return usize::MAX;
         }
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type;
+        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
         #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
         #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
         return (BodyLong_avgPeriod + 1) as usize;
     }
-    /// A two-candle bearish reversal pattern: a long white candle followed by a black candle that
-    /// opens above the prior high and closes deep into the prior white body past a penetration
-    /// threshold. Signals a potential top. A hit (-100) is a bearish reversal signal, most
-    /// meaningful after an uptrend.
-    ///
-    /// # Notes
-    ///
-    /// * Does not verify the preceding uptrend the bearish reversal classically assumes.
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inOpen` — Open price of each bar.
-    /// * `inHigh` — High price of each bar.
-    /// * `inLow` — Low price of each bar.
-    /// * `inClose` — Close price of each bar.
-    /// * `optInPenetration` — Fraction of candle 1's real body that candle 2's close must
-    ///   penetrate below close\[i-1]; larger values require deeper penetration (default 0.5,
-    ///   minimum 0)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outInteger` — -100 when the pattern is detected (always bearish), 0 otherwise; never
-    ///   emits +100.
-    ///
-    /// Real parameters accept `-4e37` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
-    ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0i32; 252];
-    ///
-    /// let ret = core.CDLDARKCLOUDCOVER(
-    ///     0, open.len() - 1, &open, &high, &low, &close, 0.5,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::CDLPIERCING`] · [`Core::CDLENGULFING`] · [`Core::CDLONNECK`]
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/cdldarkcloudcover](https://ta-lib.org/functions/cdldarkcloudcover)
-    #[doc(alias = "DarkCloudCover")]
-    pub fn CDLDARKCLOUDCOVER(
+    /// C-shaped body behind [`Core::CDLDARKCLOUDCOVER`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn CDLDARKCLOUDCOVER_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -176,15 +105,15 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        if optInPenetration == REAL_DEFAULT {
+        if optInPenetration == Self::REAL_DEFAULT {
             optInPenetration = 5e-1;
-        } else if (optInPenetration < 0e0) || (optInPenetration > REAL_MAX) {
+        } else if !((optInPenetration >= 0e0) && (optInPenetration <= Self::REAL_MAX)) {
             return RetCode::BadParam;
         }
         let _assertLb = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration);
@@ -201,7 +130,7 @@ impl Core {
         let mut BodyLongTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type;
+        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
         #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
         #[allow(non_snake_case)]
@@ -235,7 +164,7 @@ impl Core {
                     _candlerange_0 = inHigh[i - 1] - inLow[i - 1];
                 }
                 2 => {
-                    _candlerange_0 = inHigh[i - 1] - inLow[i - 1] - (inClose[i - 1] - inOpen[i - 1]).abs();
+                    _candlerange_0 = (inHigh[i - 1] - (if inClose[i - 1] >= inOpen[i - 1] { inClose[i - 1] } else { inOpen[i - 1] })) + ((if inClose[i - 1] >= inOpen[i - 1] { inOpen[i - 1] } else { inClose[i - 1] }) - inLow[i - 1]);
                 }
                 _ => {
                     _candlerange_0 = 0.0;
@@ -258,7 +187,7 @@ impl Core {
         outIdx = 0;
         loop {
             if (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 1 &&        // 1st: white
-               (inClose[i - 1] - inOpen[i - 1]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), _ => (inHigh[i - 1]) - (inLow[i - 1]) - ((inClose[i - 1]) - (inOpen[i - 1])).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // long
+               (inClose[i - 1] - inOpen[i - 1]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // long
                (((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // 2nd: black
                inOpen[i] > inHigh[i - 1] &&                                             // open above prior high
                inClose[i] > inOpen[i - 1] &&                                            // close within prior body
@@ -281,7 +210,7 @@ impl Core {
                     _candlerange_1 = inHigh[i - 1] - inLow[i - 1];
                 }
                 2 => {
-                    _candlerange_1 = inHigh[i - 1] - inLow[i - 1] - (inClose[i - 1] - inOpen[i - 1]).abs();
+                    _candlerange_1 = (inHigh[i - 1] - (if inClose[i - 1] >= inOpen[i - 1] { inClose[i - 1] } else { inOpen[i - 1] })) + ((if inClose[i - 1] >= inOpen[i - 1] { inOpen[i - 1] } else { inClose[i - 1] }) - inLow[i - 1]);
                 }
                 _ => {
                     _candlerange_1 = 0.0;
@@ -296,7 +225,7 @@ impl Core {
                     _candlerange_2 = inHigh[BodyLongTrailingIdx - 1] - inLow[BodyLongTrailingIdx - 1];
                 }
                 2 => {
-                    _candlerange_2 = inHigh[BodyLongTrailingIdx - 1] - inLow[BodyLongTrailingIdx - 1] - (inClose[BodyLongTrailingIdx - 1] - inOpen[BodyLongTrailingIdx - 1]).abs();
+                    _candlerange_2 = (inHigh[BodyLongTrailingIdx - 1] - (if inClose[BodyLongTrailingIdx - 1] >= inOpen[BodyLongTrailingIdx - 1] { inClose[BodyLongTrailingIdx - 1] } else { inOpen[BodyLongTrailingIdx - 1] })) + ((if inClose[BodyLongTrailingIdx - 1] >= inOpen[BodyLongTrailingIdx - 1] { inOpen[BodyLongTrailingIdx - 1] } else { inClose[BodyLongTrailingIdx - 1] }) - inLow[BodyLongTrailingIdx - 1]);
                 }
                 _ => {
                     _candlerange_2 = 0.0;
@@ -312,6 +241,114 @@ impl Core {
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
+    /// A two-candle bearish reversal pattern: a long white candle followed by a black candle that
+    /// opens above the prior high and closes deep into the prior white body past a penetration
+    /// threshold. Signals a potential top. A hit (-100) is a bearish reversal signal, most
+    /// meaningful after an uptrend.
+    ///
+    /// # Notes
+    ///
+    /// * Does not verify the preceding uptrend the bearish reversal classically assumes.
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inOpen` — Open price of each bar.
+    /// * `inHigh` — High price of each bar.
+    /// * `inLow` — Low price of each bar.
+    /// * `inClose` — Close price of each bar.
+    /// * `optInPenetration` — Fraction of candle 1's real body that candle 2's close must
+    ///   penetrate below close\[i-1]; larger values require deeper penetration (default 0.5,
+    ///   minimum 0)
+    /// * `outInteger` — -100 when the pattern is detected (always bearish), 0 otherwise; never
+    ///   emits +100.
+    ///
+    /// Real parameters accept [`Core::REAL_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let open: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .collect();
+    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0i32; 252];
+    ///
+    /// let out_range = core.CDLDARKCLOUDCOVER(
+    ///     0, open.len() - 1, &open, &high, &low, &close, 0.5,
+    ///     &mut out,
+    /// )?;
+    /// assert!(out_range.count > 0);
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::CDLPIERCING`] · [`Core::CDLENGULFING`] · [`Core::CDLONNECK`]
+    ///
+    /// Further reading:
+    /// [ta-lib.org/functions/cdldarkcloudcover](https://ta-lib.org/functions/cdldarkcloudcover)
+    #[doc(alias = "DarkCloudCover")]
+    pub fn CDLDARKCLOUDCOVER(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inOpen: &[f64],
+        inHigh: &[f64],
+        inLow: &[f64],
+        inClose: &[f64],
+        optInPenetration: f64,
+        outInteger: &mut [i32],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.CDLDARKCLOUDCOVER_Impl(
+            startIdx,
+            endIdx,
+            inOpen,
+            inHigh,
+            inLow,
+            inClose,
+            optInPenetration,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outInteger,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -348,10 +385,7 @@ struct CDLDARKCLOUDCOVER_StreamState {
     ringPos_BodyLongTrailingIdx: usize,
     ringCap_BodyLongTrailingIdx: usize,
     ringLag_BodyLongTrailingIdx: usize,
-    ring_BodyLongTrailingIdx_inOpen: Vec<f64>,
-    ring_BodyLongTrailingIdx_inHigh: Vec<f64>,
-    ring_BodyLongTrailingIdx_inLow: Vec<f64>,
-    ring_BodyLongTrailingIdx_inClose: Vec<f64>,
+    ring_BodyLongTrailingIdx_derived: Vec<f64>,
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -368,10 +402,7 @@ impl CDLDARKCLOUDCOVER_StreamState {
         self.ringPos_BodyLongTrailingIdx = src.ringPos_BodyLongTrailingIdx;
         self.ringCap_BodyLongTrailingIdx = src.ringCap_BodyLongTrailingIdx;
         self.ringLag_BodyLongTrailingIdx = src.ringLag_BodyLongTrailingIdx;
-        self.ring_BodyLongTrailingIdx_inOpen.clone_from(&src.ring_BodyLongTrailingIdx_inOpen);
-        self.ring_BodyLongTrailingIdx_inHigh.clone_from(&src.ring_BodyLongTrailingIdx_inHigh);
-        self.ring_BodyLongTrailingIdx_inLow.clone_from(&src.ring_BodyLongTrailingIdx_inLow);
-        self.ring_BodyLongTrailingIdx_inClose.clone_from(&src.ring_BodyLongTrailingIdx_inClose);
+        self.ring_BodyLongTrailingIdx_derived.clone_from(&src.ring_BodyLongTrailingIdx_derived);
     }
 }
 
@@ -384,17 +415,29 @@ impl CDLDARKCLOUDCOVER_StreamState {
 impl Core {
     fn CDLDARKCLOUDCOVER_step_internal(&self, sp: &mut CDLDARKCLOUDCOVER_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type;
+        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
         #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
         #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        sp.ring_BodyLongTrailingIdx_inOpen[sp.ringPos_BodyLongTrailingIdx] = inOpen;
-        sp.ring_BodyLongTrailingIdx_inHigh[sp.ringPos_BodyLongTrailingIdx] = inHigh;
-        sp.ring_BodyLongTrailingIdx_inLow[sp.ringPos_BodyLongTrailingIdx] = inLow;
-        sp.ring_BodyLongTrailingIdx_inClose[sp.ringPos_BodyLongTrailingIdx] = inClose;
+        let mut _candlerange_0: f64;
+        match BodyLong_rangeType {
+            0 => {
+                _candlerange_0 = (inClose - inOpen).abs();
+            }
+            1 => {
+                _candlerange_0 = inHigh - inLow;
+            }
+            2 => {
+                _candlerange_0 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+            }
+            _ => {
+                _candlerange_0 = 0.0;
+            }
+        }
+        sp.ring_BodyLongTrailingIdx_derived[sp.ringPos_BodyLongTrailingIdx] = _candlerange_0;
         if (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 1 && // 1st: white
-           (sp.lag1_inClose - sp.lag1_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (sp.lag1_inClose - sp.lag1_inOpen).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), _ => (sp.lag1_inHigh) - (sp.lag1_inLow) - ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // long
+           (sp.lag1_inClose - sp.lag1_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (sp.BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((sp.lag1_inClose) - (sp.lag1_inOpen)).abs(), 1 => (sp.lag1_inHigh) - (sp.lag1_inLow), 2 => ((sp.lag1_inHigh) - (if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inClose) } else { (sp.lag1_inOpen) })) + ((if (sp.lag1_inClose) >= (sp.lag1_inOpen) { (sp.lag1_inOpen) } else { (sp.lag1_inClose) }) - (sp.lag1_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // long
            (((if inClose >= inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 &&  // 2nd: black
            inOpen > sp.lag1_inHigh &&                                          // open above prior high
            inClose > sp.lag1_inOpen &&                                         // close within prior body
@@ -406,45 +449,26 @@ impl Core {
         }
         // add the current range and subtract the first range: this is done after the pattern recognition
         // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-        let mut _candlerange_0: f64;
-        match BodyLong_rangeType {
-            0 => {
-                _candlerange_0 = (sp.lag1_inClose - sp.lag1_inOpen).abs();
-            }
-            1 => {
-                _candlerange_0 = sp.lag1_inHigh - sp.lag1_inLow;
-            }
-            2 => {
-                _candlerange_0 = sp.lag1_inHigh - sp.lag1_inLow - (sp.lag1_inClose - sp.lag1_inOpen).abs();
-            }
-            _ => {
-                _candlerange_0 = 0.0;
-            }
-        }
         let mut _candlerange_1: f64;
         match BodyLong_rangeType {
             0 => {
-                _candlerange_1 = (sp.ring_BodyLongTrailingIdx_inClose[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize] - sp.ring_BodyLongTrailingIdx_inOpen[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize]).abs();
+                _candlerange_1 = (sp.lag1_inClose - sp.lag1_inOpen).abs();
             }
             1 => {
-                _candlerange_1 = sp.ring_BodyLongTrailingIdx_inHigh[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize] - sp.ring_BodyLongTrailingIdx_inLow[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize];
+                _candlerange_1 = sp.lag1_inHigh - sp.lag1_inLow;
             }
             2 => {
-                _candlerange_1 = sp.ring_BodyLongTrailingIdx_inHigh[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize] - sp.ring_BodyLongTrailingIdx_inLow[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize] - (sp.ring_BodyLongTrailingIdx_inClose[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize] - sp.ring_BodyLongTrailingIdx_inOpen[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize]).abs();
+                _candlerange_1 = (sp.lag1_inHigh - (if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inClose } else { sp.lag1_inOpen })) + ((if sp.lag1_inClose >= sp.lag1_inOpen { sp.lag1_inOpen } else { sp.lag1_inClose }) - sp.lag1_inLow);
             }
             _ => {
                 _candlerange_1 = 0.0;
             }
         }
-        sp.BodyLongPeriodTotal += _candlerange_0 - _candlerange_1;
+        sp.BodyLongPeriodTotal += _candlerange_1 - sp.ring_BodyLongTrailingIdx_derived[((sp.ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 1) % sp.ringCap_BodyLongTrailingIdx) as usize];
         sp.lag1_inOpen = inOpen;
         sp.lag1_inHigh = inHigh;
         sp.lag1_inLow = inLow;
         sp.lag1_inClose = inClose;
-        sp.ring_BodyLongTrailingIdx_inOpen[sp.ringPos_BodyLongTrailingIdx] = inOpen;
-        sp.ring_BodyLongTrailingIdx_inHigh[sp.ringPos_BodyLongTrailingIdx] = inHigh;
-        sp.ring_BodyLongTrailingIdx_inLow[sp.ringPos_BodyLongTrailingIdx] = inLow;
-        sp.ring_BodyLongTrailingIdx_inClose[sp.ringPos_BodyLongTrailingIdx] = inClose;
         sp.ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx + 1;
         if sp.ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
             sp.ringPos_BodyLongTrailingIdx = 0;
@@ -453,18 +477,18 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::CDLDARKCLOUDCOVER_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::CDLDARKCLOUDCOVER_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn CDLDARKCLOUDCOVER_OpenCore(
+    pub(crate) fn CDLDARKCLOUDCOVER_OpenPass(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInPenetration: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDLDARKCLOUDCOVER_Stream, RetCode> {
         if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > MAX_INDEX + 1 {
+        if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
-        if optInPenetration == REAL_DEFAULT {
+        if optInPenetration == Self::REAL_DEFAULT {
             optInPenetration = 5e-1;
-        } else if (optInPenetration < 0e0) || (optInPenetration > REAL_MAX) {
+        } else if !((optInPenetration >= 0e0) && (optInPenetration <= Self::REAL_MAX)) {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
@@ -478,7 +502,7 @@ impl Core {
         let mut BodyLongTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type;
+        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
         #[allow(non_snake_case)]
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
         #[allow(non_snake_case)]
@@ -495,7 +519,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Do the calculation using tight loops.
         // Add-up the initial period, except for the last value.
@@ -512,7 +536,7 @@ impl Core {
                     _candlerange_2 = inHigh[i - 1] - inLow[i - 1];
                 }
                 2 => {
-                    _candlerange_2 = inHigh[i - 1] - inLow[i - 1] - (inClose[i - 1] - inOpen[i - 1]).abs();
+                    _candlerange_2 = (inHigh[i - 1] - (if inClose[i - 1] >= inOpen[i - 1] { inClose[i - 1] } else { inOpen[i - 1] })) + ((if inClose[i - 1] >= inOpen[i - 1] { inOpen[i - 1] } else { inClose[i - 1] }) - inLow[i - 1]);
                 }
                 _ => {
                     _candlerange_2 = 0.0;
@@ -535,7 +559,7 @@ impl Core {
         outIdx = 0;
         loop {
             if (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 1 &&        // 1st: white
-               (inClose[i - 1] - inOpen[i - 1]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => (inClose[i - 1] - inOpen[i - 1]).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), _ => (inHigh[i - 1]) - (inLow[i - 1]) - ((inClose[i - 1]) - (inOpen[i - 1])).abs() } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // long
+               (inClose[i - 1] - inOpen[i - 1]).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose[i - 1]) - (inOpen[i - 1])).abs(), 1 => (inHigh[i - 1]) - (inLow[i - 1]), 2 => ((inHigh[i - 1]) - (if (inClose[i - 1]) >= (inOpen[i - 1]) { (inClose[i - 1]) } else { (inOpen[i - 1]) })) + ((if (inClose[i - 1]) >= (inOpen[i - 1]) { (inOpen[i - 1]) } else { (inClose[i - 1]) }) - (inLow[i - 1])), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // long
                (((if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // 2nd: black
                inOpen[i] > inHigh[i - 1] &&                                             // open above prior high
                inClose[i] > inOpen[i - 1] &&                                            // close within prior body
@@ -556,7 +580,7 @@ impl Core {
                     _candlerange_3 = inHigh[i - 1] - inLow[i - 1];
                 }
                 2 => {
-                    _candlerange_3 = inHigh[i - 1] - inLow[i - 1] - (inClose[i - 1] - inOpen[i - 1]).abs();
+                    _candlerange_3 = (inHigh[i - 1] - (if inClose[i - 1] >= inOpen[i - 1] { inClose[i - 1] } else { inOpen[i - 1] })) + ((if inClose[i - 1] >= inOpen[i - 1] { inOpen[i - 1] } else { inClose[i - 1] }) - inLow[i - 1]);
                 }
                 _ => {
                     _candlerange_3 = 0.0;
@@ -571,7 +595,7 @@ impl Core {
                     _candlerange_4 = inHigh[BodyLongTrailingIdx - 1] - inLow[BodyLongTrailingIdx - 1];
                 }
                 2 => {
-                    _candlerange_4 = inHigh[BodyLongTrailingIdx - 1] - inLow[BodyLongTrailingIdx - 1] - (inClose[BodyLongTrailingIdx - 1] - inOpen[BodyLongTrailingIdx - 1]).abs();
+                    _candlerange_4 = (inHigh[BodyLongTrailingIdx - 1] - (if inClose[BodyLongTrailingIdx - 1] >= inOpen[BodyLongTrailingIdx - 1] { inClose[BodyLongTrailingIdx - 1] } else { inOpen[BodyLongTrailingIdx - 1] })) + ((if inClose[BodyLongTrailingIdx - 1] >= inOpen[BodyLongTrailingIdx - 1] { inOpen[BodyLongTrailingIdx - 1] } else { inClose[BodyLongTrailingIdx - 1] }) - inLow[BodyLongTrailingIdx - 1]);
                 }
                 _ => {
                     _candlerange_4 = 0.0;
@@ -593,35 +617,11 @@ impl Core {
             return Err(RetCode::InternalError);
         }
         let allocN_BodyLongTrailingIdx: usize = if cap_BodyLongTrailingIdx > 0 { cap_BodyLongTrailingIdx as usize } else { 1 };
-        let mut ring_BodyLongTrailingIdx_inOpen: Vec<f64> = vec![0.0_f64; allocN_BodyLongTrailingIdx];
+        let mut ring_BodyLongTrailingIdx_derived: Vec<f64> = vec![0.0_f64; allocN_BodyLongTrailingIdx];
         {
             let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
             while fillJ < historyLen {
-                ring_BodyLongTrailingIdx_inOpen[fillJ % cap_BodyLongTrailingIdx as usize] = inOpen[fillJ];
-                fillJ += 1;
-            }
-        }
-        let mut ring_BodyLongTrailingIdx_inHigh: Vec<f64> = vec![0.0_f64; allocN_BodyLongTrailingIdx];
-        {
-            let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
-            while fillJ < historyLen {
-                ring_BodyLongTrailingIdx_inHigh[fillJ % cap_BodyLongTrailingIdx as usize] = inHigh[fillJ];
-                fillJ += 1;
-            }
-        }
-        let mut ring_BodyLongTrailingIdx_inLow: Vec<f64> = vec![0.0_f64; allocN_BodyLongTrailingIdx];
-        {
-            let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
-            while fillJ < historyLen {
-                ring_BodyLongTrailingIdx_inLow[fillJ % cap_BodyLongTrailingIdx as usize] = inLow[fillJ];
-                fillJ += 1;
-            }
-        }
-        let mut ring_BodyLongTrailingIdx_inClose: Vec<f64> = vec![0.0_f64; allocN_BodyLongTrailingIdx];
-        {
-            let mut fillJ: usize = historyLen - cap_BodyLongTrailingIdx as usize;
-            while fillJ < historyLen {
-                ring_BodyLongTrailingIdx_inClose[fillJ % cap_BodyLongTrailingIdx as usize] = inClose[fillJ];
+                ring_BodyLongTrailingIdx_derived[fillJ % cap_BodyLongTrailingIdx as usize] = (match BodyLong_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - (if (inClose[(fillJ) as usize]) >= (inOpen[(fillJ) as usize]) { (inClose[(fillJ) as usize]) } else { (inOpen[(fillJ) as usize]) })) + ((if (inClose[(fillJ) as usize]) >= (inOpen[(fillJ) as usize]) { (inOpen[(fillJ) as usize]) } else { (inClose[(fillJ) as usize]) }) - (inLow[(fillJ) as usize])), _ => 0.0 });
                 fillJ += 1;
             }
         }
@@ -635,10 +635,7 @@ impl Core {
             ringPos_BodyLongTrailingIdx: historyLen % cap_BodyLongTrailingIdx as usize,
             ringCap_BodyLongTrailingIdx: cap_BodyLongTrailingIdx as usize,
             ringLag_BodyLongTrailingIdx: capLag_BodyLongTrailingIdx as usize,
-            ring_BodyLongTrailingIdx_inOpen,
-            ring_BodyLongTrailingIdx_inHigh,
-            ring_BodyLongTrailingIdx_inLow,
-            ring_BodyLongTrailingIdx_inClose,
+            ring_BodyLongTrailingIdx_derived,
         };
         Ok(CDLDARKCLOUDCOVER_Stream { core: self.clone(), state })
     }
@@ -650,7 +647,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outInteger = [0_i32; 1];
-        let handle = self.CDLDARKCLOUDCOVER_OpenCore(inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
+        let handle = self.CDLDARKCLOUDCOVER_OpenPass(inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
         Ok((handle, sink_outInteger[0]))
     }
 
@@ -659,8 +656,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -675,8 +674,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.CDLDARKCLOUDCOVER_Open(&open, &high, &low, &close, 0.5).expect("enough history");
-    /// let peeked = s.peek(100.2, 101.4, 99.1, 100.9);
-    /// let updated = s.update(100.2, 101.4, 99.1, 100.9);
+    /// let peeked = s.peek(100.2, 101.4, 99.1, 100.9).expect("a finite bar");
+    /// let updated = s.update(100.2, 101.4, 99.1, 100.9).expect("a finite bar");
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_CDLDARKCLOUDCOVER_Open")]
@@ -685,13 +684,17 @@ impl Core {
     }
 
     /// [`Core::CDLDARKCLOUDCOVER_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::CDLDARKCLOUDCOVER`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::CDLDARKCLOUDCOVER`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_CDLDARKCLOUDCOVER_OpenAndFill")]
     pub fn CDLDARKCLOUDCOVER_OpenAndFill(
-        &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInPenetration: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
-    ) -> Result<CDLDARKCLOUDCOVER_Stream, RetCode> {
-        self.CDLDARKCLOUDCOVER_OpenCore(inOpen, inHigh, inLow, inClose, 0, optInPenetration, outBegIdx, outNBElement, outInteger, 1)
+        &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInPenetration: f64, outInteger: &mut [i32],
+    ) -> Result<(CDLDARKCLOUDCOVER_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.CDLDARKCLOUDCOVER_OpenPass(inOpen, inHigh, inLow, inClose, 0, optInPenetration, &mut outBegIdx, &mut outNBElement, outInteger, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::CDLDARKCLOUDCOVER_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -699,45 +702,54 @@ impl Core {
     pub(crate) fn CDLDARKCLOUDCOVER_OpenAndFillInternal(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInPenetration: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
     ) -> Result<CDLDARKCLOUDCOVER_Stream, RetCode> {
-        self.CDLDARKCLOUDCOVER_OpenCore(inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1)
+        self.CDLDARKCLOUDCOVER_OpenPass(inOpen, inHigh, inLow, inClose, startIdx, optInPenetration, outBegIdx, outNBElement, outInteger, 1)
     }
 
-}
-
-thread_local! {
-    /// `peek`'s reusable scratch handle (see `CDLDARKCLOUDCOVER_StreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDLDARKCLOUDCOVER_PEEK_SCRATCH: std::cell::Cell<Option<Box<CDLDARKCLOUDCOVER_Stream>>> =
-        const { std::cell::Cell::new(None) };
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl CDLDARKCLOUDCOVER_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_CDLDARKCLOUDCOVER_Update")]
-    pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> i32 {
+    pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
+        if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outInteger: i32 = 0_i32;
         self.core.CDLDARKCLOUDCOVER_step_internal(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
-        outInteger
+        Ok(outInteger)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return (it is the same code, run
     /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
+    /// often removed outright by the optimizer, which is why nothing is
+    /// reused here, but that is not a guarantee: budget for a clone of the
+    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_CDLDARKCLOUDCOVER_Peek")]
-    #[must_use]
-    pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> i32 {
-        CDLDARKCLOUDCOVER_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
-            scratch.restore_from(self);
-            let value = scratch.update(inOpen, inHigh, inLow, inClose);
-            cell.set(Some(scratch));
-            value
-        })
+    pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
+        if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
+        let mut scratch = self.clone();
+        scratch.update(inOpen, inHigh, inLow, inClose)
     }
 }
 

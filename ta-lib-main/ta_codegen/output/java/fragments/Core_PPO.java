@@ -54,15 +54,15 @@
       return MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
    }
-   RetCode PPO_Internal( int startIdx,
-                         int endIdx,
-                         double inReal[],
-                         int optInFastPeriod,
-                         int optInSlowPeriod,
-                         MAType optInMAType,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode PPO_Impl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInFastPeriod,
+                     int optInSlowPeriod,
+                     MAType optInMAType,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -91,6 +91,23 @@
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
       }
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Without this the fast MA below runs first, and its lookback is SMALLER
+       * than ppo's own — so it reads the whole range and computes a result the
+       * empty slow MA then discards. Observably identical (the slow MA's own early
+       * return already yields 0,0 here), but it is the difference between "a range
+       * shorter than the lookback reads nothing" being true of this function and
+       * being false: with a caller-supplied inReal that stops short of endIdx, that
+       * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
+       * probe over every guarded core.
+       */
+      if( MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.Success ;
+      }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       /* Make sure slow is really slower than
@@ -103,12 +120,18 @@
          optInFastPeriod = tempInteger;
       }
       /* Calculate the fast MA into the tempBuffer. */
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      OutRange _xr0 = MA(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, tempBuffer);
+      fastBeg.value = _xr0.begIdx();
+      fastNb.value = _xr0.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
       /* Calculate the slow MA into the output. */
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      OutRange _xr1 = MA(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outReal);
+      outBegIdx.value = _xr1.begIdx();
+      outNBElement.value = _xr1.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -128,15 +151,15 @@
       }
       return RetCode.Success ;
    }
-   RetCode PPO_Internal( int startIdx,
-                         int endIdx,
-                         float inReal[],
-                         int optInFastPeriod,
-                         int optInSlowPeriod,
-                         MAType optInMAType,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode PPO_Impl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInFastPeriod,
+                     int optInSlowPeriod,
+                     MAType optInMAType,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -165,17 +188,28 @@
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.EMA;
       }
+      if( MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.Success ;
+      }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       if( optInSlowPeriod < optInFastPeriod ) {
          tempInteger = optInSlowPeriod;
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
+      OutRange _xr0 = MA(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, tempBuffer);
+      fastBeg.value = _xr0.begIdx();
+      fastNb.value = _xr0.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      OutRange _xr1 = MA(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outReal);
+      outBegIdx.value = _xr1.begIdx();
+      outNBElement.value = _xr1.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -229,8 +263,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#APO
     * @see Core#MACD
@@ -244,9 +285,16 @@
                         MAType optInMAType,
                         double outReal[] )
    {
+      requireIndexRange("PPO", startIdx, endIdx);
+      requireArgument("PPO", "optInMAType", optInMAType);
+      int guardStart = clampedStart(startIdx, endIdx, PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("PPO", "inReal", inReal, guardInLen);
+      requireLength("PPO", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PPO_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("PPO", retCode);
       }
@@ -294,8 +342,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#APO
     * @see Core#MACD
@@ -309,9 +364,16 @@
                         MAType optInMAType,
                         double outReal[] )
    {
+      requireIndexRange("PPO", startIdx, endIdx);
+      requireArgument("PPO", "optInMAType", optInMAType);
+      int guardStart = clampedStart(startIdx, endIdx, PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("PPO", "inReal", inReal, guardInLen);
+      requireLength("PPO", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PPO_Internal(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("PPO", retCode);
       }
@@ -388,10 +450,20 @@
       private static final ThreadLocal<PPO_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("PPO update: BadParam", RetCode.BadParam);
          core.PPO_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -406,6 +478,8 @@
        * the thread.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("PPO peek: BadParam", RetCode.BadParam);
          PPO_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new PPO_Stream(this);
@@ -451,7 +525,7 @@
       }
       sp.cur_outReal = cur_outReal;
    }
-   private RetCode PPO_OpenCore( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode PPO_OpenPass( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double[] tempBuffer;
       RetCode retCode;
@@ -483,9 +557,26 @@
          optInMAType = MAType.EMA;
       }
       if( historyLen < PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.InsufficientHistory;
       }
-      double[] sc_outReal = new double[historyLen];
+      double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Without this the fast MA below runs first, and its lookback is SMALLER
+       * than ppo's own — so it reads the whole range and computes a result the
+       * empty slow MA then discards. Observably identical (the slow MA's own early
+       * return already yields 0,0 here), but it is the difference between "a range
+       * shorter than the lookback reads nothing" being true of this function and
+       * being false: with a caller-supplied inReal that stops short of endIdx, that
+       * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
+       * probe over every guarded core.
+       */
+      if( MA_Lookback(Math.max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory ;
+      }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       /* Make sure slow is really slower than
@@ -529,7 +620,7 @@
       }
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.InsufficientHistory;
       }
       sp.optInFastPeriod = optInFastPeriod;
       sp.optInSlowPeriod = optInSlowPeriod;
@@ -537,58 +628,57 @@
       sp.sub0 = sub0;
       sp.sub1 = sub1;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
-      if( outStride == 1 ) System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
       return RetCode.Success;
    }
-   private RetCode PPO_OpenBody( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   private RetCode PPO_OpenImpl( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return PPO_OpenCore( sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sink_outReal, 0 );
+      return PPO_OpenPass( sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode PPO_OpenAndFillBody( PPO_Stream sp, double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode PPO_OpenAndFillImpl( PPO_Stream sp, double inReal[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return PPO_OpenCore( sp, inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
+      return PPO_OpenPass( sp, inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode PPO_OpenAndFillInternalBody( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode PPO_OpenAndFillInternalImpl( PPO_Stream sp, double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return PPO_OpenCore(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1);
+      return PPO_OpenPass(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1);
    }
    /* PPO_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    PPO_Stream PPO_OpenAndFillInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       PPO_Stream sp = new PPO_Stream(this);
-      RetCode retCode = PPO_OpenAndFillInternalBody(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_OpenAndFillInternalImpl(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("PPO openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("PPO openAndFill: internal error");
+         throw new TaLibStateException("PPO openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("PPO openAndFill: " + retCode);
+      throw new TaLibArgumentException("PPO openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind PPO_Open (composition seam). */
    PPO_Stream PPO_OpenInternal( double inReal[], int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
       PPO_Stream sp = new PPO_Stream(this);
-      RetCode retCode = PPO_OpenBody(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType);
+      RetCode retCode = PPO_OpenImpl(sp, inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("PPO open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("PPO open: internal error");
+         throw new TaLibStateException("PPO open: internal error", retCode);
       }
-      throw new IllegalArgumentException("PPO open: " + retCode);
+      throw new TaLibArgumentException("PPO open: " + retCode, retCode);
    }
    /**
     * Open a live PPO stream over the warm-up history; the handle's
@@ -618,16 +708,16 @@
       PPO_Stream sp = new PPO_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PPO_OpenAndFillBody(sp, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PPO_OpenAndFillImpl(sp, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("PPO openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("PPO openAndFill: internal error");
+         throw new TaLibStateException("PPO openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("PPO openAndFill: " + retCode);
+      throw new TaLibArgumentException("PPO openAndFill: " + retCode, retCode);
    }

@@ -9,6 +9,7 @@ pub mod csharp;
 pub mod csharp_doc;
 pub mod csharp_enums;
 pub mod csharp_metadata;
+pub mod csharp_stream;
 pub mod doc_meta;
 pub mod docs_patch;
 pub mod docs_site;
@@ -30,6 +31,7 @@ pub mod rust_abstract;
 pub mod rust_doc;
 pub mod rust_enums;
 pub mod rust_lang;
+pub mod rust_phantom_io;
 pub mod rust_stream;
 pub mod stmt_walk;
 pub mod ta_abstract_c;
@@ -270,7 +272,7 @@ impl LanguageBackend for RustBackend {
     fn clean_keep(&self) -> &'static [&'static str] {
         // Hand-written modules copied from `templates/rust/` (see
         // `RUST_TEMPLATE_MODULES`) plus the generated `mod.rs`.
-        &["types.rs", "scratch_election.rs", "mod.rs"]
+        &["types.rs", "scratch_election.rs", "stream_finite.rs", "mod.rs"]
     }
     fn reserved_words(&self) -> &'static [&'static str] {
         rust_lang::RESERVED_WORDS

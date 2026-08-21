@@ -46,12 +46,12 @@
       return 63 + this.unstablePeriod[FuncUnstId.HT_TRENDMODE.ordinal()] ;
 
    }
-   RetCode HT_TRENDMODE_Internal( int startIdx,
-                                  int endIdx,
-                                  double inReal[],
-                                  MInteger outBegIdx,
-                                  MInteger outNBElement,
-                                  int outInteger[] )
+   RetCode HT_TRENDMODE_Impl( int startIdx,
+                              int endIdx,
+                              double inReal[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              int outInteger[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -533,12 +533,12 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode HT_TRENDMODE_Internal( int startIdx,
-                                  int endIdx,
-                                  float inReal[],
-                                  MInteger outBegIdx,
-                                  MInteger outNBElement,
-                                  int outInteger[] )
+   RetCode HT_TRENDMODE_Impl( int startIdx,
+                              int endIdx,
+                              float inReal[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              int outInteger[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -957,8 +957,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#HT_TRENDLINE
     * @see Core#HT_SINE
@@ -971,9 +978,15 @@
                                  double inReal[],
                                  int outInteger[] )
    {
+      requireIndexRange("HT_TRENDMODE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, HT_TRENDMODE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("HT_TRENDMODE", "inReal", inReal, guardInLen);
+      requireLength("HT_TRENDMODE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_TRENDMODE_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = HT_TRENDMODE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("HT_TRENDMODE", retCode);
       }
@@ -1003,8 +1016,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#HT_TRENDLINE
     * @see Core#HT_SINE
@@ -1017,9 +1037,15 @@
                                  float inReal[],
                                  int outInteger[] )
    {
+      requireIndexRange("HT_TRENDMODE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, HT_TRENDMODE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("HT_TRENDMODE", "inReal", inReal, guardInLen);
+      requireLength("HT_TRENDMODE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_TRENDMODE_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = HT_TRENDMODE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("HT_TRENDMODE", retCode);
       }
@@ -1366,10 +1392,20 @@
       private static final ThreadLocal<HT_TRENDMODE_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public int update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("HT_TRENDMODE update: BadParam", RetCode.BadParam);
          core.HT_TRENDMODE_StreamStep(this, inReal);
          return this.cur_outInteger;
       }
@@ -1384,6 +1420,8 @@
        * the thread.
        */
       public int peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("HT_TRENDMODE peek: BadParam", RetCode.BadParam);
          HT_TRENDMODE_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new HT_TRENDMODE_Stream(this);
@@ -1665,7 +1703,7 @@
       }
       sp.streamParity = 1 - sp.streamParity;
    }
-   private RetCode HT_TRENDMODE_OpenCore( HT_TRENDMODE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
+   private RetCode HT_TRENDMODE_OpenPass( HT_TRENDMODE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -1798,7 +1836,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -2251,55 +2289,55 @@
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode HT_TRENDMODE_OpenBody( HT_TRENDMODE_Stream sp, double inReal[], int startIdx )
+   private RetCode HT_TRENDMODE_OpenImpl( HT_TRENDMODE_Stream sp, double inReal[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       int[] sink_outInteger = new int[1];
-      return HT_TRENDMODE_OpenCore( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
+      return HT_TRENDMODE_OpenPass( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
-   private RetCode HT_TRENDMODE_OpenAndFillBody( HT_TRENDMODE_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode HT_TRENDMODE_OpenAndFillImpl( HT_TRENDMODE_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       if( (Object)outInteger == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return HT_TRENDMODE_OpenCore( sp, inReal, 0, outBegIdx, outNBElement, outInteger, 1 );
+      return HT_TRENDMODE_OpenPass( sp, inReal, 0, outBegIdx, outNBElement, outInteger, 1 );
    }
-   private RetCode HT_TRENDMODE_OpenAndFillInternalBody( HT_TRENDMODE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode HT_TRENDMODE_OpenAndFillInternalImpl( HT_TRENDMODE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      return HT_TRENDMODE_OpenCore(sp, inReal, startIdx, outBegIdx, outNBElement, outInteger, 1);
+      return HT_TRENDMODE_OpenPass(sp, inReal, startIdx, outBegIdx, outNBElement, outInteger, 1);
    }
    /* HT_TRENDMODE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    HT_TRENDMODE_Stream HT_TRENDMODE_OpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       HT_TRENDMODE_Stream sp = new HT_TRENDMODE_Stream(this);
-      RetCode retCode = HT_TRENDMODE_OpenAndFillInternalBody(sp, inReal, startIdx, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = HT_TRENDMODE_OpenAndFillInternalImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outInteger);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("HT_TRENDMODE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("HT_TRENDMODE openAndFill: internal error");
+         throw new TaLibStateException("HT_TRENDMODE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("HT_TRENDMODE openAndFill: " + retCode);
+      throw new TaLibArgumentException("HT_TRENDMODE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind HT_TRENDMODE_Open (composition seam). */
    HT_TRENDMODE_Stream HT_TRENDMODE_OpenInternal( double inReal[], int startIdx )
    {
       HT_TRENDMODE_Stream sp = new HT_TRENDMODE_Stream(this);
-      RetCode retCode = HT_TRENDMODE_OpenBody(sp, inReal, startIdx);
+      RetCode retCode = HT_TRENDMODE_OpenImpl(sp, inReal, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("HT_TRENDMODE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("HT_TRENDMODE open: internal error");
+         throw new TaLibStateException("HT_TRENDMODE open: internal error", retCode);
       }
-      throw new IllegalArgumentException("HT_TRENDMODE open: " + retCode);
+      throw new TaLibArgumentException("HT_TRENDMODE open: " + retCode, retCode);
    }
    /**
     * Open a live HT_TRENDMODE stream over the warm-up history; the handle's
@@ -2329,16 +2367,16 @@
       HT_TRENDMODE_Stream sp = new HT_TRENDMODE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_TRENDMODE_OpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = HT_TRENDMODE_OpenAndFillImpl(sp, inReal, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("HT_TRENDMODE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("HT_TRENDMODE openAndFill: internal error");
+         throw new TaLibStateException("HT_TRENDMODE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("HT_TRENDMODE openAndFill: " + retCode);
+      throw new TaLibArgumentException("HT_TRENDMODE openAndFill: " + retCode, retCode);
    }

@@ -377,7 +377,7 @@ static void TA_CORREL_StepInternal( struct TA_CORREL_Stream *sp, double inReal0,
    }
 }
 
-static TA_RetCode TA_CORREL_OpenCore( struct TA_CORREL_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_CORREL_OpenPass( struct TA_CORREL_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_CORREL_Stream *sp;
    int endIdx;
@@ -427,7 +427,7 @@ static TA_RetCode TA_CORREL_OpenCore( struct TA_CORREL_Stream **stream, const do
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
       trailingIdx = startIdx - lookbackTotal;
@@ -538,7 +538,7 @@ TA_RetCode TA_CORREL_OpenInternal( struct TA_CORREL_Stream **stream, const doubl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_CORREL_OpenCore( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_CORREL_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -548,6 +548,11 @@ TA_RetCode TA_CORREL_OpenInternal( struct TA_CORREL_Stream **stream, const doubl
 
 TA_LIB_API TA_RetCode TA_CORREL_Open( TA_CORREL_Stream **stream, const double inReal0[], const double inReal1[], int historyLen, int optInTimePeriod, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_CORREL_OpenInternal( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -556,19 +561,23 @@ TA_LIB_API TA_RetCode TA_CORREL_OpenAndFill( TA_CORREL_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
-   return TA_CORREL_OpenCore( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CORREL_OpenPass( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_CORREL_OpenAndFillInternal( struct TA_CORREL_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_CORREL_OpenCore( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CORREL_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_CORREL_Update( TA_CORREL_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    TA_CORREL_StepInternal( stream, inReal0, inReal1, outReal );
    return TA_SUCCESS;
 }
@@ -578,6 +587,7 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
    struct TA_CORREL_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.ring_trailingIdx_inReal0 = stream->ringMirror_trailingIdx_inReal0;
    memcpy( scratch.ring_trailingIdx_inReal0, stream->ring_trailingIdx_inReal0, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );

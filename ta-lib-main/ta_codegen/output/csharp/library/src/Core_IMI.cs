@@ -86,14 +86,14 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode IMI( int startIdx,
-                         int endIdx,
-                         double[] inOpen,
-                         double[] inClose,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode IMI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inOpen,
+                              ReadOnlySpan<double> inClose,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -109,6 +109,9 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inOpen) && outReal != inOpen) || (outReal.Overlaps(inClose) && outReal != inClose) ) {
+         return RetCode.BadParam ;
       }
       outIdx = 0;
       lookback = IMI_Lookback(optInTimePeriod);
@@ -146,14 +149,14 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode IMI( int startIdx,
-                         int endIdx,
-                         float[] inOpen,
-                         float[] inClose,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode IMI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inOpen,
+                              ReadOnlySpan<float> inClose,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -233,16 +236,30 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange IMI( int startIdx,
                         int endIdx,
-                        double[] inOpen,
-                        double[] inClose,
+                        ReadOnlySpan<double> inOpen,
+                        ReadOnlySpan<double> inClose,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = IMI(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, IMI_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("IMI", "inOpen", inOpen.Length, guardInLen);
+      RequireLength("IMI", "inClose", inClose.Length, guardInLen);
+      RequireLength("IMI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = IMI_Impl(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("IMI", retCode);
       }
@@ -286,19 +303,377 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange IMI( int startIdx,
                         int endIdx,
-                        float[] inOpen,
-                        float[] inClose,
+                        ReadOnlySpan<float> inOpen,
+                        ReadOnlySpan<float> inClose,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = IMI(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, IMI_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("IMI", "inOpen", inOpen.Length, guardInLen);
+      RequireLength("IMI", "inClose", inClose.Length, guardInLen);
+      RequireLength("IMI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = IMI_Impl(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("IMI", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>IMI</c> stream: one value per closed bar, bit-identical to
+   /// <c>IMI</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.IMI_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class IMI_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal int winPos_i;
+      internal int winCap_i;
+      internal double[] win_i_inOpen = [];
+      internal double[] win_i_inClose = [];
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal IMI_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>IMI_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal IMI_Stream( IMI_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.winPos_i = other.winPos_i;
+         this.winCap_i = other.winCap_i;
+         this.win_i_inOpen = new double[other.win_i_inOpen.Length];
+         Array.Copy( other.win_i_inOpen, this.win_i_inOpen, other.win_i_inOpen.Length );
+         this.win_i_inClose = new double[other.win_i_inClose.Length];
+         Array.Copy( other.win_i_inClose, this.win_i_inClose, other.win_i_inClose.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( IMI_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.winPos_i = other.winPos_i;
+         this.winCap_i = other.winCap_i;
+         if( this.win_i_inOpen.Length != other.win_i_inOpen.Length ) {
+            this.win_i_inOpen = new double[other.win_i_inOpen.Length];
+         }
+         Array.Copy( other.win_i_inOpen, this.win_i_inOpen, other.win_i_inOpen.Length );
+         if( this.win_i_inClose.Length != other.win_i_inClose.Length ) {
+            this.win_i_inClose = new double[other.win_i_inClose.Length];
+         }
+         Array.Copy( other.win_i_inClose, this.win_i_inClose, other.win_i_inClose.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /* Peek's reusable scratch — one per thread, see CopyFrom. */
+      [ThreadStatic] private static IMI_Stream? peekScratch;
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inOpen">This bar's open price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inOpen, double inClose )
+      {
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inClose) ) throw Core.StreamFailure("IMI", "update", RetCode.BadParam);
+         core.IMI_StreamStep(this, inOpen, inClose);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
+      /// nothing after this thread's first peek of this indicator. That scratch is
+      /// retained for the life of the thread.</para>
+      /// </remarks>
+      /// <param name="inOpen">This bar's open price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inOpen, double inClose )
+      {
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inClose) ) throw Core.StreamFailure("IMI", "peek", RetCode.BadParam);
+         IMI_Stream? scratch = peekScratch;
+         if( scratch is null ) {
+            scratch = new IMI_Stream(this);
+            peekScratch = scratch;
+         } else {
+            scratch.CopyFrom(this);
+         }
+         core.IMI_StreamStep(scratch, inOpen, inClose);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public IMI_Stream Clone()
+      {
+         return new IMI_Stream(this);
+      }
+   }
+
+   internal void IMI_StreamStep( IMI_Stream sp, double inOpen, double inClose )
+   {
+      double upsum = 0.0;
+      double downsum = 0.0;
+      int i = 0;
+      double close = 0.0;
+      double open = 0.0;
+      sp.win_i_inOpen[sp.winPos_i] = inOpen;
+      sp.win_i_inClose[sp.winPos_i] = inClose;
+      upsum = 0.0;
+      downsum = 0.0;
+      for( i = sp.optInTimePeriod - 1; i >= 0; i -= 1 ) {
+         close = sp.win_i_inClose[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
+         open = sp.win_i_inOpen[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
+         if( close > open ) {
+            upsum += close - open;
+         } else {
+            downsum += open - close;
+         }
+         /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+          * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+          * oscillator, so no up/down bias returns its neutral center, 50.0.
+          */
+         sp.cur_outReal = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+      }
+      sp.winPos_i = sp.winPos_i + 1;
+      if( sp.winPos_i >= sp.winCap_i ) {
+         sp.winPos_i = 0;
+      }
+   }
+
+   private RetCode IMI_OpenPass( IMI_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      int lookback = 0;
+      int outIdx = 0;
+      int historyLen = inOpen.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inClose.Length != inOpen.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 14;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      outIdx = 0;
+      lookback = IMI_Lookback(optInTimePeriod);
+      if( startIdx < lookback ) {
+         startIdx = lookback;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      outBegIdx = startIdx;
+      while( startIdx <= endIdx ) {
+         double upsum = 0.0;
+         double downsum = 0.0;
+         int i;
+         for( i = startIdx - (optInTimePeriod - 1); i <= startIdx; i += 1 ) {
+            double close = inClose[i];
+            double open = inOpen[i];
+            if( close > open ) {
+               upsum += close - open;
+            } else {
+               downsum += open - close;
+            }
+            /* #112: an all-flat window (every close==open) leaves upsum==downsum==0.
+             * Guard the 0/0 so a successful call never emits NaN; IMI is a 0..100
+             * oscillator, so no up/down bias returns its neutral center, 50.0.
+             */
+            outReal[outIdx * outStride] = (upsum + downsum == 0.0) ? 50.0 : 100.0 * (upsum / (upsum + downsum));
+         }
+         startIdx += 1;
+         outIdx += 1;
+      }
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      int cap_i = (int)(optInTimePeriod - 1 + 1);
+      if( cap_i < 1 || cap_i > historyLen ) {
+         return RetCode.InternalError;
+      }
+      double[] capWin_i_inOpen = new double[cap_i];
+      inOpen.Slice(historyLen - cap_i, cap_i).CopyTo(capWin_i_inOpen);
+      double[] capWin_i_inClose = new double[cap_i];
+      inClose.Slice(historyLen - cap_i, cap_i).CopyTo(capWin_i_inClose);
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.winPos_i = 0;
+      sp.winCap_i = cap_i;
+      sp.win_i_inOpen = capWin_i_inOpen;
+      sp.win_i_inClose = capWin_i_inClose;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode IMI_OpenImpl( IMI_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return IMI_OpenPass( sp, inOpen, inClose, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode IMI_OpenAndFillImpl( IMI_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inOpen) || outReal.Overlaps(inClose) ) {
+         return RetCode.BadParam;
+      }
+      return IMI_OpenPass( sp, inOpen, inClose, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode IMI_OpenAndFillInternalImpl( IMI_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return IMI_OpenPass(sp, inOpen, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* IMI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal IMI_Stream IMI_OpenAndFillInternal( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      IMI_Stream sp = new IMI_Stream(this);
+      RetCode retCode = IMI_OpenAndFillInternalImpl(sp, inOpen, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("IMI", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind IMI_Open (composition seam). */
+   internal IMI_Stream IMI_OpenInternal( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      IMI_Stream sp = new IMI_Stream(this);
+      RetCode retCode = IMI_OpenImpl(sp, inOpen, inClose, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("IMI", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>IMI</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="IMI_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>IMI</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>IMI_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>IMI_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inOpen">Open price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="IMI_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>IMI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public IMI_Stream IMI_Open( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int optInTimePeriod )
+   {
+      if( inOpen.IsEmpty ) throw new TaLibArgumentException("inOpen is empty", nameof(inOpen), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      return IMI_OpenInternal(inOpen, inClose, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>IMI_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>IMI</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - IMI_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="IMI_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inOpen">Open price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="IMI_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">IMI oscillator value, 0-100. Must hold at least <c>historyLen -
+   /// IMI_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>IMI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public IMI_Stream IMI_OpenAndFill( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inOpen.IsEmpty ) throw new TaLibArgumentException("inOpen is empty", nameof(inOpen), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      IMI_Stream sp = new IMI_Stream(this);
+      RetCode retCode = IMI_OpenAndFillImpl(sp, inOpen, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("IMI", "openAndFill", retCode);
    }
 }

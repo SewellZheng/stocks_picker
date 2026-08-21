@@ -78,15 +78,15 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode WILLR( int startIdx,
-                           int endIdx,
-                           double[] inHigh,
-                           double[] inLow,
-                           double[] inClose,
-                           int optInTimePeriod,
-                           out int outBegIdx,
-                           out int outNBElement,
-                           double[] outReal )
+   internal RetCode WILLR_Impl( int startIdx,
+                                int endIdx,
+                                ReadOnlySpan<double> inHigh,
+                                ReadOnlySpan<double> inLow,
+                                ReadOnlySpan<double> inClose,
+                                int optInTimePeriod,
+                                out int outBegIdx,
+                                out int outNBElement,
+                                Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -125,6 +125,9 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) || (outReal.Overlaps(inClose) && outReal != inClose) ) {
+         return RetCode.BadParam ;
       }
       /* Identify the minimum number of price bar needed
        * to identify at least one output over the specified
@@ -282,15 +285,15 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode WILLR( int startIdx,
-                           int endIdx,
-                           float[] inHigh,
-                           float[] inLow,
-                           float[] inClose,
-                           int optInTimePeriod,
-                           out int outBegIdx,
-                           out int outNBElement,
-                           double[] outReal )
+   internal RetCode WILLR_Impl( int startIdx,
+                                int endIdx,
+                                ReadOnlySpan<float> inHigh,
+                                ReadOnlySpan<float> inLow,
+                                ReadOnlySpan<float> inClose,
+                                int optInTimePeriod,
+                                out int outBegIdx,
+                                out int outNBElement,
+                                Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -476,17 +479,32 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange WILLR( int startIdx,
                           int endIdx,
-                          double[] inHigh,
-                          double[] inLow,
-                          double[] inClose,
+                          ReadOnlySpan<double> inHigh,
+                          ReadOnlySpan<double> inLow,
+                          ReadOnlySpan<double> inClose,
                           int optInTimePeriod,
-                          double[] outReal )
+                          Span<double> outReal )
    {
-      RetCode retCode = WILLR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, WILLR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("WILLR", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("WILLR", "inLow", inLow.Length, guardInLen);
+      RequireLength("WILLR", "inClose", inClose.Length, guardInLen);
+      RequireLength("WILLR", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = WILLR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("WILLR", retCode);
       }
@@ -532,20 +550,536 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange WILLR( int startIdx,
                           int endIdx,
-                          float[] inHigh,
-                          float[] inLow,
-                          float[] inClose,
+                          ReadOnlySpan<float> inHigh,
+                          ReadOnlySpan<float> inLow,
+                          ReadOnlySpan<float> inClose,
                           int optInTimePeriod,
-                          double[] outReal )
+                          Span<double> outReal )
    {
-      RetCode retCode = WILLR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, WILLR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("WILLR", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("WILLR", "inLow", inLow.Length, guardInLen);
+      RequireLength("WILLR", "inClose", inClose.Length, guardInLen);
+      RequireLength("WILLR", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = WILLR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("WILLR", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /* Using willr_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */
+
+   /// <summary>A live <c>WILLR</c> stream: one value per closed bar, bit-identical to
+   /// <c>WILLR</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.WILLR_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class WILLR_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal double lowest;
+      internal double highest;
+      internal double diff;
+      internal int trailingIdx;
+      internal int lowestIdx;
+      internal int highestIdx;
+      internal int i;
+      internal int today;
+      internal int xMask;
+      internal double[] x_inHigh = [];
+      internal double[] x_inLow = [];
+      internal double[] x_inClose = [];
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal WILLR_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>WILLR_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal WILLR_Stream( WILLR_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.lowest = other.lowest;
+         this.highest = other.highest;
+         this.diff = other.diff;
+         this.trailingIdx = other.trailingIdx;
+         this.lowestIdx = other.lowestIdx;
+         this.highestIdx = other.highestIdx;
+         this.i = other.i;
+         this.today = other.today;
+         this.xMask = other.xMask;
+         this.x_inHigh = new double[other.x_inHigh.Length];
+         Array.Copy( other.x_inHigh, this.x_inHigh, other.x_inHigh.Length );
+         this.x_inLow = new double[other.x_inLow.Length];
+         Array.Copy( other.x_inLow, this.x_inLow, other.x_inLow.Length );
+         this.x_inClose = new double[other.x_inClose.Length];
+         Array.Copy( other.x_inClose, this.x_inClose, other.x_inClose.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( WILLR_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.lowest = other.lowest;
+         this.highest = other.highest;
+         this.diff = other.diff;
+         this.trailingIdx = other.trailingIdx;
+         this.lowestIdx = other.lowestIdx;
+         this.highestIdx = other.highestIdx;
+         this.i = other.i;
+         this.today = other.today;
+         this.xMask = other.xMask;
+         if( this.x_inHigh.Length != other.x_inHigh.Length ) {
+            this.x_inHigh = new double[other.x_inHigh.Length];
+         }
+         Array.Copy( other.x_inHigh, this.x_inHigh, other.x_inHigh.Length );
+         if( this.x_inLow.Length != other.x_inLow.Length ) {
+            this.x_inLow = new double[other.x_inLow.Length];
+         }
+         Array.Copy( other.x_inLow, this.x_inLow, other.x_inLow.Length );
+         if( this.x_inClose.Length != other.x_inClose.Length ) {
+            this.x_inClose = new double[other.x_inClose.Length];
+         }
+         Array.Copy( other.x_inClose, this.x_inClose, other.x_inClose.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /* Peek's reusable scratch — one per thread, see CopyFrom. */
+      [ThreadStatic] private static WILLR_Stream? peekScratch;
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("WILLR", "update", RetCode.BadParam);
+         core.WILLR_StreamStep(this, inHigh, inLow, inClose);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
+      /// nothing after this thread's first peek of this indicator. That scratch is
+      /// retained for the life of the thread.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("WILLR", "peek", RetCode.BadParam);
+         WILLR_Stream? scratch = peekScratch;
+         if( scratch is null ) {
+            scratch = new WILLR_Stream(this);
+            peekScratch = scratch;
+         } else {
+            scratch.CopyFrom(this);
+         }
+         core.WILLR_StreamStep(scratch, inHigh, inLow, inClose);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public WILLR_Stream Clone()
+      {
+         return new WILLR_Stream(this);
+      }
+   }
+
+   internal void WILLR_StreamStep( WILLR_Stream sp, double inHigh, double inLow, double inClose )
+   {
+      double tmp = 0.0;
+      if( sp.today >= 1073741824 ) {
+         int rebaseShift = sp.trailingIdx & ~sp.xMask;
+         sp.today -= rebaseShift;
+         sp.trailingIdx -= rebaseShift;
+         sp.highestIdx -= rebaseShift;
+         sp.i -= rebaseShift;
+         sp.lowestIdx -= rebaseShift;
+      }
+      sp.x_inHigh[sp.today & sp.xMask] = inHigh;
+      sp.x_inLow[sp.today & sp.xMask] = inLow;
+      sp.x_inClose[sp.today & sp.xMask] = inClose;
+      /* Set the lowest low */
+      tmp = sp.x_inLow[sp.today & sp.xMask];
+      if( sp.lowestIdx < sp.trailingIdx ) {
+         sp.lowestIdx = sp.trailingIdx;
+         sp.lowest = sp.x_inLow[sp.lowestIdx & sp.xMask];
+         sp.i = sp.lowestIdx;
+         while( ++sp.i <= sp.today ) {
+            tmp = sp.x_inLow[sp.i & sp.xMask];
+            if( tmp < sp.lowest ) {
+               sp.lowestIdx = sp.i;
+               sp.lowest = tmp;
+            }
+         }
+         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
+      } else if( tmp <= sp.lowest ) {
+         sp.lowestIdx = sp.today;
+         sp.lowest = tmp;
+         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
+      }
+      /* Set the highest high */
+      tmp = sp.x_inHigh[sp.today & sp.xMask];
+      if( sp.highestIdx < sp.trailingIdx ) {
+         sp.highestIdx = sp.trailingIdx;
+         sp.highest = sp.x_inHigh[sp.highestIdx & sp.xMask];
+         sp.i = sp.highestIdx;
+         while( ++sp.i <= sp.today ) {
+            tmp = sp.x_inHigh[sp.i & sp.xMask];
+            if( tmp > sp.highest ) {
+               sp.highestIdx = sp.i;
+               sp.highest = tmp;
+            }
+         }
+         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
+      } else if( tmp >= sp.highest ) {
+         sp.highestIdx = sp.today;
+         sp.highest = tmp;
+         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
+      }
+      if( sp.diff != 0.0 ) {
+         sp.cur_outReal = (sp.highest - sp.x_inClose[sp.today & sp.xMask]) / sp.diff;
+      } else {
+         sp.cur_outReal = 0.0;
+      }
+      sp.trailingIdx += 1;
+      sp.today += 1;
+   }
+
+   private RetCode WILLR_OpenPass( WILLR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      double lowest = 0;
+      double highest = 0;
+      double tmp = 0;
+      double diff = 0;
+      int outIdx = 0;
+      int nbInitialElementNeeded = 0;
+      int trailingIdx = 0;
+      int lowestIdx = 0;
+      int highestIdx = 0;
+      int today = 0;
+      int i = 0;
+      int historyLen = inHigh.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 14;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      /* Identify the minimum number of price bar needed
+       * to identify at least one output over the specified
+       * period.
+       */
+      nbInitialElementNeeded = optInTimePeriod - 1;
+      /* Move up the start index if there is not
+       * enough initial data.
+       */
+      if( startIdx < nbInitialElementNeeded ) {
+         startIdx = nbInitialElementNeeded;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      /* Initialize 'diff', just to avoid warning. */
+      diff = 0.0;
+      /* Proceed with the calculation for the requested range.
+       * Note that this algorithm allows the input and
+       * output to be the same buffer.
+       *
+       * The highest high and lowest low of the window are cached with their
+       * indices; the window is rescanned only when a cached extremum drops out
+       * of it. That is O(1)
+       * per bar while the extremum sits away from the trailing edge, but it is
+       * not amortized O(1): an extremum on the oldest in-window bar drops out
+       * on the very next bar, so the rescan repeats and the cost stays
+       * O(period) per bar for as long as that persists.
+       *
+       * Tracking both extrema keeps that state going through a trend: while
+       * the high is refreshed by each new bar, the low stays pinned at the
+       * oldest bar for the whole leg (and the reverse on the way down). A flat
+       * stretch pins both. Random-walk input is the favourable case, where
+       * rescans are rare.
+       *
+       * Slower than the block scan the batch tier runs; it is here because one
+       * bar at a time is exactly what the streaming tier needs. See issue #147.
+       */
+      outIdx = 0;
+      today = startIdx;
+      trailingIdx = startIdx - nbInitialElementNeeded;
+      highestIdx = 0 - 1;
+      lowestIdx = highestIdx;
+      lowest = 0.0;
+      highest = lowest;
+      diff = highest;
+      while( today <= endIdx ) {
+         /* Set the lowest low */
+         tmp = inLow[today];
+         if( lowestIdx < trailingIdx ) {
+            lowestIdx = trailingIdx;
+            lowest = inLow[lowestIdx];
+            i = lowestIdx;
+            while( ++i <= today ) {
+               tmp = inLow[i];
+               if( tmp < lowest ) {
+                  lowestIdx = i;
+                  lowest = tmp;
+               }
+            }
+            diff = (highest - lowest) / (0 - 100.0);
+         } else if( tmp <= lowest ) {
+            lowestIdx = today;
+            lowest = tmp;
+            diff = (highest - lowest) / (0 - 100.0);
+         }
+         /* Set the highest high */
+         tmp = inHigh[today];
+         if( highestIdx < trailingIdx ) {
+            highestIdx = trailingIdx;
+            highest = inHigh[highestIdx];
+            i = highestIdx;
+            while( ++i <= today ) {
+               tmp = inHigh[i];
+               if( tmp > highest ) {
+                  highestIdx = i;
+                  highest = tmp;
+               }
+            }
+            diff = (highest - lowest) / (0 - 100.0);
+         } else if( tmp >= highest ) {
+            highestIdx = today;
+            highest = tmp;
+            diff = (highest - lowest) / (0 - 100.0);
+         }
+         if( diff != 0.0 ) {
+            outReal[outIdx++ * outStride] = (highest - inClose[today]) / diff;
+         } else {
+            outReal[outIdx++ * outStride] = 0.0;
+         }
+         trailingIdx += 1;
+         today += 1;
+      }
+      /* Keep the outBegIdx relative to the
+       * caller input before returning.
+       */
+      outBegIdx = startIdx;
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      int capX = today - trailingIdx + 1;
+      if( capX < 1 || capX > historyLen ) {
+         return RetCode.InternalError;
+      }
+      int physX = 1;
+      while( physX < capX ) {
+         physX <<= 1;
+      }
+      double[] capX_inHigh = new double[physX];
+      double[] capX_inLow = new double[physX];
+      double[] capX_inClose = new double[physX];
+      for( int fillJ = historyLen - capX; fillJ < historyLen; fillJ++ ) {
+         capX_inHigh[fillJ & (physX - 1)] = inHigh[fillJ];
+         capX_inLow[fillJ & (physX - 1)] = inLow[fillJ];
+         capX_inClose[fillJ & (physX - 1)] = inClose[fillJ];
+      }
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.lowest = lowest;
+      sp.highest = highest;
+      sp.diff = diff;
+      sp.trailingIdx = trailingIdx;
+      sp.lowestIdx = lowestIdx;
+      sp.highestIdx = highestIdx;
+      sp.i = i;
+      sp.today = today;
+      sp.xMask = physX - 1;
+      sp.x_inHigh = capX_inHigh;
+      sp.x_inLow = capX_inLow;
+      sp.x_inClose = capX_inClose;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode WILLR_OpenImpl( WILLR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return WILLR_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode WILLR_OpenAndFillImpl( WILLR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
+         return RetCode.BadParam;
+      }
+      return WILLR_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode WILLR_OpenAndFillInternalImpl( WILLR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return WILLR_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* WILLR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal WILLR_Stream WILLR_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      WILLR_Stream sp = new WILLR_Stream(this);
+      RetCode retCode = WILLR_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("WILLR", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind WILLR_Open (composition seam). */
+   internal WILLR_Stream WILLR_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      WILLR_Stream sp = new WILLR_Stream(this);
+      RetCode retCode = WILLR_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("WILLR", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>WILLR</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="WILLR_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>WILLR</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>WILLR_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>WILLR_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="WILLR_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>WILLR_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public WILLR_Stream WILLR_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      return WILLR_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>WILLR_Open</c> that also fills the output array(s) over the whole
+   /// history in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>WILLR</c> produces over
+   /// the same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - WILLR_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="WILLR_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="WILLR_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">Williams' %R value in [-100, 0]. Must hold at least <c>historyLen -
+   /// WILLR_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>WILLR_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public WILLR_Stream WILLR_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      WILLR_Stream sp = new WILLR_Stream(this);
+      RetCode retCode = WILLR_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("WILLR", "openAndFill", retCode);
    }
 }

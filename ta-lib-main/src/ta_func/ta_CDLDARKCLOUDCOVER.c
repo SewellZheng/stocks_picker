@@ -63,7 +63,7 @@ TA_LIB_API int TA_CDLDARKCLOUDCOVER_Lookback( double optInPenetration )
    double BodyLong_factor = TA_Globals->candleSettings[TA_BodyLong].factor;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.5;
-   else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX )
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
       return -1;
    return BodyLong_avgPeriod + 1;
 }
@@ -103,7 +103,7 @@ TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER( int    startIdx,
       return TA_BAD_PARAM;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.5;
-   else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX )
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -211,7 +211,7 @@ TA_RetCode TA_S_CDLDARKCLOUDCOVER( int    startIdx,
       return TA_BAD_PARAM;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.5;
-   else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX )
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -267,38 +267,23 @@ struct TA_CDLDARKCLOUDCOVER_Stream {
    int ringPos_BodyLongTrailingIdx;
    int ringCap_BodyLongTrailingIdx;
    int ringLag_BodyLongTrailingIdx;
-   double *ring_BodyLongTrailingIdx_inOpen;
-   double *ringMirror_BodyLongTrailingIdx_inOpen;
-   double *ring_BodyLongTrailingIdx_inHigh;
-   double *ringMirror_BodyLongTrailingIdx_inHigh;
-   double *ring_BodyLongTrailingIdx_inLow;
-   double *ringMirror_BodyLongTrailingIdx_inLow;
-   double *ring_BodyLongTrailingIdx_inClose;
-   double *ringMirror_BodyLongTrailingIdx_inClose;
+   double *ring_BodyLongTrailingIdx_derived;
+   double *ringMirror_BodyLongTrailingIdx_derived;
 };
 
 /* Private function, not in public API. */
 static void TA_CDLDARKCLOUDCOVER_ReleaseInternal( struct TA_CDLDARKCLOUDCOVER_Stream *sp )
 {
    if( !sp ) return;
-   if( sp->ring_BodyLongTrailingIdx_inOpen ) TA_Free( sp->ring_BodyLongTrailingIdx_inOpen );
-   if( sp->ringMirror_BodyLongTrailingIdx_inOpen ) TA_Free( sp->ringMirror_BodyLongTrailingIdx_inOpen );
-   if( sp->ring_BodyLongTrailingIdx_inHigh ) TA_Free( sp->ring_BodyLongTrailingIdx_inHigh );
-   if( sp->ringMirror_BodyLongTrailingIdx_inHigh ) TA_Free( sp->ringMirror_BodyLongTrailingIdx_inHigh );
-   if( sp->ring_BodyLongTrailingIdx_inLow ) TA_Free( sp->ring_BodyLongTrailingIdx_inLow );
-   if( sp->ringMirror_BodyLongTrailingIdx_inLow ) TA_Free( sp->ringMirror_BodyLongTrailingIdx_inLow );
-   if( sp->ring_BodyLongTrailingIdx_inClose ) TA_Free( sp->ring_BodyLongTrailingIdx_inClose );
-   if( sp->ringMirror_BodyLongTrailingIdx_inClose ) TA_Free( sp->ringMirror_BodyLongTrailingIdx_inClose );
+   if( sp->ring_BodyLongTrailingIdx_derived ) TA_Free( sp->ring_BodyLongTrailingIdx_derived );
+   if( sp->ringMirror_BodyLongTrailingIdx_derived ) TA_Free( sp->ringMirror_BodyLongTrailingIdx_derived );
    TA_Free( sp );
 }
 
 /* Private function, not in public API. */
 static void TA_CDLDARKCLOUDCOVER_StepInternal( struct TA_CDLDARKCLOUDCOVER_Stream *sp, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   sp->ring_BodyLongTrailingIdx_inOpen[sp->ringPos_BodyLongTrailingIdx] = inOpen;
-   sp->ring_BodyLongTrailingIdx_inHigh[sp->ringPos_BodyLongTrailingIdx] = inHigh;
-   sp->ring_BodyLongTrailingIdx_inLow[sp->ringPos_BodyLongTrailingIdx] = inLow;
-   sp->ring_BodyLongTrailingIdx_inClose[sp->ringPos_BodyLongTrailingIdx] = inClose;
+   sp->ring_BodyLongTrailingIdx_derived[sp->ringPos_BodyLongTrailingIdx] = TA_STREAM_CANDLERANGE(BodyLong,inOpen,inHigh,inLow,inClose);
    if( ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && /* 1st: white */
        fabs(sp->lag1_inClose - sp->lag1_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* long */
        ((inClose >= inOpen) ? 1 : 0 - 1) == 0 - 1 &&               /* 2nd: black */
@@ -314,15 +299,11 @@ static void TA_CDLDARKCLOUDCOVER_StepInternal( struct TA_CDLDARKCLOUDCOVER_Strea
    /* add the current range and subtract the first range: this is done after the pattern recognition
     * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
     */
-   sp->BodyLongPeriodTotal += TA_STREAM_CANDLERANGE(BodyLong,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) - TA_STREAM_CANDLERANGE(BodyLong,sp->ring_BodyLongTrailingIdx_inOpen[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 1) % sp->ringCap_BodyLongTrailingIdx],sp->ring_BodyLongTrailingIdx_inHigh[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 1) % sp->ringCap_BodyLongTrailingIdx],sp->ring_BodyLongTrailingIdx_inLow[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 1) % sp->ringCap_BodyLongTrailingIdx],sp->ring_BodyLongTrailingIdx_inClose[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 1) % sp->ringCap_BodyLongTrailingIdx]);
+   sp->BodyLongPeriodTotal += TA_STREAM_CANDLERANGE(BodyLong,sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) - sp->ring_BodyLongTrailingIdx_derived[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 1) % sp->ringCap_BodyLongTrailingIdx];
    sp->lag1_inOpen = inOpen;
    sp->lag1_inHigh = inHigh;
    sp->lag1_inLow = inLow;
    sp->lag1_inClose = inClose;
-   sp->ring_BodyLongTrailingIdx_inOpen[sp->ringPos_BodyLongTrailingIdx] = inOpen;
-   sp->ring_BodyLongTrailingIdx_inHigh[sp->ringPos_BodyLongTrailingIdx] = inHigh;
-   sp->ring_BodyLongTrailingIdx_inLow[sp->ringPos_BodyLongTrailingIdx] = inLow;
-   sp->ring_BodyLongTrailingIdx_inClose[sp->ringPos_BodyLongTrailingIdx] = inClose;
    sp->ringPos_BodyLongTrailingIdx = sp->ringPos_BodyLongTrailingIdx + 1;
    if( sp->ringPos_BodyLongTrailingIdx >= sp->ringCap_BodyLongTrailingIdx )
    {
@@ -330,7 +311,7 @@ static void TA_CDLDARKCLOUDCOVER_StepInternal( struct TA_CDLDARKCLOUDCOVER_Strea
    }
 }
 
-static TA_RetCode TA_CDLDARKCLOUDCOVER_OpenCore( struct TA_CDLDARKCLOUDCOVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_RetCode TA_CDLDARKCLOUDCOVER_OpenPass( struct TA_CDLDARKCLOUDCOVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLDARKCLOUDCOVER_Stream *sp;
    int endIdx;
@@ -344,7 +325,7 @@ static TA_RetCode TA_CDLDARKCLOUDCOVER_OpenCore( struct TA_CDLDARKCLOUDCOVER_Str
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.5;
-   else if( optInPenetration < 0e0 || optInPenetration > TA_REAL_MAX )
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
@@ -375,7 +356,7 @@ static TA_RetCode TA_CDLDARKCLOUDCOVER_OpenCore( struct TA_CDLDARKCLOUDCOVER_Str
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -435,37 +416,13 @@ static TA_RetCode TA_CDLDARKCLOUDCOVER_OpenCore( struct TA_CDLDARKCLOUDCOVER_Str
       sp->ringCap_BodyLongTrailingIdx = sp->ringLag_BodyLongTrailingIdx + 2;
       if( sp->ringLag_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
-        sp->ring_BodyLongTrailingIdx_inOpen = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_BodyLongTrailingIdx_inOpen ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_BodyLongTrailingIdx_inOpen = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_BodyLongTrailingIdx_inOpen ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        sp->ringMirror_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ringMirror_BodyLongTrailingIdx_derived ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_BodyLongTrailingIdx_inOpen[fillJ % sp->ringCap_BodyLongTrailingIdx] = inOpen[fillJ];
-        }
-        sp->ring_BodyLongTrailingIdx_inHigh = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_BodyLongTrailingIdx_inHigh ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_BodyLongTrailingIdx_inHigh = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_BodyLongTrailingIdx_inHigh ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        { int fillJ;
-          for( fillJ = historyLen - sp->ringCap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_BodyLongTrailingIdx_inHigh[fillJ % sp->ringCap_BodyLongTrailingIdx] = inHigh[fillJ];
-        }
-        sp->ring_BodyLongTrailingIdx_inLow = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_BodyLongTrailingIdx_inLow ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_BodyLongTrailingIdx_inLow = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_BodyLongTrailingIdx_inLow ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        { int fillJ;
-          for( fillJ = historyLen - sp->ringCap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_BodyLongTrailingIdx_inLow[fillJ % sp->ringCap_BodyLongTrailingIdx] = inLow[fillJ];
-        }
-        sp->ring_BodyLongTrailingIdx_inClose = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_BodyLongTrailingIdx_inClose ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_BodyLongTrailingIdx_inClose = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_BodyLongTrailingIdx_inClose ) { TA_CDLDARKCLOUDCOVER_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        { int fillJ;
-          for( fillJ = historyLen - sp->ringCap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_BodyLongTrailingIdx_inClose[fillJ % sp->ringCap_BodyLongTrailingIdx] = inClose[fillJ];
+             sp->ring_BodyLongTrailingIdx_derived[fillJ % sp->ringCap_BodyLongTrailingIdx] = TA_STREAM_CANDLERANGE(BodyLong,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
         }
       }
       sp->ringPos_BodyLongTrailingIdx = historyLen % sp->ringCap_BodyLongTrailingIdx;
@@ -485,7 +442,7 @@ TA_RetCode TA_CDLDARKCLOUDCOVER_OpenInternal( struct TA_CDLDARKCLOUDCOVER_Stream
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    int sink_outInteger = 0;
-   retCode = TA_CDLDARKCLOUDCOVER_OpenCore( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
+   retCode = TA_CDLDARKCLOUDCOVER_OpenPass( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outInteger = sink_outInteger;
@@ -495,6 +452,11 @@ TA_RetCode TA_CDLDARKCLOUDCOVER_OpenInternal( struct TA_CDLDARKCLOUDCOVER_Stream
 
 TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Open( TA_CDLDARKCLOUDCOVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, double optInPenetration, int *outInteger )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_CDLDARKCLOUDCOVER_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outInteger );
 }
 
@@ -503,19 +465,23 @@ TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_OpenAndFill( TA_CDLDARKCLOUDCOVER_Str
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_CDLDARKCLOUDCOVER_OpenCore( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_CDLDARKCLOUDCOVER_OpenPass( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_CDLDARKCLOUDCOVER_OpenAndFillInternal( struct TA_CDLDARKCLOUDCOVER_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, double optInPenetration, int *outBegIdx, int *outNBElement, int outInteger[] )
 {
-   return TA_CDLDARKCLOUDCOVER_OpenCore( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_CDLDARKCLOUDCOVER_OpenPass( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Update( TA_CDLDARKCLOUDCOVER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_CDLDARKCLOUDCOVER_StepInternal( stream, inOpen, inHigh, inLow, inClose, outInteger );
    return TA_SUCCESS;
 }
@@ -525,15 +491,10 @@ TA_LIB_API TA_RetCode TA_CDLDARKCLOUDCOVER_Peek( const TA_CDLDARKCLOUDCOVER_Stre
    struct TA_CDLDARKCLOUDCOVER_Stream scratch;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_BodyLongTrailingIdx_inOpen = stream->ringMirror_BodyLongTrailingIdx_inOpen;
-   memcpy( scratch.ring_BodyLongTrailingIdx_inOpen, stream->ring_BodyLongTrailingIdx_inOpen, sizeof(double) * (size_t)(stream->ringCap_BodyLongTrailingIdx > 0 ? stream->ringCap_BodyLongTrailingIdx : 1) );
-   scratch.ring_BodyLongTrailingIdx_inHigh = stream->ringMirror_BodyLongTrailingIdx_inHigh;
-   memcpy( scratch.ring_BodyLongTrailingIdx_inHigh, stream->ring_BodyLongTrailingIdx_inHigh, sizeof(double) * (size_t)(stream->ringCap_BodyLongTrailingIdx > 0 ? stream->ringCap_BodyLongTrailingIdx : 1) );
-   scratch.ring_BodyLongTrailingIdx_inLow = stream->ringMirror_BodyLongTrailingIdx_inLow;
-   memcpy( scratch.ring_BodyLongTrailingIdx_inLow, stream->ring_BodyLongTrailingIdx_inLow, sizeof(double) * (size_t)(stream->ringCap_BodyLongTrailingIdx > 0 ? stream->ringCap_BodyLongTrailingIdx : 1) );
-   scratch.ring_BodyLongTrailingIdx_inClose = stream->ringMirror_BodyLongTrailingIdx_inClose;
-   memcpy( scratch.ring_BodyLongTrailingIdx_inClose, stream->ring_BodyLongTrailingIdx_inClose, sizeof(double) * (size_t)(stream->ringCap_BodyLongTrailingIdx > 0 ? stream->ringCap_BodyLongTrailingIdx : 1) );
+   scratch.ring_BodyLongTrailingIdx_derived = stream->ringMirror_BodyLongTrailingIdx_derived;
+   memcpy( scratch.ring_BodyLongTrailingIdx_derived, stream->ring_BodyLongTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_BodyLongTrailingIdx > 0 ? stream->ringCap_BodyLongTrailingIdx : 1) );
    TA_CDLDARKCLOUDCOVER_StepInternal( &scratch, inOpen, inHigh, inLow, inClose, outInteger );
    return TA_SUCCESS;
 }

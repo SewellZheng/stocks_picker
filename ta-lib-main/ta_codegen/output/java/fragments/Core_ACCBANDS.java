@@ -41,17 +41,17 @@
       return SMA_Lookback(optInTimePeriod) ;
 
    }
-   RetCode ACCBANDS_Internal( int startIdx,
-                              int endIdx,
-                              double inHigh[],
-                              double inLow[],
-                              double inClose[],
-                              int optInTimePeriod,
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              double outRealUpperBand[],
-                              double outRealMiddleBand[],
-                              double outRealLowerBand[] )
+   RetCode ACCBANDS_Impl( int startIdx,
+                          int endIdx,
+                          double inHigh[],
+                          double inLow[],
+                          double inClose[],
+                          int optInTimePeriod,
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outRealUpperBand[],
+                          double outRealMiddleBand[],
+                          double outRealLowerBand[] )
    {
       double periodTotalUpper = 0;
       double periodTotalMiddle = 0;
@@ -171,17 +171,17 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode ACCBANDS_Internal( int startIdx,
-                              int endIdx,
-                              float inHigh[],
-                              float inLow[],
-                              float inClose[],
-                              int optInTimePeriod,
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              double outRealUpperBand[],
-                              double outRealMiddleBand[],
-                              double outRealLowerBand[] )
+   RetCode ACCBANDS_Impl( int startIdx,
+                          int endIdx,
+                          float inHigh[],
+                          float inLow[],
+                          float inClose[],
+                          int optInTimePeriod,
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outRealUpperBand[],
+                          double outRealMiddleBand[],
+                          double outRealLowerBand[] )
    {
       double periodTotalUpper = 0;
       double periodTotalMiddle = 0;
@@ -305,8 +305,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#BBANDS
@@ -321,9 +328,19 @@
                              double outRealMiddleBand[],
                              double outRealLowerBand[] )
    {
+      requireIndexRange("ACCBANDS", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ACCBANDS_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ACCBANDS", "inHigh", inHigh, guardInLen);
+      requireLength("ACCBANDS", "inLow", inLow, guardInLen);
+      requireLength("ACCBANDS", "inClose", inClose, guardInLen);
+      requireLength("ACCBANDS", "outRealUpperBand", outRealUpperBand, guardOutLen);
+      requireLength("ACCBANDS", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
+      requireLength("ACCBANDS", "outRealLowerBand", outRealLowerBand, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ACCBANDS_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = ACCBANDS_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       if( retCode != RetCode.Success ) {
          throw failure("ACCBANDS", retCode);
       }
@@ -366,8 +383,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#BBANDS
@@ -382,9 +406,19 @@
                              double outRealMiddleBand[],
                              double outRealLowerBand[] )
    {
+      requireIndexRange("ACCBANDS", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ACCBANDS_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ACCBANDS", "inHigh", inHigh, guardInLen);
+      requireLength("ACCBANDS", "inLow", inLow, guardInLen);
+      requireLength("ACCBANDS", "inClose", inClose, guardInLen);
+      requireLength("ACCBANDS", "outRealUpperBand", outRealUpperBand, guardOutLen);
+      requireLength("ACCBANDS", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
+      requireLength("ACCBANDS", "outRealLowerBand", outRealLowerBand, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ACCBANDS_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = ACCBANDS_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       if( retCode != RetCode.Success ) {
          throw failure("ACCBANDS", retCode);
       }
@@ -509,10 +543,20 @@
       public record Value(double realUpperBand, double realMiddleBand, double realLowerBand) { }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public Value update( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("ACCBANDS update: BadParam", RetCode.BadParam);
          core.ACCBANDS_StreamStep(this, inHigh, inLow, inClose);
          this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
          return this.cachedValue;
@@ -528,6 +572,8 @@
        * the thread.
        */
       public Value peek( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("ACCBANDS peek: BadParam", RetCode.BadParam);
          ACCBANDS_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new ACCBANDS_Stream(this);
@@ -602,7 +648,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode ACCBANDS_OpenCore( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
+   private RetCode ACCBANDS_OpenPass( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
    {
       double periodTotalUpper = 0;
       double periodTotalMiddle = 0;
@@ -642,7 +688,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Each band is a simple moving average maintained as a running sum over a
        * shared trailing window (all three share optInTimePeriod, so one trailing
@@ -749,57 +795,57 @@
       sp.cachedValue = new ACCBANDS_Stream.Value(sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand);
       return RetCode.Success;
    }
-   private RetCode ACCBANDS_OpenBody( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode ACCBANDS_OpenImpl( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outRealUpperBand = new double[1];
       double[] sink_outRealMiddleBand = new double[1];
       double[] sink_outRealLowerBand = new double[1];
-      return ACCBANDS_OpenCore( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0 );
+      return ACCBANDS_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0 );
    }
-   private RetCode ACCBANDS_OpenAndFillBody( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
+   private RetCode ACCBANDS_OpenAndFillImpl( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
       if( (Object)outRealUpperBand == (Object)inHigh || (Object)outRealUpperBand == (Object)inLow || (Object)outRealUpperBand == (Object)inClose || (Object)outRealMiddleBand == (Object)inHigh || (Object)outRealMiddleBand == (Object)inLow || (Object)outRealMiddleBand == (Object)inClose || (Object)outRealLowerBand == (Object)inHigh || (Object)outRealLowerBand == (Object)inLow || (Object)outRealLowerBand == (Object)inClose || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
          return RetCode.BadParam;
       }
-      return ACCBANDS_OpenCore( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
+      return ACCBANDS_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
    }
-   private RetCode ACCBANDS_OpenAndFillInternalBody( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
+   private RetCode ACCBANDS_OpenAndFillInternalImpl( ACCBANDS_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
-      return ACCBANDS_OpenCore(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
+      return ACCBANDS_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
    }
    /* ACCBANDS_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    ACCBANDS_Stream ACCBANDS_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
       ACCBANDS_Stream sp = new ACCBANDS_Stream(this);
-      RetCode retCode = ACCBANDS_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = ACCBANDS_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ACCBANDS openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ACCBANDS openAndFill: internal error");
+         throw new TaLibStateException("ACCBANDS openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ACCBANDS openAndFill: " + retCode);
+      throw new TaLibArgumentException("ACCBANDS openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind ACCBANDS_Open (composition seam). */
    ACCBANDS_Stream ACCBANDS_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       ACCBANDS_Stream sp = new ACCBANDS_Stream(this);
-      RetCode retCode = ACCBANDS_OpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      RetCode retCode = ACCBANDS_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ACCBANDS open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ACCBANDS open: internal error");
+         throw new TaLibStateException("ACCBANDS open: internal error", retCode);
       }
-      throw new IllegalArgumentException("ACCBANDS open: " + retCode);
+      throw new TaLibArgumentException("ACCBANDS open: " + retCode, retCode);
    }
    /**
     * Open a live ACCBANDS stream over the warm-up history; the handle's
@@ -829,16 +875,16 @@
       ACCBANDS_Stream sp = new ACCBANDS_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ACCBANDS_OpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = ACCBANDS_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ACCBANDS openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ACCBANDS openAndFill: internal error");
+         throw new TaLibStateException("ACCBANDS openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ACCBANDS openAndFill: " + retCode);
+      throw new TaLibArgumentException("ACCBANDS openAndFill: " + retCode, retCode);
    }

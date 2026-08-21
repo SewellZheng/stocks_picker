@@ -165,6 +165,169 @@ public class StreamSmokeTest {
         return Double.doubleToRawLongBits(a) == Double.doubleToRawLongBits(b);
     }
 
+    /** Non-finite counters, incremented AT the assertion rather than derived. */
+    private static int nfOpenRejects = 0;
+    private static int nfBarRejects = 0;
+    private static int nfStateHolds = 0;
+
+    private interface Call { void run(); }
+
+    /**
+     * Run {@code r}; true when it threw for the reason under test.
+     *
+     * <p>The message is checked, not just the type. {@link
+     * InsufficientHistoryException} extends {@link IllegalArgumentException}, so
+     * catching the base class alone would let "rejected because the history was
+     * too short" pass as "rejected the non-finite value" — and every probe here
+     * deliberately supplies enough history, so that confusion would go unnoticed
+     * the day a lookback grew.
+     */
+    private static boolean rejects(Call r) {
+        try {
+            r.run();
+            return false;
+        } catch (IllegalArgumentException e) {
+            return String.valueOf(e.getMessage()).endsWith(": BadParam");
+        }
+    }
+
+    private static void openMustReject(String what, Call r) {
+        check(rejects(r), what + ": open must reject a non-finite parameter");
+        nfOpenRejects++;
+    }
+
+    private static void barMustReject(String what, Call r) {
+        check(rejects(r), what + ": update/peek must reject a non-finite bar");
+        nfBarRejects++;
+    }
+
+    private static void stateMustHold(String what, double a, double b) {
+        check(bitEq(a, b), what + ": a rejected bar must not move the handle");
+        nfStateHolds++;
+    }
+
+    /**
+     * Non-finite rejection is a property of SINGLE VALUES, never of arrays.
+     *
+     * <p>What is pinned: {@code update}/{@code peek} reject a non-finite bar in
+     * any input slot; a real optional parameter that is NaN is rejected; and —
+     * the property that makes the rejection useful rather than merely safe — the
+     * handle is UNCHANGED by a rejected call, verified against a control stream
+     * rather than by inspection.
+     *
+     * <p>What is deliberately NOT pinned: the warm-up history handed to
+     * {@code Open}/{@code OpenAndFill}. It is an input array, and the library
+     * does not scan input arrays — see {@code docs/error-handling-spec.md} rule
+     * N-5. Passing a non-finite one is undefined behaviour.
+     *
+     * <p>Coverage is by stream TIER, not by function count: the check is emitted
+     * from one place, but into the entry points of five different tiers. SMA is
+     * the loop tier, MINUS_DI dual-mode, MA the dispatch tier (including its
+     * identity arm, which never reaches a sub-stream at all), MAVP the
+     * period-bank tier, and BBANDS/STOCH composed. CDLDOJI adds an integer
+     * output over four price inputs.
+     */
+    private static void nonFiniteInputsAreRejected(
+            Core core, double[] open, double[] high, double[] low, double[] close) {
+        final double[] bad = { Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+        final int warm = 60;
+
+        for (final double v : bad) {
+            /* --- update / peek, and the handle-unchanged property. --------- */
+            final double[] cw = java.util.Arrays.copyOf(close, warm);
+            final double[] hw = java.util.Arrays.copyOf(high, warm);
+            final double[] lw = java.util.Arrays.copyOf(low, warm);
+            final double[] ow = java.util.Arrays.copyOf(open, warm);
+
+            final Core.SMA_Stream sa = core.SMA_Open(cw, 14);
+            final Core.SMA_Stream sb = core.SMA_Open(cw, 14);
+            barMustReject("SMA.update", () -> sa.update(v));
+            barMustReject("SMA.peek", () -> sa.peek(v));
+            stateMustHold("SMA", sa.update(close[warm]), sb.update(close[warm]));
+
+            final Core.MINUS_DI_Stream da = core.MINUS_DI_Open(hw, lw, cw, 14);
+            final Core.MINUS_DI_Stream db = core.MINUS_DI_Open(hw, lw, cw, 14);
+            barMustReject("MINUS_DI.update(high)", () -> da.update(v, low[warm], close[warm]));
+            barMustReject("MINUS_DI.update(low)", () -> da.update(high[warm], v, close[warm]));
+            barMustReject("MINUS_DI.update(close)", () -> da.update(high[warm], low[warm], v));
+            barMustReject("MINUS_DI.peek", () -> da.peek(v, low[warm], close[warm]));
+            stateMustHold("MINUS_DI",
+                da.update(high[warm], low[warm], close[warm]),
+                db.update(high[warm], low[warm], close[warm]));
+
+            final Core.MA_Stream ma = core.MA_Open(cw, 14, MAType.EMA);
+            final Core.MA_Stream mb = core.MA_Open(cw, 14, MAType.EMA);
+            barMustReject("MA.update", () -> ma.update(v));
+            barMustReject("MA.peek", () -> ma.peek(v));
+            stateMustHold("MA", ma.update(close[warm]), mb.update(close[warm]));
+
+            /* Period 1 is the dispatch identity arm: it copies the bar to the
+             * output and never reaches a sub-stream, so a check delegated to the
+             * sub would miss it. */
+            final Core.MA_Stream mi = core.MA_Open(cw, 1, MAType.SMA);
+            barMustReject("MA(identity).update", () -> mi.update(v));
+            barMustReject("MA(identity).peek", () -> mi.peek(v));
+
+            final double[] pw = new double[warm];
+            for (int i = 0; i < warm; i++) {
+                pw[i] = 5.0 + (i % 11);
+            }
+            final Core.MAVP_Stream va = core.MAVP_Open(cw, pw, 2, 30, MAType.SMA);
+            final Core.MAVP_Stream vb = core.MAVP_Open(cw, pw, 2, 30, MAType.SMA);
+            barMustReject("MAVP.update(real)", () -> va.update(v, pw[0]));
+            barMustReject("MAVP.update(period)", () -> va.update(close[warm], v));
+            barMustReject("MAVP.peek(period)", () -> va.peek(close[warm], v));
+            stateMustHold("MAVP",
+                va.update(close[warm], pw[0]), vb.update(close[warm], pw[0]));
+
+            final Core.BBANDS_Stream ba = core.BBANDS_Open(cw, 20, 2.0, 2.0, MAType.SMA);
+            final Core.BBANDS_Stream bb = core.BBANDS_Open(cw, 20, 2.0, 2.0, MAType.SMA);
+            barMustReject("BBANDS.update", () -> ba.update(v));
+            barMustReject("BBANDS.peek", () -> ba.peek(v));
+            Core.BBANDS_Stream.Value bav = ba.update(close[warm]);
+            Core.BBANDS_Stream.Value bbv = bb.update(close[warm]);
+            stateMustHold("BBANDS.upper", bav.realUpperBand(), bbv.realUpperBand());
+            stateMustHold("BBANDS.lower", bav.realLowerBand(), bbv.realLowerBand());
+
+            final Core.STOCH_Stream ka = core.STOCH_Open(hw, lw, cw, 5, 3, MAType.SMA, 3, MAType.SMA);
+            final Core.STOCH_Stream kb = core.STOCH_Open(hw, lw, cw, 5, 3, MAType.SMA, 3, MAType.SMA);
+            barMustReject("STOCH.update", () -> ka.update(v, low[warm], close[warm]));
+            barMustReject("STOCH.peek", () -> ka.peek(high[warm], v, close[warm]));
+            Core.STOCH_Stream.Value kav = ka.update(high[warm], low[warm], close[warm]);
+            Core.STOCH_Stream.Value kbv = kb.update(high[warm], low[warm], close[warm]);
+            stateMustHold("STOCH.slowK", kav.slowK(), kbv.slowK());
+            stateMustHold("STOCH.slowD", kav.slowD(), kbv.slowD());
+
+            final Core.CDLDOJI_Stream ja = core.CDLDOJI_Open(ow, hw, lw, cw);
+            final Core.CDLDOJI_Stream jb = core.CDLDOJI_Open(ow, hw, lw, cw);
+            barMustReject("CDLDOJI.update(open)",
+                () -> ja.update(v, high[warm], low[warm], close[warm]));
+            barMustReject("CDLDOJI.peek(close)",
+                () -> ja.peek(open[warm], high[warm], low[warm], v));
+            check(ja.update(open[warm], high[warm], low[warm], close[warm])
+                    == jb.update(open[warm], high[warm], low[warm], close[warm]),
+                  "CDLDOJI: a rejected bar must not move the handle");
+            nfStateHolds++;
+        }
+
+        /* A NaN real PARAMETER. Not redundant with the range check: `x < min`
+         * and `x > max` are both false for NaN, so a plain range test admits it —
+         * which is why the streaming tier spells the same two comparisons
+         * inverted. An infinity is already outside every declared bound. */
+        openMustReject("BBANDS(nbDevUp=NaN)",
+            () -> core.BBANDS_Open(java.util.Arrays.copyOf(close, warm), 20,
+                                   Double.NaN, 2.0, MAType.SMA));
+        openMustReject("BBANDS(nbDevDn=NaN)",
+            () -> core.BBANDS_Open(java.util.Arrays.copyOf(close, warm), 20,
+                                   2.0, Double.NaN, MAType.SMA));
+
+        /* Non-vacuity. Literal floors: a count derived from the loop above moves
+         * with it and would let the assertions inside be deleted. */
+        check(nfOpenRejects >= 2 && nfBarRejects >= 57 && nfStateHolds >= 27,
+              "the non-finite gate ran fewer checks than it was written with ("
+              + nfOpenRejects + "/" + nfBarRejects + "/" + nfStateHolds + ")");
+    }
+
     public static void main(String[] args) {
         final int n = 300;
         double[] close = new double[n];
@@ -283,9 +446,53 @@ public class StreamSmokeTest {
               "Value has one component per batch output");
 
         /* ...and EVERY multi-output handle, not just MACD: one class checked by
-         * name would let the other thirteen regress to a hand-rolled class. The
-         * count is asserted exactly, so a Value that stopped being generated is
-         * a failure rather than a smaller sweep. */
+         * name would let the others regress to a hand-rolled class. The count is
+         * asserted exactly, so a Value that stopped being generated is a failure
+         * rather than a smaller sweep.
+         *
+         * The expectation is DERIVED FROM THE REGISTRY, not a literal. A literal
+         * is a corpus count, and this suite also runs against an input/ that the
+         * synth gate has injected fixtures into (scripts/synth_gate.py copies
+         * every input_synth/synth<n>/ in before regenerating). The first fixture
+         * with more than one real output therefore turns a correct tree red here,
+         * with a message about MACD's Value that names nothing to do with the
+         * change under test. Deriving it also strengthens the check: the
+         * component count is now pinned per function against the registry's
+         * output list, where before only MACD's was. */
+        java.util.List<String> wrongValue = new java.util.ArrayList<String>();
+        int expectedValueTypes = 0;
+        for (io.github.talib.metadata.FunctionInfo vf : io.github.talib.metadata.Functions.all()) {
+            if (vf.outputs().size() <= 1) {
+                continue;
+            }
+            Class<?> handle = null;
+            for (Class<?> nested : Core.class.getDeclaredClasses()) {
+                if (nested.getSimpleName().equals(vf.name() + "_Stream")) {
+                    handle = nested;
+                    break;
+                }
+            }
+            if (handle == null) {
+                continue;                       // not stream-capable
+            }
+            expectedValueTypes++;
+            Class<?> value = null;
+            for (Class<?> inner : handle.getDeclaredClasses()) {
+                if (inner.getSimpleName().equals("Value")) {
+                    value = inner;
+                    break;
+                }
+            }
+            if (value == null) {
+                wrongValue.add(vf.name() + ": no Value");
+            } else if (!value.isRecord()) {
+                wrongValue.add(vf.name() + ": Value is not a record");
+            } else if (value.getRecordComponents().length != vf.outputs().size()) {
+                wrongValue.add(vf.name() + ": Value has "
+                    + value.getRecordComponents().length + " components, registry declares "
+                    + vf.outputs().size());
+            }
+        }
         int valueTypes = 0, records = 0;
         for (Class<?> nested : Core.class.getDeclaredClasses()) {
             for (Class<?> inner : nested.getDeclaredClasses()) {
@@ -300,7 +507,15 @@ public class StreamSmokeTest {
                 }
             }
         }
-        check(valueTypes == 14, "14 multi-output handles carry a Value (found " + valueTypes + ")");
+        for (String w : wrongValue) {
+            System.out.println("  (wrong Value: " + w + ")");
+        }
+        check(wrongValue.isEmpty(),
+              "every multi-output stream handle carries a Value matching its registry outputs");
+        check(expectedValueTypes > 0,
+              "the registry named at least one multi-output stream handle (non-vacuity)");
+        check(valueTypes == expectedValueTypes,
+              expectedValueTypes + " multi-output handles carry a Value (found " + valueTypes + ")");
         check(records == valueTypes, "every Value is a record");
 
         /* Dispatch DX: every MAType opens through the same entry point. */
@@ -324,6 +539,8 @@ public class StreamSmokeTest {
             java.util.Arrays.copyOf(low, 30), java.util.Arrays.copyOf(close, 30));
         check(d1.value() == 0 && d2.value() == 100,
               "candle settings captured per Core instance");
+
+        nonFiniteInputsAreRejected(core, open, high, low, close);
 
 
         if (failures == 0) {

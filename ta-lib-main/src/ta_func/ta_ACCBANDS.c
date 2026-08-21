@@ -435,7 +435,7 @@ static void TA_ACCBANDS_StepInternal( struct TA_ACCBANDS_Stream *sp, double inHi
    }
 }
 
-static TA_RetCode TA_ACCBANDS_OpenCore( struct TA_ACCBANDS_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
+static TA_RetCode TA_ACCBANDS_OpenPass( struct TA_ACCBANDS_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
 {
    struct TA_ACCBANDS_Stream *sp;
    int endIdx;
@@ -485,7 +485,7 @@ static TA_RetCode TA_ACCBANDS_OpenCore( struct TA_ACCBANDS_Stream **stream, cons
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Each band is a simple moving average maintained as a running sum over a
        * shared trailing window (all three share optInTimePeriod, so one trailing
@@ -616,7 +616,7 @@ TA_RetCode TA_ACCBANDS_OpenInternal( struct TA_ACCBANDS_Stream **stream, const d
    double sink_outRealUpperBand = 0.0;
    double sink_outRealMiddleBand = 0.0;
    double sink_outRealLowerBand = 0.0;
-   retCode = TA_ACCBANDS_OpenCore( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outRealUpperBand, &sink_outRealMiddleBand, &sink_outRealLowerBand, 0 );
+   retCode = TA_ACCBANDS_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outRealUpperBand, &sink_outRealMiddleBand, &sink_outRealLowerBand, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outRealUpperBand = sink_outRealUpperBand;
@@ -628,6 +628,11 @@ TA_RetCode TA_ACCBANDS_OpenInternal( struct TA_ACCBANDS_Stream **stream, const d
 
 TA_LIB_API TA_RetCode TA_ACCBANDS_Open( TA_ACCBANDS_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_ACCBANDS_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
 }
 
@@ -636,19 +641,23 @@ TA_LIB_API TA_RetCode TA_ACCBANDS_OpenAndFill( TA_ACCBANDS_Stream **stream, cons
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outRealUpperBand == (const void *)inHigh || (const void *)outRealUpperBand == (const void *)inLow || (const void *)outRealUpperBand == (const void *)inClose || (const void *)outRealMiddleBand == (const void *)inHigh || (const void *)outRealMiddleBand == (const void *)inLow || (const void *)outRealMiddleBand == (const void *)inClose || (const void *)outRealLowerBand == (const void *)inHigh || (const void *)outRealLowerBand == (const void *)inLow || (const void *)outRealLowerBand == (const void *)inClose || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
-   return TA_ACCBANDS_OpenCore( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
+   return TA_ACCBANDS_OpenPass( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_ACCBANDS_OpenAndFillInternal( struct TA_ACCBANDS_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
 {
-   return TA_ACCBANDS_OpenCore( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
+   return TA_ACCBANDS_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_ACCBANDS_Update( TA_ACCBANDS_Stream *stream, double inHigh, double inLow, double inClose, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_ACCBANDS_StepInternal( stream, inHigh, inLow, inClose, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
    return TA_SUCCESS;
 }
@@ -658,6 +667,7 @@ TA_LIB_API TA_RetCode TA_ACCBANDS_Peek( const TA_ACCBANDS_Stream *stream, double
    struct TA_ACCBANDS_Stream scratch;
 
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.ring_trailingIdx_inHigh = stream->ringMirror_trailingIdx_inHigh;
    memcpy( scratch.ring_trailingIdx_inHigh, stream->ring_trailingIdx_inHigh, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );

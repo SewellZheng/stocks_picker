@@ -25,12 +25,12 @@
       return 0 ;
 
    }
-   RetCode SQRT_Internal( int startIdx,
-                          int endIdx,
-                          double inReal[],
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode SQRT_Impl( int startIdx,
+                      int endIdx,
+                      double inReal[],
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -47,12 +47,12 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode SQRT_Internal( int startIdx,
-                          int endIdx,
-                          float inReal[],
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode SQRT_Impl( int startIdx,
+                      int endIdx,
+                      float inReal[],
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -96,17 +96,30 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     */
    public OutRange SQRT( int startIdx,
                          int endIdx,
                          double inReal[],
                          double outReal[] )
    {
+      requireIndexRange("SQRT", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, SQRT_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SQRT", "inReal", inReal, guardInLen);
+      requireLength("SQRT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SQRT_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SQRT_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SQRT", retCode);
       }
@@ -142,17 +155,30 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     */
    public OutRange SQRT( int startIdx,
                          int endIdx,
                          float inReal[],
                          double outReal[] )
    {
+      requireIndexRange("SQRT", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, SQRT_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SQRT", "inReal", inReal, guardInLen);
+      requireLength("SQRT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SQRT_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SQRT_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SQRT", retCode);
       }
@@ -203,10 +229,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("SQRT update: BadParam", RetCode.BadParam);
          core.SQRT_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -219,6 +255,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("SQRT peek: BadParam", RetCode.BadParam);
          SQRT_Stream scratch = new SQRT_Stream(this);
          core.SQRT_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -245,7 +283,7 @@
    {
       sp.cur_outReal = Math.sqrt(inReal);
    }
-   private RetCode SQRT_OpenCore( SQRT_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode SQRT_OpenPass( SQRT_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -266,55 +304,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode SQRT_OpenBody( SQRT_Stream sp, double inReal[], int startIdx )
+   private RetCode SQRT_OpenImpl( SQRT_Stream sp, double inReal[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return SQRT_OpenCore( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return SQRT_OpenPass( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode SQRT_OpenAndFillBody( SQRT_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SQRT_OpenAndFillImpl( SQRT_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return SQRT_OpenCore( sp, inReal, 0, outBegIdx, outNBElement, outReal, 1 );
+      return SQRT_OpenPass( sp, inReal, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode SQRT_OpenAndFillInternalBody( SQRT_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SQRT_OpenAndFillInternalImpl( SQRT_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return SQRT_OpenCore(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return SQRT_OpenPass(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* SQRT_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    SQRT_Stream SQRT_OpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       SQRT_Stream sp = new SQRT_Stream(this);
-      RetCode retCode = SQRT_OpenAndFillInternalBody(sp, inReal, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SQRT_OpenAndFillInternalImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SQRT openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SQRT openAndFill: internal error");
+         throw new TaLibStateException("SQRT openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("SQRT openAndFill: " + retCode);
+      throw new TaLibArgumentException("SQRT openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind SQRT_Open (composition seam). */
    SQRT_Stream SQRT_OpenInternal( double inReal[], int startIdx )
    {
       SQRT_Stream sp = new SQRT_Stream(this);
-      RetCode retCode = SQRT_OpenBody(sp, inReal, startIdx);
+      RetCode retCode = SQRT_OpenImpl(sp, inReal, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SQRT open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SQRT open: internal error");
+         throw new TaLibStateException("SQRT open: internal error", retCode);
       }
-      throw new IllegalArgumentException("SQRT open: " + retCode);
+      throw new TaLibArgumentException("SQRT open: " + retCode, retCode);
    }
    /**
     * Open a live SQRT stream over the warm-up history; the handle's
@@ -344,16 +382,16 @@
       SQRT_Stream sp = new SQRT_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SQRT_OpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SQRT_OpenAndFillImpl(sp, inReal, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SQRT openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SQRT openAndFill: internal error");
+         throw new TaLibStateException("SQRT openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("SQRT openAndFill: " + retCode);
+      throw new TaLibArgumentException("SQRT openAndFill: " + retCode, retCode);
    }

@@ -342,6 +342,7 @@ typedef enum
   TA_CODEGEN_PIPE_SERVER_NOT_FOUND   = 1112,
   TA_CODEGEN_SUBSET_GATE_UNAVAILABLE = 1113,
   TA_CODEGEN_SWEEP_VACUOUS           = 1114,
+  TA_CODEGEN_RANGE_VACUOUS           = 1115,
 
   /* Abstract codegen test errors */
   TA_ABSTRACT_LOOKBACK_MISMATCH      = 1200,
@@ -408,6 +409,32 @@ typedef enum
   TA_REGTEST_LEGACY_DEAD_TOL         = 1568,
   TA_REGTEST_LEGACY_BAD_HISTORY      = 1569,
   TA_REGTEST_LEGACY_VACUOUS          = 1570,
+
+  /* Candlestick settings matrix, C-side and cross-language (#215/#216). */
+  TA_CDLSET_SETTING_REJECTED         = 1580,
+  TA_CDLSET_CALL_FAILED              = 1581,
+  TA_CDLSET_RESTORE_FAILED           = 1582,
+  TA_CDLSET_XLANG_MISMATCH           = 1583,
+  TA_CDLSET_VACUOUS_NO_MOVE          = 1584,
+  TA_CDLSET_VACUOUS_NO_SYNC          = 1585,
+  TA_CDLSET_NOT_RESTORED             = 1586,
+
+  /* Streaming non-finite input rejection (the boundary contract). */
+  TA_STREAM_FINITE_BAR_ACCEPTED      = 1591,
+  TA_STREAM_FINITE_STATE_MOVED       = 1592,
+  TA_STREAM_FINITE_PARAM_ACCEPTED    = 1593,
+  TA_STREAM_FINITE_SETUP_FAILED      = 1594,
+  TA_STREAM_FINITE_VACUOUS           = 1595,
+
+  /* Streaming short-history rejection (rule S-6 / TA_INSUFFICIENT_HISTORY). */
+  TA_STREAM_SHORT_HISTORY_WRONG_CODE = 1596,
+  TA_STREAM_SHORT_HISTORY_ACCEPTED   = 1597,
+  TA_STREAM_SHORT_HISTORY_CONTROL    = 1598,
+  TA_STREAM_SHORT_HISTORY_VACUOUS    = 1599,
+
+  /* --function= named something no test group covers, on a run that had
+   * nothing else to do. Reported rather than passed silently. */
+  TA_REGTEST_FILTER_MATCHED_NOTHING  = 1600,
 
   TA_LAST_VALID_ERROR = 0xFFFF
 } ErrorNumber;

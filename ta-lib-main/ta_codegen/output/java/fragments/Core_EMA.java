@@ -40,13 +40,13 @@
       return optInTimePeriod - 1 + this.unstablePeriod[FuncUnstId.EMA.ordinal()] ;
 
    }
-   RetCode EMA_Internal( int startIdx,
-                         int endIdx,
-                         double inReal[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode EMA_Impl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double optInK_1 = 0;
       double tempReal = 0;
@@ -142,13 +142,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode EMA_Internal( int startIdx,
-                         int endIdx,
-                         float inReal[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode EMA_Impl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double optInK_1 = 0;
       double tempReal = 0;
@@ -240,8 +240,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#DEMA
@@ -256,9 +263,15 @@
                         int optInTimePeriod,
                         double outReal[] )
    {
+      requireIndexRange("EMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, EMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("EMA", "inReal", inReal, guardInLen);
+      requireLength("EMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = EMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = EMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("EMA", retCode);
       }
@@ -299,8 +312,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#DEMA
@@ -315,9 +335,15 @@
                         int optInTimePeriod,
                         double outReal[] )
    {
+      requireIndexRange("EMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, EMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("EMA", "inReal", inReal, guardInLen);
+      requireLength("EMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = EMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = EMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("EMA", retCode);
       }
@@ -377,10 +403,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("EMA update: BadParam", RetCode.BadParam);
          core.EMA_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -393,6 +429,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("EMA peek: BadParam", RetCode.BadParam);
          EMA_Stream scratch = new EMA_Stream(this);
          core.EMA_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -424,7 +462,7 @@
       sp.prevMA = Math.fma(inReal - sp.prevMA, sp.optInK_1, sp.prevMA);
       sp.cur_outReal = sp.prevMA;
    }
-   private RetCode EMA_OpenCore( EMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode EMA_OpenPass( EMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double optInK_1 = 0;
       double tempReal = 0;
@@ -448,7 +486,7 @@
       }
       if( optInTimePeriod == 1 ) {
          if( historyLen < EMA_Lookback(optInTimePeriod) + 1 ) {
-            return RetCode.OutOfRangeEndIndex;
+            return RetCode.InsufficientHistory;
          }
          sp.optInTimePeriod = optInTimePeriod;
          sp.optInK_1 = 0.0;
@@ -481,7 +519,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       outBegIdx.value = startIdx;
       /* Do the EMA calculation using tight loops. */
@@ -529,55 +567,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode EMA_OpenBody( EMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode EMA_OpenImpl( EMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return EMA_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return EMA_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode EMA_OpenAndFillBody( EMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode EMA_OpenAndFillImpl( EMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return EMA_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return EMA_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode EMA_OpenAndFillInternalBody( EMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode EMA_OpenAndFillInternalImpl( EMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return EMA_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return EMA_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* EMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    EMA_Stream EMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       EMA_Stream sp = new EMA_Stream(this);
-      RetCode retCode = EMA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = EMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("EMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("EMA openAndFill: internal error");
+         throw new TaLibStateException("EMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("EMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("EMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind EMA_Open (composition seam). */
    EMA_Stream EMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       EMA_Stream sp = new EMA_Stream(this);
-      RetCode retCode = EMA_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = EMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("EMA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("EMA open: internal error");
+         throw new TaLibStateException("EMA open: internal error", retCode);
       }
-      throw new IllegalArgumentException("EMA open: " + retCode);
+      throw new TaLibArgumentException("EMA open: " + retCode, retCode);
    }
    /**
     * Open a live EMA stream over the warm-up history; the handle's
@@ -607,16 +645,16 @@
       EMA_Stream sp = new EMA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = EMA_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = EMA_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("EMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("EMA openAndFill: internal error");
+         throw new TaLibStateException("EMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("EMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("EMA openAndFill: " + retCode, retCode);
    }

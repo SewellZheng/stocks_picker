@@ -3,6 +3,7 @@ noinst_LTLIBRARIES = libta_func.la
 AM_CPPFLAGS = -I../ta_common/
 
 libta_func_la_SOURCES = ta_utility.c \
+	ta_AC.c \
 	ta_ACCBANDS.c \
 	ta_ACOS.c \
 	ta_AD.c \
@@ -10,6 +11,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_ADOSC.c \
 	ta_ADX.c \
 	ta_ADXR.c \
+	ta_AO.c \
 	ta_APO.c \
 	ta_AROON.c \
 	ta_AROONOSC.c \
@@ -152,6 +154,7 @@ libta_func_la_SOURCES = ta_utility.c \
 	ta_SIN.c \
 	ta_SINH.c \
 	ta_SMA.c \
+	ta_SMI.c \
 	ta_SQRT.c \
 	ta_STDDEV.c \
 	ta_STOCH.c \

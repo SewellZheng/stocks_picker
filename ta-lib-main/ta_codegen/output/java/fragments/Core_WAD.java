@@ -31,14 +31,14 @@
       return 0 ;
 
    }
-   RetCode WAD_Internal( int startIdx,
-                         int endIdx,
-                         double inHigh[],
-                         double inLow[],
-                         double inClose[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode WAD_Impl( int startIdx,
+                     int endIdx,
+                     double inHigh[],
+                     double inLow[],
+                     double inClose[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double sum = 0;
       double prevClose = 0;
@@ -112,14 +112,14 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode WAD_Internal( int startIdx,
-                         int endIdx,
-                         float inHigh[],
-                         float inLow[],
-                         float inClose[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode WAD_Impl( int startIdx,
+                     int endIdx,
+                     float inHigh[],
+                     float inLow[],
+                     float inClose[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double sum = 0;
       double prevClose = 0;
@@ -194,8 +194,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#AD
     * @see Core#ADOSC
@@ -210,9 +217,17 @@
                         double inClose[],
                         double outReal[] )
    {
+      requireIndexRange("WAD", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, WAD_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("WAD", "inHigh", inHigh, guardInLen);
+      requireLength("WAD", "inLow", inLow, guardInLen);
+      requireLength("WAD", "inClose", inClose, guardInLen);
+      requireLength("WAD", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WAD_Internal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("WAD", retCode);
       }
@@ -256,8 +271,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#AD
     * @see Core#ADOSC
@@ -272,9 +294,17 @@
                         float inClose[],
                         double outReal[] )
    {
+      requireIndexRange("WAD", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, WAD_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("WAD", "inHigh", inHigh, guardInLen);
+      requireLength("WAD", "inLow", inLow, guardInLen);
+      requireLength("WAD", "inClose", inClose, guardInLen);
+      requireLength("WAD", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WAD_Internal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("WAD", retCode);
       }
@@ -334,10 +364,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("WAD update: BadParam", RetCode.BadParam);
          core.WAD_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
@@ -350,6 +390,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("WAD peek: BadParam", RetCode.BadParam);
          WAD_Stream scratch = new WAD_Stream(this);
          core.WAD_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
@@ -392,7 +434,7 @@
       sp.cur_outReal = sp.sum;
       sp.prevClose = close;
    }
-   private RetCode WAD_OpenCore( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode WAD_OpenPass( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double sum = 0;
       double prevClose = 0;
@@ -473,55 +515,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode WAD_OpenBody( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode WAD_OpenImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return WAD_OpenCore( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return WAD_OpenPass( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode WAD_OpenAndFillBody( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode WAD_OpenAndFillImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return WAD_OpenCore( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
+      return WAD_OpenPass( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode WAD_OpenAndFillInternalBody( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode WAD_OpenAndFillInternalImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return WAD_OpenCore(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return WAD_OpenPass(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* WAD_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    WAD_Stream WAD_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       WAD_Stream sp = new WAD_Stream(this);
-      RetCode retCode = WAD_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WAD_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("WAD openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("WAD openAndFill: internal error");
+         throw new TaLibStateException("WAD openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("WAD openAndFill: " + retCode);
+      throw new TaLibArgumentException("WAD openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind WAD_Open (composition seam). */
    WAD_Stream WAD_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       WAD_Stream sp = new WAD_Stream(this);
-      RetCode retCode = WAD_OpenBody(sp, inHigh, inLow, inClose, startIdx);
+      RetCode retCode = WAD_OpenImpl(sp, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("WAD open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("WAD open: internal error");
+         throw new TaLibStateException("WAD open: internal error", retCode);
       }
-      throw new IllegalArgumentException("WAD open: " + retCode);
+      throw new TaLibArgumentException("WAD open: " + retCode, retCode);
    }
    /**
     * Open a live WAD stream over the warm-up history; the handle's
@@ -551,16 +593,16 @@
       WAD_Stream sp = new WAD_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WAD_OpenAndFillBody(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WAD_OpenAndFillImpl(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("WAD openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("WAD openAndFill: internal error");
+         throw new TaLibStateException("WAD openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("WAD openAndFill: " + retCode);
+      throw new TaLibArgumentException("WAD openAndFill: " + retCode, retCode);
    }

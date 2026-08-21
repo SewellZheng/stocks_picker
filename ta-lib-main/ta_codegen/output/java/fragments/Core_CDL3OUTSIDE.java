@@ -26,15 +26,15 @@
       return 3 ;
 
    }
-   RetCode CDL3OUTSIDE_Internal( int startIdx,
-                                 int endIdx,
-                                 double inOpen[],
-                                 double inHigh[],
-                                 double inLow[],
-                                 double inClose[],
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 int outInteger[] )
+   RetCode CDL3OUTSIDE_Impl( int startIdx,
+                             int endIdx,
+                             double inOpen[],
+                             double inHigh[],
+                             double inLow[],
+                             double inClose[],
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -91,15 +91,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode CDL3OUTSIDE_Internal( int startIdx,
-                                 int endIdx,
-                                 float inOpen[],
-                                 float inHigh[],
-                                 float inLow[],
-                                 float inClose[],
-                                 MInteger outBegIdx,
-                                 MInteger outNBElement,
-                                 int outInteger[] )
+   RetCode CDL3OUTSIDE_Impl( int startIdx,
+                             int endIdx,
+                             float inOpen[],
+                             float inHigh[],
+                             float inLow[],
+                             float inClose[],
+                             MInteger outBegIdx,
+                             MInteger outNBElement,
+                             int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -137,11 +137,11 @@
     * A three-candle pattern: an engulfing pair (candle 2's body fully engulfs
     * candle 1's body) followed by a third candle that confirms in the engulfing
     * direction. Signals a bullish reversal (Three Outside Up) or bearish
-    * reversal (Three Outside Down). +100 = bullish reversal (Three Outside Up);
-    * -100 = bearish reversal (Three Outside Down).
+    * reversal (Three Outside Down).
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes (three outside up is meaningful in a downtrend, three outside down in an uptrend).</li>
+    * <li>Bulkowski's testing puts Three Outside Up at a 75% bullish-reversal success rate versus 69% for Three Outside Down — both notably higher than the closely related Three Inside Up/Down (65%/60%), i.e. the engulfing "outside" variant tests as more reliable than the harami "inside" variant. ([thepatternsite.com](https://thepatternsite.com/ThreeOutsideUp.html))</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -164,8 +164,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CDL3INSIDE
     * @see Core#CDLENGULFING
@@ -179,9 +186,16 @@
                                 double inClose[],
                                 int outInteger[] )
    {
+      requireIndexRange("CDL3OUTSIDE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CDL3OUTSIDE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CDL3OUTSIDE", "inOpen", inOpen, guardInLen);
+      requireLength("CDL3OUTSIDE", "inClose", inClose, guardInLen);
+      requireLength("CDL3OUTSIDE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDL3OUTSIDE_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDL3OUTSIDE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDL3OUTSIDE", retCode);
       }
@@ -191,11 +205,11 @@
     * A three-candle pattern: an engulfing pair (candle 2's body fully engulfs
     * candle 1's body) followed by a third candle that confirms in the engulfing
     * direction. Signals a bullish reversal (Three Outside Up) or bearish
-    * reversal (Three Outside Down). +100 = bullish reversal (Three Outside Up);
-    * -100 = bearish reversal (Three Outside Down).
+    * reversal (Three Outside Down).
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the pattern classically assumes (three outside up is meaningful in a downtrend, three outside down in an uptrend).</li>
+    * <li>Bulkowski's testing puts Three Outside Up at a 75% bullish-reversal success rate versus 69% for Three Outside Down — both notably higher than the closely related Three Inside Up/Down (65%/60%), i.e. the engulfing "outside" variant tests as more reliable than the harami "inside" variant. ([thepatternsite.com](https://thepatternsite.com/ThreeOutsideUp.html))</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -221,8 +235,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CDL3INSIDE
     * @see Core#CDLENGULFING
@@ -236,9 +257,16 @@
                                 float inClose[],
                                 int outInteger[] )
    {
+      requireIndexRange("CDL3OUTSIDE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CDL3OUTSIDE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CDL3OUTSIDE", "inOpen", inOpen, guardInLen);
+      requireLength("CDL3OUTSIDE", "inClose", inClose, guardInLen);
+      requireLength("CDL3OUTSIDE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDL3OUTSIDE_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDL3OUTSIDE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDL3OUTSIDE", retCode);
       }
@@ -301,10 +329,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("CDL3OUTSIDE update: BadParam", RetCode.BadParam);
          core.CDL3OUTSIDE_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
@@ -317,6 +355,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("CDL3OUTSIDE peek: BadParam", RetCode.BadParam);
          CDL3OUTSIDE_Stream scratch = new CDL3OUTSIDE_Stream(this);
          core.CDL3OUTSIDE_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
@@ -355,7 +395,7 @@
       sp.lag2_inClose = sp.lag1_inClose;
       sp.lag1_inClose = inClose;
    }
-   private RetCode CDL3OUTSIDE_OpenCore( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
+   private RetCode CDL3OUTSIDE_OpenPass( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -382,7 +422,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -420,55 +460,55 @@
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode CDL3OUTSIDE_OpenBody( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDL3OUTSIDE_OpenImpl( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       int[] sink_outInteger = new int[1];
-      return CDL3OUTSIDE_OpenCore( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
+      return CDL3OUTSIDE_OpenPass( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
-   private RetCode CDL3OUTSIDE_OpenAndFillBody( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDL3OUTSIDE_OpenAndFillImpl( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return CDL3OUTSIDE_OpenCore( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
+      return CDL3OUTSIDE_OpenPass( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
    }
-   private RetCode CDL3OUTSIDE_OpenAndFillInternalBody( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDL3OUTSIDE_OpenAndFillInternalImpl( CDL3OUTSIDE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      return CDL3OUTSIDE_OpenCore(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
+      return CDL3OUTSIDE_OpenPass(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
    }
    /* CDL3OUTSIDE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CDL3OUTSIDE_Stream CDL3OUTSIDE_OpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       CDL3OUTSIDE_Stream sp = new CDL3OUTSIDE_Stream(this);
-      RetCode retCode = CDL3OUTSIDE_OpenAndFillInternalBody(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDL3OUTSIDE_OpenAndFillInternalImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDL3OUTSIDE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDL3OUTSIDE openAndFill: internal error");
+         throw new TaLibStateException("CDL3OUTSIDE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDL3OUTSIDE openAndFill: " + retCode);
+      throw new TaLibArgumentException("CDL3OUTSIDE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind CDL3OUTSIDE_Open (composition seam). */
    CDL3OUTSIDE_Stream CDL3OUTSIDE_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       CDL3OUTSIDE_Stream sp = new CDL3OUTSIDE_Stream(this);
-      RetCode retCode = CDL3OUTSIDE_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      RetCode retCode = CDL3OUTSIDE_OpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDL3OUTSIDE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDL3OUTSIDE open: internal error");
+         throw new TaLibStateException("CDL3OUTSIDE open: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDL3OUTSIDE open: " + retCode);
+      throw new TaLibArgumentException("CDL3OUTSIDE open: " + retCode, retCode);
    }
    /**
     * Open a live CDL3OUTSIDE stream over the warm-up history; the handle's
@@ -498,16 +538,16 @@
       CDL3OUTSIDE_Stream sp = new CDL3OUTSIDE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDL3OUTSIDE_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDL3OUTSIDE_OpenAndFillImpl(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDL3OUTSIDE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDL3OUTSIDE openAndFill: internal error");
+         throw new TaLibStateException("CDL3OUTSIDE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDL3OUTSIDE openAndFill: " + retCode);
+      throw new TaLibArgumentException("CDL3OUTSIDE openAndFill: " + retCode, retCode);
    }

@@ -27,14 +27,14 @@
       return 1 ;
 
    }
-   RetCode TRANGE_Internal( int startIdx,
-                            int endIdx,
-                            double inHigh[],
-                            double inLow[],
-                            double inClose[],
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode TRANGE_Impl( int startIdx,
+                        int endIdx,
+                        double inHigh[],
+                        double inLow[],
+                        double inClose[],
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       int today = 0;
       int outIdx = 0;
@@ -99,14 +99,14 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode TRANGE_Internal( int startIdx,
-                            int endIdx,
-                            float inHigh[],
-                            float inLow[],
-                            float inClose[],
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outReal[] )
+   RetCode TRANGE_Impl( int startIdx,
+                        int endIdx,
+                        float inHigh[],
+                        float inLow[],
+                        float inClose[],
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outReal[] )
    {
       int today = 0;
       int outIdx = 0;
@@ -183,8 +183,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#ATR
     * @see Core#NATR
@@ -196,9 +203,17 @@
                            double inClose[],
                            double outReal[] )
    {
+      requireIndexRange("TRANGE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, TRANGE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("TRANGE", "inHigh", inHigh, guardInLen);
+      requireLength("TRANGE", "inLow", inLow, guardInLen);
+      requireLength("TRANGE", "inClose", inClose, guardInLen);
+      requireLength("TRANGE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRANGE_Internal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRANGE_Impl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("TRANGE", retCode);
       }
@@ -238,8 +253,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#ATR
     * @see Core#NATR
@@ -251,9 +273,17 @@
                            float inClose[],
                            double outReal[] )
    {
+      requireIndexRange("TRANGE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, TRANGE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("TRANGE", "inHigh", inHigh, guardInLen);
+      requireLength("TRANGE", "inLow", inLow, guardInLen);
+      requireLength("TRANGE", "inClose", inClose, guardInLen);
+      requireLength("TRANGE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRANGE_Internal(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRANGE_Impl(startIdx, endIdx, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("TRANGE", retCode);
       }
@@ -310,10 +340,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("TRANGE update: BadParam", RetCode.BadParam);
          core.TRANGE_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
@@ -326,6 +366,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("TRANGE peek: BadParam", RetCode.BadParam);
          TRANGE_Stream scratch = new TRANGE_Stream(this);
          core.TRANGE_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
@@ -372,7 +414,7 @@
       sp.cur_outReal = greatest;
       sp.lag1_inClose = inClose;
    }
-   private RetCode TRANGE_OpenCore( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode TRANGE_OpenPass( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int today = 0;
       int outIdx = 0;
@@ -413,7 +455,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       outIdx = 0;
       today = startIdx;
@@ -443,55 +485,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode TRANGE_OpenBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode TRANGE_OpenImpl( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return TRANGE_OpenCore( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return TRANGE_OpenPass( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode TRANGE_OpenAndFillBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode TRANGE_OpenAndFillImpl( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return TRANGE_OpenCore( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
+      return TRANGE_OpenPass( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode TRANGE_OpenAndFillInternalBody( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode TRANGE_OpenAndFillInternalImpl( TRANGE_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return TRANGE_OpenCore(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return TRANGE_OpenPass(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* TRANGE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    TRANGE_Stream TRANGE_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       TRANGE_Stream sp = new TRANGE_Stream(this);
-      RetCode retCode = TRANGE_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRANGE_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TRANGE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TRANGE openAndFill: internal error");
+         throw new TaLibStateException("TRANGE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("TRANGE openAndFill: " + retCode);
+      throw new TaLibArgumentException("TRANGE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind TRANGE_Open (composition seam). */
    TRANGE_Stream TRANGE_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       TRANGE_Stream sp = new TRANGE_Stream(this);
-      RetCode retCode = TRANGE_OpenBody(sp, inHigh, inLow, inClose, startIdx);
+      RetCode retCode = TRANGE_OpenImpl(sp, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TRANGE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TRANGE open: internal error");
+         throw new TaLibStateException("TRANGE open: internal error", retCode);
       }
-      throw new IllegalArgumentException("TRANGE open: " + retCode);
+      throw new TaLibArgumentException("TRANGE open: " + retCode, retCode);
    }
    /**
     * Open a live TRANGE stream over the warm-up history; the handle's
@@ -521,16 +563,16 @@
       TRANGE_Stream sp = new TRANGE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRANGE_OpenAndFillBody(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRANGE_OpenAndFillImpl(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TRANGE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TRANGE openAndFill: internal error");
+         throw new TaLibStateException("TRANGE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("TRANGE openAndFill: " + retCode);
+      throw new TaLibArgumentException("TRANGE openAndFill: " + retCode, retCode);
    }

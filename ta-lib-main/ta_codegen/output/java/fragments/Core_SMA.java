@@ -34,13 +34,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode SMA_Internal( int startIdx,
-                         int endIdx,
-                         double inReal[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode SMA_Impl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double periodTotal = 0;
       double tempReal = 0;
@@ -105,13 +105,13 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode SMA_Internal( int startIdx,
-                         int endIdx,
-                         float inReal[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode SMA_Impl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       double periodTotal = 0;
       double tempReal = 0;
@@ -191,8 +191,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#EMA
     * @see Core#WMA
@@ -206,9 +213,15 @@
                         int optInTimePeriod,
                         double outReal[] )
    {
+      requireIndexRange("SMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, SMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SMA", "inReal", inReal, guardInLen);
+      requireLength("SMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SMA", retCode);
       }
@@ -246,8 +259,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#EMA
     * @see Core#WMA
@@ -261,9 +281,15 @@
                         int optInTimePeriod,
                         double outReal[] )
    {
+      requireIndexRange("SMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, SMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SMA", "inReal", inReal, guardInLen);
+      requireLength("SMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SMA", retCode);
       }
@@ -336,10 +362,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("SMA update: BadParam", RetCode.BadParam);
          core.SMA_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -352,6 +388,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("SMA peek: BadParam", RetCode.BadParam);
          SMA_Stream scratch = new SMA_Stream(this);
          core.SMA_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -389,7 +427,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode SMA_OpenCore( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode SMA_OpenPass( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double periodTotal = 0;
       double tempReal = 0;
@@ -424,7 +462,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Do the MA calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -471,55 +509,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode SMA_OpenBody( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode SMA_OpenImpl( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return SMA_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return SMA_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode SMA_OpenAndFillBody( SMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SMA_OpenAndFillImpl( SMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return SMA_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return SMA_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode SMA_OpenAndFillInternalBody( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SMA_OpenAndFillInternalImpl( SMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return SMA_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return SMA_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* SMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    SMA_Stream SMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       SMA_Stream sp = new SMA_Stream(this);
-      RetCode retCode = SMA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SMA openAndFill: internal error");
+         throw new TaLibStateException("SMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("SMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("SMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind SMA_Open (composition seam). */
    SMA_Stream SMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       SMA_Stream sp = new SMA_Stream(this);
-      RetCode retCode = SMA_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = SMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SMA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SMA open: internal error");
+         throw new TaLibStateException("SMA open: internal error", retCode);
       }
-      throw new IllegalArgumentException("SMA open: " + retCode);
+      throw new TaLibArgumentException("SMA open: " + retCode, retCode);
    }
    /**
     * Open a live SMA stream over the warm-up history; the handle's
@@ -549,16 +587,16 @@
       SMA_Stream sp = new SMA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SMA_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SMA_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SMA openAndFill: internal error");
+         throw new TaLibStateException("SMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("SMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("SMA openAndFill: " + retCode, retCode);
    }

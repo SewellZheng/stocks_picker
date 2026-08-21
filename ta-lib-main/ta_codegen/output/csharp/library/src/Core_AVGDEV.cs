@@ -76,13 +76,13 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode AVGDEV( int startIdx,
-                            int endIdx,
-                            double[] inReal,
-                            int optInTimePeriod,
-                            out int outBegIdx,
-                            out int outNBElement,
-                            double[] outReal )
+   internal RetCode AVGDEV_Impl( int startIdx,
+                                 int endIdx,
+                                 ReadOnlySpan<double> inReal,
+                                 int optInTimePeriod,
+                                 out int outBegIdx,
+                                 out int outNBElement,
+                                 Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -99,6 +99,9 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
+         return RetCode.BadParam ;
       }
       lookback = optInTimePeriod - 1;
       if( startIdx < lookback ) {
@@ -133,13 +136,13 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode AVGDEV( int startIdx,
-                            int endIdx,
-                            float[] inReal,
-                            int optInTimePeriod,
-                            out int outBegIdx,
-                            out int outNBElement,
-                            double[] outReal )
+   internal RetCode AVGDEV_Impl( int startIdx,
+                                 int endIdx,
+                                 ReadOnlySpan<float> inReal,
+                                 int optInTimePeriod,
+                                 out int outBegIdx,
+                                 out int outNBElement,
+                                 Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -220,15 +223,28 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange AVGDEV( int startIdx,
                            int endIdx,
-                           double[] inReal,
+                           ReadOnlySpan<double> inReal,
                            int optInTimePeriod,
-                           double[] outReal )
+                           Span<double> outReal )
    {
-      RetCode retCode = AVGDEV(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, AVGDEV_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("AVGDEV", "inReal", inReal.Length, guardInLen);
+      RequireLength("AVGDEV", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = AVGDEV_Impl(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("AVGDEV", retCode);
       }
@@ -272,18 +288,339 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange AVGDEV( int startIdx,
                            int endIdx,
-                           float[] inReal,
+                           ReadOnlySpan<float> inReal,
                            int optInTimePeriod,
-                           double[] outReal )
+                           Span<double> outReal )
    {
-      RetCode retCode = AVGDEV(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, AVGDEV_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("AVGDEV", "inReal", inReal.Length, guardInLen);
+      RequireLength("AVGDEV", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = AVGDEV_Impl(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("AVGDEV", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>AVGDEV</c> stream: one value per closed bar, bit-identical to
+   /// <c>AVGDEV</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.AVGDEV_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class AVGDEV_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal int winPos_i;
+      internal int winCap_i;
+      internal double[] win_i_inReal = [];
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal AVGDEV_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>AVGDEV_OpenAndFill</c> filled, or
+      /// <see cref="OutRange.Empty"/> when this handle came from a plain open
+      /// (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal AVGDEV_Stream( AVGDEV_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.winPos_i = other.winPos_i;
+         this.winCap_i = other.winCap_i;
+         this.win_i_inReal = new double[other.win_i_inReal.Length];
+         Array.Copy( other.win_i_inReal, this.win_i_inReal, other.win_i_inReal.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( AVGDEV_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.winPos_i = other.winPos_i;
+         this.winCap_i = other.winCap_i;
+         if( this.win_i_inReal.Length != other.win_i_inReal.Length ) {
+            this.win_i_inReal = new double[other.win_i_inReal.Length];
+         }
+         Array.Copy( other.win_i_inReal, this.win_i_inReal, other.win_i_inReal.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inReal )
+      {
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("AVGDEV", "update", RetCode.BadParam);
+         core.AVGDEV_StreamStep(this, inReal);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inReal )
+      {
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("AVGDEV", "peek", RetCode.BadParam);
+         AVGDEV_Stream scratch = new AVGDEV_Stream(this);
+         core.AVGDEV_StreamStep(scratch, inReal);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public AVGDEV_Stream Clone()
+      {
+         return new AVGDEV_Stream(this);
+      }
+   }
+
+   internal void AVGDEV_StreamStep( AVGDEV_Stream sp, double inReal )
+   {
+      double todaySum = 0.0;
+      double todayDev = 0.0;
+      int i = 0;
+      sp.win_i_inReal[sp.winPos_i] = inReal;
+      todaySum = 0.0;
+      for( i = 0; i < sp.optInTimePeriod; i += 1 ) {
+         todaySum += sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
+      }
+      todayDev = 0.0;
+      for( i = 0; i < sp.optInTimePeriod; i += 1 ) {
+         todayDev += Math.Abs(sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i] - todaySum / sp.optInTimePeriod);
+      }
+      sp.cur_outReal = todayDev / sp.optInTimePeriod;
+      sp.winPos_i = sp.winPos_i + 1;
+      if( sp.winPos_i >= sp.winCap_i ) {
+         sp.winPos_i = 0;
+      }
+   }
+
+   private RetCode AVGDEV_OpenPass( AVGDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      int today = 0;
+      int outIdx = 0;
+      int lookback = 0;
+      int historyLen = inReal.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 14;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      lookback = optInTimePeriod - 1;
+      if( startIdx < lookback ) {
+         startIdx = lookback;
+      }
+      today = startIdx;
+      /* Make sure there is still something to evaluate. */
+      if( today > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      /* Process the initial DM and TR */
+      outBegIdx = today;
+      outIdx = 0;
+      while( today <= endIdx ) {
+         double todaySum;
+         double todayDev;
+         int i;
+         todaySum = 0.0;
+         for( i = 0; i < optInTimePeriod; i += 1 ) {
+            todaySum += inReal[today - i];
+         }
+         todayDev = 0.0;
+         for( i = 0; i < optInTimePeriod; i += 1 ) {
+            todayDev += Math.Abs(inReal[today - i] - todaySum / optInTimePeriod);
+         }
+         outReal[outIdx * outStride] = todayDev / optInTimePeriod;
+         outIdx += 1;
+         today += 1;
+      }
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      int cap_i = (int)(optInTimePeriod);
+      if( cap_i < 1 || cap_i > historyLen ) {
+         return RetCode.InternalError;
+      }
+      double[] capWin_i_inReal = new double[cap_i];
+      inReal.Slice(historyLen - cap_i, cap_i).CopyTo(capWin_i_inReal);
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.winPos_i = 0;
+      sp.winCap_i = cap_i;
+      sp.win_i_inReal = capWin_i_inReal;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode AVGDEV_OpenImpl( AVGDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return AVGDEV_OpenPass( sp, inReal, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode AVGDEV_OpenAndFillImpl( AVGDEV_Stream sp, ReadOnlySpan<double> inReal, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inReal) ) {
+         return RetCode.BadParam;
+      }
+      return AVGDEV_OpenPass( sp, inReal, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode AVGDEV_OpenAndFillInternalImpl( AVGDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return AVGDEV_OpenPass(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* AVGDEV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal AVGDEV_Stream AVGDEV_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      AVGDEV_Stream sp = new AVGDEV_Stream(this);
+      RetCode retCode = AVGDEV_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("AVGDEV", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind AVGDEV_Open (composition seam). */
+   internal AVGDEV_Stream AVGDEV_OpenInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod )
+   {
+      AVGDEV_Stream sp = new AVGDEV_Stream(this);
+      RetCode retCode = AVGDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("AVGDEV", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>AVGDEV</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="AVGDEV_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>AVGDEV</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>AVGDEV_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>AVGDEV_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inReal">source series. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="AVGDEV_Lookback"/> for its default
+   /// and range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AVGDEV_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public AVGDEV_Stream AVGDEV_Open( ReadOnlySpan<double> inReal, int optInTimePeriod )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      return AVGDEV_OpenInternal(inReal, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>AVGDEV_Open</c> that also fills the output array(s) over the whole
+   /// history in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>AVGDEV</c> produces over
+   /// the same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - AVGDEV_Lookback(...)</c> values
+   /// and must not alias the inputs or each other — this path writes the outputs
+   /// and then reads the input tail to seed its rings, so the batch tier's
+   /// in-place allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="AVGDEV_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inReal">source series. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="AVGDEV_Lookback"/> for its default
+   /// and range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">mean absolute deviation over the window. Must hold at least <c>historyLen
+   /// - AVGDEV_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AVGDEV_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public AVGDEV_Stream AVGDEV_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      AVGDEV_Stream sp = new AVGDEV_Stream(this);
+      RetCode retCode = AVGDEV_OpenAndFillImpl(sp, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("AVGDEV", "openAndFill", retCode);
    }
 }

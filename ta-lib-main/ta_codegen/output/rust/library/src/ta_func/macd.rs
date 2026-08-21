@@ -80,8 +80,8 @@ impl Core {
     /// * `optInSlowPeriod` — Period of the slow EMA (default 26, range 2..=100000)
     /// * `optInSignalPeriod` — Smoothing period of the signal line (default 9, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn MACD_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> usize {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -114,86 +114,9 @@ impl Core {
         }
         return (self.EMA_Lookback(optInSlowPeriod) + self.EMA_Lookback(optInSignalPeriod)) as usize;
     }
-    /// Moving Average Convergence/Divergence: the difference between a fast and a slow EMA of the
-    /// input, plus an EMA-smoothed signal line and their histogram. MACD crossing its signal line
-    /// and histogram sign changes flag momentum shifts.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// MACD = EMA_fast - EMA_slow;  Signal = EMA(MACD, signalPeriod);  Hist = MACD - Signal
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * If the slow period is set smaller than the fast period, the two are swapped so the slow
-    ///   EMA is always the longer one.
-    /// * A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and
-    ///   the histogram is zero. Before 0.6.5 this parameter value produced misaligned output
-    ///   (issues #48/#59).
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Input series (typically close)
-    /// * `optInFastPeriod` — Period of the fast EMA (default 12, range 2..=100000)
-    /// * `optInSlowPeriod` — Period of the slow EMA (default 26, range 2..=100000)
-    /// * `optInSignalPeriod` — Smoothing period of the signal line (default 9, range 1..=100000)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outMACD` — Fast EMA minus slow EMA.
-    /// * `outMACDSignal` — EMA of the MACD line.
-    /// * `outMACDHist` — MACD minus signal line.
-    ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut macd = vec![0.0; 252];
-    /// let mut macd_signal = vec![0.0; 252];
-    /// let mut macd_hist = vec![0.0; 252];
-    ///
-    /// let ret = core.MACD(
-    ///     0, data.len() - 1, &data, 12, 26, 9,
-    ///     &mut out_beg, &mut out_nb, &mut macd, &mut macd_signal, &mut macd_hist,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(macd[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::MACDEXT`] · [`Core::MACDFIX`] · [`Core::EMA`] · [`Core::APO`]
-    ///
-    /// # References
-    ///
-    /// * Gerald Appel, *Stock Market Trading Systems*, Traders Pr (ISBN 0934380163)
-    ///
-    /// Further reading: [ta-lib.org/functions/macd](https://ta-lib.org/functions/macd)
-    #[doc(alias = "movingaverageconvergencedivergence")]
-    pub fn MACD(
+    /// C-shaped body behind [`Core::MACD`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn MACD_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -208,13 +131,13 @@ impl Core {
         outMACDHist: &mut [f64],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, MACD_fma, MACD_impl, (startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist));
+        return ta_lib_dispatch::dispatch_fma!(self, MACD_Impl_fma, MACD_Impl_impl, (startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist));
         #[cfg(not(target_arch = "x86_64"))]
-        self.MACD_impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist)
+        self.MACD_Impl_impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn MACD_fma(
+    fn MACD_Impl_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -228,10 +151,10 @@ impl Core {
         outMACDSignal: &mut [f64],
         outMACDHist: &mut [f64],
     ) -> RetCode {
-        self.MACD_impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist)
+        self.MACD_Impl_impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist)
     }
     #[inline(always)]
-    fn MACD_impl(
+    fn MACD_Impl_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -245,10 +168,10 @@ impl Core {
         outMACDSignal: &mut [f64],
         outMACDHist: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -453,6 +376,122 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Moving Average Convergence/Divergence: the difference between a fast and a slow EMA of the
+    /// input, plus an EMA-smoothed signal line and their histogram. MACD crossing its signal line
+    /// and histogram sign changes flag momentum shifts.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// MACD = EMA_fast - EMA_slow;  Signal = EMA(MACD, signalPeriod);  Hist = MACD - Signal
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// * If the slow period is set smaller than the fast period, the two are swapped so the slow
+    ///   EMA is always the longer one.
+    /// * A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and
+    ///   the histogram is zero. Before 0.6.5 this parameter value produced misaligned output
+    ///   (issues #48/#59).
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Input series (typically close)
+    /// * `optInFastPeriod` — Period of the fast EMA (default 12, range 2..=100000)
+    /// * `optInSlowPeriod` — Period of the slow EMA (default 26, range 2..=100000)
+    /// * `optInSignalPeriod` — Smoothing period of the signal line (default 9, range 1..=100000)
+    /// * `outMACD` — Fast EMA minus slow EMA.
+    /// * `outMACDSignal` — EMA of the MACD line.
+    /// * `outMACDHist` — MACD minus signal line.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut macd = vec![0.0; 252];
+    /// let mut macd_signal = vec![0.0; 252];
+    /// let mut macd_hist = vec![0.0; 252];
+    ///
+    /// let out_range = core.MACD(
+    ///     0, data.len() - 1, &data, 12, 26, 9,
+    ///     &mut macd, &mut macd_signal, &mut macd_hist,
+    /// )?;
+    /// assert!(out_range.count > 0);
+    /// assert!(macd[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::MACDEXT`] · [`Core::MACDFIX`] · [`Core::EMA`] · [`Core::APO`]
+    ///
+    /// # References
+    ///
+    /// * Gerald Appel, *Stock Market Trading Systems*, Traders Pr (ISBN 0934380163)
+    ///
+    /// Further reading: [ta-lib.org/functions/macd](https://ta-lib.org/functions/macd)
+    #[doc(alias = "movingaverageconvergencedivergence")]
+    pub fn MACD(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        optInFastPeriod: i32,
+        optInSlowPeriod: i32,
+        optInSignalPeriod: i32,
+        outMACD: &mut [f64],
+        outMACDSignal: &mut [f64],
+        outMACDHist: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.MACD_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInSignalPeriod,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outMACD,
+            outMACDSignal,
+            outMACDHist,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -534,13 +573,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::MACD_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::MACD_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn MACD_OpenCore(
+    pub(crate) fn MACD_OpenPass(
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64], outStride: usize,
     ) -> Result<MACD_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -620,7 +659,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Everything is computed in a single lockstep pass: each bar
         // advances the fast and slow EMA (two independent recursions),
@@ -763,7 +802,7 @@ impl Core {
         let mut sink_outMACD = [0.0_f64; 1];
         let mut sink_outMACDSignal = [0.0_f64; 1];
         let mut sink_outMACDHist = [0.0_f64; 1];
-        let handle = self.MACD_OpenCore(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outMACD, &mut sink_outMACDSignal, &mut sink_outMACDHist, 0)?;
+        let handle = self.MACD_OpenPass(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outMACD, &mut sink_outMACDSignal, &mut sink_outMACDHist, 0)?;
         Ok((handle, (sink_outMACD[0], sink_outMACDSignal[0], sink_outMACDHist[0])))
     }
 
@@ -772,8 +811,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -781,8 +822,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MACD_Open(&data, 12, 26, 9).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked.0.to_bits(), updated.0.to_bits());
     /// assert_eq!(peeked.1.to_bits(), updated.1.to_bits());
     /// assert_eq!(peeked.2.to_bits(), updated.2.to_bits());
@@ -793,12 +834,13 @@ impl Core {
     }
 
     /// [`Core::MACD_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::MACD`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::MACD`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_MACD_OpenAndFill")]
     pub fn MACD_OpenAndFill(
-        &self, inReal: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64],
-    ) -> Result<MACD_Stream, RetCode> {
+        &self, inReal: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64],
+    ) -> Result<(MACD_Stream, OutRange), RetCode> {
         if outMACD.as_ptr() == outMACDSignal.as_ptr() {
             return Err(RetCode::BadParam);
         }
@@ -808,7 +850,10 @@ impl Core {
         if outMACDSignal.as_ptr() == outMACDHist.as_ptr() {
             return Err(RetCode::BadParam);
         }
-        self.MACD_OpenCore(inReal, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1)
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.MACD_OpenPass(inReal, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut outBegIdx, &mut outNBElement, outMACD, outMACDSignal, outMACDHist, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::MACD_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -816,7 +861,7 @@ impl Core {
     pub(crate) fn MACD_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64],
     ) -> Result<MACD_Stream, RetCode> {
-        self.MACD_OpenCore(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1)
+        self.MACD_OpenPass(inReal, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1)
     }
 
 }
@@ -824,14 +869,27 @@ impl Core {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl MACD_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_MACD_Update")]
-    pub fn update(&mut self, inReal: f64) -> (f64, f64, f64) {
+    pub fn update(&mut self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outMACD: f64 = 0.0_f64;
         let mut outMACDSignal: f64 = 0.0_f64;
         let mut outMACDHist: f64 = 0.0_f64;
         self.core.MACD_step_internal(&mut self.state, inReal, &mut outMACD, &mut outMACDSignal, &mut outMACDHist);
-        (outMACD, outMACDSignal, outMACDHist)
+        Ok((outMACD, outMACDSignal, outMACDHist))
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -839,9 +897,16 @@ impl MACD_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. This handle holds only scalars, so the copy is a
     /// few machine words and `peek` never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_MACD_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> (f64, f64, f64) {
+    pub fn peek(&self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut scratch = self.clone();
         scratch.update(inReal)
     }

@@ -30,13 +30,13 @@
       return 0 ;
 
    }
-   RetCode OBV_Internal( int startIdx,
-                         int endIdx,
-                         double inReal[],
-                         double inVolume[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode OBV_Impl( int startIdx,
+                     int endIdx,
+                     double inReal[],
+                     double inVolume[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -66,13 +66,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode OBV_Internal( int startIdx,
-                         int endIdx,
-                         float inReal[],
-                         float inVolume[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode OBV_Impl( int startIdx,
+                     int endIdx,
+                     float inReal[],
+                     float inVolume[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -127,8 +127,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     */
    public OutRange OBV( int startIdx,
                         int endIdx,
@@ -136,9 +143,16 @@
                         double inVolume[],
                         double outReal[] )
    {
+      requireIndexRange("OBV", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, OBV_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("OBV", "inReal", inReal, guardInLen);
+      requireLength("OBV", "inVolume", inVolume, guardInLen);
+      requireLength("OBV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = OBV_Internal(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_Impl(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("OBV", retCode);
       }
@@ -172,8 +186,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     */
    public OutRange OBV( int startIdx,
                         int endIdx,
@@ -181,9 +202,16 @@
                         float inVolume[],
                         double outReal[] )
    {
+      requireIndexRange("OBV", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, OBV_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("OBV", "inReal", inReal, guardInLen);
+      requireLength("OBV", "inVolume", inVolume, guardInLen);
+      requireLength("OBV", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = OBV_Internal(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_Impl(startIdx, endIdx, inReal, inVolume, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("OBV", retCode);
       }
@@ -240,10 +268,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal, double inVolume ) {
+         if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
+            throw new TaLibArgumentException("OBV update: BadParam", RetCode.BadParam);
          core.OBV_StreamStep(this, inReal, inVolume);
          return this.cur_outReal;
       }
@@ -256,6 +294,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal, double inVolume ) {
+         if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
+            throw new TaLibArgumentException("OBV peek: BadParam", RetCode.BadParam);
          OBV_Stream scratch = new OBV_Stream(this);
          core.OBV_StreamStep(scratch, inReal, inVolume);
          return scratch.cur_outReal;
@@ -290,7 +330,7 @@
       sp.cur_outReal = sp.prevOBV;
       sp.prevReal = tempReal;
    }
-   private RetCode OBV_OpenCore( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode OBV_OpenPass( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -326,55 +366,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode OBV_OpenBody( OBV_Stream sp, double inReal[], double inVolume[], int startIdx )
+   private RetCode OBV_OpenImpl( OBV_Stream sp, double inReal[], double inVolume[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return OBV_OpenCore( sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return OBV_OpenPass( sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode OBV_OpenAndFillBody( OBV_Stream sp, double inReal[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode OBV_OpenAndFillImpl( OBV_Stream sp, double inReal[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
          return RetCode.BadParam;
       }
-      return OBV_OpenCore( sp, inReal, inVolume, 0, outBegIdx, outNBElement, outReal, 1 );
+      return OBV_OpenPass( sp, inReal, inVolume, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode OBV_OpenAndFillInternalBody( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode OBV_OpenAndFillInternalImpl( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return OBV_OpenCore(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return OBV_OpenPass(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* OBV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    OBV_Stream OBV_OpenAndFillInternal( double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       OBV_Stream sp = new OBV_Stream(this);
-      RetCode retCode = OBV_OpenAndFillInternalBody(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_OpenAndFillInternalImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("OBV openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("OBV openAndFill: internal error");
+         throw new TaLibStateException("OBV openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("OBV openAndFill: " + retCode);
+      throw new TaLibArgumentException("OBV openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind OBV_Open (composition seam). */
    OBV_Stream OBV_OpenInternal( double inReal[], double inVolume[], int startIdx )
    {
       OBV_Stream sp = new OBV_Stream(this);
-      RetCode retCode = OBV_OpenBody(sp, inReal, inVolume, startIdx);
+      RetCode retCode = OBV_OpenImpl(sp, inReal, inVolume, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("OBV open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("OBV open: internal error");
+         throw new TaLibStateException("OBV open: internal error", retCode);
       }
-      throw new IllegalArgumentException("OBV open: " + retCode);
+      throw new TaLibArgumentException("OBV open: " + retCode, retCode);
    }
    /**
     * Open a live OBV stream over the warm-up history; the handle's
@@ -404,16 +444,16 @@
       OBV_Stream sp = new OBV_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = OBV_OpenAndFillBody(sp, inReal, inVolume, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_OpenAndFillImpl(sp, inReal, inVolume, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("OBV openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("OBV openAndFill: internal error");
+         throw new TaLibStateException("OBV openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("OBV openAndFill: " + retCode);
+      throw new TaLibArgumentException("OBV openAndFill: " + retCode, retCode);
    }

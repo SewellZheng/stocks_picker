@@ -271,7 +271,7 @@ static void TA_IMI_StepInternal( struct TA_IMI_Stream *sp, double inOpen, double
    }
 }
 
-static TA_RetCode TA_IMI_OpenCore( struct TA_IMI_Stream **stream, const double inOpen[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_IMI_OpenPass( struct TA_IMI_Stream **stream, const double inOpen[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_IMI_Stream *sp;
    int endIdx;
@@ -306,7 +306,7 @@ static TA_RetCode TA_IMI_OpenCore( struct TA_IMI_Stream **stream, const double i
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
       while( startIdx <= endIdx )
@@ -366,7 +366,7 @@ TA_RetCode TA_IMI_OpenInternal( struct TA_IMI_Stream **stream, const double inOp
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_IMI_OpenCore( stream, inOpen, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_IMI_OpenPass( stream, inOpen, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -376,6 +376,11 @@ TA_RetCode TA_IMI_OpenInternal( struct TA_IMI_Stream **stream, const double inOp
 
 TA_LIB_API TA_RetCode TA_IMI_Open( TA_IMI_Stream **stream, const double inOpen[], const double inClose[], int historyLen, int optInTimePeriod, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inOpen || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_IMI_OpenInternal( stream, inOpen, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -384,19 +389,23 @@ TA_LIB_API TA_RetCode TA_IMI_OpenAndFill( TA_IMI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inOpen || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inOpen || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_IMI_OpenCore( stream, inOpen, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_IMI_OpenPass( stream, inOpen, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_IMI_OpenAndFillInternal( struct TA_IMI_Stream **stream, const double inOpen[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_IMI_OpenCore( stream, inOpen, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_IMI_OpenPass( stream, inOpen, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_IMI_Update( TA_IMI_Stream *stream, double inOpen, double inClose, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_IMI_StepInternal( stream, inOpen, inClose, outReal );
    return TA_SUCCESS;
 }
@@ -406,6 +415,7 @@ TA_LIB_API TA_RetCode TA_IMI_Peek( const TA_IMI_Stream *stream, double inOpen, d
    struct TA_IMI_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.win_i_inOpen = stream->winMirror_i_inOpen;
    memcpy( scratch.win_i_inOpen, stream->win_i_inOpen, sizeof(double) * (size_t)stream->winCap_i );

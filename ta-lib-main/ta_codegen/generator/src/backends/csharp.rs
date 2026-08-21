@@ -5,13 +5,44 @@
 //!
 //! # Pinned decisions
 //!
-//! - **Public array surface is `double[]`, not `Span<double>`.** Three separate
-//!   mechanisms are array *reference equality*: BBANDS' scratch election
-//!   (`if (inReal == outRealUpperBand)`), the output-distinctness reject (#108),
-//!   and the `float[]`-overload comparison fold. `Span<T>` has no `==`, so
-//!   choosing spans breaks all three at once and drags Rust's `ScratchElection`
-//!   pass into C#. A span-based facade can sit on top later, where reference
-//!   identity does not apply.
+//! - **Public series surface is spans, not arrays** — `ReadOnlySpan<T>` in,
+//!   `Span<T>` out, for both the `double` and `float` precisions. A caller can
+//!   pass a window of a larger buffer without copying it, which is what the
+//!   array surface could never offer. Array call sites keep compiling, since
+//!   `double[]` converts implicitly, so this is source-compatible for the
+//!   ordinary case despite changing every signature.
+//!
+//!   Both tiers route through [`cs_series_in`] / [`cs_series_out`], so the
+//!   surface type is stated once. Adding array overloads back is additive and
+//!   non-breaking — an exact array match outranks the implicit conversion —
+//!   which is why this direction was taken first: it is the reversible one.
+//!
+//!   Three consequences, none of them optional:
+//!
+//!   1. **Reflective invocation of this API is impossible.** A span is a
+//!      `ref struct` and cannot be boxed into the `object[]` that
+//!      `MethodInfo.Invoke` takes. `GetMethod` still resolves a span signature,
+//!      so shape *lookup* works — only the call does not. The metadata suite
+//!      compares values through the binder's generated thunks for exactly this
+//!      reason. A consumer doing reflective dispatch has no workaround short of
+//!      array overloads.
+//!   2. **The aliasing reject is `Overlaps`, not reference identity.** Arrays
+//!      are identical or disjoint; spans made partial overlap expressible.
+//!      This matters beyond the reject: BBANDS elects its scratch with
+//!      `if (inReal == outRealUpperBand)`, an ALGORITHMIC branch that reads
+//!      false on a partially-overlapping pair whose buffers do collide. See
+//!      `csharp_stream::alias_reject`.
+//!   3. **Null becomes empty.** `(double[])null` converts to a length-0 span,
+//!      so `ArgumentNullException.ThrowIfNull` does not even compile. The
+//!      public wrappers test `IsEmpty` on INPUTS instead, which carries the
+//!      same information here — any valid range needs `endIdx >= 0`, hence at
+//!      least one element. Outputs are deliberately not checked: an empty
+//!      output is legitimate when the range is shorter than the lookback.
+//!
+//!   A pointer local in the C source becomes `Span<T>`, not an array: those
+//!   alias either an output parameter or an allocated buffer, and only a span
+//!   holds both. A fixed-size array local stays an array — it owns storage.
+//!   Handle fields stay arrays too; a ref struct can never be a field.
 //!
 //! - **Cores return `RetCode`; only the public wrapper throws.** Cross-indicator
 //!   callees return RetCode that callers *inspect* (MA, BBANDS, MAVP, STOCHRSI,
@@ -38,7 +69,7 @@
 //!   taken by address still needs the `double[1]` wrapping, because the callee
 //!   parameter it binds to is an output *array*.
 //!
-//! - **Qualified switch labels (`case MAType.Sma:`)** — the exact inverse of
+//! - **Qualified switch labels (`case MAType.SMA:`)** — the exact inverse of
 //!   `render_java_switch_label`, which strips the qualifier because qualified
 //!   labels are Java 21+. Locals are declared with initializers (as in Java), so
 //!   C# definite assignment does not additionally force `default:` arms.
@@ -97,7 +128,7 @@ pub(crate) struct CsRenderCtx<'a> {
     /// fusion). Same detector as C/Rust/Java, so the four backends fuse
     /// identical sites; `Math.FusedMultiplyAdd` is IEEE correctly-rounded.
     pub(crate) fma: Option<&'a FmaVarSets>,
-    /// `TA_MAType_SMA` → `MAType.Sma`, derived from enums.yaml (same map Java
+    /// `TA_MAType_SMA` → `MAType.SMA`, derived from enums.yaml (same map Java
     /// builds — the rendering is identical in both languages).
     pub(crate) matype_map: HashMap<String, String>,
 }
@@ -191,14 +222,40 @@ pub(crate) const RESERVED_WORDS: &[&str] = &[
     "while",
 ];
 
+/// The public surface type for an input series. One seam, so the batch and
+/// streaming tiers cannot drift.
+///
+/// Spans, not arrays: a caller can pass a window of a larger buffer without
+/// copying it. Array call sites keep compiling — `double[]` converts
+/// implicitly — so this is source-compatible for the ordinary case even though
+/// it changes the signature. Adding array overloads back is additive and
+/// non-breaking (an exact array match outranks the implicit conversion), which
+/// is why this direction was taken first.
+pub(crate) fn cs_series_in(elem: &str) -> String {
+    format!("ReadOnlySpan<{elem}>")
+}
+
+/// The public surface type for an output series. Separate from
+/// [`cs_series_in`] because the two differ: an output is written.
+pub(crate) fn cs_series_out(elem: &str) -> String {
+    format!("Span<{elem}>")
+}
+
 /// C# type name for a scalar or pointer `VarType`.
 pub(crate) fn cs_type_str(var_type: &VarType) -> &'static str {
     match var_type {
         VarType::Real => "double",
         VarType::Integer | VarType::Index => "int",
         VarType::RetCodeType => "RetCode",
-        VarType::RealPointer | VarType::RealArray(_) => "double[]",
-        VarType::IntPointer | VarType::IntArray(_) => "int[]",
+        // A POINTER local is a span: in the C source these alias either an
+        // output parameter or an allocated buffer, and only a span can hold
+        // both (BBANDS' scratch election assigns an output to one). A
+        // fixed-size ARRAY local stays an array — it owns its storage, and it
+        // converts implicitly wherever a span is wanted.
+        VarType::RealPointer => "Span<double>",
+        VarType::IntPointer => "Span<int>",
+        VarType::RealArray(_) => "double[]",
+        VarType::IntArray(_) => "int[]",
     }
 }
 
@@ -278,11 +335,17 @@ pub fn generate(
     // Public surface: OutRange-returning wrappers over the cores above.
     out.push_str(&gen_public_wrapper(func, false, enums));
     out.push_str(&gen_public_wrapper(func, true, enums));
+    // Streaming API section (only for YAML-declared streamable functions).
+    // Unlike Java there is no fragment splice: the section simply lands inside
+    // this file's `partial class Core`, before its closing brace.
+    if func.streaming {
+        out.push_str(&super::csharp_stream::generate(func, enums, registry, helpers));
+    }
     out.push_str("}\n");
     out
 }
 
-/// `MAType` + `0` → `MAType.Sma`, the qualified form the rest of the C# backend
+/// `MAType` + `0` → `MAType.SMA`, the qualified form the rest of the C# backend
 /// emits. A value with no named variant falls back to the cast, which is the same
 /// C# value — the enum is an `int` with names, so nothing is lost.
 fn csharp_enum_literal(enum_name: &str, value: i32, enums: &HashMap<String, EnumDef>) -> String {
@@ -307,7 +370,7 @@ fn csharp_enum_literal(enum_name: &str, value: i32, enums: &HashMap<String, Enum
 // Integer optional-param defaults/ranges are `f64` in the IR; the integer-valued
 // casts to `i32` for literal emission are exact, not truncating.
 #[allow(clippy::cast_possible_truncation)]
-fn emit_opt_param_validation(
+pub(crate) fn emit_opt_param_validation(
     func: &FuncDef,
     fail: &str,
     enums: &HashMap<String, EnumDef>,
@@ -343,10 +406,13 @@ fn emit_opt_param_validation(
                     // Every declared bound is checked (see backends::c).
                     if let Some((min, max)) = opt.range {
                         out.push_str(&format!(
-                            " else if( {name} < {lo} || {name} > {hi} ) {{\n         return {fail};\n      }}",
-                            name = opt.name,
-                            lo = super::common::real_bound_literal(min, "TA_"),
-                            hi = super::common::real_bound_literal(max, "TA_")
+                            " else if( {cond} ) {{\n         return {fail};\n      }}",
+                            cond = super::common::real_range_reject(
+                                &opt.name,
+                                &super::common::real_bound_literal(min, "TA_"),
+                                &super::common::real_bound_literal(max, "TA_"),
+                                false
+                            )
                         ));
                     }
                     out.push('\n');
@@ -388,7 +454,7 @@ fn emit_opt_param_validation(
     out
 }
 
-fn opt_param_type_str(opt: &crate::ir::OptInput) -> &str {
+pub(crate) fn opt_param_type_str(opt: &crate::ir::OptInput) -> &str {
     match &opt.param_type {
         ParamType::Real => "double",
         ParamType::Integer => "int",
@@ -467,11 +533,31 @@ fn render_init_expr(expr: &Expr) -> String {
     }
 }
 
-/// Emit the public, `OutRange`-returning wrapper over one internal core.
+/// Name of the implementation tier: the transcribed numerics, and nothing else.
 ///
-/// The wrapper translates the core's `RetCode` into the documented exception
-/// mapping. It is thin: the numerics live entirely in the core (an overload of
-/// the same name carrying the two `out int` params).
+/// Suffixed `_Impl`, matching the streaming tiers (`_OpenImpl`,
+/// `_OpenAndFillImpl`). `Internal` is deliberately NOT reused: in these two
+/// backends it names a *variant* (`_OpenAndFillInternal` is the composed-open
+/// fusion seam), and until #236 step 5 it named the deleted C-shaped tier, so
+/// one word would carry three meanings across the history.
+///
+/// C# distinguishes its two PUBLIC-facing tiers by overload — `internal RetCode
+/// <N>(…, out int, out int, …)` beside `public OutRange <N>(…)` — but a third
+/// method with the same signature as the first needs a name of its own. Since
+/// #236 step 3 the C-shaped overload is a shim that converts a thrown failure
+/// back to a code, so that the body's cross-calls can call the public overload
+/// (which the same call site selects, by omitting the two `out int` arguments).
+fn body_name(base: &str) -> String {
+    format!("{base}_Impl")
+}
+
+/// Emit the public, `OutRange`-returning wrapper, plus the C-shaped shim beside it.
+///
+/// The wrapper checks the arguments, calls [`body_name`] and translates its
+/// `RetCode` into the documented exception mapping. It is thin: the numerics live
+/// entirely in the body. It calls the BODY and not the shim, so that a
+/// cross-call's rejection propagates as a throw rather than being converted to a
+/// code and re-thrown under this function's name.
 ///
 /// **A short range is not an error.** A valid range shorter than the lookback
 /// returns `Success` with `outNBElement == 0`, which becomes an `OutRange` whose
@@ -482,8 +568,8 @@ fn gen_public_wrapper(
     enums: &HashMap<String, EnumDef>,
 ) -> String {
     let base_name = func.name.clone();
-    let core = base_name.clone();
-    let public_name = core.clone();
+    let core = body_name(&base_name);
+    let public_name = base_name.clone();
 
     // Parameters: same as the core minus the two out-int params.
     let mut params: Vec<String> = vec!["int startIdx".to_string(), "int endIdx".to_string()];
@@ -494,7 +580,7 @@ fn gen_public_wrapper(
             (ParamType::Real, false) => "double",
             _ => "int",
         };
-        params.push(format!("{}[] {}", cs_type, input.name));
+        params.push(format!("{} {}", cs_series_in(cs_type), input.name));
         args.push(input.name.clone());
     }
     for opt in &func.optional_inputs {
@@ -508,7 +594,7 @@ fn gen_public_wrapper(
             ParamType::Real => "double",
             _ => "int",
         };
-        params.push(format!("{}[] {}", cs_type, output.name));
+        params.push(format!("{} {}", cs_series_out(cs_type), output.name));
         args.push(output.name.clone());
     }
 
@@ -524,6 +610,70 @@ fn gen_public_wrapper(
         out.push_str(param);
     }
     out.push_str(" )\n   {\n");
+    // Argument checks. Public wrappers only — the internal cores are reached by
+    // cross-indicator calls and the JSON-RPC server with buffers the generator
+    // itself created.
+    //
+    // A span is never null: `(double[])null` converts to a span of length 0. So
+    // C#'s null check IS the emptiness check, and the type system supplies the
+    // half Java has to write by hand. What it does not supply is the length
+    // bound, which is the rest of this block: the same bound the Rust backend
+    // asserts and Java's wrappers check — every input the body indexes must
+    // reach `endIdx`, every output must hold `endIdx - max(startIdx, lookback)
+    // + 1` values, the count actually produced.
+    //
+    // There is no separate emptiness check. There used to be one, on every
+    // declared input, and the length bound subsumes it: on any call the core
+    // actually runs, `guardInLen` is `endIdx + 1` and therefore at least 1, so an
+    // empty input fails the length check anyway — and fails it with a message
+    // naming both sizes rather than just the word "empty".
+    //
+    // Where the two differed, the emptiness check was WRONG. It ran before
+    // anything else, so `SMA(-1, 50, empty, 10, out)` reported "inReal is empty"
+    // when the caller's actual mistake was the startIdx: it pre-empted the
+    // RetCode the core exists to produce. The length bound cannot, because
+    // `ClampedStart` returns -1 for exactly those arguments and switches it off.
+    //
+    // It also ran over inputs the body never indexes — four candlestick patterns
+    // declare an OHLC leg they never read — so an empty leg was an error in C#
+    // and a success in Rust and Java, which both skip those.
+    let indexed = super::common::indexed_input_names(func);
+    let checked_inputs: Vec<&str> = func
+        .inputs
+        .iter()
+        .filter(|i| indexed.contains(&i.name))
+        .map(|i| i.name.as_str())
+        .collect();
+    if !checked_inputs.is_empty() || !func.outputs.is_empty() {
+        let lb_args: Vec<String> =
+            func.optional_inputs.iter().map(|o| o.name.clone()).collect();
+        let _ = writeln!(
+            out,
+            "      int guardStart = ClampedStart(startIdx, endIdx, {base_name}_Lookback({}));",
+            lb_args.join(", ")
+        );
+        if !checked_inputs.is_empty() {
+            out.push_str("      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;\n");
+        }
+        if !func.outputs.is_empty() {
+            out.push_str(
+                "      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;\n",
+            );
+        }
+        for name in &checked_inputs {
+            let _ = writeln!(
+                out,
+                "      RequireLength(\"{base_name}\", \"{name}\", {name}.Length, guardInLen);"
+            );
+        }
+        for output in &func.outputs {
+            let name = &output.name;
+            let _ = writeln!(
+                out,
+                "      RequireLength(\"{base_name}\", \"{name}\", {name}.Length, guardOutLen);"
+            );
+        }
+    }
     {
         let _ = write!(out, "      RetCode retCode = {core}(");
         out.push_str(&args.join(", "));
@@ -534,6 +684,7 @@ fn gen_public_wrapper(
     }
     out.push_str("      return new OutRange(outBegIdx, outNBElement);\n");
     out.push_str("   }\n");
+
     out
 }
 
@@ -574,7 +725,7 @@ fn gen_func_inner(
     let name = if let Some(n) = name_override {
         n.to_string()
     } else {
-        base_name.clone()
+        body_name(&base_name)
     };
 
     // Build parameter list
@@ -588,7 +739,7 @@ fn gen_func_inner(
             (ParamType::Real, false) => "double",
             _ => "int",
         };
-        params.push(format!("{}[] {}", cs_type, input.name));
+        params.push(format!("{} {}", cs_series_in(cs_type), input.name));
     }
 
     for opt in &func.optional_inputs {
@@ -614,7 +765,7 @@ fn gen_func_inner(
             ParamType::Real => "double",
             _ => "int",
         };
-        params.push(format!("{}[] {}", cs_type, output.name));
+        params.push(format!("{} {}", cs_series_out(cs_type), output.name));
     }
 
     // Format signature. Internal: these are the cores the public OutRange
@@ -748,22 +899,88 @@ fn gen_func_inner(
         out.push_str("      }\n");
         // Optional parameter validation (default + range)
         out.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
-        // Output-distinctness (issue #108): aliasing two different output
-        // arrays has no correct result, so reject it. Input == output stays
-        // allowed. Array `==` is reference equality in C# as in Java.
+        // Output-distinctness (issue #108): two outputs sharing memory has no
+        // correct result, so reject it. Input/output overlap stays allowed —
+        // several bodies are written to compute in place.
+        //
+        // `Overlaps`, NOT `==`. Under the old `double[]` surface two arrays
+        // were identical or disjoint, so reference equality was complete. Spans
+        // made the in-between expressible: `buf.AsSpan(0, n)` against
+        // `buf.AsSpan(0, n + 1)` is the SAME memory at the SAME start, and span
+        // `==` (ref AND length) reads false. Leaving this on `==` let 13
+        // multi-output functions return Success with every value wrong.
+        //
+        // Zero-length operands need the explicit arm: `Overlaps` short-circuits
+        // to false when either side is empty, so two empty outputs — which the
+        // array guard rejected as the same reference — would otherwise reach
+        // the body and fault on the first write.
+        //
+        // Cross-typed pairs are skipped: `Span<double>` and `Span<int>` cannot
+        // be laid over the same memory, and `Overlaps` is not defined across
+        // element types.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {
                 for j in (i + 1)..func.outputs.len() {
+                    let (a, b) = (&func.outputs[i], &func.outputs[j]);
+                    if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
+                        continue;
+                    }
+                    pairs.push(format!("{}.Overlaps({})", a.name, b.name));
                     pairs.push(format!(
-                        "{} == {}",
-                        func.outputs[i].name, func.outputs[j].name
+                        "({}.IsEmpty && {}.IsEmpty)",
+                        a.name, b.name
                     ));
                 }
             }
-            out.push_str(&format!("      if( {} ) {{\n", pairs.join(" || ")));
-            out.push_str("         return RetCode.BadParam ;\n");
-            out.push_str("      }\n");
+            if !pairs.is_empty() {
+                out.push_str(&format!("      if( {} ) {{\n", pairs.join(" || ")));
+                out.push_str("         return RetCode.BadParam ;\n");
+                out.push_str("      }\n");
+            }
+        }
+
+        // PARTIAL input/output overlap (span-only hazard, no array analogue).
+        //
+        // Whole-buffer in-place is legitimate and several transcribed bodies
+        // are written for it — they branch on series identity as ALGORITHM,
+        // not as validation: BBANDS elects its scratch with
+        // `if (inReal == outRealUpperBand)`, MAVP defends with
+        // `if (outReal == inReal)`, STOCH/STOCHF likewise. Span `==` still
+        // recognises the exact-same-span case those tests were written for.
+        //
+        // What it does NOT recognise is a partial overlap, which only spans can
+        // express. There the election reads false, the body elects a buffer
+        // that collides with its own input, and it writes through what it is
+        // still reading — Success, no exception, wrong values. So reject
+        // overlapping-but-not-identical here, before any body sees it, and
+        // leave the identical case to the bodies that already handle it.
+        {
+            let mut cross: Vec<String> = Vec::new();
+            for o in &func.outputs {
+                let o_int = o.param_type == ParamType::Integer;
+                for i in &func.inputs {
+                    // The float overload widens on read, so its inputs are a
+                    // different element type from the double outputs and cannot
+                    // share memory.
+                    let i_int = i.param_type == ParamType::Integer;
+                    if single_precision && !i_int {
+                        continue;
+                    }
+                    if o_int != i_int {
+                        continue;
+                    }
+                    cross.push(format!(
+                        "({0}.Overlaps({1}) && {0} != {1})",
+                        o.name, i.name
+                    ));
+                }
+            }
+            if !cross.is_empty() {
+                out.push_str(&format!("      if( {} ) {{\n", cross.join(" || ")));
+                out.push_str("         return RetCode.BadParam ;\n");
+                out.push_str("      }\n");
+            }
         }
     }
 
@@ -855,7 +1072,7 @@ fn render_forc_part(
 }
 
 /// Render hoisted block-inline helpers as C# code (temp var decl + body).
-fn render_hoisted_blocks(
+pub(crate) fn render_hoisted_blocks(
     hoisted: &[(String, VarType, Vec<Statement>)],
     indent: usize,
     ctx: &CsRenderCtx,
@@ -1050,6 +1267,18 @@ impl StatementEmitter for CsStmt<'_> {
 
     fn assign(&self, target: &Expr, value: &Expr, compound: bool, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        // A cross-indicator call answers an `OutRange` and throws (#236 step 3),
+        // so the assigned code is Success by construction.
+        if let Expr::FuncCall(fname, cargs) = value {
+            if self.registry.contains(fname) {
+                if let Some(block) =
+                    render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
+                {
+                    let t = render_assign_target(target, self.ctx, self.registry, self.helpers);
+                    return format!("{block}{pad}{t} = RetCode.Success;\n");
+                }
+            }
+        }
         // Hoist multi-statement helpers from the value expression
         let mut hoisted = Vec::new();
         let mut cnt = self.ctx.inline_counter.get();
@@ -1310,6 +1539,16 @@ impl StatementEmitter for CsStmt<'_> {
 
     fn return_stmt(&self, value: &Option<Expr>, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        // `return macd(...)` -- the tail-call form of a cross-indicator call.
+        if let Some(Expr::FuncCall(fname, cargs)) = value {
+            if self.registry.contains(fname) {
+                if let Some(block) =
+                    render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
+                {
+                    return format!("{block}{pad}return RetCode.Success ;\n");
+                }
+            }
+        }
         match value {
             Some(expr) => {
                 let rendered = render_return_expr(expr, self.ctx, self.registry, self.helpers);
@@ -1421,14 +1660,77 @@ pub(crate) fn render_statement_ctx(
     CsStmt { ctx, enums, registry, helpers }.walk_stmt(stmt, indent)
 }
 
-/// Enum switch case labels are QUALIFIED (`case MAType.Sma:`) — the exact
+/// Enum switch case labels are QUALIFIED (`case MAType.SMA:`) — the exact
 /// inverse of `render_java_switch_label`, which must strip the qualifier for
 /// pre-21 JDKs. C# requires the qualified form.
-fn render_csharp_switch_label(label: &str, enums: &HashMap<String, EnumDef>) -> String {
+pub(crate) fn render_csharp_switch_label(label: &str, enums: &HashMap<String, EnumDef>) -> String {
     if let Some((enum_name, variant)) = lookup_variant(label, enums) {
         format!("{enum_name}.{}", variant.name)
     } else {
         label.to_string()
+    }
+}
+
+/// Emit a cross-indicator call to the callee's PUBLIC overload (#236 step 3).
+///
+/// C# distinguishes its two tiers by OVERLOAD, not by name: the C-shaped one
+/// carries `out int outBegIdx, out int outNBElement` and the public one does
+/// not. So dropping those two arguments IS the switch -- there is nothing to
+/// rename. See `render_cross_indicator_call` in the Java backend for why the
+/// out-parameters are found positionally and why the enclosing
+/// `if( retCode != Success )` is left standing.
+fn render_cross_indicator_call(
+    fname: &str,
+    args: &[Expr],
+    indent: usize,
+    ctx: &CsRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> Option<String> {
+    let n_out = registry.callee_outputs(fname).len();
+    if n_out == 0 || args.len() < n_out + 2 {
+        return None;
+    }
+    let split = args.len() - n_out - 2;
+    let pad = " ".repeat(indent);
+    let public = registry.resolve_call(fname, Lang::CSharp);
+
+    let mut call_args: Vec<String> = Vec::new();
+    for a in args[..split].iter().chain(args[split + 2..].iter()) {
+        call_args.push(match a {
+            // NULL for a nullable output the caller discards (#125): the callee
+            // writes it unconditionally, so materialize a throwaway.
+            Expr::Var(n) if n == "NULL" => "new double[(int)(endIdx - startIdx + 1)]".to_string(),
+            _ => render_expr(a, ctx, registry, helpers),
+        });
+    }
+
+    let n = ctx.inline_counter.get();
+    ctx.inline_counter.set(n + 1);
+    let tmp = format!("_xr{n}");
+    let beg = out_meta_target(&args[split], ctx, registry, helpers);
+    let nb = out_meta_target(&args[split + 1], ctx, registry, helpers);
+    Some(format!(
+        "{pad}OutRange {tmp} = {public}({});\n{pad}{beg} = {tmp}.BegIdx;\n{pad}{nb} = {tmp}.Count;\n",
+        call_args.join(", ")
+    ))
+}
+
+/// The `int` an out-parameter argument names, without the `out` the call site
+/// would otherwise render.
+fn out_meta_target(
+    arg: &Expr,
+    ctx: &CsRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    match arg {
+        Expr::AddressOf(inner) => match inner.as_ref() {
+            Expr::Var(n) => n.clone(),
+            other => render_expr(other, ctx, registry, helpers),
+        },
+        Expr::Var(n) => n.clone(),
+        other => render_expr(other, ctx, registry, helpers),
     }
 }
 
@@ -1464,6 +1766,7 @@ fn render_return_expr(
         return match name.as_str() {
             "SUCCESS" => "RetCode.Success".to_string(),
             "BadParam" => "RetCode.BadParam".to_string(),
+            "InsufficientHistory" => "RetCode.InsufficientHistory".to_string(),
             "OutOfRangeEndIndex" => "RetCode.OutOfRangeEndIndex".to_string(),
             "OutOfRangeStartIndex" => "RetCode.OutOfRangeStartIndex".to_string(),
             _ => render_expr(expr, ctx, registry, helpers),
@@ -1764,10 +2067,19 @@ fn try_render_candle_ternary(
             let high = r(&args[2]);
             let low = r(&args[3]);
             let close = r(&args[4]);
+            // The Shadows arm is upper + lower, NOT the algebraically equal
+            // (high - low) - |close - open|. It must match TA_CANDLERANGE in
+            // ta_utility.h term for term: the two forms differ by
+            // reassociation on any bar whose low sits below half its high,
+            // and C is the reference (#217). This spelling is hardcoded here
+            // rather than read from input/helpers/candlestick.c, so a fix to
+            // the helper alone does NOT reach C# -- java.rs carries the same
+            // duplicate.
             Some(format!(
                 "(({rt} == 0) ? (Math.Abs({close} - {open})) \
                  : (({rt} == 1) ? ({high} - {low}) \
-                 : (({rt} == 2) ? (({high} - {low}) - Math.Abs({close} - {open})) \
+                 : (({rt} == 2) ? (({high} - ((({close}) >= ({open})) ? ({close}) : ({open}))) \
+                 + (((({close}) >= ({open})) ? ({open}) : ({close})) - {low})) \
                  : 0.0)))"
             ))
         }
@@ -1843,7 +2155,7 @@ fn render_func_call(
             }
             SpecialBuiltin::ArrayCopy => {
                 // ARRAY_COPY(dst, dstOff, src, srcOff, count)
-                // -> Array.Copy(src, srcOff, dst, dstOff, count) (arg reordering,
+                // -> src.Slice(srcOff, count).CopyTo(dst.Slice(dstOff)) (arg reordering,
                 //    matching System.arraycopy's parameter order)
                 if args.len() == 5 {
                     let dst = render_expr(&args[0], ctx, registry, helpers);
@@ -1851,7 +2163,7 @@ fn render_func_call(
                     let src = render_expr(&args[2], ctx, registry, helpers);
                     let src_off = render_expr(&args[3], ctx, registry, helpers);
                     let count = render_expr(&args[4], ctx, registry, helpers);
-                    return format!("Array.Copy({src}, {src_off}, {dst}, {dst_off}, {count})");
+                    return format!("{src}.Slice({src_off}, {count}).CopyTo({dst}.Slice({dst_off}))");
                 }
                 "/* ARRAY_COPY: bad args */".to_string()
             }
@@ -1916,13 +2228,13 @@ fn render_func_call(
                 String::new()
             }
             StdlibFn::Memcpy | StdlibFn::Memmove => {
-                // memcpy/memmove(dst, src, count) → Array.Copy(src, srcOff, dst, dstOff, count).
-                // Array.Copy handles overlapping ranges like memmove.
+                // memcpy/memmove(dst, src, count) -> src.Slice(..).CopyTo(dst.Slice(..)).
+                // Span.CopyTo handles overlapping ranges like memmove.
                 if args.len() >= 3 {
                     let (dst_arr, dst_off) = decompose_array_ref(&args[0], ctx, registry, helpers);
                     let (src_arr, src_off) = decompose_array_ref(&args[1], ctx, registry, helpers);
                     let count = render_expr(&args[2], ctx, registry, helpers);
-                    format!("Array.Copy({src_arr}, {src_off}, {dst_arr}, {dst_off}, {count})")
+                    format!("{src_arr}.Slice({src_off}, {count}).CopyTo({dst_arr}.Slice({dst_off}))")
                 } else {
                     format!("/* {fname}: bad args */")
                 }
@@ -2140,8 +2452,13 @@ mod tests {
         assert!(output.contains("namespace TALib;"), "missing namespace");
         assert!(output.contains("public partial class Core"), "missing partial class");
 
-        // The internal core with the out-int pair and the CS0177 seeding prologue.
-        assert!(output.contains("   internal RetCode SMA( "), "missing guarded core");
+        // #236 step 5: the C-shaped overload is GONE. Two tiers remain -- the
+        // public wrapper and the body it calls -- and the only `out int` pair
+        // left in the file is the body's own.
+        assert!(
+            !output.contains("   internal RetCode SMA( "),
+            "the C-shaped overload must not come back"
+        );
         assert!(!output.contains("Unguarded"), "no unguarded tier may exist");
         assert!(output.contains("out int outBegIdx"), "missing out param");
         assert!(
@@ -2149,15 +2466,15 @@ mod tests {
             "missing seeding prologue"
         );
 
-        // The surviving core validates. Bounded to the double core's own body so
-        // a match inside the float overload cannot stand in for it.
-        let guarded_pos = output.find("internal RetCode SMA( ").unwrap();
-        let guarded_end = output[guarded_pos + 1..]
+        // The BODY validates. Bounded to the double body's own text so a match
+        // inside the float overload cannot stand in for it.
+        let body_pos = output.find("internal RetCode SMA_Impl( ").unwrap();
+        let body_end = output[body_pos + 1..]
             .find("   internal RetCode ")
-            .map_or(output.len() - guarded_pos, |i| i + 1);
+            .map_or(output.len() - body_pos, |i| i + 1);
         assert!(
-            output[guarded_pos..guarded_pos + guarded_end].contains("OutOfRangeStartIndex"),
-            "guarded core should contain validation"
+            output[body_pos..body_pos + body_end].contains("OutOfRangeStartIndex"),
+            "the body should contain validation"
         );
 
         // The public surface is OutRange-returning wrappers over those cores,
@@ -2183,13 +2500,24 @@ mod tests {
         let registry = make_registry();
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
-        assert!(
-            output.contains("out localBegIdx, out localNbElement"),
-            "&localBegIdx must lower to an `out` argument"
-        );
+        // `&localBegIdx` used to lower to `out localBegIdx` at the cross-call.
+        // Since #236 step 3 the two out-parameters are not passed at all — that
+        // omission is what selects the callee's PUBLIC overload — and the range
+        // it returns is bound to the same two locals instead. The `out` lowering
+        // itself is still live, on the streaming sub-opens, which keep the
+        // C-shaped shape because they have no public entry point.
         assert!(
             output.contains("MA(startIdx, endIdx, inReal, minUsed"),
             "cross-call must resolve through the registry's C# naming"
+        );
+        assert!(
+            output.contains("localBegIdx = ") && output.contains(".BegIdx;")
+                && output.contains("localNbElement = ") && output.contains(".Count;"),
+            "the cross-call must bind the returned OutRange to the caller's locals"
+        );
+        assert!(
+            !output.contains("out localBegIdx"),
+            "the out-parameters must be gone from the cross-call, not merely unused"
         );
         assert!(
             !output.contains("if( false )"),

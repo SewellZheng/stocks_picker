@@ -326,7 +326,7 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
 
    if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
-      if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_BAD_PARAM; }
+      if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_INSUFFICIENT_HISTORY; }
       *outReal = inReal[historyLen - 1];
       *stream = sp;
       return TA_SUCCESS;
@@ -421,6 +421,11 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
 
 TA_LIB_API TA_RetCode TA_MA_Open( TA_MA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, TA_MAType optInMAType, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_MA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInMAType, outReal );
 }
 
@@ -452,7 +457,7 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
 
    if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
-      if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_BAD_PARAM; }
+      if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_INSUFFICIENT_HISTORY; }
       {
          int fillLb = TA_MA_Lookback( optInTimePeriod, optInMAType );
          int fillIdx;
@@ -582,12 +587,12 @@ TA_RetCode TA_MA_OpenAndFillInternal( struct TA_MA_Stream **stream, const double
 
    if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
-      if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_BAD_PARAM; }
+      if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 ) { TA_Free( sp ); return TA_INSUFFICIENT_HISTORY; }
       {
          int fillLb = TA_MA_Lookback( optInTimePeriod, optInMAType );
          int fillIdx;
          if( startIdx > fillLb ) fillLb = startIdx;
-         if( historyLen < fillLb + 1 ) { TA_Free( sp ); return TA_BAD_PARAM; }
+         if( historyLen < fillLb + 1 ) { TA_Free( sp ); return TA_INSUFFICIENT_HISTORY; }
          *outBegIdx = fillLb;
          *outNBElement = historyLen - fillLb;
          for( fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ )
@@ -689,6 +694,7 @@ TA_RetCode TA_MA_OpenAndFillInternal( struct TA_MA_Stream **stream, const double
 TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )
    {
       *outReal = inReal;
@@ -725,6 +731,7 @@ TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double 
 TA_LIB_API TA_RetCode TA_MA_Peek( const TA_MA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    if( stream->optInTimePeriod == 1 || stream->optInMAType == TA_MAType_DISABLED )
    {
       *outReal = inReal;

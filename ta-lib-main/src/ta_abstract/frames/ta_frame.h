@@ -47,6 +47,15 @@
 #endif
 
 
+TA_RetCode TA_AC_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_AC_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
 TA_RetCode TA_ACCBANDS_FramePP( const TA_ParamHolderPriv *params,
                            int            startIdx,
                            int            endIdx,
@@ -108,6 +117,15 @@ TA_RetCode TA_ADXR_FramePP( const TA_ParamHolderPriv *params,
                            int           *outNBElement )
 ;
 unsigned int TA_ADXR_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
+TA_RetCode TA_AO_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_AO_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
 TA_RetCode TA_APO_FramePP( const TA_ParamHolderPriv *params,
@@ -1386,6 +1404,15 @@ TA_RetCode TA_SMA_FramePP( const TA_ParamHolderPriv *params,
                            int           *outNBElement )
 ;
 unsigned int TA_SMA_FramePPLB( const TA_ParamHolderPriv *params )
+;
+
+TA_RetCode TA_SMI_FramePP( const TA_ParamHolderPriv *params,
+                           int            startIdx,
+                           int            endIdx,
+                           int           *outBegIdx,
+                           int           *outNBElement )
+;
+unsigned int TA_SMI_FramePPLB( const TA_ParamHolderPriv *params )
 ;
 
 TA_RetCode TA_SQRT_FramePP( const TA_ParamHolderPriv *params,

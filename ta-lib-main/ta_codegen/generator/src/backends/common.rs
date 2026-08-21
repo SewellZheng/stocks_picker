@@ -21,10 +21,39 @@ pub const TA_INTEGER_MIN: i32 = i32::MIN + 1;
 pub const TA_INTEGER_MAX: i32 = i32::MAX;
 pub const TA_INTEGER_DEFAULT: i32 = i32::MIN;
 
+/// The rejection condition for a real optional parameter's declared range.
+///
+/// Spelled `!(x >= min && x <= max)` rather than the obvious `x < min || x > max`.
+/// The two are identical for every finite `x` — and every declared bound in the
+/// corpus is finite, ±3e37 at the widest — but they differ on NaN, and that
+/// difference is the whole point: `NaN < min` and `NaN > max` are BOTH false, so
+/// the obvious spelling silently ACCEPTS a NaN parameter and computes with it.
+/// The inverted form costs the same two comparisons and rejects NaN along with
+/// the infinities.
+///
+/// One spelling everywhere — batch, lookback and streaming. The streaming tier
+/// got it first (it cannot afford a NaN entering a retained handle), but there
+/// was never a reason for the batch tier to accept a parameter it has no
+/// meaning for; "batch does not filter" is a statement about INPUT SERIES, not
+/// about parameters.
+///
+/// `paren` parenthesizes each comparison, which is how the Rust backend has
+/// always spelled it.
+#[must_use]
+pub(crate) fn real_range_reject(name: &str, lo: &str, hi: &str, paren: bool) -> String {
+    if paren {
+        format!("!(({name} >= {lo}) && ({name} <= {hi}))")
+    } else {
+        format!("!({name} >= {lo} && {name} <= {hi})")
+    }
+}
+
 /// Render a real range bound: the `REAL_MIN`/`REAL_MAX` sentinels by name, anything
-/// else as a literal. `prefix` is the backend's namespace (`"TA_"` for C, empty for
-/// Rust and Java, whose crate and package already namespace them) — so the generated
-/// sources name the constant instead of repeating ±3e37.
+/// else as a literal. `prefix` is the backend's namespace — `"TA_"` for C, `"Self::"`
+/// for Rust (they are associated consts on `Core`, as they are static members of
+/// Java's `Core`, and the emission site is inside `impl Core`), empty for Java, whose
+/// package already namespaces them — so the generated sources name the constant
+/// instead of repeating ±3e37.
 #[must_use]
 #[allow(clippy::float_cmp)] // these are exact sentinel values, not measurements
 pub fn real_bound_literal(v: f64, prefix: &str) -> String {
@@ -312,6 +341,29 @@ pub fn find_sizeof_type(expr: &Expr) -> Option<String> {
         Expr::Cast(_, inner) => find_sizeof_type(inner),
         _ => None,
     }
+}
+
+/// The declared inputs a function's body actually indexes.
+///
+/// Four candlestick patterns take an OHLC leg they never read (cdl3outside's
+/// `inHigh`/`inLow`, for instance). A bounds check on such a leg would reject a
+/// caller who passed a short — or, in Java, a null — array for a series the
+/// algorithm ignores, while proving nothing about the accesses the body makes.
+/// Detected on the comment-stripped IR, so a name mentioned only in prose
+/// cannot count.
+///
+/// One source of truth for the two backends that bound their array accesses:
+/// the Rust `assert!` preamble and the Java argument checks must agree on which
+/// legs are load-bearing, or the same call is a panic in one language and a
+/// success in the other.
+#[must_use]
+pub(crate) fn indexed_input_names(func: &FuncDef) -> BTreeSet<String> {
+    let body_repr = format!("{:?}", super::stmt_walk::strip_comments(&func.body));
+    func.inputs
+        .iter()
+        .filter(|i| body_repr.contains(&format!("\"{}\"", i.name)))
+        .map(|i| i.name.clone())
+        .collect()
 }
 
 #[cfg(test)]

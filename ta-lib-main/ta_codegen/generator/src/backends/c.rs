@@ -601,10 +601,13 @@ pub(crate) fn emit_opt_param_validation(
                     // and it is what keeps an infinity out of the computation.
                     if let Some((min, max)) = opt.range {
                         out.push_str(&format!(
-                            "   else if( {name} < {lo} || {name} > {hi} )\n      return {fail};\n",
-                            name = opt.name,
-                            lo = super::common::real_bound_literal(min, "TA_"),
-                            hi = super::common::real_bound_literal(max, "TA_")
+                            "   else if( {cond} )\n      return {fail};\n",
+                            cond = super::common::real_range_reject(
+                                &opt.name,
+                                &super::common::real_bound_literal(min, "TA_"),
+                                &super::common::real_bound_literal(max, "TA_"),
+                                false
+                            )
                         ));
                     }
                 }
@@ -1834,6 +1837,7 @@ fn render_return_expr(
         return match name.as_str() {
             "SUCCESS" => "TA_SUCCESS".to_string(),
             "BadParam" => "TA_BAD_PARAM".to_string(),
+            "INSUFFICIENT_HISTORY" => "TA_INSUFFICIENT_HISTORY".to_string(),
             "OutOfRangeEndIndex" => "TA_OUT_OF_RANGE_END_INDEX".to_string(),
             "OutOfRangeStartIndex" => "TA_OUT_OF_RANGE_START_INDEX".to_string(),
             "ALLOC_ERR" => "TA_ALLOC_ERR".to_string(),
@@ -1861,6 +1865,7 @@ impl ExprEmitter for CExpr<'_> {
             "METASTOCK" => "TA_COMPATIBILITY_METASTOCK".to_string(),
             "DEFAULT" => "TA_COMPATIBILITY_DEFAULT".to_string(),
             "BAD_PARAM" => "TA_BAD_PARAM".to_string(),
+            "INSUFFICIENT_HISTORY" => "TA_INSUFFICIENT_HISTORY".to_string(),
             "SUCCESS" => "TA_SUCCESS".to_string(),
             "ALLOC_ERR" => "TA_ALLOC_ERR".to_string(),
             "INTERNAL_ERROR" => "TA_INTERNAL_ERROR".to_string(),
@@ -2068,6 +2073,32 @@ pub(crate) fn c_predicate_expr(which: SpecialBuiltin, args: &[String]) -> String
         SpecialBuiltin::IsFinite => format!("TA_IS_FINITE({a0})"),
         _ => "TA_IS_ZERO(0)".to_string(),
     }
+}
+
+/// Render an expression the way a stream transition renders one: candle
+/// helpers map onto the scalar `TA_STREAM_CANDLE*` mirrors rather than the
+/// array-indexed batch macros. The open-time derived fill uses this so ONE
+/// spelling produces the ring's contents at both the fill and the per-bar push
+/// (#229) -- otherwise the buffer is written by `TA_CANDLERANGE(SET,j)` and
+/// read back against `TA_STREAM_CANDLERANGE(SET,o,h,l,c)`, and their agreement
+/// rests only on the mirror comment in `ta_utility.h`.
+pub(crate) fn render_expression_stream_candles(
+    expr: &Expr,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    inline_counter: &std::cell::Cell<usize>,
+) -> String {
+    STREAM_FMA.with(|f| {
+        let fma_sets = f.borrow();
+        let ctx = CRenderCtx {
+            single_precision: false,
+            inline_counter,
+            stream_scalar_candles: true,
+            fma: fma_sets.as_ref(),
+            nullable_outputs: &[],
+        };
+        render_expr(expr, &ctx, registry, helpers)
+    })
 }
 
 /// Crate-visible expression rendering (used by the stream emitter for

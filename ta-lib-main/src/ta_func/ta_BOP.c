@@ -178,7 +178,7 @@ static void TA_BOP_StepInternal( struct TA_BOP_Stream *sp, double inOpen, double
    }
 }
 
-static TA_RetCode TA_BOP_OpenCore( struct TA_BOP_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_BOP_OpenPass( struct TA_BOP_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_BOP_Stream *sp;
    int endIdx;
@@ -232,7 +232,7 @@ TA_RetCode TA_BOP_OpenInternal( struct TA_BOP_Stream **stream, const double inOp
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_BOP_OpenCore( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_BOP_OpenPass( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -242,6 +242,11 @@ TA_RetCode TA_BOP_OpenInternal( struct TA_BOP_Stream **stream, const double inOp
 
 TA_LIB_API TA_RetCode TA_BOP_Open( TA_BOP_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_BOP_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outReal );
 }
 
@@ -250,19 +255,23 @@ TA_LIB_API TA_RetCode TA_BOP_OpenAndFill( TA_BOP_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inOpen || (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_BOP_OpenCore( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_BOP_OpenPass( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_BOP_OpenAndFillInternal( struct TA_BOP_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_BOP_OpenCore( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_BOP_OpenPass( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_BOP_Update( TA_BOP_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_BOP_StepInternal( stream, inOpen, inHigh, inLow, inClose, outReal );
    return TA_SUCCESS;
 }
@@ -272,6 +281,7 @@ TA_LIB_API TA_RetCode TA_BOP_Peek( const TA_BOP_Stream *stream, double inOpen, d
    struct TA_BOP_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_BOP_StepInternal( &scratch, inOpen, inHigh, inLow, inClose, outReal );
    return TA_SUCCESS;

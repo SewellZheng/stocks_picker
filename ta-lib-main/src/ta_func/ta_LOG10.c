@@ -131,7 +131,7 @@ static void TA_LOG10_StepInternal( struct TA_LOG10_Stream *sp, double inReal, do
    *outReal= log10(inReal);
 }
 
-static TA_RetCode TA_LOG10_OpenCore( struct TA_LOG10_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_LOG10_OpenPass( struct TA_LOG10_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_LOG10_Stream *sp;
    int endIdx;
@@ -175,7 +175,7 @@ TA_RetCode TA_LOG10_OpenInternal( struct TA_LOG10_Stream **stream, const double 
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_LOG10_OpenCore( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_LOG10_OpenPass( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -185,6 +185,11 @@ TA_RetCode TA_LOG10_OpenInternal( struct TA_LOG10_Stream **stream, const double 
 
 TA_LIB_API TA_RetCode TA_LOG10_Open( TA_LOG10_Stream **stream, const double inReal[], int historyLen, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_LOG10_OpenInternal( stream, inReal, 0, historyLen, outReal );
 }
 
@@ -193,19 +198,23 @@ TA_LIB_API TA_RetCode TA_LOG10_OpenAndFill( TA_LOG10_Stream **stream, const doub
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_LOG10_OpenCore( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_LOG10_OpenPass( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_LOG10_OpenAndFillInternal( struct TA_LOG10_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_LOG10_OpenCore( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_LOG10_OpenPass( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_LOG10_Update( TA_LOG10_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_LOG10_StepInternal( stream, inReal, outReal );
    return TA_SUCCESS;
 }
@@ -215,6 +224,7 @@ TA_LIB_API TA_RetCode TA_LOG10_Peek( const TA_LOG10_Stream *stream, double inRea
    struct TA_LOG10_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_LOG10_StepInternal( &scratch, inReal, outReal );
    return TA_SUCCESS;

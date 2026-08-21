@@ -362,38 +362,23 @@ struct TA_CDLHIKKAKEMOD_Stream {
    int ringPos_NearTrailingIdx;
    int ringCap_NearTrailingIdx;
    int ringLag_NearTrailingIdx;
-   double *ring_NearTrailingIdx_inOpen;
-   double *ringMirror_NearTrailingIdx_inOpen;
-   double *ring_NearTrailingIdx_inHigh;
-   double *ringMirror_NearTrailingIdx_inHigh;
-   double *ring_NearTrailingIdx_inLow;
-   double *ringMirror_NearTrailingIdx_inLow;
-   double *ring_NearTrailingIdx_inClose;
-   double *ringMirror_NearTrailingIdx_inClose;
+   double *ring_NearTrailingIdx_derived;
+   double *ringMirror_NearTrailingIdx_derived;
 };
 
 /* Private function, not in public API. */
 static void TA_CDLHIKKAKEMOD_ReleaseInternal( struct TA_CDLHIKKAKEMOD_Stream *sp )
 {
    if( !sp ) return;
-   if( sp->ring_NearTrailingIdx_inOpen ) TA_Free( sp->ring_NearTrailingIdx_inOpen );
-   if( sp->ringMirror_NearTrailingIdx_inOpen ) TA_Free( sp->ringMirror_NearTrailingIdx_inOpen );
-   if( sp->ring_NearTrailingIdx_inHigh ) TA_Free( sp->ring_NearTrailingIdx_inHigh );
-   if( sp->ringMirror_NearTrailingIdx_inHigh ) TA_Free( sp->ringMirror_NearTrailingIdx_inHigh );
-   if( sp->ring_NearTrailingIdx_inLow ) TA_Free( sp->ring_NearTrailingIdx_inLow );
-   if( sp->ringMirror_NearTrailingIdx_inLow ) TA_Free( sp->ringMirror_NearTrailingIdx_inLow );
-   if( sp->ring_NearTrailingIdx_inClose ) TA_Free( sp->ring_NearTrailingIdx_inClose );
-   if( sp->ringMirror_NearTrailingIdx_inClose ) TA_Free( sp->ringMirror_NearTrailingIdx_inClose );
+   if( sp->ring_NearTrailingIdx_derived ) TA_Free( sp->ring_NearTrailingIdx_derived );
+   if( sp->ringMirror_NearTrailingIdx_derived ) TA_Free( sp->ringMirror_NearTrailingIdx_derived );
    TA_Free( sp );
 }
 
 /* Private function, not in public API. */
 static void TA_CDLHIKKAKEMOD_StepInternal( struct TA_CDLHIKKAKEMOD_Stream *sp, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   sp->ring_NearTrailingIdx_inOpen[sp->ringPos_NearTrailingIdx] = inOpen;
-   sp->ring_NearTrailingIdx_inHigh[sp->ringPos_NearTrailingIdx] = inHigh;
-   sp->ring_NearTrailingIdx_inLow[sp->ringPos_NearTrailingIdx] = inLow;
-   sp->ring_NearTrailingIdx_inClose[sp->ringPos_NearTrailingIdx] = inClose;
+   sp->ring_NearTrailingIdx_derived[sp->ringPos_NearTrailingIdx] = TA_STREAM_CANDLERANGE(Near,inOpen,inHigh,inLow,inClose);
    if( sp->lag2_inHigh < sp->lag3_inHigh &&
        sp->lag2_inLow > sp->lag3_inLow &&   /* 2nd: lower high and higher low than 1st */
        sp->lag1_inHigh < sp->lag2_inHigh &&
@@ -414,7 +399,7 @@ static void TA_CDLHIKKAKEMOD_StepInternal( struct TA_CDLHIKKAKEMOD_Stream *sp, d
    {
       *outInteger= 0;
    }
-   sp->NearPeriodTotal += TA_STREAM_CANDLERANGE(Near,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) - TA_STREAM_CANDLERANGE(Near,sp->ring_NearTrailingIdx_inOpen[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - 2) % sp->ringCap_NearTrailingIdx],sp->ring_NearTrailingIdx_inHigh[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - 2) % sp->ringCap_NearTrailingIdx],sp->ring_NearTrailingIdx_inLow[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - 2) % sp->ringCap_NearTrailingIdx],sp->ring_NearTrailingIdx_inClose[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - 2) % sp->ringCap_NearTrailingIdx]);
+   sp->NearPeriodTotal += TA_STREAM_CANDLERANGE(Near,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) - sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - 2) % sp->ringCap_NearTrailingIdx];
    if( sp->patternCount > 0 )
    {
       sp->patternCount -= 1;
@@ -429,10 +414,6 @@ static void TA_CDLHIKKAKEMOD_StepInternal( struct TA_CDLHIKKAKEMOD_Stream *sp, d
    sp->lag1_inLow = inLow;
    sp->lag2_inClose = sp->lag1_inClose;
    sp->lag1_inClose = inClose;
-   sp->ring_NearTrailingIdx_inOpen[sp->ringPos_NearTrailingIdx] = inOpen;
-   sp->ring_NearTrailingIdx_inHigh[sp->ringPos_NearTrailingIdx] = inHigh;
-   sp->ring_NearTrailingIdx_inLow[sp->ringPos_NearTrailingIdx] = inLow;
-   sp->ring_NearTrailingIdx_inClose[sp->ringPos_NearTrailingIdx] = inClose;
    sp->ringPos_NearTrailingIdx = sp->ringPos_NearTrailingIdx + 1;
    if( sp->ringPos_NearTrailingIdx >= sp->ringCap_NearTrailingIdx )
    {
@@ -440,7 +421,7 @@ static void TA_CDLHIKKAKEMOD_StepInternal( struct TA_CDLHIKKAKEMOD_Stream *sp, d
    }
 }
 
-static TA_RetCode TA_CDLHIKKAKEMOD_OpenCore( struct TA_CDLHIKKAKEMOD_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_RetCode TA_CDLHIKKAKEMOD_OpenPass( struct TA_CDLHIKKAKEMOD_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_CDLHIKKAKEMOD_Stream *sp;
    int endIdx;
@@ -489,7 +470,7 @@ static TA_RetCode TA_CDLHIKKAKEMOD_OpenCore( struct TA_CDLHIKKAKEMOD_Stream **st
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -597,37 +578,13 @@ static TA_RetCode TA_CDLHIKKAKEMOD_OpenCore( struct TA_CDLHIKKAKEMOD_Stream **st
       sp->ringCap_NearTrailingIdx = sp->ringLag_NearTrailingIdx + 3;
       if( sp->ringLag_NearTrailingIdx < 0 || sp->ringCap_NearTrailingIdx > historyLen ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_NearTrailingIdx > 0 ? sp->ringCap_NearTrailingIdx : 1);
-        sp->ring_NearTrailingIdx_inOpen = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_NearTrailingIdx_inOpen ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_NearTrailingIdx_inOpen = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_NearTrailingIdx_inOpen ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        sp->ring_NearTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ring_NearTrailingIdx_derived ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        sp->ringMirror_NearTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
+        if( !sp->ringMirror_NearTrailingIdx_derived ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_NearTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_NearTrailingIdx_inOpen[fillJ % sp->ringCap_NearTrailingIdx] = inOpen[fillJ];
-        }
-        sp->ring_NearTrailingIdx_inHigh = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_NearTrailingIdx_inHigh ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_NearTrailingIdx_inHigh = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_NearTrailingIdx_inHigh ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        { int fillJ;
-          for( fillJ = historyLen - sp->ringCap_NearTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_NearTrailingIdx_inHigh[fillJ % sp->ringCap_NearTrailingIdx] = inHigh[fillJ];
-        }
-        sp->ring_NearTrailingIdx_inLow = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_NearTrailingIdx_inLow ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_NearTrailingIdx_inLow = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_NearTrailingIdx_inLow ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        { int fillJ;
-          for( fillJ = historyLen - sp->ringCap_NearTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_NearTrailingIdx_inLow[fillJ % sp->ringCap_NearTrailingIdx] = inLow[fillJ];
-        }
-        sp->ring_NearTrailingIdx_inClose = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_NearTrailingIdx_inClose ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_NearTrailingIdx_inClose = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_NearTrailingIdx_inClose ) { TA_CDLHIKKAKEMOD_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        { int fillJ;
-          for( fillJ = historyLen - sp->ringCap_NearTrailingIdx; fillJ < historyLen; fillJ++ )
-             sp->ring_NearTrailingIdx_inClose[fillJ % sp->ringCap_NearTrailingIdx] = inClose[fillJ];
+             sp->ring_NearTrailingIdx_derived[fillJ % sp->ringCap_NearTrailingIdx] = TA_STREAM_CANDLERANGE(Near,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
         }
       }
       sp->ringPos_NearTrailingIdx = historyLen % sp->ringCap_NearTrailingIdx;
@@ -653,7 +610,7 @@ TA_RetCode TA_CDLHIKKAKEMOD_OpenInternal( struct TA_CDLHIKKAKEMOD_Stream **strea
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    int sink_outInteger = 0;
-   retCode = TA_CDLHIKKAKEMOD_OpenCore( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
+   retCode = TA_CDLHIKKAKEMOD_OpenPass( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outInteger = sink_outInteger;
@@ -663,6 +620,11 @@ TA_RetCode TA_CDLHIKKAKEMOD_OpenInternal( struct TA_CDLHIKKAKEMOD_Stream **strea
 
 TA_LIB_API TA_RetCode TA_CDLHIKKAKEMOD_Open( TA_CDLHIKKAKEMOD_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, int *outInteger )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_CDLHIKKAKEMOD_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
 
@@ -671,19 +633,23 @@ TA_LIB_API TA_RetCode TA_CDLHIKKAKEMOD_OpenAndFill( TA_CDLHIKKAKEMOD_Stream **st
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_CDLHIKKAKEMOD_OpenCore( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_CDLHIKKAKEMOD_OpenPass( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_CDLHIKKAKEMOD_OpenAndFillInternal( struct TA_CDLHIKKAKEMOD_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
 {
-   return TA_CDLHIKKAKEMOD_OpenCore( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_CDLHIKKAKEMOD_OpenPass( stream, inOpen, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_CDLHIKKAKEMOD_Update( TA_CDLHIKKAKEMOD_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_CDLHIKKAKEMOD_StepInternal( stream, inOpen, inHigh, inLow, inClose, outInteger );
    return TA_SUCCESS;
 }
@@ -693,15 +659,10 @@ TA_LIB_API TA_RetCode TA_CDLHIKKAKEMOD_Peek( const TA_CDLHIKKAKEMOD_Stream *stre
    struct TA_CDLHIKKAKEMOD_Stream scratch;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_NearTrailingIdx_inOpen = stream->ringMirror_NearTrailingIdx_inOpen;
-   memcpy( scratch.ring_NearTrailingIdx_inOpen, stream->ring_NearTrailingIdx_inOpen, sizeof(double) * (size_t)(stream->ringCap_NearTrailingIdx > 0 ? stream->ringCap_NearTrailingIdx : 1) );
-   scratch.ring_NearTrailingIdx_inHigh = stream->ringMirror_NearTrailingIdx_inHigh;
-   memcpy( scratch.ring_NearTrailingIdx_inHigh, stream->ring_NearTrailingIdx_inHigh, sizeof(double) * (size_t)(stream->ringCap_NearTrailingIdx > 0 ? stream->ringCap_NearTrailingIdx : 1) );
-   scratch.ring_NearTrailingIdx_inLow = stream->ringMirror_NearTrailingIdx_inLow;
-   memcpy( scratch.ring_NearTrailingIdx_inLow, stream->ring_NearTrailingIdx_inLow, sizeof(double) * (size_t)(stream->ringCap_NearTrailingIdx > 0 ? stream->ringCap_NearTrailingIdx : 1) );
-   scratch.ring_NearTrailingIdx_inClose = stream->ringMirror_NearTrailingIdx_inClose;
-   memcpy( scratch.ring_NearTrailingIdx_inClose, stream->ring_NearTrailingIdx_inClose, sizeof(double) * (size_t)(stream->ringCap_NearTrailingIdx > 0 ? stream->ringCap_NearTrailingIdx : 1) );
+   scratch.ring_NearTrailingIdx_derived = stream->ringMirror_NearTrailingIdx_derived;
+   memcpy( scratch.ring_NearTrailingIdx_derived, stream->ring_NearTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_NearTrailingIdx > 0 ? stream->ringCap_NearTrailingIdx : 1) );
    TA_CDLHIKKAKEMOD_StepInternal( &scratch, inOpen, inHigh, inLow, inClose, outInteger );
    return TA_SUCCESS;
 }

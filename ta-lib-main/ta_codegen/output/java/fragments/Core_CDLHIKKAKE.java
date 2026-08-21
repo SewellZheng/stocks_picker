@@ -32,15 +32,15 @@
       return 5 ;
 
    }
-   RetCode CDLHIKKAKE_Internal( int startIdx,
-                                int endIdx,
-                                double inOpen[],
-                                double inHigh[],
-                                double inLow[],
-                                double inClose[],
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                int outInteger[] )
+   RetCode CDLHIKKAKE_Impl( int startIdx,
+                            int endIdx,
+                            double inOpen[],
+                            double inHigh[],
+                            double inLow[],
+                            double inClose[],
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -140,15 +140,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode CDLHIKKAKE_Internal( int startIdx,
-                                int endIdx,
-                                float inOpen[],
-                                float inHigh[],
-                                float inLow[],
-                                float inClose[],
-                                MInteger outBegIdx,
-                                MInteger outNBElement,
-                                int outInteger[] )
+   RetCode CDLHIKKAKE_Impl( int startIdx,
+                            int endIdx,
+                            float inOpen[],
+                            float inHigh[],
+                            float inLow[],
+                            float inClose[],
+                            MInteger outBegIdx,
+                            MInteger outNBElement,
+                            int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -219,6 +219,10 @@
     * reversal/continuation depending on the breakout direction. A
     * false-breakout setup: positive = bullish, negative = bearish; magnitude
     * 200 flags the confirming bar.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The name comes from the Japanese word for a deceptive move or "trap" — fitting, since the pattern exists to catch traders acting on a false breakout. Bulkowski's testing of the confirmed pattern found the trap itself barely beats a coin flip: the bullish variant continues as expected only 52% of the time and the bearish variant exactly 50% ("random"), both ranking in the bottom fifth (83rd-84th of 105) for post-breakout performance. ([thepatternsite.com](https://thepatternsite.com/HikkakeBull.html))</li>
+    * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -239,8 +243,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CDLHIKKAKEMOD
     * @see Core#CDLHARAMI
@@ -253,9 +264,17 @@
                                double inClose[],
                                int outInteger[] )
    {
+      requireIndexRange("CDLHIKKAKE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CDLHIKKAKE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CDLHIKKAKE", "inHigh", inHigh, guardInLen);
+      requireLength("CDLHIKKAKE", "inLow", inLow, guardInLen);
+      requireLength("CDLHIKKAKE", "inClose", inClose, guardInLen);
+      requireLength("CDLHIKKAKE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIKKAKE_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLHIKKAKE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLHIKKAKE", retCode);
       }
@@ -267,6 +286,10 @@
     * reversal/continuation depending on the breakout direction. A
     * false-breakout setup: positive = bullish, negative = bearish; magnitude
     * 200 flags the confirming bar.
+    * <p><b>Notes</b>
+    * <ul>
+    * <li>The name comes from the Japanese word for a deceptive move or "trap" — fitting, since the pattern exists to catch traders acting on a false breakout. Bulkowski's testing of the confirmed pattern found the trap itself barely beats a coin flip: the bullish variant continues as expected only 52% of the time and the bearish variant exactly 50% ("random"), both ranking in the bottom fifth (83rd-84th of 105) for post-breakout performance. ([thepatternsite.com](https://thepatternsite.com/HikkakeBull.html))</li>
+    * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -290,8 +313,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CDLHIKKAKEMOD
     * @see Core#CDLHARAMI
@@ -304,9 +334,17 @@
                                float inClose[],
                                int outInteger[] )
    {
+      requireIndexRange("CDLHIKKAKE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CDLHIKKAKE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CDLHIKKAKE", "inHigh", inHigh, guardInLen);
+      requireLength("CDLHIKKAKE", "inLow", inLow, guardInLen);
+      requireLength("CDLHIKKAKE", "inClose", inClose, guardInLen);
+      requireLength("CDLHIKKAKE", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIKKAKE_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLHIKKAKE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLHIKKAKE", retCode);
       }
@@ -381,10 +419,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("CDLHIKKAKE update: BadParam", RetCode.BadParam);
          core.CDLHIKKAKE_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
@@ -397,6 +445,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("CDLHIKKAKE peek: BadParam", RetCode.BadParam);
          CDLHIKKAKE_Stream scratch = new CDLHIKKAKE_Stream(this);
          core.CDLHIKKAKE_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
@@ -446,7 +496,7 @@
       sp.lag2_inLow = sp.lag1_inLow;
       sp.lag1_inLow = inLow;
    }
-   private RetCode CDLHIKKAKE_OpenCore( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
+   private RetCode CDLHIKKAKE_OpenPass( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -480,7 +530,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -558,55 +608,55 @@
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode CDLHIKKAKE_OpenBody( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLHIKKAKE_OpenImpl( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       int[] sink_outInteger = new int[1];
-      return CDLHIKKAKE_OpenCore( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
+      return CDLHIKKAKE_OpenPass( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
-   private RetCode CDLHIKKAKE_OpenAndFillBody( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLHIKKAKE_OpenAndFillImpl( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return CDLHIKKAKE_OpenCore( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
+      return CDLHIKKAKE_OpenPass( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
    }
-   private RetCode CDLHIKKAKE_OpenAndFillInternalBody( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLHIKKAKE_OpenAndFillInternalImpl( CDLHIKKAKE_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      return CDLHIKKAKE_OpenCore(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
+      return CDLHIKKAKE_OpenPass(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
    }
    /* CDLHIKKAKE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CDLHIKKAKE_Stream CDLHIKKAKE_OpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       CDLHIKKAKE_Stream sp = new CDLHIKKAKE_Stream(this);
-      RetCode retCode = CDLHIKKAKE_OpenAndFillInternalBody(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLHIKKAKE_OpenAndFillInternalImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDLHIKKAKE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDLHIKKAKE openAndFill: internal error");
+         throw new TaLibStateException("CDLHIKKAKE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDLHIKKAKE openAndFill: " + retCode);
+      throw new TaLibArgumentException("CDLHIKKAKE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind CDLHIKKAKE_Open (composition seam). */
    CDLHIKKAKE_Stream CDLHIKKAKE_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       CDLHIKKAKE_Stream sp = new CDLHIKKAKE_Stream(this);
-      RetCode retCode = CDLHIKKAKE_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      RetCode retCode = CDLHIKKAKE_OpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDLHIKKAKE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDLHIKKAKE open: internal error");
+         throw new TaLibStateException("CDLHIKKAKE open: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDLHIKKAKE open: " + retCode);
+      throw new TaLibArgumentException("CDLHIKKAKE open: " + retCode, retCode);
    }
    /**
     * Open a live CDLHIKKAKE stream over the warm-up history; the handle's
@@ -636,16 +686,16 @@
       CDLHIKKAKE_Stream sp = new CDLHIKKAKE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLHIKKAKE_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLHIKKAKE_OpenAndFillImpl(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDLHIKKAKE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDLHIKKAKE openAndFill: internal error");
+         throw new TaLibStateException("CDLHIKKAKE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDLHIKKAKE openAndFill: " + retCode);
+      throw new TaLibArgumentException("CDLHIKKAKE openAndFill: " + retCode, retCode);
    }

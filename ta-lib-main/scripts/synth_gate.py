@@ -36,8 +36,23 @@ import shutil
 import subprocess
 import sys
 
-WORKTREE_NAME = "ta-lib-synth-gate"
 LANGS = 4  # C, Rust, Java, C# — servers exercised by the stream leg
+
+
+def synth_worktree_path(root):
+    """Where this run's throwaway worktree goes: a sibling named after the caller.
+
+    Derived, not fixed. A fixed sibling meant every worktree in the tree shared one
+    directory, and the "clear any stale worktree" step below force-removes whatever
+    is there — so a second run would delete the first one's tree mid-build and both
+    would die with `could not write output ... No such file or directory`, cwd shown
+    as `(deleted)`. Observed with two sessions running this gate at once.
+
+    The main checkout keeps its historic path (ta-lib -> ta-lib-synth-gate), so CI
+    and habit are unaffected; ta-lib-172 gets ta-lib-172-synth-gate.
+    """
+    return os.path.join(os.path.dirname(root),
+                        os.path.basename(root) + "-synth-gate")
 
 
 def find_repo_root():
@@ -92,8 +107,10 @@ def main():
         sha = "HEAD"
     print(f"synth_gate: testing tree {sha}")
 
-    wt = os.path.join(os.path.dirname(root), WORKTREE_NAME)
-    # Clear any stale worktree from a previous failed run.
+    wt = synth_worktree_path(root)
+    # Clear any stale worktree from a PREVIOUS RUN OF THIS SAME CALLER. The path is
+    # derived from `root`, so this can only ever remove our own leftovers -- never a
+    # concurrent run's tree.
     if os.path.exists(wt):
         subprocess.run(["git", "worktree", "remove", "--force", wt], cwd=root)
         shutil.rmtree(wt, ignore_errors=True)
@@ -149,13 +166,14 @@ def main():
         # language server; every one must have swept exactly the fixtures.
         stream = re.findall(r"Stream verify: (\d+) functions, (\d+) legs", out1)
         notsup = len(re.findall(r"Stream verify: not supported", out1))
-        # Every server must either sweep the fixtures or say so explicitly
-        # (today the C# server has no stream_verify — 3 summaries + 1 note).
-        # A server LOSING stream support drops the summary count below 3.
-        if len(stream) + notsup != LANGS or len(stream) < 3:
+        # Every server must either sweep the fixtures or say so explicitly.
+        # All four now stream, so the floor is 4: at 3 a C# server that
+        # silently lost stream support still satisfied `3 + 1 == LANGS`, which
+        # is exactly the hole this floor exists to close.
+        if len(stream) + notsup != LANGS or len(stream) < 4:
             sys.exit(f"synth_gate: VACUOUS — {len(stream)} stream-verify "
                      f"summaries + {notsup} not-supported, expected "
-                     f"{LANGS} total with at least 3 summaries")
+                     f"{LANGS} total with at least 4 summaries")
         for n, legs in stream:
             if int(n) != nfix or int(legs) == 0:
                 sys.exit(f"synth_gate: VACUOUS — stream leg swept {n} function(s) "

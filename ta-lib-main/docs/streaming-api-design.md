@@ -1,13 +1,13 @@
 # Generated Streaming (Incremental) API for ta_codegen
 
-Status: C, Rust, and Java tiers complete (all 165 functions each, bit-exact CI gates); the managed .NET emitter is the sole remaining streaming work. Planned for release 0.8.1.
+Status: complete in all four languages — C, Rust, Java and .NET stream every function in the corpus, each verified bit-exact against its own batch tier by `ta_regtest --codegen`. Planned for release 0.8.1.
 
 ## Design
 
 ### Motivation
 Live-trading users often want the latest indicator value updated in O(1) per new bar — not a full recompute each tick. This has been requested over the years, and some TA-Lib derivative works have already attempted it (see prior art).
 
-This design adds an official **streaming API** to TA-Lib for C, Rust and Java (other languages may be added later).
+This design adds an official **streaming API** to TA-Lib for C, Rust, Java and .NET.
 
 The hard parts are **maintenance** and **validation**, and both are solvable when combining recent ta_codegen refactoring done in TA-Lib 0.7.1, and AI-advancement for automation.
 
@@ -119,9 +119,10 @@ exactly what makes the fill bit-exact (see *Semantic definition*). Because the f
 writes the outputs and *then* reads the input tail to seed the ring, the output arrays
 must not alias the input or each other (the batch-tier aliasing rule, #108).
 
-Rejection is `open`'s, not `batch`'s: too-short history returns `TA_BAD_PARAM` and
-produces no handle (a handle needs a defined value, so short history is an error here,
-not batch's success-with-empty-output).
+Rejection is `open`'s, not `batch`'s: too-short history returns
+`TA_INSUFFICIENT_HISTORY` and produces no handle (a handle needs a defined value, so
+short history is an error here, not batch's success-with-empty-output). It is the
+library's one recoverable condition, and carries its own code for that reason.
 
 ```c
 TA_SMA_Stream *s = NULL;
@@ -174,8 +175,76 @@ Notes that make this precise:
   history — it only delays the first visible output: `open` requires
   `TA_XXX_Lookback() + 1` bars; values are unaffected. It is read once at
   `open`; changing it later affects only future opens, never a live stream.
-- **NaN.** Are not supported in inputs, and never produced at output.
-  Wrappers (e.g. Python) may layer their own NaN handling.
+- **Non-finite input: single values are rejected, arrays are not checked.**
+  The line runs between **input arrays** and **single values**, not between the
+  batch and streaming tiers.
+
+  An **input array** is never scanned, in either tier. Keeping an array free of
+  NaN and ±Inf is the caller's responsibility; passing a non-finite one is
+  **undefined behaviour** — see `docs/error-handling-spec.md` rule N-5. A scan is a whole extra pass over caller-owned memory: measured at
+  ≈0.3 ns per bar per array, which is a corpus median of **22% of `Open`** and up
+  to 76% of a candlestick `OpenAndFill`. Folding it into the main loop instead
+  would trade that for a worse contract — a rejection partway through a fill,
+  with the output already half written.
+
+  A **single value** is always checked, in both tiers, because it is one
+  comparison and costs nothing measurable:
+
+  - every bar handed to `Update` / `Peek`, in every input slot;
+  - every real optional parameter, which the range test would otherwise admit —
+    `x < min` and `x > max` are both false for NaN, so the check is spelled
+    inverted, `!(x >= min && x <= max)`, in **both** tiers.
+
+  The per-bar rejection earns its cost from the retained state. Batch is handed
+  a series, computes and forgets, so a NaN reaches the outputs depending on that
+  bar and no others. A handle carries recursive accumulators across calls, so one
+  non-finite bar poisons every value it will ever produce afterwards, long after
+  the feed recovers. Rejecting the bar and leaving the handle usable is strictly
+  more useful than accepting it and going permanently NaN.
+
+  **What "the handle is unchanged" does and does not cover.** For the rejection
+  a caller can actually provoke — a non-finite bar handed to `Update` or `Peek` —
+  the check runs before anything is written, so the guarantee is unconditional
+  and that is what the generated docs promise.
+
+  There is one path where it does not hold, and it is worth being precise rather
+  than silent about it. A composed function drives its sub-streams through their
+  *public* `Update`/`Peek`, so a sub-stream re-checks a value the library itself
+  computed. If such an intermediate were ever non-finite, the sub would reject
+  it, and the composed step would surface that rejection **after** the earlier
+  sub-streams in the pipeline had already advanced — a rejection from a bar the
+  caller supplied in good faith, with the handle partway through the bar. All
+  four backends now agree on that (C propagates the sub-call's return code
+  rather than continuing on an unwritten value, which was undefined behaviour
+  before it was made to propagate), and the reported error names the sub-stage.
+
+  Reaching it requires an intermediate to overflow to ±Inf, i.e. input
+  magnitudes around 1e306 and up — the input-overflow class #191 deliberately
+  leaves out of scope as a property of `double` rather than of the indicator.
+  Closing it properly means giving every function an internal, unchecked
+  per-bar entry point for composition to call, which is real work and buys
+  nothing inside the supported input range; the note is here so that whoever
+  needs it later does not have to rediscover why.
+
+  Outputs are unchanged by all of this: a successful call still never produces
+  NaN, except from the seven functions flagged `nan_inf_output` (#191), which
+  have genuine domain holes.
+
+- **Composition and `nan_inf_output`.** Because the tier assumes everything
+  inside the API is finite, a function whose *documented output domain* includes
+  NaN or ±Inf may not drive another function's sub-stream. Such a callee would
+  make the rejection above routine rather than exotic — reachable on ordinary
+  input rather than only at overflow magnitudes — so the combination is refused
+  outright.
+
+  So `streaming::reject_nonfinite_callees` refuses the combination at
+  generation time rather than shipping the silent version. Clearing such a
+  failure means either a `PRAGMA TA_ALT={STREAM,ALL_LANGUAGES}` body for the
+  callee without the domain hole, or teaching the composed emitter to carry a
+  rejection out of the step. None of the seven flagged functions (ACOS, ASIN,
+  LN, LOG10, SQRT, DIV, VWMA) is composed by anything today, so the gate is
+  dormant against the shipped corpus — `nan_inf_callee_is_refused` in
+  `tests/streaming_suite.rs` injects the flag onto MA so it can be seen firing.
 
 ta_regtest automation validates the batch API exhaustively including comparison
 against frozen references (e.g. 0.6.4). The stream tier is verified against
@@ -207,7 +276,8 @@ TA_LIB_API TA_RetCode TA_SMA_Open( TA_SMA_Stream **stream,     /* out */
                                    int            optInTimePeriod,
                                    double         *outReal );  /* out */
 
-/* update: always produces a value; cannot fail except on NULL args. */
+/* update: produces a value unless the bar is rejected -- NULL args, or a
+ * non-finite input (see the NaN note above). */
 TA_LIB_API TA_RetCode TA_SMA_Update( TA_SMA_Stream *stream,
                                      double         inReal,
                                      double        *outReal );
@@ -221,10 +291,13 @@ TA_LIB_API TA_RetCode TA_SMA_Peek( const TA_SMA_Stream *stream,
 TA_LIB_API TA_RetCode TA_SMA_Close( TA_SMA_Stream *stream );
 ```
 
-**Error model.** `Open` returns `TA_BAD_PARAM` (param out of range, or
-`historyLen < min_history` so no value exists yet) or `TA_ALLOC_ERR`;
-`*stream` is NULL on any failure. `Update`/`Peek` return `TA_BAD_PARAM` only
-on NULL arguments. `Close(NULL)` is a no-op returning `TA_SUCCESS`.
+**Error model.** `Open` returns `TA_INSUFFICIENT_HISTORY` (`historyLen <
+min_history`, so no value exists yet), `TA_BAD_PARAM` (param out of range) or
+`TA_ALLOC_ERR`; `*stream` is NULL on any failure. The history itself is an input array and is not
+scanned — see the non-finite bullet above.
+`Update`/`Peek` return `TA_BAD_PARAM` on NULL arguments and on a non-finite bar
+value, leaving the handle untouched in the latter case. `Close(NULL)` is a
+no-op returning `TA_SUCCESS`.
 
 **Shapes.** Multi-input functions take the price scalars in batch order
 (`TA_CDLDOJI_Update(s, open, high, low, close, &outInteger)`).
@@ -239,8 +312,9 @@ let core = Core::builder().build()?;              // immutable settings (issue #
 let (mut s, _last) = core.SMA_Open(&history, 14)?; // &self method on Core; the
                                                   // handle holds its own Core
                                                   // (a cheap by-value clone)
-for &x in new_bars { let v = s.update(x); }        // &mut self, always a value
-let provisional = s.peek(forming_bar_close);       // &self: runs the same
+for &x in new_bars { let v = s.update(x)?; }       // &mut self; Err(BadParam)
+                                                  // only on a non-finite bar
+let provisional = s.peek(forming_bar_close)?;      // &self: runs the same
                                                   // transition on a reused
                                                   // scratch, never commits
 ```
@@ -254,7 +328,7 @@ Java (shipped shape — design-panel reviewed):
 ```java
 Core core = new Core();
 Core.SMA_Stream s = core.SMA_Open(history, 14);  // throws on reject; value() = last-bar value
-double v = s.update(bar);                        // one value per closed bar; never throws
+double v = s.update(bar);                        // one value per closed bar
 double p = s.peek(formingBarClose);              // forming bar, non-committing (scratch copy)
 Core.SMA_Stream t = s.copy();                    // independent stream fork
 Core.MACD_Stream m = core.MACD_Open(history, 12, 26, 9);
@@ -272,7 +346,9 @@ OutRange fr = s2.fillRange();                    // range written, on the handle
   condition, catchable separately) for `historyLen < lookback + 1`, plain
   `IllegalArgumentException` for out-of-range parameters and `OpenAndFill`
   aliasing, `IllegalStateException` for capture invariants. Messages carry the
-  stable prefix `"<NAME> open:"`. `update`/`peek` never throw post-open.
+  stable prefix `"<NAME> open:"`. Post-open, `update`/`peek` throw only
+  `IllegalArgumentException` on a non-finite bar (prefix `"<NAME> update:"` /
+  `"<NAME> peek:"`), leaving the handle untouched.
 - `value()` re-reads the last committed value(s) without recomputing (seeded by
   open, refreshed by `update`, untouched by `peek`); multi-output `update`
   caches the immutable `Value` it returns, so `value()` is allocation-free.
@@ -284,7 +360,9 @@ OutRange fr = s2.fillRange();                    // range written, on the handle
 - `OpenAndFill` rejects output↔input and output↔output aliasing by reference
   equality (complete in Java: arrays are identical or disjoint) — Java is the
   one managed backend where `SMA_OpenAndFill(history, …, history)` compiles, so
-  the guard is load-bearing (the planned managed .NET emitter must mirror it).
+  the guard is load-bearing. The managed .NET emitter mirrors it with
+  `ReferenceEquals`, which additionally compiles for cross-typed `double[]`/
+  `int[]` output pairs where `==` would not.
 - `Integer.MIN_VALUE` keeps its batch meaning (use the documented default) in
   streaming opens; the stream gate asserts `open(MIN_VALUE) == open(default)`
   bitwise.
@@ -293,11 +371,30 @@ OutRange fr = s2.fillRange();                    // range written, on the handle
 
 **Java/.NET handle lifecycle.** Generated Java is pure Java — a stream handle
 is ordinary heap state, so "close" is literally nothing: no `AutoCloseable`,
-no finalizer; GC suffices. The same holds for .NET **provided the .NET stream
-tier is a managed C# emitter** mirroring the Java one (the plan — staging
-step 6). A P/Invoke wrapper over the C handles would instead own native memory
-and need `SafeHandle`/`IDisposable` — a worse API; this design chooses the
-managed emitter and accepts the later delivery date.
+no finalizer; GC suffices. The same holds for .NET, because the .NET stream
+tier **is** a managed C# emitter mirroring the Java one: no `IDisposable`, no
+finalizer, and the handle types are verified to implement neither. A P/Invoke
+wrapper over the C handles would instead own native memory and need
+`SafeHandle`/`IDisposable` — a worse API; this design chose the managed
+emitter and accepted the later delivery date.
+
+Two places the C# tier deliberately departs from the Java one, both because
+the language offers something Java does not:
+
+- **Multi-output values are a `readonly record struct`, not a class.** Java
+  caches the boxed `Value` so that `value()` allocates nothing; a struct is
+  allocation-free by construction, so C# has no `cachedValue` field at all.
+  The consequence for callers is that C# equality is .NET's `double` equality
+  — `NaN` equals `NaN` **and** `+0.0` equals `-0.0` — where Java's record
+  compares bitwise and disagrees on the second. Compare
+  `BitConverter.DoubleToInt64Bits` per component when bit identity is what you
+  mean. (JLS 17.5's final-field safe-publication guarantee has no ECMA-335
+  analogue, but none is needed: a returned record struct is copied into the
+  caller's frame, which is stronger.)
+- **The peek scratch is `[ThreadStatic]`, not `ThreadLocal<T>`.**
+  `ThreadLocal<T>` is itself `IDisposable`, and an undisposed static
+  `IDisposable` inside the one tier whose thesis is "nothing here needs
+  disposing" is the wrong signal.
 
 ### Rust concurrency
 
@@ -352,7 +449,13 @@ enforcing it its own way:
 - **C.** Documented, as an extension of the existing batch-tier caveat:
   calling `TA_SetCompatibility`/`TA_SetCandleSettings` while streams are open
   is undefined (CDL\* warm-up and ring sizes are derived from the settings in
-  effect at `open`; values read them per bar). Streams add no *new* hazard —
+  effect at `open`). Where a candle range is BUFFERED — every trailing ring,
+  and since #229 the rescan-window reads routed into one — its value is the one
+  the range type produced when that bar was pushed, up to `back` bars earlier;
+  everything else still reads the settings per bar. That sits inside the
+  undefined region above, and it is the more self-consistent of the two: a bar
+  now enters and leaves a running total as the identical double, so the sum
+  telescopes exactly. Streams add no *new* hazard —
   the C batch tier already requires that nothing calls `TA_SetX` during
   concurrent calls. Distinct handles are otherwise fully independent; a
   single handle is **single-writer**: driving one handle from two threads
@@ -684,7 +787,14 @@ claim in *Motivation* gets measured, not asserted).
    `cap = lag + back + 1`, current bar pre-written at `pos`), fixed-size
    array locals as carried state, ternary-index normalization
    (`in[c ? a : b]` → `c ? in[a] : in[b]`), widest-literal merge for
-   multi-bound rescan counters. CDLHIKKAKE/CDLHIKKAKEMOD (which save bar
+   multi-bound rescan counters. Those rings hold ONE derived scalar per bar
+   rather than one buffer per input column, and the rescan window beside them
+   holds nothing at all: where every read through the counter is a shape the
+   ring already stores, the read is routed into the ring at a cursor-relative
+   offset (#229). Four windows keep their own buffer, for two different reasons:
+   AVGDEV and IMI are bounded by a parameter rather than a literal, so the ring
+   depth has nothing to compare against; HT_TRENDLINE and HT_TRENDMODE read raw
+   columns, which no derived ring holds. CDLHIKKAKE/CDLHIKKAKEMOD (which save bar
    indices — absolute-index recall beyond the extrema automaton) later joined
    via a bit-exact countdown + cached-value refactor, so all 61 CDL patterns
    stream.
@@ -699,8 +809,8 @@ claim in *Motivation* gets measured, not asserted).
    One honest contract nuance came out of RSI/CMO under Metastock: their
    batch emits a seed output and, when continuing, REWINDS and rebuilds
    state — so no bit-exact continuation exists from the seed exit. Open
-   returns `TA_BAD_PARAM` at exactly `lookback+1` in that mode (one more
-   bar is required); the verifier knows statically which functions have a
+   returns `TA_INSUFFICIENT_HISTORY` at exactly `lookback+1` in that mode (one
+   more bar is required); the verifier knows statically which functions have a
    seed boundary and shifts its boundary leg. The remaining members
    (ATR/NATR/MACDEXT/MACDFIX delegate to other functions at period 1,
    DI/DM have a dual unsmoothed loop) belong with the composed tier.
@@ -852,5 +962,9 @@ claim in *Motivation* gets measured, not asserted).
    sub-streams advanced in lockstep.
 8. **Rust emitter** (re-applying the now-complete C model) — DONE; **Java
    emitter** (nested handle classes over the same shared transition machinery,
-   verified by the same stream gate) — DONE; .NET (managed C# emitter, not
-   P/Invoke — see lifecycle section) — the sole remaining streaming work.
+   verified by the same stream gate) — DONE; **.NET emitter** (managed C#, not
+   P/Invoke — see lifecycle section) — DONE, completing the campaign. The C#
+   port confirmed the strategy: it changed nothing in `streaming.rs` or in the
+   three shipped emitters, so those stayed byte-frozen by construction while it
+   landed, and all 172 emitted step bodies came out byte-identical to Java's
+   modulo a fixed table of language spellings.

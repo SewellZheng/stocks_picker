@@ -84,13 +84,13 @@ public partial class Core
       return optInTimePeriod - 1 + this.unstablePeriod[(int)FuncUnstId.EMA] ;
 
    }
-   internal RetCode EMA( int startIdx,
-                         int endIdx,
-                         double[] inReal,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode EMA_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inReal,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -111,6 +111,9 @@ public partial class Core
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
+         return RetCode.BadParam ;
       }
       optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
       /* Identify the minimum number of price bar needed
@@ -188,13 +191,13 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode EMA( int startIdx,
-                         int endIdx,
-                         float[] inReal,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode EMA_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inReal,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -291,15 +294,28 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange EMA( int startIdx,
                         int endIdx,
-                        double[] inReal,
+                        ReadOnlySpan<double> inReal,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = EMA(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, EMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("EMA", "inReal", inReal.Length, guardInLen);
+      RequireLength("EMA", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = EMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("EMA", retCode);
       }
@@ -346,18 +362,362 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange EMA( int startIdx,
                         int endIdx,
-                        float[] inReal,
+                        ReadOnlySpan<float> inReal,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = EMA(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, EMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("EMA", "inReal", inReal.Length, guardInLen);
+      RequireLength("EMA", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = EMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("EMA", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>EMA</c> stream: one value per closed bar, bit-identical to
+   /// <c>EMA</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.EMA_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class EMA_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal double optInK_1;
+      internal double prevMA;
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal EMA_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>EMA_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal EMA_Stream( EMA_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.optInK_1 = other.optInK_1;
+         this.prevMA = other.prevMA;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( EMA_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.optInK_1 = other.optInK_1;
+         this.prevMA = other.prevMA;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inReal )
+      {
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("EMA", "update", RetCode.BadParam);
+         core.EMA_StreamStep(this, inReal);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inReal )
+      {
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("EMA", "peek", RetCode.BadParam);
+         EMA_Stream scratch = new EMA_Stream(this);
+         core.EMA_StreamStep(scratch, inReal);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public EMA_Stream Clone()
+      {
+         return new EMA_Stream(this);
+      }
+   }
+
+   internal void EMA_StreamStep( EMA_Stream sp, double inReal )
+   {
+      if( sp.optInTimePeriod == 1 ) {
+         sp.cur_outReal = inReal;
+         return ;
+      }
+      sp.prevMA = Math.FusedMultiplyAdd(inReal - sp.prevMA, sp.optInK_1, sp.prevMA);
+      sp.cur_outReal = sp.prevMA;
+   }
+
+   private RetCode EMA_OpenPass( EMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      double optInK_1 = 0;
+      double tempReal = 0;
+      double prevMA = 0;
+      int i = 0;
+      int today = 0;
+      int outIdx = 0;
+      int lookbackTotal = 0;
+      int historyLen = inReal.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 30;
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         if( historyLen < EMA_Lookback(optInTimePeriod) + 1 ) {
+            return RetCode.InsufficientHistory;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.optInK_1 = 0.0;
+         sp.prevMA = 0.0;
+         int fillLb = EMA_Lookback(optInTimePeriod);
+         outBegIdx = fillLb;
+         outNBElement = historyLen - fillLb;
+         if( outStride == 0 ) {
+            outReal[0] = inReal[historyLen - 1];
+         } else {
+            for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
+               outReal[fillIdx] = inReal[fillLb + fillIdx];
+            }
+         }
+         sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+         return RetCode.Success;
+      }
+      optInK_1 = 2.0 / (double)(optInTimePeriod + 1);
+      /* Identify the minimum number of price bar needed
+       * to calculate at least one output.
+       */
+      lookbackTotal = EMA_Lookback(optInTimePeriod);
+      /* Move up the start index if there is not
+       * enough initial data.
+       */
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      outBegIdx = startIdx;
+      /* Do the EMA calculation using tight loops. */
+      /* The first EMA is calculated differently. It
+       * then become the seed for subsequent EMA.
+       *
+       * The algorithm for this seed vary widely.
+       * Only 3 are implemented here:
+       *
+       * TA_MA_CLASSIC:
+       *    Use a simple MA of the first 'period'.
+       *    This is the approach most widely documented.
+       *
+       * TA_MA_METASTOCK:
+       *    Use first price bar value as a seed
+       *    from the begining of all the available
+       *    data.
+       *
+       * TA_MA_TRADESTATION:
+       *    Use 4th price bar as a seed, except when
+       *    period is 1 who use 2th price bar or something
+       *    like that... (not an obvious one...).
+       */
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 ) {
+         tempReal += inReal[today++];
+      }
+      prevMA = tempReal / optInTimePeriod;
+      while( today <= startIdx ) {
+         prevMA = Math.FusedMultiplyAdd(inReal[today++] - prevMA, optInK_1, prevMA);
+      }
+      outReal[0 * outStride] = prevMA;
+      outIdx = 1;
+      while( today <= endIdx ) {
+         prevMA = Math.FusedMultiplyAdd(inReal[today++] - prevMA, optInK_1, prevMA);
+         outReal[outIdx++ * outStride] = prevMA;
+      }
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.optInK_1 = optInK_1;
+      sp.prevMA = prevMA;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode EMA_OpenImpl( EMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return EMA_OpenPass( sp, inReal, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode EMA_OpenAndFillImpl( EMA_Stream sp, ReadOnlySpan<double> inReal, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inReal) ) {
+         return RetCode.BadParam;
+      }
+      return EMA_OpenPass( sp, inReal, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode EMA_OpenAndFillInternalImpl( EMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return EMA_OpenPass(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* EMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal EMA_Stream EMA_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      EMA_Stream sp = new EMA_Stream(this);
+      RetCode retCode = EMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("EMA", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind EMA_Open (composition seam). */
+   internal EMA_Stream EMA_OpenInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod )
+   {
+      EMA_Stream sp = new EMA_Stream(this);
+      RetCode retCode = EMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("EMA", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>EMA</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="EMA_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>EMA</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>EMA_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>EMA_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inReal">price/data series to smooth. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="EMA_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>EMA_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public EMA_Stream EMA_Open( ReadOnlySpan<double> inReal, int optInTimePeriod )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      return EMA_OpenInternal(inReal, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>EMA_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>EMA</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - EMA_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="EMA_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inReal">price/data series to smooth. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="EMA_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">the exponential moving average. Must hold at least <c>historyLen -
+   /// EMA_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>EMA_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public EMA_Stream EMA_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      EMA_Stream sp = new EMA_Stream(this);
+      RetCode retCode = EMA_OpenAndFillImpl(sp, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("EMA", "openAndFill", retCode);
    }
 }

@@ -70,15 +70,15 @@ public partial class Core
       return 0 ;
 
    }
-   internal RetCode BOP( int startIdx,
-                         int endIdx,
-                         double[] inOpen,
-                         double[] inHigh,
-                         double[] inLow,
-                         double[] inClose,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode BOP_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inOpen,
+                              ReadOnlySpan<double> inHigh,
+                              ReadOnlySpan<double> inLow,
+                              ReadOnlySpan<double> inClose,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -90,6 +90,9 @@ public partial class Core
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
+      }
+      if( (outReal.Overlaps(inOpen) && outReal != inOpen) || (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) || (outReal.Overlaps(inClose) && outReal != inClose) ) {
+         return RetCode.BadParam ;
       }
       /* BOP = (Close - Open)/(High - Low) */
       outIdx = 0;
@@ -105,15 +108,15 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode BOP( int startIdx,
-                         int endIdx,
-                         float[] inOpen,
-                         float[] inHigh,
-                         float[] inLow,
-                         float[] inClose,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode BOP_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inOpen,
+                              ReadOnlySpan<float> inHigh,
+                              ReadOnlySpan<float> inLow,
+                              ReadOnlySpan<float> inClose,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -172,17 +175,33 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange BOP( int startIdx,
                         int endIdx,
-                        double[] inOpen,
-                        double[] inHigh,
-                        double[] inLow,
-                        double[] inClose,
-                        double[] outReal )
+                        ReadOnlySpan<double> inOpen,
+                        ReadOnlySpan<double> inHigh,
+                        ReadOnlySpan<double> inLow,
+                        ReadOnlySpan<double> inClose,
+                        Span<double> outReal )
    {
-      RetCode retCode = BOP(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, BOP_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("BOP", "inOpen", inOpen.Length, guardInLen);
+      RequireLength("BOP", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("BOP", "inLow", inLow.Length, guardInLen);
+      RequireLength("BOP", "inClose", inClose.Length, guardInLen);
+      RequireLength("BOP", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("BOP", retCode);
       }
@@ -227,20 +246,297 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange BOP( int startIdx,
                         int endIdx,
-                        float[] inOpen,
-                        float[] inHigh,
-                        float[] inLow,
-                        float[] inClose,
-                        double[] outReal )
+                        ReadOnlySpan<float> inOpen,
+                        ReadOnlySpan<float> inHigh,
+                        ReadOnlySpan<float> inLow,
+                        ReadOnlySpan<float> inClose,
+                        Span<double> outReal )
    {
-      RetCode retCode = BOP(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, BOP_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("BOP", "inOpen", inOpen.Length, guardInLen);
+      RequireLength("BOP", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("BOP", "inLow", inLow.Length, guardInLen);
+      RequireLength("BOP", "inClose", inClose.Length, guardInLen);
+      RequireLength("BOP", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("BOP", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>BOP</c> stream: one value per closed bar, bit-identical to
+   /// <c>BOP</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.BOP_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class BOP_Stream
+   {
+      internal Core core;
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal BOP_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>BOP_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal BOP_Stream( BOP_Stream other )
+      {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( BOP_Stream other )
+      {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inOpen">This bar's open price.</param>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inOpen, double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("BOP", "update", RetCode.BadParam);
+         core.BOP_StreamStep(this, inOpen, inHigh, inLow, inClose);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inOpen">This bar's open price.</param>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inOpen, double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("BOP", "peek", RetCode.BadParam);
+         BOP_Stream scratch = new BOP_Stream(this);
+         core.BOP_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public BOP_Stream Clone()
+      {
+         return new BOP_Stream(this);
+      }
+   }
+
+   internal void BOP_StreamStep( BOP_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
+   {
+      double tempReal = 0.0;
+      tempReal = inHigh - inLow;
+      if( (tempReal < 0.00000000000001) ) {
+         sp.cur_outReal = 0.0;
+      } else {
+         sp.cur_outReal = (inClose - inOpen) / tempReal;
+      }
+   }
+
+   private RetCode BOP_OpenPass( BOP_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      int outIdx = 0;
+      int i = 0;
+      double tempReal = 0;
+      int historyLen = inOpen.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inHigh.Length != inOpen.Length || inLow.Length != inOpen.Length || inClose.Length != inOpen.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      /* BOP = (Close - Open)/(High - Low) */
+      outIdx = 0;
+      for( i = startIdx; i <= endIdx; i += 1 ) {
+         tempReal = inHigh[i] - inLow[i];
+         if( (tempReal < 0.00000000000001) ) {
+            outReal[outIdx++ * outStride] = 0.0;
+         } else {
+            outReal[outIdx++ * outStride] = (inClose[i] - inOpen[i]) / tempReal;
+         }
+      }
+      outNBElement = outIdx;
+      outBegIdx = startIdx;
+      /* Capture the live batch state into the handle. */
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode BOP_OpenImpl( BOP_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx )
+   {
+      double[] sink_outReal = new double[1];
+      return BOP_OpenPass( sp, inOpen, inHigh, inLow, inClose, startIdx, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode BOP_OpenAndFillImpl( BOP_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inOpen) || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
+         return RetCode.BadParam;
+      }
+      return BOP_OpenPass( sp, inOpen, inHigh, inLow, inClose, 0, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode BOP_OpenAndFillInternalImpl( BOP_Stream sp, ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return BOP_OpenPass(sp, inOpen, inHigh, inLow, inClose, startIdx, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* BOP_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal BOP_Stream BOP_OpenAndFillInternal( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      BOP_Stream sp = new BOP_Stream(this);
+      RetCode retCode = BOP_OpenAndFillInternalImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("BOP", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind BOP_Open (composition seam). */
+   internal BOP_Stream BOP_OpenInternal( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx )
+   {
+      BOP_Stream sp = new BOP_Stream(this);
+      RetCode retCode = BOP_OpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("BOP", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>BOP</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="BOP_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>BOP</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>BOP_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>BOP_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inOpen">Open price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>BOP_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public BOP_Stream BOP_Open( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose )
+   {
+      if( inOpen.IsEmpty ) throw new TaLibArgumentException("inOpen is empty", nameof(inOpen), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      return BOP_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
+   }
+
+   /// <summary><c>BOP_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>BOP</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - BOP_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="BOP_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inOpen">Open price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="outReal">Balance of Power value per bar. Must hold at least <c>historyLen -
+   /// BOP_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>BOP_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public BOP_Stream BOP_OpenAndFill( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outReal )
+   {
+      if( inOpen.IsEmpty ) throw new TaLibArgumentException("inOpen is empty", nameof(inOpen), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      BOP_Stream sp = new BOP_Stream(this);
+      RetCode retCode = BOP_OpenAndFillImpl(sp, inOpen, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("BOP", "openAndFill", retCode);
    }
 }

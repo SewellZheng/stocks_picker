@@ -434,7 +434,7 @@ static void TA_AROONOSC_StepInternal( struct TA_AROONOSC_Stream *sp, double inHi
    sp->today += 1;
 }
 
-static TA_RetCode TA_AROONOSC_OpenCore( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_AROONOSC_OpenPass( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_AROONOSC_Stream *sp;
    int endIdx;
@@ -492,7 +492,7 @@ static TA_RetCode TA_AROONOSC_OpenCore( struct TA_AROONOSC_Stream **stream, cons
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Proceed with the calculation for the requested range.
        * Note that this algorithm allows the input and
@@ -621,7 +621,7 @@ TA_RetCode TA_AROONOSC_OpenInternal( struct TA_AROONOSC_Stream **stream, const d
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_AROONOSC_OpenCore( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_AROONOSC_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -631,6 +631,11 @@ TA_RetCode TA_AROONOSC_OpenInternal( struct TA_AROONOSC_Stream **stream, const d
 
 TA_LIB_API TA_RetCode TA_AROONOSC_Open( TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_AROONOSC_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -639,19 +644,23 @@ TA_LIB_API TA_RetCode TA_AROONOSC_OpenAndFill( TA_AROONOSC_Stream **stream, cons
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
-   return TA_AROONOSC_OpenCore( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AROONOSC_OpenPass( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_AROONOSC_OpenAndFillInternal( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_AROONOSC_OpenCore( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AROONOSC_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_AROONOSC_Update( TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    TA_AROONOSC_StepInternal( stream, inHigh, inLow, outReal );
    return TA_SUCCESS;
 }
@@ -661,6 +670,7 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double
    struct TA_AROONOSC_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.x_inHigh = stream->xMirror_inHigh;
    memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xPhys );

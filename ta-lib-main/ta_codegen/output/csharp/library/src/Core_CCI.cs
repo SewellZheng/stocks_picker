@@ -87,15 +87,15 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode CCI( int startIdx,
-                         int endIdx,
-                         double[] inHigh,
-                         double[] inLow,
-                         double[] inClose,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode CCI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inHigh,
+                              ReadOnlySpan<double> inLow,
+                              ReadOnlySpan<double> inClose,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -120,6 +120,9 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) || (outReal.Overlaps(inClose) && outReal != inClose) ) {
+         return RetCode.BadParam ;
       }
       /* This ptr will points on a circular buffer of
        * at least "optInTimePeriod" element.
@@ -199,15 +202,15 @@ public partial class Core
       /* Free the circular buffer if it was dynamically allocated. */
       return RetCode.Success ;
    }
-   internal RetCode CCI( int startIdx,
-                         int endIdx,
-                         float[] inHigh,
-                         float[] inLow,
-                         float[] inClose,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode CCI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inHigh,
+                              ReadOnlySpan<float> inLow,
+                              ReadOnlySpan<float> inClose,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -318,17 +321,32 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CCI( int startIdx,
                         int endIdx,
-                        double[] inHigh,
-                        double[] inLow,
-                        double[] inClose,
+                        ReadOnlySpan<double> inHigh,
+                        ReadOnlySpan<double> inLow,
+                        ReadOnlySpan<double> inClose,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = CCI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, CCI_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("CCI", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("CCI", "inLow", inLow.Length, guardInLen);
+      RequireLength("CCI", "inClose", inClose.Length, guardInLen);
+      RequireLength("CCI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = CCI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("CCI", retCode);
       }
@@ -376,20 +394,436 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CCI( int startIdx,
                         int endIdx,
-                        float[] inHigh,
-                        float[] inLow,
-                        float[] inClose,
+                        ReadOnlySpan<float> inHigh,
+                        ReadOnlySpan<float> inLow,
+                        ReadOnlySpan<float> inClose,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = CCI(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, CCI_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("CCI", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("CCI", "inLow", inLow.Length, guardInLen);
+      RequireLength("CCI", "inClose", inClose.Length, guardInLen);
+      RequireLength("CCI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = CCI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("CCI", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>CCI</c> stream: one value per closed bar, bit-identical to
+   /// <c>CCI</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.CCI_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class CCI_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal double tempReal;
+      internal double tempReal2;
+      internal double theAverage;
+      internal int j;
+      internal int circBuffer_Idx;
+      internal int maxIdx_circBuffer;
+      internal int cbSize_circBuffer;
+      internal double[] cb_circBuffer = [];
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal CCI_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>CCI_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal CCI_Stream( CCI_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.tempReal = other.tempReal;
+         this.tempReal2 = other.tempReal2;
+         this.theAverage = other.theAverage;
+         this.j = other.j;
+         this.circBuffer_Idx = other.circBuffer_Idx;
+         this.maxIdx_circBuffer = other.maxIdx_circBuffer;
+         this.cbSize_circBuffer = other.cbSize_circBuffer;
+         this.cb_circBuffer = new double[other.cb_circBuffer.Length];
+         Array.Copy( other.cb_circBuffer, this.cb_circBuffer, other.cb_circBuffer.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( CCI_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.tempReal = other.tempReal;
+         this.tempReal2 = other.tempReal2;
+         this.theAverage = other.theAverage;
+         this.j = other.j;
+         this.circBuffer_Idx = other.circBuffer_Idx;
+         this.maxIdx_circBuffer = other.maxIdx_circBuffer;
+         this.cbSize_circBuffer = other.cbSize_circBuffer;
+         if( this.cb_circBuffer.Length != other.cb_circBuffer.Length ) {
+            this.cb_circBuffer = new double[other.cb_circBuffer.Length];
+         }
+         Array.Copy( other.cb_circBuffer, this.cb_circBuffer, other.cb_circBuffer.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("CCI", "update", RetCode.BadParam);
+         core.CCI_StreamStep(this, inHigh, inLow, inClose);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("CCI", "peek", RetCode.BadParam);
+         CCI_Stream scratch = new CCI_Stream(this);
+         core.CCI_StreamStep(scratch, inHigh, inLow, inClose);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public CCI_Stream Clone()
+      {
+         return new CCI_Stream(this);
+      }
+   }
+
+   internal void CCI_StreamStep( CCI_Stream sp, double inHigh, double inLow, double inClose )
+   {
+      double lastValue = 0.0;
+      lastValue = (inHigh + inLow + inClose) / 3;
+      sp.cb_circBuffer[sp.circBuffer_Idx] = lastValue;
+      /* Calculate the average for the whole period. */
+      sp.theAverage = 0;
+      for( sp.j = 0; sp.j < sp.optInTimePeriod; sp.j += 1 ) {
+         sp.theAverage += sp.cb_circBuffer[sp.j];
+      }
+      sp.theAverage /= sp.optInTimePeriod;
+      /* Do the summation of the ABS(TypePrice-average)
+       * for the whole period.
+       */
+      sp.tempReal2 = 0;
+      for( sp.j = 0; sp.j < sp.optInTimePeriod; sp.j += 1 ) {
+         sp.tempReal2 += Math.Abs(sp.cb_circBuffer[sp.j] - sp.theAverage);
+      }
+      /* And finally, the CCI... */
+      sp.tempReal = lastValue - sp.theAverage;
+      if( !((-0.00000000000001 < sp.tempReal) && (sp.tempReal < 0.00000000000001)) && !((-0.00000000000001 < sp.tempReal2) && (sp.tempReal2 < 0.00000000000001)) ) {
+         sp.cur_outReal = sp.tempReal / (0.015 * (sp.tempReal2 / sp.optInTimePeriod));
+      } else {
+         sp.cur_outReal = 0.0;
+      }
+      /* Move forward the circular buffer indexes. */
+      sp.circBuffer_Idx = sp.circBuffer_Idx + 1;
+      if( sp.circBuffer_Idx > sp.maxIdx_circBuffer ) {
+         sp.circBuffer_Idx = 0;
+      }
+   }
+
+   private RetCode CCI_OpenPass( CCI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      double tempReal = 0;
+      double tempReal2 = 0;
+      double theAverage = 0;
+      double lastValue = 0;
+      int i = 0;
+      int j = 0;
+      int outIdx = 0;
+      int lookbackTotal = 0;
+      double[] circBuffer = [];
+      int circBuffer_Idx = 0;
+      int maxIdx_circBuffer = (30)-1;
+      int historyLen = inHigh.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 14;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      /* This ptr will points on a circular buffer of
+       * at least "optInTimePeriod" element.
+       */
+      /* Identify the minimum number of price bar needed
+       * to calculate at least one output.
+       */
+      lookbackTotal = optInTimePeriod - 1;
+      /* Move up the start index if there is not
+       * enough initial data.
+       */
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      /* Allocate a circular buffer equal to the requested
+       * period.
+       */
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      circBuffer = new double[optInTimePeriod];
+      maxIdx_circBuffer = (optInTimePeriod)-1;
+      circBuffer_Idx = 0;
+      /* Do the MA calculation using tight loops. */
+      /* Add-up the initial period, except for the last value.
+       * Fill up the circular buffer at the same time.
+       */
+      i = startIdx - lookbackTotal;
+      if( optInTimePeriod > 1 ) {
+         while( i < startIdx ) {
+            circBuffer[circBuffer_Idx] = (inHigh[i] + inLow[i] + inClose[i]) / 3;
+            i += 1;
+            circBuffer_Idx++;
+            if( circBuffer_Idx > maxIdx_circBuffer ) { circBuffer_Idx = 0; }
+         }
+      }
+      /* Proceed with the calculation for the requested range.
+       * Note that this algorithm allows the inReal and
+       * outReal to be the same buffer.
+       */
+      outIdx = 0;
+      do {
+         lastValue = (inHigh[i] + inLow[i] + inClose[i]) / 3;
+         circBuffer[circBuffer_Idx] = lastValue;
+         /* Calculate the average for the whole period. */
+         theAverage = 0;
+         for( j = 0; j < optInTimePeriod; j += 1 ) {
+            theAverage += circBuffer[j];
+         }
+         theAverage /= optInTimePeriod;
+         /* Do the summation of the ABS(TypePrice-average)
+          * for the whole period.
+          */
+         tempReal2 = 0;
+         for( j = 0; j < optInTimePeriod; j += 1 ) {
+            tempReal2 += Math.Abs(circBuffer[j] - theAverage);
+         }
+         /* And finally, the CCI... */
+         tempReal = lastValue - theAverage;
+         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
+            outReal[outIdx++ * outStride] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
+         } else {
+            outReal[outIdx++ * outStride] = 0.0;
+         }
+         /* Move forward the circular buffer indexes. */
+         circBuffer_Idx++;
+         if( circBuffer_Idx > maxIdx_circBuffer ) { circBuffer_Idx = 0; }
+         i += 1;
+      } while( i <= endIdx );
+      /* All done. Indicate the output limits and return. */
+      outNBElement = outIdx;
+      outBegIdx = startIdx;
+      /* Free the circular buffer if it was dynamically allocated. */
+      /* Capture the live batch state into the handle. */
+      int capCb_circBuffer = maxIdx_circBuffer + 1;
+      if( capCb_circBuffer > historyLen + 1 ) {
+         return RetCode.InternalError;
+      }
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.tempReal = tempReal;
+      sp.tempReal2 = tempReal2;
+      sp.theAverage = theAverage;
+      sp.j = j;
+      sp.circBuffer_Idx = circBuffer_Idx;
+      sp.maxIdx_circBuffer = maxIdx_circBuffer;
+      sp.cbSize_circBuffer = capCb_circBuffer;
+      sp.cb_circBuffer = circBuffer;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode CCI_OpenImpl( CCI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return CCI_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode CCI_OpenAndFillImpl( CCI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
+         return RetCode.BadParam;
+      }
+      return CCI_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode CCI_OpenAndFillInternalImpl( CCI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return CCI_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* CCI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal CCI_Stream CCI_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      CCI_Stream sp = new CCI_Stream(this);
+      RetCode retCode = CCI_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("CCI", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind CCI_Open (composition seam). */
+   internal CCI_Stream CCI_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      CCI_Stream sp = new CCI_Stream(this);
+      RetCode retCode = CCI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("CCI", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>CCI</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="CCI_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>CCI</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>CCI_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>CCI_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="CCI_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CCI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public CCI_Stream CCI_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      return CCI_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>CCI_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>CCI</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - CCI_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="CCI_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="CCI_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">CCI value per bar. Must hold at least <c>historyLen -
+   /// CCI_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CCI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public CCI_Stream CCI_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      CCI_Stream sp = new CCI_Stream(this);
+      RetCode retCode = CCI_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("CCI", "openAndFill", retCode);
    }
 }

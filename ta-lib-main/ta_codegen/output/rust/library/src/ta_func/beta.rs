@@ -76,8 +76,8 @@ impl Core {
     /// * `optInTimePeriod` — Rolling window length (number of returns) for the regression sums
     ///   (default 5, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn BETA_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -87,74 +87,9 @@ impl Core {
         }
         return (optInTimePeriod) as usize;
     }
-    /// Beta: the slope of a least-squares linear regression of one series' percentage returns (y,
-    /// from inReal1) against another's (x, from inReal0) over a rolling window. Measures how much a
-    /// security moves relative to a market index. Beta = 1 moves with the index; \< 1 less
-    /// volatile, > 1 more volatile.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// Per-bar returns: $x_i=(p^0_i-p^0_{i-1})/p^0_{i-1}$ from inReal0, $y_i=(p^1_i-p^1_{i-1})/p^1_{i-1}$ from inReal1. With $n$=period over the window: $\beta = \dfrac{n\,S_{xy}-S_x S_y}{n\,S_{xx}-S_x^2}$, where $S_{xx}=\sum x^2,\ S_{xy}=\sum xy,\ S_x=\sum x,\ S_y=\sum y$.
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal0` — Series whose returns are the regression x (market/index)
-    /// * `inReal1` — Series whose returns are the regression y (security)
-    /// * `optInTimePeriod` — Rolling window length (number of returns) for the regression sums
-    ///   (default 5, range 1..=100000)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — Beta: regression slope of inReal1-returns on inReal0-returns.
-    ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data0: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let data1: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.BETA(
-    ///     0, data0.len() - 1, &data0, &data1, 5,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::CORREL`] · [`Core::LINEARREG_SLOPE`] · [`Core::VAR`] · [`Core::STDDEV`]
-    ///
-    /// Further reading: [ta-lib.org/functions/beta](https://ta-lib.org/functions/beta)
-    #[doc(alias = "Betacoefficient")]
-    pub fn BETA(
+    /// C-shaped body behind [`Core::BETA`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn BETA_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -165,10 +100,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -330,6 +265,101 @@ impl Core {
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
+    /// Beta: the slope of a least-squares linear regression of one series' percentage returns (y,
+    /// from inReal1) against another's (x, from inReal0) over a rolling window. Measures how much a
+    /// security moves relative to a market index. Beta = 1 moves with the index; \< 1 less
+    /// volatile, > 1 more volatile.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// Per-bar returns: $x_i=(p^0_i-p^0_{i-1})/p^0_{i-1}$ from inReal0, $y_i=(p^1_i-p^1_{i-1})/p^1_{i-1}$ from inReal1. With $n$=period over the window: $\beta = \dfrac{n\,S_{xy}-S_x S_y}{n\,S_{xx}-S_x^2}$, where $S_{xx}=\sum x^2,\ S_{xy}=\sum xy,\ S_x=\sum x,\ S_y=\sum y$.
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal0` — Series whose returns are the regression x (market/index)
+    /// * `inReal1` — Series whose returns are the regression y (security)
+    /// * `optInTimePeriod` — Rolling window length (number of returns) for the regression sums
+    ///   (default 5, range 1..=100000)
+    /// * `outReal` — Beta: regression slope of inReal1-returns on inReal0-returns.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data0: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let data1: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin())
+    ///     .collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.BETA(0, data0.len() - 1, &data0, &data1, 5, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::CORREL`] · [`Core::LINEARREG_SLOPE`] · [`Core::VAR`] · [`Core::STDDEV`]
+    ///
+    /// Further reading: [ta-lib.org/functions/beta](https://ta-lib.org/functions/beta)
+    #[doc(alias = "Betacoefficient")]
+    pub fn BETA(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal0: &[f64],
+        inReal1: &[f64],
+        optInTimePeriod: i32,
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.BETA_Impl(
+            startIdx,
+            endIdx,
+            inReal0,
+            inReal1,
+            optInTimePeriod,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -468,13 +498,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::BETA_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::BETA_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn BETA_OpenCore(
+    pub(crate) fn BETA_OpenPass(
         &self, inReal0: &[f64], inReal1: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<BETA_Stream, RetCode> {
         if inReal0.is_empty() || inReal1.is_empty() || inReal1.len() != inReal0.len() {
             return Err(RetCode::BadParam);
         }
-        if inReal0.len() > MAX_INDEX + 1 {
+        if inReal0.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -546,7 +576,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Consume first input.
         trailingIdx = startIdx - nbInitialElementNeeded;
@@ -672,7 +702,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.BETA_OpenCore(inReal0, inReal1, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.BETA_OpenPass(inReal0, inReal1, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -681,8 +711,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -693,8 +725,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.BETA_Open(&data0, &data1, 5).expect("enough history");
-    /// let peeked = s.peek(100.9, 101.3);
-    /// let updated = s.update(100.9, 101.3);
+    /// let peeked = s.peek(100.9, 101.3).expect("a finite bar");
+    /// let updated = s.update(100.9, 101.3).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_BETA_Open")]
@@ -703,13 +735,17 @@ impl Core {
     }
 
     /// [`Core::BETA_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::BETA`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::BETA`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_BETA_OpenAndFill")]
     pub fn BETA_OpenAndFill(
-        &self, inReal0: &[f64], inReal1: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<BETA_Stream, RetCode> {
-        self.BETA_OpenCore(inReal0, inReal1, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        &self, inReal0: &[f64], inReal1: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
+    ) -> Result<(BETA_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.BETA_OpenPass(inReal0, inReal1, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::BETA_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -717,7 +753,7 @@ impl Core {
     pub(crate) fn BETA_OpenAndFillInternal(
         &self, inReal0: &[f64], inReal1: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<BETA_Stream, RetCode> {
-        self.BETA_OpenCore(inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.BETA_OpenPass(inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -733,12 +769,25 @@ thread_local! {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl BETA_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_BETA_Update")]
-    pub fn update(&mut self, inReal0: f64, inReal1: f64) -> f64 {
+    pub fn update(&mut self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
+        if !inReal0.is_finite() || !inReal1.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.BETA_step_internal(&mut self.state, inReal0, inReal1, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -746,9 +795,16 @@ impl BETA_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. The copy it runs on is held per thread and reused,
     /// so only the first peek of this function on a thread allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_BETA_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal0: f64, inReal1: f64) -> f64 {
+    pub fn peek(&self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
+        if !inReal0.is_finite() || !inReal1.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         BETA_PEEK_SCRATCH.with(|cell| {
             let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
             scratch.restore_from(self);

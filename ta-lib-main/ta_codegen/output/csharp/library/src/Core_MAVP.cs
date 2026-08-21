@@ -106,16 +106,16 @@ public partial class Core
       return MA_Lookback(optInMaxPeriod, optInMAType) ;
 
    }
-   internal RetCode MAVP( int startIdx,
-                          int endIdx,
-                          double[] inReal,
-                          double[] inPeriods,
-                          int optInMinPeriod,
-                          int optInMaxPeriod,
-                          MAType optInMAType,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode MAVP_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<double> inReal,
+                               ReadOnlySpan<double> inPeriods,
+                               int optInMinPeriod,
+                               int optInMaxPeriod,
+                               MAType optInMAType,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -125,17 +125,20 @@ public partial class Core
       int firstOut = 0;
       int tempInt = 0;
       int curPeriod = 0;
+      double tempPeriod = 0;
+      double minPeriodReal = 0;
+      double maxPeriodReal = 0;
       int firstOccurrence = 0;
       int lastOccurrence = 0;
       int bucketStart = 0;
       int bucketEnd = 0;
       int minUsed = 0;
       int maxUsed = 0;
-      int[] localPeriodArray;
-      int[] sortedIdx;
-      int[] bucketOfs;
-      double[] localOutputArray;
-      double[] localFinalArray;
+      Span<int> localPeriodArray;
+      Span<int> sortedIdx;
+      Span<int> bucketOfs;
+      Span<double> localOutputArray;
+      Span<double> localFinalArray;
       int finalIsAllocated = 0;
       int localBegIdx = 0;
       int localNbElement = 0;
@@ -160,6 +163,9 @@ public partial class Core
          optInMAType = MAType.SMA;
       } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inReal) && outReal != inReal) || (outReal.Overlaps(inPeriods) && outReal != inPeriods) ) {
+         return RetCode.BadParam ;
       }
       /* An inverted period window (min above max) is an invalid parameter
        * combination: the per-bar clamp below would push a period above
@@ -234,12 +240,28 @@ public partial class Core
          minUsed = 1;
       }
       maxUsed = 1;
+      /* Both bounds widened once, outside the loop. In the C backend, left to the
+       * compiler, only the first of the two is hoisted.
+       */
+      minPeriodReal = optInMinPeriod;
+      maxPeriodReal = optInMaxPeriod;
       for( i = 0; i < outputSize; i += 1 ) {
-         tempInt = (int)inPeriods[startIdx + i];
-         if( tempInt < optInMinPeriod ) {
+         /* Clamp in the real domain, then narrow -- the order matters in the C
+          * backend, and only there. C leaves an out-of-range narrowing undefined
+          * and x86 lands EVERY such value on INT_MIN, so clamping afterwards pulls
+          * a huge POSITIVE period down to the minimum. Java, C# and Rust saturate
+          * to their maximum instead, so they were already right and this form
+          * simply keeps them so.
+          * `!(x >= min)` rather than `x < min`: both plain comparisons are false
+          * for NaN, so only the inverted spelling catches it.
+          */
+         tempPeriod = inPeriods[startIdx + i];
+         if( !(tempPeriod >= minPeriodReal) ) {
             tempInt = optInMinPeriod;
-         } else if( tempInt > optInMaxPeriod ) {
+         } else if( tempPeriod > maxPeriodReal ) {
             tempInt = optInMaxPeriod;
+         } else {
+            tempInt = (int)tempPeriod;
          }
          if( tempInt < 1 ) {
             tempInt = 1;
@@ -289,7 +311,10 @@ public partial class Core
          /* Single distinct period: one MA pass, written straight into the
           * destination buffer. Nothing to group or copy.
           */
-         retCode = MA(startIdx, endIdx, inReal, minUsed, optInMAType, out localBegIdx, out localNbElement, localFinalArray);
+         OutRange _xr0 = MA(startIdx, endIdx, inReal, minUsed, optInMAType, localFinalArray);
+         localBegIdx = _xr0.BegIdx;
+         localNbElement = _xr0.Count;
+         retCode = RetCode.Success;
          if( retCode != RetCode.Success ) {
             if( (finalIsAllocated) != 0 ) {
             }
@@ -341,7 +366,10 @@ public partial class Core
                firstOccurrence = sortedIdx[bucketStart];
                lastOccurrence = sortedIdx[bucketEnd - 1];
                /* Calculation of the MA required. */
-               retCode = MA(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, out localBegIdx, out localNbElement, localOutputArray);
+               OutRange _xr1 = MA(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, localOutputArray);
+               localBegIdx = _xr1.BegIdx;
+               localNbElement = _xr1.Count;
+               retCode = RetCode.Success;
                if( retCode != RetCode.Success ) {
                   if( (finalIsAllocated) != 0 ) {
                   }
@@ -351,7 +379,7 @@ public partial class Core
                }
                if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
                   /* The period's outputs form one contiguous run: block copy. */
-                  Array.Copy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
+                  localOutputArray.Slice(firstOccurrence, (bucketEnd - bucketStart) * 1).CopyTo(localFinalArray.Slice(firstOccurrence));
                } else {
                   for( i = bucketStart; i < bucketEnd; i += 1 ) {
                      tempInt = sortedIdx[i];
@@ -367,7 +395,7 @@ public partial class Core
        * always run; in C/Java the non-aliased self-copy is skipped.
        */
       if( localFinalArray != outReal ) {
-         Array.Copy(localFinalArray, 0, outReal, 0, outputSize * 1);
+         localFinalArray.Slice(0, outputSize * 1).CopyTo(outReal.Slice(0));
       }
       if( (finalIsAllocated) != 0 ) {
       }
@@ -376,16 +404,16 @@ public partial class Core
       outNBElement = outputSize;
       return RetCode.Success ;
    }
-   internal RetCode MAVP( int startIdx,
-                          int endIdx,
-                          float[] inReal,
-                          float[] inPeriods,
-                          int optInMinPeriod,
-                          int optInMaxPeriod,
-                          MAType optInMAType,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode MAVP_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<float> inReal,
+                               ReadOnlySpan<float> inPeriods,
+                               int optInMinPeriod,
+                               int optInMaxPeriod,
+                               MAType optInMAType,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -395,17 +423,20 @@ public partial class Core
       int firstOut = 0;
       int tempInt = 0;
       int curPeriod = 0;
+      double tempPeriod = 0;
+      double minPeriodReal = 0;
+      double maxPeriodReal = 0;
       int firstOccurrence = 0;
       int lastOccurrence = 0;
       int bucketStart = 0;
       int bucketEnd = 0;
       int minUsed = 0;
       int maxUsed = 0;
-      int[] localPeriodArray;
-      int[] sortedIdx;
-      int[] bucketOfs;
-      double[] localOutputArray;
-      double[] localFinalArray;
+      Span<int> localPeriodArray;
+      Span<int> sortedIdx;
+      Span<int> bucketOfs;
+      Span<double> localOutputArray;
+      Span<double> localFinalArray;
       int finalIsAllocated = 0;
       int localBegIdx = 0;
       int localNbElement = 0;
@@ -466,12 +497,16 @@ public partial class Core
          minUsed = 1;
       }
       maxUsed = 1;
+      minPeriodReal = optInMinPeriod;
+      maxPeriodReal = optInMaxPeriod;
       for( i = 0; i < outputSize; i += 1 ) {
-         tempInt = (int)(double)inPeriods[startIdx + i];
-         if( tempInt < optInMinPeriod ) {
+         tempPeriod = (double)inPeriods[startIdx + i];
+         if( !(tempPeriod >= minPeriodReal) ) {
             tempInt = optInMinPeriod;
-         } else if( tempInt > optInMaxPeriod ) {
+         } else if( tempPeriod > maxPeriodReal ) {
             tempInt = optInMaxPeriod;
+         } else {
+            tempInt = (int)tempPeriod;
          }
          if( tempInt < 1 ) {
             tempInt = 1;
@@ -493,7 +528,10 @@ public partial class Core
       }
       bucketOfs = new int[(int)((maxUsed - minUsed + 2) * 1)];
       if( minUsed == maxUsed ) {
-         retCode = MA(startIdx, endIdx, inReal, minUsed, optInMAType, out localBegIdx, out localNbElement, localFinalArray);
+         OutRange _xr0 = MA(startIdx, endIdx, inReal, minUsed, optInMAType, localFinalArray);
+         localBegIdx = _xr0.BegIdx;
+         localNbElement = _xr0.Count;
+         retCode = RetCode.Success;
          if( retCode != RetCode.Success ) {
             if( (finalIsAllocated) != 0 ) {
             }
@@ -523,7 +561,10 @@ public partial class Core
             if( bucketEnd > bucketStart ) {
                firstOccurrence = sortedIdx[bucketStart];
                lastOccurrence = sortedIdx[bucketEnd - 1];
-               retCode = MA(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, out localBegIdx, out localNbElement, localOutputArray);
+               OutRange _xr1 = MA(startIdx, startIdx + lastOccurrence, inReal, curPeriod, optInMAType, localOutputArray);
+               localBegIdx = _xr1.BegIdx;
+               localNbElement = _xr1.Count;
+               retCode = RetCode.Success;
                if( retCode != RetCode.Success ) {
                   if( (finalIsAllocated) != 0 ) {
                   }
@@ -532,7 +573,7 @@ public partial class Core
                   return retCode ;
                }
                if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
-                  Array.Copy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
+                  localOutputArray.Slice(firstOccurrence, (bucketEnd - bucketStart) * 1).CopyTo(localFinalArray.Slice(firstOccurrence));
                } else {
                   for( i = bucketStart; i < bucketEnd; i += 1 ) {
                      tempInt = sortedIdx[i];
@@ -544,7 +585,7 @@ public partial class Core
          }
       }
       if( localFinalArray != outReal ) {
-         Array.Copy(localFinalArray, 0, outReal, 0, outputSize * 1);
+         localFinalArray.Slice(0, outputSize * 1).CopyTo(outReal.Slice(0));
       }
       if( (finalIsAllocated) != 0 ) {
       }
@@ -594,18 +635,32 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MAVP( int startIdx,
                          int endIdx,
-                         double[] inReal,
-                         double[] inPeriods,
+                         ReadOnlySpan<double> inReal,
+                         ReadOnlySpan<double> inPeriods,
                          int optInMinPeriod,
                          int optInMaxPeriod,
                          MAType optInMAType,
-                         double[] outReal )
+                         Span<double> outReal )
    {
-      RetCode retCode = MAVP(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("MAVP", "inReal", inReal.Length, guardInLen);
+      RequireLength("MAVP", "inPeriods", inPeriods.Length, guardInLen);
+      RequireLength("MAVP", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = MAVP_Impl(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("MAVP", retCode);
       }
@@ -659,21 +714,408 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MAVP( int startIdx,
                          int endIdx,
-                         float[] inReal,
-                         float[] inPeriods,
+                         ReadOnlySpan<float> inReal,
+                         ReadOnlySpan<float> inPeriods,
                          int optInMinPeriod,
                          int optInMaxPeriod,
                          MAType optInMAType,
-                         double[] outReal )
+                         Span<double> outReal )
    {
-      RetCode retCode = MAVP(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("MAVP", "inReal", inReal.Length, guardInLen);
+      RequireLength("MAVP", "inPeriods", inPeriods.Length, guardInLen);
+      RequireLength("MAVP", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = MAVP_Impl(startIdx, endIdx, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("MAVP", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>MAVP</c> stream: one value per closed bar, bit-identical to
+   /// <c>MAVP</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.MAVP_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class MAVP_Stream
+   {
+      internal Core core;
+      internal int optInMinPeriod;
+      internal int optInMaxPeriod;
+      internal MAType optInMAType;
+      internal double cur_outReal;
+      // One sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
+      internal MA_Stream[] bank = [];
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal MAVP_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>MAVP_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal MAVP_Stream( MAVP_Stream other )
+      {
+         this.core = other.core;
+         this.optInMinPeriod = other.optInMinPeriod;
+         this.optInMaxPeriod = other.optInMaxPeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         this.bank = new MA_Stream[other.bank.Length];
+         for( int bankIdx = 0; bankIdx < other.bank.Length; bankIdx++ ) {
+            this.bank[bankIdx] = new MA_Stream(other.bank[bankIdx]);
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( MAVP_Stream other )
+      {
+         this.core = other.core;
+         this.optInMinPeriod = other.optInMinPeriod;
+         this.optInMaxPeriod = other.optInMaxPeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         if( this.bank.Length == other.bank.Length ) {
+            for( int bankIdx = 0; bankIdx < other.bank.Length; bankIdx++ ) {
+               this.bank[bankIdx].CopyFrom(other.bank[bankIdx]);
+            }
+         } else {
+            this.bank = new MA_Stream[other.bank.Length];
+            for( int bankIdx = 0; bankIdx < other.bank.Length; bankIdx++ ) {
+               this.bank[bankIdx] = new MA_Stream(other.bank[bankIdx]);
+            }
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /* Peek's reusable scratch — one per thread, see CopyFrom. */
+      [ThreadStatic] private static MAVP_Stream? peekScratch;
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <param name="inPeriods">The period to use for this bar.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inReal, double inPeriods )
+      {
+         if( !double.IsFinite(inReal) || !double.IsFinite(inPeriods) ) throw Core.StreamFailure("MAVP", "update", RetCode.BadParam);
+         core.MAVP_StreamStep(this, inReal, inPeriods);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
+      /// nothing after this thread's first peek of this indicator. That scratch is
+      /// retained for the life of the thread.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <param name="inPeriods">The period to use for this bar.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inReal, double inPeriods )
+      {
+         if( !double.IsFinite(inReal) || !double.IsFinite(inPeriods) ) throw Core.StreamFailure("MAVP", "peek", RetCode.BadParam);
+         MAVP_Stream? scratch = peekScratch;
+         if( scratch is null ) {
+            scratch = new MAVP_Stream(this);
+            peekScratch = scratch;
+         } else {
+            scratch.CopyFrom(this);
+         }
+         core.MAVP_StreamStep(scratch, inReal, inPeriods);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public MAVP_Stream Clone()
+      {
+         return new MAVP_Stream(this);
+      }
+   }
+
+   internal void MAVP_StreamStep( MAVP_Stream sp, double inReal, double inPeriods )
+   {
+      int cp = (int)inPeriods;
+      if( cp < sp.optInMinPeriod ) {
+         cp = sp.optInMinPeriod;
+      } else if( cp > sp.optInMaxPeriod ) {
+         cp = sp.optInMaxPeriod;
+      }
+      int slot = cp - sp.optInMinPeriod;
+      MA_Stream[] bank = sp.bank;
+      for( int bankIdx = 0; bankIdx < bank.Length; bankIdx++ ) {
+         double subValue = bank[bankIdx].Update(inReal);
+         if( bankIdx == slot ) {
+            sp.cur_outReal = subValue;
+         }
+      }
+   }
+
+   private RetCode MAVP_OpenImpl( MAVP_Stream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int startIdx, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
+   {
+      int historyLen = inReal.Length;
+      if( historyLen < 1 || inPeriods.Length != inReal.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInMinPeriod == int.MinValue ) {
+         optInMinPeriod = 2;
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( optInMaxPeriod == int.MinValue ) {
+         optInMaxPeriod = 30;
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
+      }
+      /* An inverted [min, max] period window is invalid (batch rejects). */
+      if( optInMinPeriod > optInMaxPeriod ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen < MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType) + 1 ) {
+         return RetCode.InsufficientHistory;
+      }
+      /* Seed EVERY sub at the SHARED max-period lookback, exactly as batch
+       * does: it clamps startIdx up to lookback(maxPeriod) and calls the callee
+       * with that same start for every period. Seeding each sub at its own
+       * (smaller) lookback would seed the recurrence from a different bar and
+       * diverge for every period < maxPeriod. */
+      int lookbackTotal = MA_Lookback(optInMaxPeriod, optInMAType);
+      int subStart = (startIdx < lookbackTotal)? lookbackTotal : startIdx;
+      int nBank = optInMaxPeriod - optInMinPeriod + 1;
+      MA_Stream[] bank = new MA_Stream[nBank];
+      for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
+         bank[bankIdx] = MA_OpenInternal(inReal, subStart, optInMinPeriod + bankIdx, optInMAType);
+      }
+      int cp = (int)inPeriods[historyLen - 1];
+      if( cp < optInMinPeriod ) {
+         cp = optInMinPeriod;
+      } else if( cp > optInMaxPeriod ) {
+         cp = optInMaxPeriod;
+      }
+      sp.optInMinPeriod = optInMinPeriod;
+      sp.optInMaxPeriod = optInMaxPeriod;
+      sp.optInMAType = optInMAType;
+      sp.bank = bank;
+      sp.cur_outReal = bank[cp - optInMinPeriod].cur_outReal;
+      return RetCode.Success;
+   }
+
+   private RetCode MAVP_OpenAndFillImpl( MAVP_Stream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      int historyLen = inReal.Length;
+      if( historyLen < 1 || inPeriods.Length != inReal.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInMinPeriod == int.MinValue ) {
+         optInMinPeriod = 2;
+      } else if( optInMinPeriod < 1 || optInMinPeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( optInMaxPeriod == int.MinValue ) {
+         optInMaxPeriod = 30;
+      } else if( optInMaxPeriod < 1 || optInMaxPeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.SMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
+      }
+      if( outReal.Overlaps(inReal) || outReal.Overlaps(inPeriods) ) {
+         return RetCode.BadParam;
+      }
+      /* An inverted [min, max] period window is invalid (batch rejects). */
+      if( optInMinPeriod > optInMaxPeriod ) {
+         return RetCode.BadParam;
+      }
+      int lookbackTotal = MA_Lookback(optInMaxPeriod, optInMAType);
+      if( historyLen < lookbackTotal + 1 ) {
+         return RetCode.InsufficientHistory;
+      }
+      int nBank = optInMaxPeriod - optInMinPeriod + 1;
+      /* Seed each sub at the first output bar (lookbackTotal), NOT the last. */
+      MA_Stream[] bank = new MA_Stream[nBank];
+      double[] scratch = new double[nBank];
+      double[] seedPrefix = new double[lookbackTotal + 1];
+      inReal.Slice(0, lookbackTotal + 1).CopyTo(seedPrefix);
+      for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
+         MA_Stream sub = MA_OpenInternal(seedPrefix, lookbackTotal, optInMinPeriod + bankIdx, optInMAType);
+         bank[bankIdx] = sub;
+         scratch[bankIdx] = sub.cur_outReal;
+      }
+      /* First output bar (lookbackTotal), then replay the remaining history. */
+      int cp = (int)inPeriods[lookbackTotal];
+      if( cp < optInMinPeriod ) {
+         cp = optInMinPeriod;
+      } else if( cp > optInMaxPeriod ) {
+         cp = optInMaxPeriod;
+      }
+      outReal[0] = scratch[cp - optInMinPeriod];
+      for( int t = lookbackTotal + 1; t < historyLen; t++ ) {
+         for( int bankIdx = 0; bankIdx < nBank; bankIdx++ ) {
+            scratch[bankIdx] = bank[bankIdx].Update(inReal[t]);
+         }
+         cp = (int)inPeriods[t];
+         if( cp < optInMinPeriod ) {
+            cp = optInMinPeriod;
+         } else if( cp > optInMaxPeriod ) {
+            cp = optInMaxPeriod;
+         }
+         outReal[t - lookbackTotal] = scratch[cp - optInMinPeriod];
+      }
+      outBegIdx = lookbackTotal;
+      outNBElement = historyLen - lookbackTotal;
+      sp.optInMinPeriod = optInMinPeriod;
+      sp.optInMaxPeriod = optInMaxPeriod;
+      sp.optInMAType = optInMAType;
+      sp.bank = bank;
+      sp.cur_outReal = outReal[outNBElement - 1];
+      return RetCode.Success;
+   }
+
+   /* Internal startIdx-anchored open behind MAVP_Open (composition seam). */
+   internal MAVP_Stream MAVP_OpenInternal( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int startIdx, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
+   {
+      MAVP_Stream sp = new MAVP_Stream(this);
+      RetCode retCode = MAVP_OpenImpl(sp, inReal, inPeriods, startIdx, optInMinPeriod, optInMaxPeriod, optInMAType);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("MAVP", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>MAVP</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="MAVP_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>MAVP</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>MAVP_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>MAVP_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inReal">series to be averaged. The warm-up history, oldest bar first.</param>
+   /// <param name="inPeriods">per-bar desired MA period. The warm-up history, oldest bar first.</param>
+   /// <param name="optInMinPeriod">As in the batch call; see <see cref="MAVP_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMaxPeriod">As in the batch call; see <see cref="MAVP_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMAType">As in the batch call; see <see cref="MAVP_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MAVP_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public MAVP_Stream MAVP_Open( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inPeriods.IsEmpty ) throw new TaLibArgumentException("inPeriods is empty", nameof(inPeriods), RetCode.BadParam);
+      return MAVP_OpenInternal(inReal, inPeriods, 0, optInMinPeriod, optInMaxPeriod, optInMAType);
+   }
+
+   /// <summary><c>MAVP_Open</c> that also fills the output array(s) over the whole
+   /// history in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>MAVP</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - MAVP_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="MAVP_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inReal">series to be averaged. The warm-up history, oldest bar first.</param>
+   /// <param name="inPeriods">per-bar desired MA period. The warm-up history, oldest bar first.</param>
+   /// <param name="optInMinPeriod">As in the batch call; see <see cref="MAVP_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMaxPeriod">As in the batch call; see <see cref="MAVP_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMAType">As in the batch call; see <see cref="MAVP_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">variable-period moving average. Must hold at least <c>historyLen -
+   /// MAVP_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MAVP_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public MAVP_Stream MAVP_OpenAndFill( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inPeriods, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, Span<double> outReal )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inPeriods.IsEmpty ) throw new TaLibArgumentException("inPeriods is empty", nameof(inPeriods), RetCode.BadParam);
+      MAVP_Stream sp = new MAVP_Stream(this);
+      RetCode retCode = MAVP_OpenAndFillImpl(sp, inReal, inPeriods, optInMinPeriod, optInMaxPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("MAVP", "openAndFill", retCode);
    }
 }

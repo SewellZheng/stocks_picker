@@ -500,7 +500,7 @@ static void TA_MFI_StepInternal( struct TA_MFI_Stream *sp, double inHigh, double
    }
 }
 
-static TA_RetCode TA_MFI_OpenCore( struct TA_MFI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_MFI_OpenPass( struct TA_MFI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_MFI_Stream *sp;
    double local_mflow_positive[50];
@@ -575,7 +575,7 @@ static TA_RetCode TA_MFI_OpenCore( struct TA_MFI_Stream **stream, const double i
       {
          if( mflow_positive != &local_mflow_positive[0] ) { TA_Free( mflow_positive ); mflow_positive = &local_mflow_positive[0]; }
          if( mflow_negative != &local_mflow_negative[0] ) { TA_Free( mflow_negative ); mflow_negative = &local_mflow_negative[0]; }
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       outIdx = 0;
       /* Index into the output. */
@@ -711,7 +711,7 @@ TA_RetCode TA_MFI_OpenInternal( struct TA_MFI_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_MFI_OpenCore( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_MFI_OpenPass( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -721,6 +721,11 @@ TA_RetCode TA_MFI_OpenInternal( struct TA_MFI_Stream **stream, const double inHi
 
 TA_LIB_API TA_RetCode TA_MFI_Open( TA_MFI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int historyLen, int optInTimePeriod, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_MFI_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -729,19 +734,23 @@ TA_LIB_API TA_RetCode TA_MFI_OpenAndFill( TA_MFI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   return TA_MFI_OpenCore( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_MFI_OpenPass( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_MFI_OpenAndFillInternal( struct TA_MFI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_MFI_OpenCore( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_MFI_OpenPass( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_MFI_Update( TA_MFI_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    TA_MFI_StepInternal( stream, inHigh, inLow, inClose, inVolume, outReal );
    return TA_SUCCESS;
 }
@@ -751,6 +760,7 @@ TA_LIB_API TA_RetCode TA_MFI_Peek( const TA_MFI_Stream *stream, double inHigh, d
    struct TA_MFI_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.cb_mflow_positive = stream->cbMirror_mflow_positive;
    memcpy( scratch.cb_mflow_positive, stream->cb_mflow_positive, sizeof(double) * (size_t)stream->cbSize_mflow );

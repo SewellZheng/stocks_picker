@@ -65,35 +65,35 @@ TA_LIB_API int TA_SAREXT_Lookback( double optInStartValue, double optInOffsetOnR
 {
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
-   else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX )
+   else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
       return -1;
    if( optInOffsetOnReverse == TA_REAL_DEFAULT )
       optInOffsetOnReverse = 0;
-   else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX )
+   else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) )
       return -1;
    if( optInAccelerationInitLong == TA_REAL_DEFAULT )
       optInAccelerationInitLong = 0.02;
-   else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX )
+   else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) )
       return -1;
    if( optInAccelerationLong == TA_REAL_DEFAULT )
       optInAccelerationLong = 0.02;
-   else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX )
+   else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) )
       return -1;
    if( optInAccelerationMaxLong == TA_REAL_DEFAULT )
       optInAccelerationMaxLong = 0.2;
-   else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) )
       return -1;
    if( optInAccelerationInitShort == TA_REAL_DEFAULT )
       optInAccelerationInitShort = 0.02;
-   else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX )
+   else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) )
       return -1;
    if( optInAccelerationShort == TA_REAL_DEFAULT )
       optInAccelerationShort = 0.02;
-   else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX )
+   else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) )
       return -1;
    if( optInAccelerationMaxShort == TA_REAL_DEFAULT )
       optInAccelerationMaxShort = 0.2;
-   else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) )
       return -1;
    /* SAR always sacrifices one price bar to establish the
     * initial extreme price.
@@ -144,35 +144,35 @@ TA_LIB_API TA_RetCode TA_SAREXT( int    startIdx,
       return TA_BAD_PARAM;
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
-   else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX )
+   else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInOffsetOnReverse == TA_REAL_DEFAULT )
       optInOffsetOnReverse = 0;
-   else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX )
+   else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationInitLong == TA_REAL_DEFAULT )
       optInAccelerationInitLong = 0.02;
-   else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX )
+   else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationLong == TA_REAL_DEFAULT )
       optInAccelerationLong = 0.02;
-   else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX )
+   else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationMaxLong == TA_REAL_DEFAULT )
       optInAccelerationMaxLong = 0.2;
-   else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationInitShort == TA_REAL_DEFAULT )
       optInAccelerationInitShort = 0.02;
-   else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX )
+   else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationShort == TA_REAL_DEFAULT )
       optInAccelerationShort = 0.02;
-   else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX )
+   else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationMaxShort == TA_REAL_DEFAULT )
       optInAccelerationMaxShort = 0.2;
-   else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -535,35 +535,35 @@ TA_RetCode TA_S_SAREXT( int    startIdx,
       return TA_BAD_PARAM;
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
-   else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX )
+   else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInOffsetOnReverse == TA_REAL_DEFAULT )
       optInOffsetOnReverse = 0;
-   else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX )
+   else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationInitLong == TA_REAL_DEFAULT )
       optInAccelerationInitLong = 0.02;
-   else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX )
+   else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationLong == TA_REAL_DEFAULT )
       optInAccelerationLong = 0.02;
-   else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX )
+   else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationMaxLong == TA_REAL_DEFAULT )
       optInAccelerationMaxLong = 0.2;
-   else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationInitShort == TA_REAL_DEFAULT )
       optInAccelerationInitShort = 0.02;
-   else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX )
+   else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationShort == TA_REAL_DEFAULT )
       optInAccelerationShort = 0.02;
-   else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX )
+   else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationMaxShort == TA_REAL_DEFAULT )
       optInAccelerationMaxShort = 0.2;
-   else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -932,7 +932,7 @@ static void TA_SAREXT_StepInternal( struct TA_SAREXT_Stream *sp, double inHigh, 
    }
 }
 
-static TA_RetCode TA_SAREXT_OpenCore( struct TA_SAREXT_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_SAREXT_OpenPass( struct TA_SAREXT_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_SAREXT_Stream *sp;
    int endIdx;
@@ -946,35 +946,35 @@ static TA_RetCode TA_SAREXT_OpenCore( struct TA_SAREXT_Stream **stream, const do
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
-   else if( optInStartValue < TA_REAL_MIN || optInStartValue > TA_REAL_MAX )
+   else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInOffsetOnReverse == TA_REAL_DEFAULT )
       optInOffsetOnReverse = 0;
-   else if( optInOffsetOnReverse < 0e0 || optInOffsetOnReverse > TA_REAL_MAX )
+   else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationInitLong == TA_REAL_DEFAULT )
       optInAccelerationInitLong = 0.02;
-   else if( optInAccelerationInitLong < 0e0 || optInAccelerationInitLong > TA_REAL_MAX )
+   else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationLong == TA_REAL_DEFAULT )
       optInAccelerationLong = 0.02;
-   else if( optInAccelerationLong < 0e0 || optInAccelerationLong > TA_REAL_MAX )
+   else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationMaxLong == TA_REAL_DEFAULT )
       optInAccelerationMaxLong = 0.2;
-   else if( optInAccelerationMaxLong < 0e0 || optInAccelerationMaxLong > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationInitShort == TA_REAL_DEFAULT )
       optInAccelerationInitShort = 0.02;
-   else if( optInAccelerationInitShort < 0e0 || optInAccelerationInitShort > TA_REAL_MAX )
+   else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationShort == TA_REAL_DEFAULT )
       optInAccelerationShort = 0.02;
-   else if( optInAccelerationShort < 0e0 || optInAccelerationShort > TA_REAL_MAX )
+   else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( optInAccelerationMaxShort == TA_REAL_DEFAULT )
       optInAccelerationMaxShort = 0.2;
-   else if( optInAccelerationMaxShort < 0e0 || optInAccelerationMaxShort > TA_REAL_MAX )
+   else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
@@ -1069,7 +1069,7 @@ static TA_RetCode TA_SAREXT_OpenCore( struct TA_SAREXT_Stream **stream, const do
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Check if the acceleration factors are being defined by the user.
        * Make sure the acceleration and maximum are coherent.
@@ -1341,7 +1341,7 @@ TA_RetCode TA_SAREXT_OpenInternal( struct TA_SAREXT_Stream **stream, const doubl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_SAREXT_OpenCore( stream, inHigh, inLow, startIdx, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_SAREXT_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1351,6 +1351,11 @@ TA_RetCode TA_SAREXT_OpenInternal( struct TA_SAREXT_Stream **stream, const doubl
 
 TA_LIB_API TA_RetCode TA_SAREXT_Open( TA_SAREXT_Stream **stream, const double inHigh[], const double inLow[], int historyLen, double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_SAREXT_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outReal );
 }
 
@@ -1359,19 +1364,23 @@ TA_LIB_API TA_RetCode TA_SAREXT_OpenAndFill( TA_SAREXT_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
-   return TA_SAREXT_OpenCore( stream, inHigh, inLow, 0, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outBegIdx, outNBElement, outReal, 1 );
+   return TA_SAREXT_OpenPass( stream, inHigh, inLow, 0, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_SAREXT_OpenAndFillInternal( struct TA_SAREXT_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_SAREXT_OpenCore( stream, inHigh, inLow, startIdx, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outBegIdx, outNBElement, outReal, 1 );
+   return TA_SAREXT_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_SAREXT_Update( TA_SAREXT_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    TA_SAREXT_StepInternal( stream, inHigh, inLow, outReal );
    return TA_SUCCESS;
 }
@@ -1381,6 +1390,7 @@ TA_LIB_API TA_RetCode TA_SAREXT_Peek( const TA_SAREXT_Stream *stream, double inH
    struct TA_SAREXT_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_SAREXT_StepInternal( &scratch, inHigh, inLow, outReal );
    return TA_SUCCESS;

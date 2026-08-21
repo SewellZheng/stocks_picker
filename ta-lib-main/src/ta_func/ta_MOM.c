@@ -237,7 +237,7 @@ static void TA_MOM_StepInternal( struct TA_MOM_Stream *sp, double inReal, double
    }
 }
 
-static TA_RetCode TA_MOM_OpenCore( struct TA_MOM_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_MOM_OpenPass( struct TA_MOM_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_MOM_Stream *sp;
    int endIdx;
@@ -306,7 +306,7 @@ static TA_RetCode TA_MOM_OpenCore( struct TA_MOM_Stream **stream, const double i
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Calculate Momentum:
        *    Just substract the value from 'period' ago from
@@ -350,7 +350,7 @@ TA_RetCode TA_MOM_OpenInternal( struct TA_MOM_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_MOM_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_MOM_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -360,6 +360,11 @@ TA_RetCode TA_MOM_OpenInternal( struct TA_MOM_Stream **stream, const double inRe
 
 TA_LIB_API TA_RetCode TA_MOM_Open( TA_MOM_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_MOM_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -368,19 +373,23 @@ TA_LIB_API TA_RetCode TA_MOM_OpenAndFill( TA_MOM_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_MOM_OpenCore( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_MOM_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_MOM_OpenAndFillInternal( struct TA_MOM_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_MOM_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_MOM_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_MOM_Update( TA_MOM_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_MOM_StepInternal( stream, inReal, outReal );
    return TA_SUCCESS;
 }
@@ -390,6 +399,7 @@ TA_LIB_API TA_RetCode TA_MOM_Peek( const TA_MOM_Stream *stream, double inReal, d
    struct TA_MOM_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.ring_trailingIdx_inReal = stream->ringMirror_trailingIdx_inReal;
    memcpy( scratch.ring_trailingIdx_inReal, stream->ring_trailingIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );

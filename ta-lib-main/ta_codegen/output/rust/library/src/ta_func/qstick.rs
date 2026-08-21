@@ -72,8 +72,8 @@ impl Core {
     ///   pandas-ta-classic. Other packages differ: TraderEvolution documents 1, and AmiBroker
     ///   community code commonly uses 8. (default 10, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn QSTICK_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -83,91 +83,9 @@ impl Core {
         }
         return (optInTimePeriod - 1) as usize;
     }
-    /// Tushar Chande and Stanley Kroll's Qstick (*The New Technical Trader*, 1994): a simple moving
-    /// average of the candle body, close minus open. It measures how bullish or bearish the bodies
-    /// have been over the window, independently of the wicks — above zero the bodies closed up on
-    /// balance, below zero they closed down, and the zero-line crossings are the signal.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// body_t = close_t - open_t; QSTICK_t = ( Σ body over the last `optInTimePeriod` bars ) / optInTimePeriod
-    ///
-    /// The moving average is a plain SMA, so there is no seeding convention and none of the cross-library divergence that comes with one. `optInTimePeriod` of 1 leaves the raw body.
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inOpen` — Open price of each bar.
-    /// * `inClose` — Close price of each bar.
-    /// * `optInTimePeriod` — Number of bars averaged. Default 10, matching Tulip Indicators and
-    ///   pandas-ta-classic. Other packages differ: TraderEvolution documents 1, and AmiBroker
-    ///   community code commonly uses 8. (default 10, range 1..=100000)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — Average candle body over the window.
-    ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
-    ///     .collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.QSTICK(
-    ///     0, open.len() - 1, &open, &close, 10,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::CMO`] · [`Core::IMI`] · [`Core::MOM`] · [`Core::SMA`]
-    ///
-    /// # References
-    ///
-    /// * Tushar S. Chande and Stanley Kroll, *The New Technical Trader*, Wiley, 1994, define Qstick
-    ///   as an n-period moving average of `Close - Open`.
-    /// * Steven B. Achelis, *Technical Analysis from A to Z*, page 280 carries the worked example
-    ///   pinned in the test suite; it is exact in binary, every price on the page being a
-    ///   sixteenth.
-    /// * Tulip Indicators `ti_qstick` and pandas-ta-classic `qstick` compute the same form and both
-    ///   default the period to 10, which is where this default comes from.
-    /// * TraderEvolution documents a default period of 1 and offers a choice of moving average;
-    ///   AmiBroker community code commonly cites 8. Neither is verifiable against the book, and
-    ///   this ships the SMA-only form the authors define.
-    ///
-    /// Further reading: [ta-lib.org/functions/qstick](https://ta-lib.org/functions/qstick)
-    pub fn QSTICK(
+    /// C-shaped body behind [`Core::QSTICK`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn QSTICK_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -178,10 +96,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -261,6 +179,118 @@ impl Core {
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
+    /// Tushar Chande and Stanley Kroll's Qstick (*The New Technical Trader*, 1994): a simple moving
+    /// average of the candle body, close minus open. It measures how bullish or bearish the bodies
+    /// have been over the window, independently of the wicks — above zero the bodies closed up on
+    /// balance, below zero they closed down, and the zero-line crossings are the signal.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// body_t = close_t - open_t; QSTICK_t = ( Σ body over the last `optInTimePeriod` bars ) / optInTimePeriod
+    ///
+    /// The moving average is a plain SMA, so there is no seeding convention and none of the cross-library divergence that comes with one. `optInTimePeriod` of 1 leaves the raw body.
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inOpen` — Open price of each bar.
+    /// * `inClose` — Close price of each bar.
+    /// * `optInTimePeriod` — Number of bars averaged. Default 10, matching Tulip Indicators and
+    ///   pandas-ta-classic. Other packages differ: TraderEvolution documents 1, and AmiBroker
+    ///   community code commonly uses 8. (default 10, range 1..=100000)
+    /// * `outReal` — Average candle body over the window.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let open: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .collect();
+    /// let close: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.QSTICK(0, open.len() - 1, &open, &close, 10, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::CMO`] · [`Core::IMI`] · [`Core::MOM`] · [`Core::SMA`]
+    ///
+    /// # References
+    ///
+    /// * Tushar S. Chande and Stanley Kroll, *The New Technical Trader*, Wiley, 1994, define Qstick
+    ///   as an n-period moving average of `Close - Open`.
+    /// * Steven B. Achelis, *Technical Analysis from A to Z*, page 280 carries the worked example
+    ///   pinned in the test suite; it is exact in binary, every price on the page being a
+    ///   sixteenth.
+    /// * Tulip Indicators `ti_qstick` and pandas-ta-classic `qstick` compute the same form and both
+    ///   default the period to 10, which is where this default comes from.
+    /// * TraderEvolution documents a default period of 1 and offers a choice of moving average;
+    ///   AmiBroker community code commonly cites 8. Neither is verifiable against the book, and
+    ///   this ships the SMA-only form the authors define.
+    ///
+    /// Further reading: [ta-lib.org/functions/qstick](https://ta-lib.org/functions/qstick)
+    pub fn QSTICK(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inOpen: &[f64],
+        inClose: &[f64],
+        optInTimePeriod: i32,
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.QSTICK_Impl(
+            startIdx,
+            endIdx,
+            inOpen,
+            inClose,
+            optInTimePeriod,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -293,8 +323,7 @@ struct QSTICK_StreamState {
     tempReal: f64,
     ringPos_trailingIdx: usize,
     ringCap_trailingIdx: usize,
-    ring_trailingIdx_inOpen: Vec<f64>,
-    ring_trailingIdx_inClose: Vec<f64>,
+    ring_trailingIdx_derived: Vec<f64>,
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -307,8 +336,7 @@ impl QSTICK_StreamState {
         self.tempReal = src.tempReal;
         self.ringPos_trailingIdx = src.ringPos_trailingIdx;
         self.ringCap_trailingIdx = src.ringCap_trailingIdx;
-        self.ring_trailingIdx_inOpen.clone_from(&src.ring_trailingIdx_inOpen);
-        self.ring_trailingIdx_inClose.clone_from(&src.ring_trailingIdx_inClose);
+        self.ring_trailingIdx_derived.clone_from(&src.ring_trailingIdx_derived);
     }
 }
 
@@ -321,15 +349,13 @@ impl QSTICK_StreamState {
 impl Core {
     fn QSTICK_step_internal(&self, sp: &mut QSTICK_StreamState, inOpen: f64, inClose: f64, outReal: &mut f64) {
         if sp.ringCap_trailingIdx == 0 {
-            sp.ring_trailingIdx_inOpen[0] = inOpen;
-            sp.ring_trailingIdx_inClose[0] = inClose;
+            sp.ring_trailingIdx_derived[0] = (inClose - inOpen) as f64;
         }
         sp.periodTotal += (inClose - inOpen) as f64;
         sp.tempReal = sp.periodTotal;
-        sp.periodTotal -= (sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] - sp.ring_trailingIdx_inOpen[sp.ringPos_trailingIdx]) as f64;
+        sp.periodTotal -= sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx];
         (*outReal) = sp.tempReal / (sp.optInTimePeriod as f64);
-        sp.ring_trailingIdx_inOpen[sp.ringPos_trailingIdx] = inOpen;
-        sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
+        sp.ring_trailingIdx_derived[sp.ringPos_trailingIdx] = (inClose - inOpen) as f64;
         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
         if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
             sp.ringPos_trailingIdx = 0;
@@ -338,13 +364,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::QSTICK_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::QSTICK_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn QSTICK_OpenCore(
+    pub(crate) fn QSTICK_OpenPass(
         &self, inOpen: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<QSTICK_Stream, RetCode> {
         if inOpen.is_empty() || inClose.is_empty() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > MAX_INDEX + 1 {
+        if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -392,7 +418,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Do the MA calculation using tight loops.
         // Add-up the initial period, except for the last value.
@@ -428,20 +454,21 @@ impl Core {
             return Err(RetCode::InternalError);
         }
         let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
-        let mut ring_trailingIdx_inOpen: Vec<f64> = vec![0.0_f64; allocN_trailingIdx];
-        ring_trailingIdx_inOpen[..cap_trailingIdx as usize]
-            .copy_from_slice(&inOpen[historyLen - cap_trailingIdx as usize..]);
-        let mut ring_trailingIdx_inClose: Vec<f64> = vec![0.0_f64; allocN_trailingIdx];
-        ring_trailingIdx_inClose[..cap_trailingIdx as usize]
-            .copy_from_slice(&inClose[historyLen - cap_trailingIdx as usize..]);
+        let mut ring_trailingIdx_derived: Vec<f64> = vec![0.0_f64; allocN_trailingIdx];
+        {
+            let mut fillJ: usize = historyLen - cap_trailingIdx as usize;
+            while fillJ < historyLen {
+                ring_trailingIdx_derived[fillJ - (historyLen - cap_trailingIdx as usize)] = (inClose[(fillJ) as usize] - inOpen[(fillJ) as usize]) as f64;
+                fillJ += 1;
+            }
+        }
         let state = QSTICK_StreamState {
             optInTimePeriod,
             periodTotal,
             tempReal,
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
-            ring_trailingIdx_inOpen,
-            ring_trailingIdx_inClose,
+            ring_trailingIdx_derived,
         };
         Ok(QSTICK_Stream { core: self.clone(), state })
     }
@@ -453,7 +480,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.QSTICK_OpenCore(inOpen, inClose, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.QSTICK_OpenPass(inOpen, inClose, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -462,8 +489,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -476,8 +505,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.QSTICK_Open(&open, &close, 10).expect("enough history");
-    /// let peeked = s.peek(100.2, 100.9);
-    /// let updated = s.update(100.2, 100.9);
+    /// let peeked = s.peek(100.2, 100.9).expect("a finite bar");
+    /// let updated = s.update(100.2, 100.9).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_QSTICK_Open")]
@@ -486,13 +515,17 @@ impl Core {
     }
 
     /// [`Core::QSTICK_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::QSTICK`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::QSTICK`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_QSTICK_OpenAndFill")]
     pub fn QSTICK_OpenAndFill(
-        &self, inOpen: &[f64], inClose: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<QSTICK_Stream, RetCode> {
-        self.QSTICK_OpenCore(inOpen, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        &self, inOpen: &[f64], inClose: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
+    ) -> Result<(QSTICK_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.QSTICK_OpenPass(inOpen, inClose, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::QSTICK_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -500,45 +533,54 @@ impl Core {
     pub(crate) fn QSTICK_OpenAndFillInternal(
         &self, inOpen: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<QSTICK_Stream, RetCode> {
-        self.QSTICK_OpenCore(inOpen, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.QSTICK_OpenPass(inOpen, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
-}
-
-thread_local! {
-    /// `peek`'s reusable scratch handle (see `QSTICK_StreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static QSTICK_PEEK_SCRATCH: std::cell::Cell<Option<Box<QSTICK_Stream>>> =
-        const { std::cell::Cell::new(None) };
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl QSTICK_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_QSTICK_Update")]
-    pub fn update(&mut self, inOpen: f64, inClose: f64) -> f64 {
+    pub fn update(&mut self, inOpen: f64, inClose: f64) -> Result<f64, RetCode> {
+        if !inOpen.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.QSTICK_step_internal(&mut self.state, inOpen, inClose, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return (it is the same code, run
     /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
+    /// often removed outright by the optimizer, which is why nothing is
+    /// reused here, but that is not a guarantee: budget for a clone of the
+    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_QSTICK_Peek")]
-    #[must_use]
-    pub fn peek(&self, inOpen: f64, inClose: f64) -> f64 {
-        QSTICK_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
-            scratch.restore_from(self);
-            let value = scratch.update(inOpen, inClose);
-            cell.set(Some(scratch));
-            value
-        })
+    pub fn peek(&self, inOpen: f64, inClose: f64) -> Result<f64, RetCode> {
+        if !inOpen.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
+        let mut scratch = self.clone();
+        scratch.update(inOpen, inClose)
     }
 }
 

@@ -46,15 +46,15 @@
       return optInTimePeriod + this.unstablePeriod[FuncUnstId.ATR.ordinal()] ;
 
    }
-   RetCode ATR_Internal( int startIdx,
-                         int endIdx,
-                         double inHigh[],
-                         double inLow[],
-                         double inClose[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode ATR_Impl( int startIdx,
+                     int endIdx,
+                     double inHigh[],
+                     double inLow[],
+                     double inClose[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -212,15 +212,15 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode ATR_Internal( int startIdx,
-                         int endIdx,
-                         float inHigh[],
-                         float inLow[],
-                         float inClose[],
-                         int optInTimePeriod,
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode ATR_Impl( int startIdx,
+                     int endIdx,
+                     float inHigh[],
+                     float inLow[],
+                     float inClose[],
+                     int optInTimePeriod,
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -351,8 +351,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#TRANGE
     * @see Core#NATR
@@ -367,9 +374,17 @@
                         int optInTimePeriod,
                         double outReal[] )
    {
+      requireIndexRange("ATR", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ATR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ATR", "inHigh", inHigh, guardInLen);
+      requireLength("ATR", "inLow", inLow, guardInLen);
+      requireLength("ATR", "inClose", inClose, guardInLen);
+      requireLength("ATR", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ATR_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ATR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ATR", retCode);
       }
@@ -408,8 +423,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#TRANGE
     * @see Core#NATR
@@ -424,9 +446,17 @@
                         int optInTimePeriod,
                         double outReal[] )
    {
+      requireIndexRange("ATR", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ATR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ATR", "inHigh", inHigh, guardInLen);
+      requireLength("ATR", "inLow", inLow, guardInLen);
+      requireLength("ATR", "inClose", inClose, guardInLen);
+      requireLength("ATR", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ATR_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ATR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ATR", retCode);
       }
@@ -489,10 +519,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("ATR update: BadParam", RetCode.BadParam);
          core.ATR_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
@@ -505,6 +545,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("ATR peek: BadParam", RetCode.BadParam);
          ATR_Stream scratch = new ATR_Stream(this);
          core.ATR_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
@@ -554,7 +596,7 @@
       sp.cur_outReal = sp.prevATR;
       sp.lag1_inClose = inClose;
    }
-   private RetCode ATR_OpenCore( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode ATR_OpenPass( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -601,7 +643,7 @@
       }
       /* Make sure there is still something to evaluate. */
       if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Period 1 needs no smoothing: the Wilder recursion below degenerates
        * to the raw True Range at every bar (prevATR = (prevATR*0 + TR)/1 = TR),
@@ -720,55 +762,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode ATR_OpenBody( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode ATR_OpenImpl( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return ATR_OpenCore( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return ATR_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode ATR_OpenAndFillBody( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ATR_OpenAndFillImpl( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return ATR_OpenCore( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return ATR_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode ATR_OpenAndFillInternalBody( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ATR_OpenAndFillInternalImpl( ATR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return ATR_OpenCore(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return ATR_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* ATR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    ATR_Stream ATR_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       ATR_Stream sp = new ATR_Stream(this);
-      RetCode retCode = ATR_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ATR_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ATR openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ATR openAndFill: internal error");
+         throw new TaLibStateException("ATR openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ATR openAndFill: " + retCode);
+      throw new TaLibArgumentException("ATR openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind ATR_Open (composition seam). */
    ATR_Stream ATR_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       ATR_Stream sp = new ATR_Stream(this);
-      RetCode retCode = ATR_OpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      RetCode retCode = ATR_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ATR open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ATR open: internal error");
+         throw new TaLibStateException("ATR open: internal error", retCode);
       }
-      throw new IllegalArgumentException("ATR open: " + retCode);
+      throw new TaLibArgumentException("ATR open: " + retCode, retCode);
    }
    /**
     * Open a live ATR stream over the warm-up history; the handle's
@@ -798,16 +840,16 @@
       ATR_Stream sp = new ATR_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ATR_OpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ATR_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ATR openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ATR openAndFill: internal error");
+         throw new TaLibStateException("ATR openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ATR openAndFill: " + retCode);
+      throw new TaLibArgumentException("ATR openAndFill: " + retCode, retCode);
    }

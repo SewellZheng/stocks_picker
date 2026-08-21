@@ -199,10 +199,16 @@ fn check_java_variants(j: &str, name: &str) {
         j.contains(&format!("{name}_Lookback(")),
         "{name}: Java missing {name}_Lookback"
     );
+    // #236 step 5 deleted the C-shaped tier. The body is what is left below
+    // the public wrapper, and it is what must exist.
     assert!(
-        j.contains(&format!("RetCode {name}_Internal("))
-            || j.contains(&format!("RetCode {name}_Internal (")),
-        "{name}: Java missing {name} internal core"
+        j.contains(&format!("RetCode {name}_Impl("))
+            || j.contains(&format!("RetCode {name}_Impl (")),
+        "{name}: Java missing {name} body"
+    );
+    assert!(
+        !j.contains(&format!("{name}_Internal")),
+        "{name}: the deleted C-shaped tier must not come back"
     );
     assert!(
         !j.contains("Unguarded"),
@@ -433,11 +439,16 @@ fn test_ma_java_cross_calls() {
         j.contains("EMA_Lookback("),
         "Java: MA should call EMA_Lookback"
     );
-    // Bare cross-indicator calls resolve to the guarded internal core, which
-    // keeps the C-shaped MInteger out-params — going through the public
-    // OutRange wrapper would allocate a throwaway MInteger pair per call.
-    assert!(j.contains("SMA_Internal("), "Java: MA should call SMA_Internal");
-    assert!(j.contains("EMA_Internal("), "Java: MA should call EMA_Internal");
+    // Bare cross-indicator calls resolve to the callee's PUBLIC entry point
+    // (#236 step 3), which returns an OutRange rather than writing the C-shaped
+    // MInteger out-params. `= SMA(` anchors the call site so the dispatch arms
+    // cannot substring-shadow one another.
+    assert!(j.contains("= SMA("), "Java: MA should call the public SMA");
+    assert!(j.contains("= EMA("), "Java: MA should call the public EMA");
+    assert!(
+        !j.contains("SMA_Impl(") && !j.contains("EMA_Impl("),
+        "Java: MA must not call a callee's C-shaped tier"
+    );
     assert!(
         !j.contains("smaUnguardedInternal(") && !j.contains("emaUnguardedInternal("),
         "Java: MA must not call the unguarded cores"
@@ -459,14 +470,21 @@ fn test_ma_rust_cross_calls() {
         r.contains("self.EMA_Lookback("),
         "Rust: MA should call self.EMA_Lookback"
     );
-    // Bare cross-indicator calls go to the guarded fn
+    // Bare cross-indicator calls go to the guarded, C-shaped entry point --
+    // never the public `Result`-returning wrapper, whose OutRange the
+    // transcribed body has nowhere to put. `self.` makes these calls rather
+    // than definitions, so the negatives below are real.
     assert!(
-        r.contains("self.SMA("),
-        "Rust: MA should call self.SMA"
+        r.contains("self.SMA_Impl("),
+        "Rust: MA should call self.SMA_Impl"
     );
     assert!(
-        r.contains("self.EMA("),
-        "Rust: MA should call self.EMA"
+        r.contains("self.EMA_Impl("),
+        "Rust: MA should call self.EMA_Impl"
+    );
+    assert!(
+        !r.contains("self.SMA(") && !r.contains("self.EMA("),
+        "Rust: MA must not call the public Result-returning wrappers"
     );
     assert!(
         !r.contains("self.sma_unguarded(") && !r.contains("self.ema_unguarded("),
@@ -563,7 +581,7 @@ fn test_java_sma_guarded_has_validation() {
     // Extract the double-precision core, bounded before the float overload
     // Bounded to the DOUBLE core alone: the float twin is an overload with the
     // same name, so a marker that spans both would let it satisfy the assertion.
-    let guarded = extract_section(&out.java, "RetCode SMA_Internal( int startIdx", "double inReal[]");
+    let guarded = extract_section(&out.java, "RetCode SMA_Impl( int startIdx", "double inReal[]");
     let guarded = format!("{guarded}{}", extract_section(&out.java, "double inReal[]", "float inReal[]"));
     assert!(
         guarded.contains("OutOfRangeStartIndex"),
@@ -576,7 +594,7 @@ fn test_java_synth_private_omits_validation() {
     let (func, enums) = load_synth("synth4");
     let out = generate_all(&func, &enums);
 
-    let private = extract_section(&out.java, "RetCode SYNTH4_Private(", "RetCode SYNTH4_Internal(");
+    let private = extract_section(&out.java, "RetCode SYNTH4_Private(", "RetCode SYNTH4_Impl(");
     assert!(
         !private.contains("OutOfRangeStartIndex"),
         "Java SYNTH4_Private should NOT have start index validation"
@@ -590,7 +608,7 @@ fn test_rust_sma_guarded_has_validation() {
 
     // The guarded Rust function holds the algorithm and validates first, bounded
     // by the end of the impl block.
-    let guarded = extract_section(&out.rust, "pub fn SMA(", "\n}\n");
+    let guarded = extract_section(&out.rust, "pub(crate) fn SMA_Impl(", "\n}\n");
     assert!(
         guarded.contains("endIdx < startIdx"),
         "Rust guarded SMA should have endIdx < startIdx check"
@@ -2702,7 +2720,7 @@ fn candle_settings_unpacking_in_lookback() {
         "Rust lookback should contain candle settings unpacking"
     );
 
-    let java_lookback_end = java_out.find("RetCode CDL2CROWS_Internal(").unwrap();
+    let java_lookback_end = java_out.find("RetCode CDL2CROWS_Impl(").unwrap();
     let java_lookback = &java_out[..java_lookback_end];
     assert!(
         java_lookback.contains("this.candleSettings[CandleSettingType.BodyLong.ordinal()]"),
@@ -3714,14 +3732,14 @@ fn rust_cross_indicator_call_via_generate() {
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    // Cross-indicator calls resolve to the guarded fn
+    // Cross-indicator calls resolve to the guarded, C-shaped entry point
     assert!(
-        rust_out.contains("self.SMA("),
-        "MA Rust should call self.SMA(): {rust_out}"
+        rust_out.contains("self.SMA_Impl("),
+        "MA Rust should call self.SMA_Impl(): {rust_out}"
     );
     assert!(
-        rust_out.contains("self.EMA("),
-        "MA Rust should call self.EMA(): {rust_out}"
+        rust_out.contains("self.EMA_Impl("),
+        "MA Rust should call self.EMA_Impl(): {rust_out}"
     );
     // `self.` makes this a call, not a definition, so the negative is real.
     // step 1 still emits — so the negative is real, not vacuous.
@@ -3772,8 +3790,8 @@ fn rust_private_cross_indicator_call() {
     let (func, enums) = load_indicator("ma");
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
     assert!(
-        rust_out.contains("self.EMA("),
-        "MA Rust dispatch should call self.EMA(): {rust_out}"
+        rust_out.contains("self.EMA_Impl("),
+        "MA Rust dispatch should call self.EMA_Impl(): {rust_out}"
     );
 
     let synth_registry = make_synth_registry();
@@ -3783,6 +3801,72 @@ fn rust_private_cross_indicator_call() {
         rust_out.contains("self.SYNTH4_Private("),
         "SYNTH4 Rust guarded body should delegate to self.SYNTH4_Private(): {rust_out}"
     );
+}
+
+#[test]
+fn rust_public_entry_documents_exactly_its_parameters() {
+    // The `# Arguments` list and the signature are emitted by two different
+    // functions (rust_doc::guarded_docs and rust_lang::gen_public_entry), so they
+    // can disagree silently: rustdoc has no lint for documenting a parameter that
+    // does not exist, and a doctest exercises the call, not its prose. That is
+    // exactly how the out-param bullets survived the move to a Result-returning
+    // wrapper. Sweep every indicator and require the two to agree, in order.
+    let registry = make_registry();
+    let helpers = make_helpers();
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let mut checked = 0usize;
+    for entry in std::fs::read_dir(&base).expect("input dir") {
+        let entry = entry.expect("dir entry");
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let dir = entry.path();
+        if !dir.join(format!("{name}.c")).is_file() || !dir.join(format!("{name}.yaml")).is_file() {
+            continue;
+        }
+        let (func, enums) = load_indicator(&name);
+        let out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+
+        // The public wrapper is the only fn returning Result<OutRange, RetCode>.
+        let sig_open = format!("    pub fn {}(\n", func.name);
+        let at = out
+            .find(&sig_open)
+            .unwrap_or_else(|| panic!("{name}: no public entry `{sig_open}`"));
+        let rest = &out[at + sig_open.len()..];
+        let end = rest
+            .find("    ) -> Result<OutRange, RetCode> {")
+            .unwrap_or_else(|| panic!("{name}: public entry does not return Result<OutRange, RetCode>"));
+        let params: Vec<String> = rest[..end]
+            .lines()
+            .filter_map(|l| l.trim().strip_suffix(','))
+            .filter(|l| *l != "&self")
+            .filter_map(|l| l.split_once(": ").map(|(n, _)| n.trim().to_string()))
+            .collect();
+
+        // The `# Arguments` block immediately above that signature (the lookback
+        // has one of its own further up, hence rfind).
+        let head = &out[..at];
+        let a = head
+            .rfind("/// # Arguments")
+            .unwrap_or_else(|| panic!("{name}: public entry has no # Arguments"));
+        let r = head[a..]
+            .find("/// # Returns")
+            .unwrap_or_else(|| panic!("{name}: public entry has no # Returns"));
+        let documented: Vec<String> = head[a..a + r]
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("/// * `"))
+            .filter_map(|l| l.split('`').next().map(str::to_string))
+            .collect();
+
+        assert_eq!(
+            documented, params,
+            "{name}: rustdoc `# Arguments` disagrees with the public signature"
+        );
+        assert!(!params.is_empty(), "{name}: parsed no parameters -- the test would be vacuous");
+        checked += 1;
+    }
+    assert!(checked > 150, "expected the whole corpus, checked only {checked}");
 }
 
 #[test]
@@ -3797,7 +3881,7 @@ fn rust_cross_indicator_vec_input_gets_ref() {
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
     assert!(
-        rust_out.contains("self.MA(") && rust_out.contains("&tempBuffer"),
+        rust_out.contains("self.MA_Impl(") && rust_out.contains("&tempBuffer"),
         "STOCH Rust should pass &tempBuffer into self.MA(): {rust_out}"
     );
 }
@@ -3860,7 +3944,7 @@ fn rust_lookback_code_with_vars() {
 
     // CDL indicators have local vars in their lookback body (e.g., lookbackTotal)
     // They should be declared as `let mut` or `let`
-    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub fn CDLKICKING(");
+    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub(crate) fn CDLKICKING_Impl(");
     assert!(
         lookback_section.contains("let ") || lookback_section.contains("let mut "),
         "Lookback code should declare local variables: {lookback_section}"
@@ -3875,7 +3959,7 @@ fn rust_lookback_literal_renders_return() {
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub fn MULT(");
+    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub(crate) fn MULT_Impl(");
     assert!(
         lookback_section.contains("return"),
         "Lookback should have return statement: {lookback_section}"
@@ -4633,7 +4717,7 @@ fn rust_lookback_none() {
     let helpers = HelperRegistry::empty();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub fn TEST(");
+    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub(crate) fn TEST_Impl(");
     assert!(
         lookback_section.contains("return 0"),
         "None lookback should return 0: {lookback_section}"
@@ -4837,7 +4921,7 @@ fn rust_lookback_code_renders_var_types_correctly() {
     let helpers = HelperRegistry::empty();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub fn TEST(");
+    let lookback_section = extract_section(&rust_out, "_Lookback(", "pub(crate) fn TEST_Impl(");
     // sum has no assignments in the body, so count_assignments returns 0 => `let` not `let mut`
     assert!(
         lookback_section.contains("let sum: f64 = 0.0_f64"),
@@ -5388,11 +5472,12 @@ fn java_ma_cross_indicator_calls() {
     let out = generate_all(&func, &enums);
     let j = &out.java;
 
-    // Anchor the call site so demaInternal(/temaInternal( (adjacent dispatch
-    // arms) cannot substring-shadow the EMA arm.
+    // Anchor the call site so the adjacent dispatch arms cannot substring-shadow
+    // the EMA one. The callee is the PUBLIC entry point since #236 step 3, and
+    // the range it returns is bound to the caller's out-params.
     assert!(
-        j.contains("= EMA_Internal("),
-        "Java MA should call EMA_Internal(): {j}"
+        j.contains("= EMA("),
+        "Java MA should call the public EMA(): {j}"
     );
     assert!(
         j.contains("= EMA_Lookback("),
@@ -5413,13 +5498,16 @@ fn java_stochrsi_cross_indicator_calls() {
     // STOCHRSI composes RSI and STOCHF, and must call BOTH. `contains_call`
     // rather than `contains`: `RSI_Lookback(` is a suffix of STOCHRSI's own
     // `STOCHRSI_Lookback(`, so a plain substring test cannot fail here.
+    // Anchored on the ASSIGNMENT, not the bare name: `RSI(` occurs inside
+    // STOCHRSI's own javadoc and inside `STOCHRSI(`, so `contains_call(j, "RSI")`
+    // is satisfied by text that is not a call at all and cannot fail.
     assert!(
-        contains_call(j, "RSI_Internal") && contains_call(j, "RSI_Lookback"),
-        "Java STOCHRSI should call RSI_Internal and RSI_Lookback: {j}"
+        j.contains("= RSI(") && contains_call(j, "RSI_Lookback"),
+        "Java STOCHRSI should call the public RSI and RSI_Lookback: {j}"
     );
     assert!(
-        contains_call(j, "STOCHF_Internal") && contains_call(j, "STOCHF_Lookback"),
-        "Java STOCHRSI should call STOCHF_Internal and STOCHF_Lookback: {j}"
+        j.contains("= STOCHF(") && contains_call(j, "STOCHF_Lookback"),
+        "Java STOCHRSI should call the public STOCHF and STOCHF_Lookback: {j}"
     );
 }
 
@@ -6307,7 +6395,7 @@ fn java_macd_lookback_code_rendering() {
     let out = generate_all(&func, &enums);
     let j = &out.java;
 
-    let lookback_end = j.find("RetCode MACD_Internal(").unwrap();
+    let lookback_end = j.find("RetCode MACD_Impl(").unwrap();
     let lookback = &j[..lookback_end];
     assert!(
         lookback.contains("MACD_Lookback"),
@@ -7273,7 +7361,7 @@ fn test_c_ht_dcperiod_parity_stream_section() {
         .split("TA_HT_DCPERIOD_StepInternal")
         .nth(1)
         .expect("StepInternal emitted");
-    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenCore").unwrap_or(step.len())];
+    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenPass").unwrap_or(step.len())];
     assert!(
         step_body.contains("*outReal= sp->smoothPeriod;"),
         "unconditional smoothPeriod output in the step"
@@ -7321,7 +7409,7 @@ fn test_c_ht_phasor_nested_gate_two_outputs_stream_section() {
         .split("TA_HT_PHASOR_StepInternal")
         .nth(1)
         .expect("StepInternal emitted");
-    let step_body = &step[..step.find("TA_HT_PHASOR_OpenCore").unwrap_or(step.len())];
+    let step_body = &step[..step.find("TA_HT_PHASOR_OpenPass").unwrap_or(step.len())];
     // The step branches on the carried parity, and BOTH outputs are written
     // unconditionally in each arm (the nested `today >= startIdx` gate stripped).
     assert!(step_body.contains("if( sp->streamParity == 0 )"), "parity branch in the step");
@@ -7374,10 +7462,66 @@ fn test_c_ht_sine_two_sin_outputs() {
     let s = ht_stream_section("ht_sine");
     assert!(s.contains("double *cb_smoothPrice;"), "shares DCPHASE's circbuf");
     let step = s.split("TA_HT_SINE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_SINE_OpenCore").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_HT_SINE_OpenPass").unwrap_or(step.len())];
     assert!(step.contains("*outSine="), "outSine written unconditionally");
     assert!(step.contains("*outLeadSine="), "outLeadSine written unconditionally");
     assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
+}
+
+/// Pin the ARITHMETIC of the #229 folded rescan-window read, not just the
+/// election that produced it.
+///
+/// The election has unit tests in `streaming.rs`: which ring is chosen, which
+/// shapes refuse, which slot the read is routed to. None of them sees the
+/// emitted offset -- an adversarial review shifted it by one bar at the
+/// generator and every one of those tests stayed green, every backend still
+/// compiled, `regen-check` still passed, and `stream_verify` noticed on only
+/// 3 of the 14 folded functions. So the expression itself is pinned here as
+/// text, the way the window read it replaces already was (see
+/// `test_c_ht_trendline_raw_price_window`).
+///
+/// Two things it must say, and the reason each is load-bearing:
+///   * NO `ringLag_` term. A trailing read subtracts the runtime lag; this is
+///     cursor-relative, and slot `pos` already holds the current bar.
+///   * the conditional subtract, not `%`. `pos + cap - w` is in `[1, 2*cap)`
+///     because `w <= back < cap`, so one compare is the exact modulo -- and a
+///     `%` here would also hide an out-of-range offset that the compare form
+///     turns into a read at exactly `cap`.
+#[test]
+fn test_c_folded_window_read_is_cursor_relative_and_de_moduloed() {
+    let s = ht_stream_section("cdl3blackcrows");
+    assert!(
+        !s.contains("win_totIdx_"),
+        "the rescan window keeps no buffer (#229)"
+    );
+    let step = s.split("TA_CDL3BLACKCROWS_StepInternal").nth(1).unwrap();
+    let step = &step[..step.find("TA_CDL3BLACKCROWS_OpenPass").unwrap_or(step.len())];
+    let ring = "ring_ShadowVeryShortTrailingIdx_derived";
+    let pos = "sp->ringPos_ShadowVeryShortTrailingIdx";
+    let cap = "sp->ringCap_ShadowVeryShortTrailingIdx";
+    let want = format!(
+        "sp->{ring}[({pos} + {cap} - sp->totIdx >= {cap}) ? \
+         {pos} + {cap} - sp->totIdx - {cap} : {pos} + {cap} - sp->totIdx]"
+    );
+    assert!(
+        step.contains(&want),
+        "cursor-relative folded read, de-moduloed and with no lag term.\nwant: {want}\nstep: {step}"
+    );
+    // The trailing read in the SAME statement keeps its lag term and its `%`:
+    // the two are different reads of one buffer and must not be conflated.
+    assert!(
+        step.contains(&format!(
+            "sp->{ring}[({pos} + {cap} - sp->ringLag_ShadowVeryShortTrailingIdx - sp->totIdx) % {cap}]"
+        )),
+        "the trailing read is unchanged"
+    );
+    // And the value the ring stores is the shape the window used to recompute.
+    assert!(
+        step.contains(&format!(
+            "sp->{ring}[{pos}] = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);"
+        )),
+        "one push per bar, from the same expression the fold matched"
+    );
 }
 
 /// Pin HT_TRENDLINE: a rescan window over the RAW input (the padded-loop source
@@ -7388,7 +7532,7 @@ fn test_c_ht_trendline_raw_price_window() {
     assert!(s.contains("double *win_i_inReal;"), "rescan window over raw inReal");
     assert!(!s.contains("cb_smoothPrice"), "no smoothPrice circbuf (removed, issue #88)");
     let step = s.split("TA_HT_TRENDLINE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_TRENDLINE_OpenCore").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_HT_TRENDLINE_OpenPass").unwrap_or(step.len())];
     assert!(step.contains("sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - sp->i >= sp->winCap_i) ?"), "de-modulo window read of bar today-i");
     assert!(step.contains("if( sp->i < sp->DCPeriodInt )"), "guarded to the first DCPeriodInt bars");
     assert!(step.contains("*outReal= sp->tempReal2;"), "unconditional trendline output");
@@ -7403,7 +7547,7 @@ fn test_c_ht_trendmode_full_union() {
     assert!(s.contains("double *cb_smoothPrice;"), "smoothPrice circbuf");
     assert!(s.contains("double *win_j_inReal;"), "raw-price rescan window (counter j)");
     let step = s.split("TA_HT_TRENDMODE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_TRENDMODE_OpenCore").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_HT_TRENDMODE_OpenPass").unwrap_or(step.len())];
     assert!(step.contains("*outInteger="), "integer trend-mode output, unconditional");
     assert!(step.contains("sp->cb_smoothPrice[sp->idx]"), "circbuf DC-phase read");
     assert!(step.contains("sp->win_j_inReal[(sp->winPos_j + sp->winCap_j - sp->j >= sp->winCap_j) ?"), "de-modulo window trendline read");
@@ -7420,7 +7564,7 @@ fn test_c_mama_two_outputs_and_params() {
     assert!(s.contains("double optInFastLimit;") && s.contains("double optInSlowLimit;"), "real params carried in the handle");
     assert!(s.contains("double mama;") && s.contains("double fama;"), "coupled mama/fama carried");
     let step = s.split("TA_MAMA_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_MAMA_OpenCore").unwrap_or(step.len())];
+    let step = &step[..step.find("TA_MAMA_OpenPass").unwrap_or(step.len())];
     assert!(step.contains("if( sp->streamParity == 0 )"), "parity branch");
     // MAMA line always written; FAMA (nullable) write is NULL-guarded so the
     // step never dereferences a NULL FAMA pointer (the gate itself is stripped).
@@ -7460,7 +7604,14 @@ fn test_c_mavp_period_bank() {
     let upd = s.split("TA_MAVP_Update").nth(1).unwrap();
     let upd = &upd[..upd.find("TA_MAVP_Peek").unwrap_or(upd.len())];
     assert!(upd.contains("for( k = 0; k < stream->nBank; k++ )") && upd.contains("TA_MA_Update( stream->bank[k], inReal, &stream->scratch[k] );"), "advances the whole bank in lockstep");
-    assert!(upd.contains("if( cp < stream->optInMinPeriod ) cp = stream->optInMinPeriod;"), "clamps the per-bar period");
+    // The clamp compares in the REAL domain and narrows only once inside the
+    // window (35a35d4b4): `(int)cpReal` on a value already known to be within
+    // [min, max] cannot overflow, where narrowing first and clamping after
+    // turned a huge positive period into the minimum.
+    assert!(upd.contains("if( !(cpReal >= stream->optInMinPeriod) ) cp = stream->optInMinPeriod;")
+            && upd.contains("else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;")
+            && upd.contains("else cp = (int)cpReal;"),
+            "clamps the per-bar period in the real domain, then narrows");
     assert!(upd.contains("*outReal = stream->scratch[cp - stream->optInMinPeriod];"), "outputs the selected slot");
     // Peek: only the selected slot (non-committing).
     let peek = s.split("TA_MAVP_Peek").nth(1).unwrap();
@@ -7496,6 +7647,139 @@ fn test_c_trima_dual_mode_rings_stream_section() {
     );
     assert!(c.contains("TA_TRIMA_ReleaseInternal"), "ReleaseInternal frees the rings");
     assert!(c.contains("ringMirror_middleIdx_inReal"), "Peek ring mirror");
+}
+
+/// The body of `TA_<NAME>_StepInternal`, brace-balanced. Ring slots are also
+/// written during Open, so the per-bar stores have to be counted here alone.
+fn step_internal_body(c: &str) -> String {
+    let i = c.find("_StepInternal( struct").expect("a StepInternal definition");
+    let j = c[i..].find('{').expect("StepInternal has a body") + i;
+    let bytes = c.as_bytes();
+    let (mut depth, mut k) = (0usize, j);
+    loop {
+        match bytes[k] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    break;
+                }
+            }
+            _ => {}
+        }
+        k += 1;
+    }
+    c[j..=k].to_string()
+}
+
+/// Every `sp->ring_X[sp->ringPos_Y] = Z;` store in a step body, tagged with the
+/// id of the enclosing brace block.
+///
+/// The block tag is what keeps a dual-mode step honest: HMA emits the same
+/// store in both arms of `if (period == 2 || period == 3) ... else ...`, which
+/// is one store per path, not two per bar. Only repeats within a single
+/// straight-line block are dead.
+fn ring_slot_stores(step: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![0usize];
+    let mut next_id = 0usize;
+    for line in step.lines() {
+        let l = line.trim();
+        if l.starts_with("sp->ring_") && l.contains("[sp->ringPos_") && l.ends_with(';') {
+            out.push((*stack.last().expect("block stack"), l.to_string()));
+        }
+        for ch in l.chars() {
+            match ch {
+                '{' => {
+                    next_id += 1;
+                    stack.push(next_id);
+                }
+                '}' => {
+                    stack.pop();
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn test_c_back_offset_ring_writes_the_current_bar_once() {
+    // CDLONNECK's Equal average runs on the SHIFTED candle, so its ring uses the
+    // absolute-mod (back > 0) layout: the transition prologue pre-writes the
+    // current bar into slot `pos` so the runtime-lag-0 case reads it through the
+    // same formula. Nothing between there and the end of the step moves
+    // `ringPos`, so repeating that store before the advance is a dead store.
+    //
+    // `test_c_no_step_internal_stores_a_ring_slot_twice` sweeps the same
+    // invariant over the whole streaming corpus; this one keeps a named witness
+    // for the offset-ring layout, which is the shape that made the dead store
+    // possible in the first place.
+    let (mut func, enums) = load_indicator("cdlonneck");
+    func.streaming = true;
+    let c = backends::c::generate(&func, &enums, &make_registry(), &HelperRegistry::empty());
+    let step = step_internal_body(&c);
+
+    // The ring is found by its POSITION variable, not by a hardcoded name. The
+    // first version of this test spelled out `ring_EqualTrailingIdx_inOpen` and
+    // friends; #229 then collapsed those four per-OHLC rings into one derived
+    // ring holding the computed range, and the needle silently stopped matching
+    // anything at all -- the assertion failed with a count of 0, not of 2. A
+    // rename must not be able to turn this into a test of nothing, so the store
+    // count is read off whatever the generator emits.
+    let stores: Vec<&str> = step
+        .lines()
+        .map(str::trim)
+        .filter(|l| l.contains("[sp->ringPos_EqualTrailingIdx] ="))
+        .collect();
+    assert!(
+        !stores.is_empty(),
+        "no store into the Equal trailing ring: this test is looking at nothing"
+    );
+    let mut seen = std::collections::BTreeSet::new();
+    for s in &stores {
+        let ring = s.split('[').next().unwrap_or(s);
+        assert!(
+            seen.insert(ring),
+            "stored twice per bar, with ringPos unmoved between: {s}"
+        );
+    }
+}
+
+#[test]
+fn test_c_no_step_internal_stores_a_ring_slot_twice() {
+    // Corpus sweep for the same invariant: one write per ring slot per block.
+    let registry = make_registry();
+    let helpers =
+        HelperRegistry::from_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input"));
+    let mut stepped = 0usize;
+    let mut with_rings = 0usize;
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        if !func.streaming {
+            continue;
+        }
+        let c = backends::c::generate(&func, &enums, &registry, &helpers);
+        if !c.contains("_StepInternal( struct") {
+            continue;
+        }
+        let stores = ring_slot_stores(&step_internal_body(&c));
+        let mut seen = std::collections::BTreeSet::new();
+        for (block, s) in &stores {
+            assert!(
+                seen.insert((*block, s.clone())),
+                "{name}: ring slot written twice in one straight-line block: {s}"
+            );
+        }
+        stepped += 1;
+        with_rings += usize::from(!stores.is_empty());
+    }
+    // Both floors matter: the first proves the sweep still walks the streaming
+    // corpus, the second that it is actually looking at rings — a skip that
+    // silently emptied `stores` would keep the first green on its own.
+    assert!(stepped >= 170, "expected the streaming corpus, saw {stepped}");
+    assert!(with_rings >= 80, "expected the ring-carrying corpus, saw {with_rings}");
 }
 
 /// Pin the generated MIDPRICE stream section: batch runs the block scan and the
@@ -7535,7 +7819,7 @@ fn test_c_midprice_stream_uses_the_declared_alternate() {
     // wrong body; these check the emitted CODE. The block scan's scratch and
     // block cursor appear in the batch tier and nowhere in the Open.
     let (batch, open) = c
-        .split_once("TA_MIDPRICE_OpenCore")
+        .split_once("TA_MIDPRICE_OpenPass")
         .expect("OpenCore emitted");
     for marker in ["sufHighest", "preHighest", "blockNext"] {
         assert!(
@@ -8351,9 +8635,12 @@ fn csharp_resolve_call_agrees_with_the_emitted_method_names() {
         );
         // What the resolver promises must be what the emitter actually writes —
         // the literal a caller in another indicator will be compiled against.
+        // Since #236 step 5 the bare name is the PUBLIC overload -- the only tier
+        // left that carries it -- which is what a cross-call has bound since
+        // step 3 put the callee's argument checks on the composed path.
         let src = backends::csharp::generate(&func, &enums, &registry, &helpers);
         assert!(
-            src.contains(&format!("RetCode {bare}(")),
+            src.contains(&format!("OutRange {bare}(")),
             "{name}: emitter never defines the `{bare}` the resolver hands out"
         );
         assert!(
@@ -8365,19 +8652,14 @@ fn csharp_resolve_call_agrees_with_the_emitted_method_names() {
 
 /// Issue #156: the runtime FMA dispatch trio (public dispatcher +
 /// `#[target_feature(enable = "fma")]` clone + `#[inline(always)]` `_impl`)
-/// must be emitted for exactly the functions whose rendered body fuses — the
-/// same 26-function inventory `fma_suite.rs` pins — and never elsewhere.
+/// must be emitted for exactly the functions whose rendered body fuses — this
+/// is the exact-set half of the pair `fma_suite.rs` also lists — and never
+/// elsewhere.
 /// Guards both directions: the dispatch silently going dark, and accidental
 /// dispatch of unfused functions.
 #[test]
 fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
-    const FUSING: &[&str] = &[
-        "adosc", "bbands", "cdlabandonedbaby", "cdlmorningdojistar", "cdlmorningstar",
-        "cdlpiercing", "cdlthrusting", "dema", "efi", "ema", "ht_dcperiod", "ht_dcphase",
-        "ht_phasor", "ht_sine", "ht_trendline", "ht_trendmode", "kama", "linearreg",
-        "macd", "macdfix", "mama", "sar", "sarext", "t3", "tema", "trix", "tsf",
-        "wclprice",
-    ];
+    let fusing = backends::fma::FUSING_INVENTORY;
     let registry = make_registry();
     let helpers = make_helpers();
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
@@ -8402,11 +8684,13 @@ fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
             let calls = out.matches("ta_lib_dispatch::dispatch_fma!").count();
             let clones = out.matches("#[target_feature(enable = \"fma\")]").count();
             assert_eq!(calls, clones, "{name}: dispatcher/clone count mismatch");
-            // The batch variant must carry its clone. (A future
-            // private-delegating fused function would trip the dispatcher/clone
-            // balance above on purpose.)
+            // The batch variant must carry its clone. Dispatch sits on the
+            // C-shaped `_Impl` entry point, which is where the fused body
+            // lives; the public `Result`-returning wrapper only forwards. (A
+            // future private-delegating fused function would trip the
+            // dispatcher/clone balance above on purpose.)
             assert!(
-                out.contains(&format!("fn {}_fma(", func.name)),
+                out.contains(&format!("fn {}_Impl_fma(", func.name)),
                 "{name}: guarded variant lost its FMA clone"
             );
             // The fused sites live on in the renamed portable impl.
@@ -8423,7 +8707,7 @@ fn rust_fma_dispatch_fires_for_exactly_the_fusing_functions() {
         }
     }
     dispatched.sort();
-    assert_eq!(dispatched, FUSING, "FMA dispatch inventory drifted");
+    assert_eq!(dispatched, fusing, "FMA dispatch inventory drifted");
     assert!(checked >= 150, "expected ~168 functions, checked {checked}");
 }
 
@@ -8570,9 +8854,14 @@ fn rust_negative_capable_cast_gets_signed_local() {
     let (func, enums) = load_indicator("mavp");
     let out = generate_all(&func, &enums);
     for needle in [
-        "let mut tempInt: i32",                    // cast-fed local is signed
-        "tempInt = (inPeriods[startIdx + i]) as i32;", // true negative preserved
-        "if tempInt < optInMinPeriod {",           // clamps stay signed compares
+        "let mut tempInt: i32",             // cast-fed local is signed
+        // The narrowing happens in the else arm of the real-domain clamp
+        // (35a35d4b4), on a value already inside [min, max]; the two clamp arms
+        // assign the bounds directly and never narrow.
+        "tempPeriod = inPeriods[startIdx + i];",
+        "if !(tempPeriod >= minPeriodReal) {",  // NaN-catching spelling
+        "tempInt = (tempPeriod) as i32;",       // narrowed only once in range
+        "if tempInt < 1 {",                     // clamps stay signed compares
     ] {
         assert!(out.rust.contains(needle), "MAVP Rust missing `{needle}`:\n{}", out.rust);
     }

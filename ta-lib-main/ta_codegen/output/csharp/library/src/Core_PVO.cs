@@ -94,19 +94,19 @@ public partial class Core
       return MA_Lookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) ;
 
    }
-   internal RetCode PVO( int startIdx,
-                         int endIdx,
-                         double[] inVolume,
-                         int optInFastPeriod,
-                         int optInSlowPeriod,
-                         MAType optInMAType,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode PVO_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inVolume,
+                              int optInFastPeriod,
+                              int optInSlowPeriod,
+                              MAType optInMAType,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
-      double[] tempBuffer;
+      Span<double> tempBuffer;
       RetCode retCode;
       double tempReal = 0;
       int tempInteger = 0;
@@ -135,6 +135,26 @@ public partial class Core
       } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
+      if( (outReal.Overlaps(inVolume) && outReal != inVolume) ) {
+         return RetCode.BadParam ;
+      }
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Without this the fast MA below runs first, and its lookback is SMALLER
+       * than pvo's own — so it reads the whole range and computes a result the
+       * empty slow MA then discards. Observably identical (the slow MA's own early
+       * return already yields 0,0 here), but it is the difference between "a range
+       * shorter than the lookback reads nothing" being true of this function and
+       * being false: with a caller-supplied inVolume that stops short of endIdx, that
+       * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
+       * probe over every guarded core.
+       */
+      if( MA_Lookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.Success ;
+      }
       /* Allocate an intermediate buffer. */
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       /* Make sure slow is really slower than
@@ -147,12 +167,18 @@ public partial class Core
          optInFastPeriod = tempInteger;
       }
       /* Calculate the fast MA into the tempBuffer. */
-      retCode = MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, out fastBeg, out fastNb, tempBuffer);
+      OutRange _xr0 = MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, tempBuffer);
+      fastBeg = _xr0.BegIdx;
+      fastNb = _xr0.Count;
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
       /* Calculate the slow MA into the output. */
-      retCode = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outReal);
+      OutRange _xr1 = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
+      outBegIdx = _xr1.BegIdx;
+      outNBElement = _xr1.Count;
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -172,19 +198,19 @@ public partial class Core
       }
       return RetCode.Success ;
    }
-   internal RetCode PVO( int startIdx,
-                         int endIdx,
-                         float[] inVolume,
-                         int optInFastPeriod,
-                         int optInSlowPeriod,
-                         MAType optInMAType,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode PVO_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inVolume,
+                              int optInFastPeriod,
+                              int optInSlowPeriod,
+                              MAType optInMAType,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
-      double[] tempBuffer;
+      Span<double> tempBuffer;
       RetCode retCode;
       double tempReal = 0;
       int tempInteger = 0;
@@ -213,17 +239,28 @@ public partial class Core
       } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
+      if( MA_Lookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.Success ;
+      }
       tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
       if( optInSlowPeriod < optInFastPeriod ) {
          tempInteger = optInSlowPeriod;
          optInSlowPeriod = optInFastPeriod;
          optInFastPeriod = tempInteger;
       }
-      retCode = MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, out fastBeg, out fastNb, tempBuffer);
+      OutRange _xr0 = MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, tempBuffer);
+      fastBeg = _xr0.BegIdx;
+      fastNb = _xr0.Count;
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
-      retCode = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outReal);
+      OutRange _xr1 = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
+      outBegIdx = _xr1.BegIdx;
+      outNBElement = _xr1.Count;
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -283,17 +320,30 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange PVO( int startIdx,
                         int endIdx,
-                        double[] inVolume,
+                        ReadOnlySpan<double> inVolume,
                         int optInFastPeriod,
                         int optInSlowPeriod,
                         MAType optInMAType,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = PVO(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("PVO", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("PVO", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = PVO_Impl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("PVO", retCode);
       }
@@ -350,20 +400,405 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange PVO( int startIdx,
                         int endIdx,
-                        float[] inVolume,
+                        ReadOnlySpan<float> inVolume,
                         int optInFastPeriod,
                         int optInSlowPeriod,
                         MAType optInMAType,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = PVO(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("PVO", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("PVO", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = PVO_Impl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("PVO", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>PVO</c> stream: one value per closed bar, bit-identical to
+   /// <c>PVO</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.PVO_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class PVO_Stream
+   {
+      internal Core core;
+      internal int optInFastPeriod;
+      internal int optInSlowPeriod;
+      internal MAType optInMAType;
+      internal double cur_outReal;
+      internal MA_Stream sub0 = null!;
+      internal MA_Stream sub1 = null!;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal PVO_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>PVO_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal PVO_Stream( PVO_Stream other )
+      {
+         this.core = other.core;
+         this.optInFastPeriod = other.optInFastPeriod;
+         this.optInSlowPeriod = other.optInSlowPeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         this.sub0 = new MA_Stream(other.sub0);
+         this.sub1 = new MA_Stream(other.sub1);
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( PVO_Stream other )
+      {
+         this.core = other.core;
+         this.optInFastPeriod = other.optInFastPeriod;
+         this.optInSlowPeriod = other.optInSlowPeriod;
+         this.optInMAType = other.optInMAType;
+         this.cur_outReal = other.cur_outReal;
+         if( this.sub0 is null ) {
+            this.sub0 = new MA_Stream(other.sub0);
+         } else {
+            this.sub0.CopyFrom(other.sub0);
+         }
+         if( this.sub1 is null ) {
+            this.sub1 = new MA_Stream(other.sub1);
+         } else {
+            this.sub1.CopyFrom(other.sub1);
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /* Peek's reusable scratch — one per thread, see CopyFrom. */
+      [ThreadStatic] private static PVO_Stream? peekScratch;
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inVolume )
+      {
+         if( !double.IsFinite(inVolume) ) throw Core.StreamFailure("PVO", "update", RetCode.BadParam);
+         core.PVO_StreamStep(this, inVolume);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
+      /// nothing after this thread's first peek of this indicator. That scratch is
+      /// retained for the life of the thread.</para>
+      /// </remarks>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inVolume )
+      {
+         if( !double.IsFinite(inVolume) ) throw Core.StreamFailure("PVO", "peek", RetCode.BadParam);
+         PVO_Stream? scratch = peekScratch;
+         if( scratch is null ) {
+            scratch = new PVO_Stream(this);
+            peekScratch = scratch;
+         } else {
+            scratch.CopyFrom(this);
+         }
+         core.PVO_StreamStep(scratch, inVolume);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public PVO_Stream Clone()
+      {
+         return new PVO_Stream(this);
+      }
+   }
+
+   internal void PVO_StreamStep( PVO_Stream sp, double inVolume )
+   {
+      double tempReal = 0.0;
+      double cur_tempBuffer = 0.0;
+      double cur_outReal = 0.0;
+      /* Pipeline the new bar through the sub-streams (batch tail order). */
+      cur_tempBuffer = sp.sub0.Update(inVolume);
+      cur_outReal = sp.sub1.Update(inVolume);
+      /* Combine map (batch tail, per bar). */
+      tempReal = cur_outReal;
+      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         cur_outReal = (cur_tempBuffer - tempReal) / tempReal * 100.0;
+      } else {
+         cur_outReal = 0.0;
+      }
+      sp.cur_outReal = cur_outReal;
+   }
+
+   private RetCode PVO_OpenPass( PVO_Stream sp, ReadOnlySpan<double> inVolume, int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      Span<double> tempBuffer;
+      RetCode retCode;
+      double tempReal = 0;
+      int tempInteger = 0;
+      int fastBeg = 0;
+      int fastNb = 0;
+      int offset = 0;
+      int i = 0;
+      int historyLen = inVolume.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInFastPeriod == int.MinValue ) {
+         optInFastPeriod = 12;
+      } else if( optInFastPeriod < 2 || optInFastPeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( optInSlowPeriod == int.MinValue ) {
+         optInSlowPeriod = 26;
+      } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( (int)optInMAType == int.MinValue || optInMAType == MAType.DEFAULT ) {
+         optInMAType = MAType.EMA;
+      } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen < PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType) + 1 ) {
+         return RetCode.InsufficientHistory;
+      }
+      Span<double> sc_outReal = outStride == 1 ? outReal : new double[historyLen];
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Without this the fast MA below runs first, and its lookback is SMALLER
+       * than pvo's own — so it reads the whole range and computes a result the
+       * empty slow MA then discards. Observably identical (the slow MA's own early
+       * return already yields 0,0 here), but it is the difference between "a range
+       * shorter than the lookback reads nothing" being true of this function and
+       * being false: with a caller-supplied inVolume that stops short of endIdx, that
+       * discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
+       * probe over every guarded core.
+       */
+      if( MA_Lookback(Math.Max(optInSlowPeriod, optInFastPeriod), optInMAType) > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      /* Allocate an intermediate buffer. */
+      tempBuffer = new double[(int)((endIdx - startIdx + 1) * 1)];
+      /* Make sure slow is really slower than
+       * the fast period! if not, swap...
+       */
+      if( optInSlowPeriod < optInFastPeriod ) {
+         /* swap */
+         tempInteger = optInSlowPeriod;
+         optInSlowPeriod = optInFastPeriod;
+         optInFastPeriod = tempInteger;
+      }
+      /* Calculate the fast MA into the tempBuffer. */
+      /* Sub-stream 0: ma over `inVolume`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MA_Stream sub0 = MA_OpenAndFillInternal(inVolume, startIdx, optInFastPeriod, optInMAType, out fastBeg, out fastNb, tempBuffer);
+      retCode = RetCode.Success;
+      if( retCode != RetCode.Success ) {
+         return retCode ;
+      }
+      /* Calculate the slow MA into the output. */
+      /* Sub-stream 1: ma over `inVolume`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      MA_Stream sub1 = MA_OpenAndFillInternal(inVolume, startIdx, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, sc_outReal);
+      retCode = RetCode.Success;
+      if( retCode != RetCode.Success ) {
+         return retCode ;
+      }
+      /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
+       * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
+       * outReal[i], with a non-negative index. An empty slow MA skips the loop.
+       */
+      offset = fastNb - outNBElement;
+      /* Calculate ((fast MA)-(slow MA))/(slow MA) in the output. */
+      for( i = 0; i < (int)outNBElement; i += 1 ) {
+         tempReal = sc_outReal[i];
+         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+            sc_outReal[i] = (tempBuffer[i + offset] - tempReal) / tempReal * 100.0;
+         } else {
+            sc_outReal[i] = 0.0;
+         }
+      }
+      /* Capture the live producer state + sub handles. */
+      if( outNBElement < 1 ) {
+         return RetCode.InsufficientHistory;
+      }
+      sp.optInFastPeriod = optInFastPeriod;
+      sp.optInSlowPeriod = optInSlowPeriod;
+      sp.optInMAType = optInMAType;
+      sp.sub0 = sub0;
+      sp.sub1 = sub1;
+      sp.cur_outReal = sc_outReal[outNBElement - 1];
+      return RetCode.Success;
+   }
+
+   private RetCode PVO_OpenImpl( PVO_Stream sp, ReadOnlySpan<double> inVolume, int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   {
+      double[] sink_outReal = new double[1];
+      return PVO_OpenPass( sp, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode PVO_OpenAndFillImpl( PVO_Stream sp, ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inVolume) ) {
+         return RetCode.BadParam;
+      }
+      return PVO_OpenPass( sp, inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode PVO_OpenAndFillInternalImpl( PVO_Stream sp, ReadOnlySpan<double> inVolume, int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return PVO_OpenPass(sp, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* PVO_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal PVO_Stream PVO_OpenAndFillInternal( ReadOnlySpan<double> inVolume, int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      PVO_Stream sp = new PVO_Stream(this);
+      RetCode retCode = PVO_OpenAndFillInternalImpl(sp, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("PVO", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind PVO_Open (composition seam). */
+   internal PVO_Stream PVO_OpenInternal( ReadOnlySpan<double> inVolume, int startIdx, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   {
+      PVO_Stream sp = new PVO_Stream(this);
+      RetCode retCode = PVO_OpenImpl(sp, inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("PVO", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>PVO</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="PVO_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>PVO</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>PVO_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>PVO_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInFastPeriod">As in the batch call; see <see cref="PVO_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInSlowPeriod">As in the batch call; see <see cref="PVO_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMAType">As in the batch call; see <see cref="PVO_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PVO_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public PVO_Stream PVO_Open( ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
+   {
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      return PVO_OpenInternal(inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType);
+   }
+
+   /// <summary><c>PVO_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>PVO</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - PVO_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="PVO_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInFastPeriod">As in the batch call; see <see cref="PVO_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInSlowPeriod">As in the batch call; see <see cref="PVO_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="optInMAType">As in the batch call; see <see cref="PVO_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">PVO value in percent. Must hold at least <c>historyLen -
+   /// PVO_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>PVO_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public PVO_Stream PVO_OpenAndFill( ReadOnlySpan<double> inVolume, int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, Span<double> outReal )
+   {
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      PVO_Stream sp = new PVO_Stream(this);
+      RetCode retCode = PVO_OpenAndFillImpl(sp, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("PVO", "openAndFill", retCode);
    }
 }

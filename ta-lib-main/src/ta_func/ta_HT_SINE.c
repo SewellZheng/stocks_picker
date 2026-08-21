@@ -1207,7 +1207,7 @@ static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_SINE_OpenCore( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
+static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
 {
    struct TA_HT_SINE_Stream *sp;
    double local_smoothPrice[50];
@@ -1328,7 +1328,7 @@ static TA_RetCode TA_HT_SINE_OpenCore( struct TA_HT_SINE_Stream **stream, const 
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -1745,7 +1745,7 @@ TA_RetCode TA_HT_SINE_OpenInternal( struct TA_HT_SINE_Stream **stream, const dou
    int dummyNBElement = 0;
    double sink_outSine = 0.0;
    double sink_outLeadSine = 0.0;
-   retCode = TA_HT_SINE_OpenCore( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outSine, &sink_outLeadSine, 0 );
+   retCode = TA_HT_SINE_OpenPass( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outSine, &sink_outLeadSine, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outSine = sink_outSine;
@@ -1756,6 +1756,11 @@ TA_RetCode TA_HT_SINE_OpenInternal( struct TA_HT_SINE_Stream **stream, const dou
 
 TA_LIB_API TA_RetCode TA_HT_SINE_Open( TA_HT_SINE_Stream **stream, const double inReal[], int historyLen, double *outSine, double *outLeadSine )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_HT_SINE_OpenInternal( stream, inReal, 0, historyLen, outSine, outLeadSine );
 }
 
@@ -1764,19 +1769,23 @@ TA_LIB_API TA_RetCode TA_HT_SINE_OpenAndFill( TA_HT_SINE_Stream **stream, const 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outSine == (const void *)inReal || (const void *)outLeadSine == (const void *)inReal || (const void *)outSine == (const void *)outLeadSine ) return TA_BAD_PARAM;
-   return TA_HT_SINE_OpenCore( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
+   return TA_HT_SINE_OpenPass( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_HT_SINE_OpenAndFillInternal( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[] )
 {
-   return TA_HT_SINE_OpenCore( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
+   return TA_HT_SINE_OpenPass( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_HT_SINE_Update( TA_HT_SINE_Stream *stream, double inReal, double *outSine, double *outLeadSine )
 {
    if( !stream || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_HT_SINE_StepInternal( stream, inReal, outSine, outLeadSine );
    return TA_SUCCESS;
 }
@@ -1786,6 +1795,7 @@ TA_LIB_API TA_RetCode TA_HT_SINE_Peek( const TA_HT_SINE_Stream *stream, double i
    struct TA_HT_SINE_Stream scratch;
 
    if( !stream || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.ring_trailingWMAIdx_inReal = stream->ringMirror_trailingWMAIdx_inReal;
    memcpy( scratch.ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingWMAIdx > 0 ? stream->ringCap_trailingWMAIdx : 1) );

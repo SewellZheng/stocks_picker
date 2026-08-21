@@ -85,62 +85,9 @@ impl Core {
         // See mama_lookback for an explanation of the "32".
         return (63 + self.unstable_period[FuncUnstId::HT_TRENDMODE as usize]) as usize;
     }
-    /// Hilbert Transform classifier that labels each bar as trending (1) or cycling (0). Reuses the
-    /// MAMA dominant-cycle/phase DSP plus a SineWave/trendline test to decide the market mode. 1 =
-    /// trending market (favor trend-following); 0 = cycle/mean-reverting mode.
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Source price series.
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outInteger` — 1 = trend mode, 0 = cycle mode.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`], and
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0i32; 252];
-    ///
-    /// let ret = core.HT_TRENDMODE(0, data.len() - 1, &data, &mut out_beg, &mut out_nb, &mut out);
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::HT_TRENDLINE`] · [`Core::HT_SINE`] · [`Core::HT_DCPHASE`] · [`Core::HT_DCPERIOD`]
-    /// · [`Core::MAMA`]
-    ///
-    /// # References
-    ///
-    /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
-    ///   Wiley & Sons (ISBN 0471405671)
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/ht_trendmode](https://ta-lib.org/functions/ht_trendmode)
-    #[doc(alias = "HilbertTransformTrendvsCycleMode")]
-    #[doc(alias = "TrendMode")]
-    pub fn HT_TRENDMODE(
+    /// C-shaped body behind [`Core::HT_TRENDMODE`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn HT_TRENDMODE_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -150,13 +97,13 @@ impl Core {
         outInteger: &mut [i32],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, HT_TRENDMODE_fma, HT_TRENDMODE_impl, (startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger));
+        return ta_lib_dispatch::dispatch_fma!(self, HT_TRENDMODE_Impl_fma, HT_TRENDMODE_Impl_impl, (startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger));
         #[cfg(not(target_arch = "x86_64"))]
-        self.HT_TRENDMODE_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger)
+        self.HT_TRENDMODE_Impl_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn HT_TRENDMODE_fma(
+    fn HT_TRENDMODE_Impl_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -165,10 +112,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        self.HT_TRENDMODE_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger)
+        self.HT_TRENDMODE_Impl_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outInteger)
     }
     #[inline(always)]
-    fn HT_TRENDMODE_impl(
+    fn HT_TRENDMODE_Impl_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -177,10 +124,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.HT_TRENDMODE_Lookback();
@@ -661,6 +608,88 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Hilbert Transform classifier that labels each bar as trending (1) or cycling (0). Reuses the
+    /// MAMA dominant-cycle/phase DSP plus a SineWave/trendline test to decide the market mode. 1 =
+    /// trending market (favor trend-following); 0 = cycle/mean-reverting mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Source price series.
+    /// * `outInteger` — 1 = trend mode, 0 = cycle mode.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// zero [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0i32; 252];
+    ///
+    /// let out_range = core.HT_TRENDMODE(0, data.len() - 1, &data, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::HT_TRENDLINE`] · [`Core::HT_SINE`] · [`Core::HT_DCPHASE`] · [`Core::HT_DCPERIOD`]
+    /// · [`Core::MAMA`]
+    ///
+    /// # References
+    ///
+    /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
+    ///   Wiley & Sons (ISBN 0471405671)
+    ///
+    /// Further reading:
+    /// [ta-lib.org/functions/ht_trendmode](https://ta-lib.org/functions/ht_trendmode)
+    #[doc(alias = "HilbertTransformTrendvsCycleMode")]
+    #[doc(alias = "TrendMode")]
+    pub fn HT_TRENDMODE(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        outInteger: &mut [i32],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.HT_TRENDMODE_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outInteger,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -1126,13 +1155,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::HT_TRENDMODE_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::HT_TRENDMODE_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn HT_TRENDMODE_OpenCore(
+    pub(crate) fn HT_TRENDMODE_OpenPass(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<HT_TRENDMODE_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inReal.len();
@@ -1261,7 +1290,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         (*outBegIdx) = startIdx;
         // Initialize the price smoother, which is simply a weighted
@@ -1724,7 +1753,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outInteger = [0_i32; 1];
-        let handle = self.HT_TRENDMODE_OpenCore(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
+        let handle = self.HT_TRENDMODE_OpenPass(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
         Ok((handle, sink_outInteger[0]))
     }
 
@@ -1733,8 +1762,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1742,8 +1773,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.HT_TRENDMODE_Open(&data).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_HT_TRENDMODE_Open")]
@@ -1752,13 +1783,17 @@ impl Core {
     }
 
     /// [`Core::HT_TRENDMODE_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::HT_TRENDMODE`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::HT_TRENDMODE`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_HT_TRENDMODE_OpenAndFill")]
     pub fn HT_TRENDMODE_OpenAndFill(
-        &self, inReal: &[f64], outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
-    ) -> Result<HT_TRENDMODE_Stream, RetCode> {
-        self.HT_TRENDMODE_OpenCore(inReal, 0, outBegIdx, outNBElement, outInteger, 1)
+        &self, inReal: &[f64], outInteger: &mut [i32],
+    ) -> Result<(HT_TRENDMODE_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.HT_TRENDMODE_OpenPass(inReal, 0, &mut outBegIdx, &mut outNBElement, outInteger, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::HT_TRENDMODE_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -1766,7 +1801,7 @@ impl Core {
     pub(crate) fn HT_TRENDMODE_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
     ) -> Result<HT_TRENDMODE_Stream, RetCode> {
-        self.HT_TRENDMODE_OpenCore(inReal, startIdx, outBegIdx, outNBElement, outInteger, 1)
+        self.HT_TRENDMODE_OpenPass(inReal, startIdx, outBegIdx, outNBElement, outInteger, 1)
     }
 
 }
@@ -1782,12 +1817,25 @@ thread_local! {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl HT_TRENDMODE_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_HT_TRENDMODE_Update")]
-    pub fn update(&mut self, inReal: f64) -> i32 {
+    pub fn update(&mut self, inReal: f64) -> Result<i32, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outInteger: i32 = 0_i32;
         self.core.HT_TRENDMODE_step_internal(&mut self.state, inReal, &mut outInteger);
-        outInteger
+        Ok(outInteger)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1795,9 +1843,16 @@ impl HT_TRENDMODE_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. The copy it runs on is held per thread and reused,
     /// so only the first peek of this function on a thread allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_HT_TRENDMODE_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> i32 {
+    pub fn peek(&self, inReal: f64) -> Result<i32, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         HT_TRENDMODE_PEEK_SCRATCH.with(|cell| {
             let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
             scratch.restore_from(self);

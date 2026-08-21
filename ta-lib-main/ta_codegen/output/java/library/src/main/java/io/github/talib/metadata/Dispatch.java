@@ -56,6 +56,9 @@ final class Dispatch {
    static OutRange call(ParamHolder h, int startIdx, int endIdx) {
       Core core = h.core();
       switch (h.info().name()) {
+         case "AC":
+            return core.AC(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.realOutput(0));
          case "ACCBANDS":
             return core.ACCBANDS(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0), h.realOutput(1), h.realOutput(2));
@@ -77,6 +80,9 @@ final class Dispatch {
          case "ADXR":
             return core.ADXR(
                startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.realOutput(0));
+         case "AO":
+            return core.AO(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.intOpt(0), h.intOpt(1), h.realOutput(0));
          case "APO":
             return core.APO(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.intOpt(1), h.maTypeOpt(2), h.realOutput(0));
@@ -503,6 +509,9 @@ final class Dispatch {
          case "SMA":
             return core.SMA(
                startIdx, endIdx, h.realInput(0), h.intOpt(0), h.realOutput(0));
+         case "SMI":
+            return core.SMI(
+               startIdx, endIdx, h.price(0, 1), h.price(0, 2), h.price(0, 3), h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3), h.realOutput(0), h.realOutput(1));
          case "SQRT":
             return core.SQRT(
                startIdx, endIdx, h.realInput(0), h.realOutput(0));
@@ -583,6 +592,8 @@ final class Dispatch {
    static int lookback(ParamHolder h) {
       Core core = h.core();
       switch (h.info().name()) {
+         case "AC":
+            return core.AC_Lookback(h.intOpt(0), h.intOpt(1), h.intOpt(2));
          case "ACCBANDS":
             return core.ACCBANDS_Lookback(h.intOpt(0));
          case "ACOS":
@@ -597,6 +608,8 @@ final class Dispatch {
             return core.ADX_Lookback(h.intOpt(0));
          case "ADXR":
             return core.ADXR_Lookback(h.intOpt(0));
+         case "AO":
+            return core.AO_Lookback(h.intOpt(0), h.intOpt(1));
          case "APO":
             return core.APO_Lookback(h.intOpt(0), h.intOpt(1), h.maTypeOpt(2));
          case "AROON":
@@ -881,6 +894,8 @@ final class Dispatch {
             return core.SINH_Lookback();
          case "SMA":
             return core.SMA_Lookback(h.intOpt(0));
+         case "SMI":
+            return core.SMI_Lookback(h.intOpt(0), h.intOpt(1), h.intOpt(2), h.intOpt(3));
          case "SQRT":
             return core.SQRT_Lookback();
          case "STDDEV":

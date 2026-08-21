@@ -25,13 +25,13 @@
       return 0 ;
 
    }
-   RetCode ADD_Internal( int startIdx,
-                         int endIdx,
-                         double inReal0[],
-                         double inReal1[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode ADD_Impl( int startIdx,
+                     int endIdx,
+                     double inReal0[],
+                     double inReal1[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -48,13 +48,13 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode ADD_Internal( int startIdx,
-                         int endIdx,
-                         float inReal0[],
-                         float inReal1[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode ADD_Impl( int startIdx,
+                     int endIdx,
+                     float inReal0[],
+                     float inReal1[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -95,8 +95,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SUB
     * @see Core#MULT
@@ -108,9 +115,16 @@
                         double inReal1[],
                         double outReal[] )
    {
+      requireIndexRange("ADD", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ADD_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ADD", "inReal0", inReal0, guardInLen);
+      requireLength("ADD", "inReal1", inReal1, guardInLen);
+      requireLength("ADD", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ADD_Internal(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADD_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ADD", retCode);
       }
@@ -143,8 +157,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SUB
     * @see Core#MULT
@@ -156,9 +177,16 @@
                         float inReal1[],
                         double outReal[] )
    {
+      requireIndexRange("ADD", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ADD_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ADD", "inReal0", inReal0, guardInLen);
+      requireLength("ADD", "inReal1", inReal1, guardInLen);
+      requireLength("ADD", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ADD_Internal(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADD_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ADD", retCode);
       }
@@ -209,10 +237,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal0, double inReal1 ) {
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
+            throw new TaLibArgumentException("ADD update: BadParam", RetCode.BadParam);
          core.ADD_StreamStep(this, inReal0, inReal1);
          return this.cur_outReal;
       }
@@ -225,6 +263,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal0, double inReal1 ) {
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
+            throw new TaLibArgumentException("ADD peek: BadParam", RetCode.BadParam);
          ADD_Stream scratch = new ADD_Stream(this);
          core.ADD_StreamStep(scratch, inReal0, inReal1);
          return scratch.cur_outReal;
@@ -251,7 +291,7 @@
    {
       sp.cur_outReal = inReal0 + inReal1;
    }
-   private RetCode ADD_OpenCore( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode ADD_OpenPass( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -272,55 +312,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode ADD_OpenBody( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx )
+   private RetCode ADD_OpenImpl( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return ADD_OpenCore( sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return ADD_OpenPass( sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode ADD_OpenAndFillBody( ADD_Stream sp, double inReal0[], double inReal1[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ADD_OpenAndFillImpl( ADD_Stream sp, double inReal0[], double inReal1[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
          return RetCode.BadParam;
       }
-      return ADD_OpenCore( sp, inReal0, inReal1, 0, outBegIdx, outNBElement, outReal, 1 );
+      return ADD_OpenPass( sp, inReal0, inReal1, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode ADD_OpenAndFillInternalBody( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ADD_OpenAndFillInternalImpl( ADD_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return ADD_OpenCore(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return ADD_OpenPass(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* ADD_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    ADD_Stream ADD_OpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       ADD_Stream sp = new ADD_Stream(this);
-      RetCode retCode = ADD_OpenAndFillInternalBody(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADD_OpenAndFillInternalImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ADD openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ADD openAndFill: internal error");
+         throw new TaLibStateException("ADD openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ADD openAndFill: " + retCode);
+      throw new TaLibArgumentException("ADD openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind ADD_Open (composition seam). */
    ADD_Stream ADD_OpenInternal( double inReal0[], double inReal1[], int startIdx )
    {
       ADD_Stream sp = new ADD_Stream(this);
-      RetCode retCode = ADD_OpenBody(sp, inReal0, inReal1, startIdx);
+      RetCode retCode = ADD_OpenImpl(sp, inReal0, inReal1, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ADD open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ADD open: internal error");
+         throw new TaLibStateException("ADD open: internal error", retCode);
       }
-      throw new IllegalArgumentException("ADD open: " + retCode);
+      throw new TaLibArgumentException("ADD open: " + retCode, retCode);
    }
    /**
     * Open a live ADD stream over the warm-up history; the handle's
@@ -350,16 +390,16 @@
       ADD_Stream sp = new ADD_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ADD_OpenAndFillBody(sp, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADD_OpenAndFillImpl(sp, inReal0, inReal1, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ADD openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ADD openAndFill: internal error");
+         throw new TaLibStateException("ADD openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ADD openAndFill: " + retCode);
+      throw new TaLibArgumentException("ADD openAndFill: " + retCode, retCode);
    }

@@ -569,10 +569,13 @@ pub(crate) fn emit_opt_param_validation(
                     // Every declared bound is checked (see backends::c).
                     if let Some((min, max)) = opt.range {
                         out.push_str(&format!(
-                            " else if( {name} < {lo} || {name} > {hi} ) {{\n         return {fail};\n      }}",
-                            name = opt.name,
-                            lo = super::common::real_bound_literal(min, ""),
-                            hi = super::common::real_bound_literal(max, "")
+                            " else if( {cond} ) {{\n         return {fail};\n      }}",
+                            cond = super::common::real_range_reject(
+                                &opt.name,
+                                &super::common::real_bound_literal(min, ""),
+                                &super::common::real_bound_literal(max, ""),
+                                false
+                            )
                         ));
                     }
                     out.push('\n');
@@ -663,14 +666,115 @@ fn render_init_expr(expr: &Expr) -> String {
     }
 }
 
-/// Name of the package-private core behind a public wrapper.
+/// Name of the implementation tier: the transcribed numerics, and nothing else.
 ///
-/// The cores keep the C-shaped `RetCode` + `MInteger` signature (A3 lock 1): the
-/// same fragment text is spliced into the shipped `Core` and the JSON-RPC
-/// server's inline `Core`, and the server calls the cores, so the cross-language
-/// hash/retCode surface is unaffected by the public API above them.
-fn internal_core_name(base: &str) -> String {
-    format!("{base}_Internal")
+/// Suffixed `_Impl`, matching the streaming tiers (`_OpenImpl`,
+/// `_OpenAndFillImpl`). `Internal` is deliberately NOT reused: in these two
+/// backends it names a *variant* (`_OpenAndFillInternal` is the composed-open
+/// fusion seam), and until #236 step 5 it named the deleted C-shaped tier, so
+/// one word would carry three meanings across the history.
+///
+/// Not public API in any backend. It keeps the C-shaped signature because the
+/// body is a literal transcription of C, which writes its indices through
+/// out-parameters; what changed in #236 step 3 is only that a cross-call inside
+/// it now calls the public callee and does not test a return code.
+fn body_name(base: &str) -> String {
+    format!("{base}_Impl")
+}
+
+/// Emit the wrapper's array-argument checks (issue #172 C2).
+///
+/// C cannot do this — it is handed bare pointers and has no sizes. Java arrays
+/// carry their length, so an undersized output, an `endIdx` past the end of the
+/// input, or a null array is detectable here, before the core writes a single
+/// element. Without it each of those is an `ArrayIndexOutOfBoundsException`
+/// raised from deep inside the algorithm, after the output buffer is already
+/// half written and with no `OutRange` to say how far the call got.
+///
+/// The bound is the one the Rust backend already asserts and the cross-language
+/// harness already verifies (`rust_lang::emit_bounds_asserts`): every input the
+/// body indexes must reach `endIdx`, and every output must hold the values
+/// actually produced — `endIdx - max(startIdx, lookback) + 1`, the produced
+/// count, not the width of the requested range.
+///
+/// `clampedStart` is `max(startIdx, lookback)`, or `-1` when the core will reject
+/// the call itself — the one case that must not be pre-empted, because the core
+/// owns that diagnosis.
+///
+/// The `_assertStart > endIdx ||` escape in front of the Rust asserts is applied
+/// to the OUTPUT bound only. A range shorter than the lookback produces no values,
+/// so any output length will do — including none. The input bound does NOT take
+/// the escape: `endIdx` past the end of the series the caller supplied is a caller
+/// bug in every range, and the only reason C answers it with `TA_SUCCESS` is that
+/// it has no size to check against. Reporting it beats an empty `OutRange` that
+/// reads as "no data yet".
+///
+/// This is the one bound where Java checks more than C and Rust do. It is not
+/// load-bearing for memory safety — `NoPhantomIoTest` pins that no core reads
+/// anything on a sub-lookback range — it is a diagnostic.
+///
+/// A null array is rejected either way — the length check is conditional, the
+/// contract that an argument exists is not.
+///
+/// **Order.** `requireIndexRange` comes first, then the presence of any non-buffer
+/// argument, then the buffer checks: the specification evaluates B-1/B-2 before
+/// B-3, and this wrapper used to run the presence check ahead of both, so an
+/// absent buffer pre-empted an out-of-range index (Part 3 item 3). The null enum
+/// check (item 4) has to sit ahead of the `_Lookback` call below, because that is
+/// where a null one is first dereferenced.
+fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
+    let indexed = super::common::indexed_input_names(func);
+    let inputs: Vec<&str> = func
+        .inputs
+        .iter()
+        .filter(|i| indexed.contains(&i.name))
+        .map(|i| i.name.as_str())
+        .collect();
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "      requireIndexRange(\"{base_name}\", startIdx, endIdx);"
+    );
+    for opt in &func.optional_inputs {
+        if matches!(opt.param_type, ParamType::Enum(_)) {
+            let _ = writeln!(
+                out,
+                "      requireArgument(\"{base_name}\", \"{0}\", {0});",
+                opt.name
+            );
+        }
+    }
+    if inputs.is_empty() && func.outputs.is_empty() {
+        return out;
+    }
+    let lb_args: Vec<String> = func.optional_inputs.iter().map(|o| o.name.clone()).collect();
+    let _ = writeln!(
+        out,
+        "      int guardStart = clampedStart(startIdx, endIdx, {base_name}_Lookback({}));",
+        lb_args.join(", ")
+    );
+    if !inputs.is_empty() {
+        out.push_str("      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;\n");
+    }
+    if !func.outputs.is_empty() {
+        out.push_str(
+            "      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;\n",
+        );
+    }
+    for name in inputs {
+        let _ = writeln!(
+            out,
+            "      requireLength(\"{base_name}\", \"{name}\", {name}, guardInLen);"
+        );
+    }
+    for output in &func.outputs {
+        let name = &output.name;
+        let _ = writeln!(
+            out,
+            "      requireLength(\"{base_name}\", \"{name}\", {name}, guardOutLen);"
+        );
+    }
+    out
 }
 
 /// Emit the public, `OutRange`-returning wrapper over one internal core.
@@ -688,7 +792,7 @@ fn gen_public_wrapper(
     registry: &Registry,
 ) -> String {
     let base_name = func.name.clone();
-    let core = internal_core_name(&base_name);
+    let core = body_name(&base_name);
     let public_name = base_name.clone();
 
     // Parameters: same as the core minus the two MInteger out-params.
@@ -738,6 +842,7 @@ fn gen_public_wrapper(
         out.push_str(param);
     }
     out.push_str(" )\n   {\n");
+    out.push_str(&gen_argument_checks(func, &base_name));
     out.push_str("      MInteger outBegIdx = new MInteger();\n");
     out.push_str("      MInteger outNBElement = new MInteger();\n");
     {
@@ -750,6 +855,7 @@ fn gen_public_wrapper(
     }
     out.push_str("      return new OutRange(outBegIdx.value, outNBElement.value);\n");
     out.push_str("   }\n");
+
     out
 }
 
@@ -808,7 +914,7 @@ fn gen_func_inner(
     let name = if let Some(n) = name_override {
         n.to_string()
     } else {
-        internal_core_name(&base_name)
+        body_name(&base_name)
     };
 
     // Build parameter list
@@ -1350,6 +1456,18 @@ impl StatementEmitter for JavaStmt<'_> {
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn assign(&self, target: &Expr, value: &Expr, compound: bool, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        // A cross-indicator call answers an `OutRange` and throws (#236 step 3),
+        // so the assigned code is Success by construction.
+        if let Expr::FuncCall(fname, cargs) = value {
+            if self.registry.contains(fname) {
+                if let Some(block) =
+                    render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
+                {
+                    let t = render_assign_target(target, self.ctx, self.registry, self.helpers);
+                    return format!("{block}{pad}{t} = RetCode.Success;\n");
+                }
+            }
+        }
         // Handle output scalar assignments via .value
         if let Expr::Var(name) = target {
             if name == "outBegIdx" || name == "outNBElement" {
@@ -1624,6 +1742,16 @@ impl StatementEmitter for JavaStmt<'_> {
 
     fn return_stmt(&self, value: &Option<Expr>, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        // `return macd(...)` -- the tail-call form of a cross-indicator call.
+        if let Some(Expr::FuncCall(fname, cargs)) = value {
+            if self.registry.contains(fname) {
+                if let Some(block) =
+                    render_cross_indicator_call(fname, cargs, indent, self.ctx, self.registry, self.helpers)
+                {
+                    return format!("{block}{pad}return RetCode.Success ;\n");
+                }
+            }
+        }
         match value {
             Some(expr) => {
                 let rendered = render_return_expr(expr, self.ctx, self.registry, self.helpers);
@@ -1793,6 +1921,7 @@ fn render_return_expr(
         return match name.as_str() {
             "SUCCESS" => "RetCode.Success".to_string(),
             "BadParam" => "RetCode.BadParam".to_string(),
+            "InsufficientHistory" => "RetCode.InsufficientHistory".to_string(),
             "OutOfRangeEndIndex" => "RetCode.OutOfRangeEndIndex".to_string(),
             "OutOfRangeStartIndex" => "RetCode.OutOfRangeStartIndex".to_string(),
             _ => render_expr(expr, ctx, registry, helpers),
@@ -2122,10 +2251,19 @@ fn try_render_candle_ternary(
             let high = r(&args[2]);
             let low = r(&args[3]);
             let close = r(&args[4]);
+            // The Shadows arm is upper + lower, NOT the algebraically equal
+            // (high - low) - |close - open|. It must match TA_CANDLERANGE in
+            // ta_utility.h term for term: the two forms differ by
+            // reassociation on any bar whose low sits below half its high,
+            // and C is the reference (#217). This spelling is hardcoded here
+            // rather than read from input/helpers/candlestick.c, so a fix to
+            // the helper alone does NOT reach Java -- csharp.rs carries the
+            // same duplicate.
             Some(format!(
                 "(({rt} == 0) ? (Math.abs({close} - {open})) \
                  : (({rt} == 1) ? ({high} - {low}) \
-                 : (({rt} == 2) ? (({high} - {low}) - Math.abs({close} - {open})) \
+                 : (({rt} == 2) ? (({high} - ((({close}) >= ({open})) ? ({close}) : ({open}))) \
+                 + (((({close}) >= ({open})) ? ({open}) : ({close})) - {low})) \
                  : 0.0)))"
             ))
         }
@@ -2324,6 +2462,83 @@ fn render_func_call(
     }
 }
 
+/// Emit a cross-indicator call to the callee's PUBLIC entry point (#236 step 3).
+///
+/// The C source is written in C's idiom -- `retCode = ma( .., &beg, &nb, buf );
+/// if( retCode != TA_SUCCESS ) return retCode;` -- and the transcription is
+/// literal, so every backend needed a callee that answered a code through
+/// out-parameters. C never did: `ta_APO.c` calls `TA_MA`, which IS C's public
+/// API. The managed backends now do the same, which is what puts the callee's
+/// argument checks on the composed path -- the one place a scratch buffer sized
+/// by the CALLER meets a bound computed from the CALLEE's lookback.
+///
+/// The two out-parameter arguments are dropped from the call and bound from the
+/// returned range instead. They are found positionally: the callee's signature
+/// is `(startIdx, endIdx, inputs.., opts.., outBegIdx, outNBElement, outputs..)`,
+/// and the registry knows how many outputs it declares. Returns `None` when that
+/// arithmetic does not hold, so a shape this does not understand falls through
+/// to the old rendering rather than being silently mis-sliced.
+///
+/// The enclosing `if( retCode != Success )` is left standing and becomes dead:
+/// the body stays a literal transcription of its C source, and several of those
+/// tests also carry a `|| count == 0` half that is still live.
+fn render_cross_indicator_call(
+    fname: &str,
+    args: &[Expr],
+    indent: usize,
+    ctx: &JavaRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> Option<String> {
+    let n_out = registry.callee_outputs(fname).len();
+    if n_out == 0 || args.len() < n_out + 2 {
+        return None;
+    }
+    let split = args.len() - n_out - 2;
+    let pad = " ".repeat(indent);
+    let public = registry.resolve_call(fname, Lang::Java);
+
+    let mut call_args: Vec<String> = Vec::new();
+    for a in args[..split].iter().chain(args[split + 2..].iter()) {
+        call_args.push(match a {
+            // NULL for a nullable output the caller discards (#125): the callee
+            // writes it unconditionally, so materialize a throwaway.
+            Expr::Var(n) if n == "NULL" => "new double[(int)(endIdx - startIdx + 1)]".to_string(),
+            _ => render_expr(a, ctx, registry, helpers),
+        });
+    }
+
+    let n = ctx.inline_counter.get();
+    ctx.inline_counter.set(n + 1);
+    let tmp = format!("_xr{n}");
+    let beg = out_meta_target(&args[split], ctx, registry, helpers);
+    let nb = out_meta_target(&args[split + 1], ctx, registry, helpers);
+    Some(format!(
+        "{pad}OutRange {tmp} = {public}({});\n{pad}{beg}.value = {tmp}.begIdx();\n{pad}{nb}.value = {tmp}.count();\n",
+        call_args.join(", ")
+    ))
+}
+
+/// The `MInteger` an out-parameter argument names. `&beg` and a pointer
+/// parameter passed straight through (`outNBElement`) are both spelled as the
+/// object here; only an rvalue READ of one renders as `.value`, which is why
+/// this cannot go through `render_expr`.
+fn out_meta_target(
+    arg: &Expr,
+    ctx: &JavaRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    match arg {
+        Expr::AddressOf(inner) => match inner.as_ref() {
+            Expr::Var(n) => n.clone(),
+            other => render_expr(other, ctx, registry, helpers),
+        },
+        Expr::Var(n) => n.clone(),
+        other => render_expr(other, ctx, registry, helpers),
+    }
+}
+
 /// Decompose an expression into (array_name, offset) for array copy operations.
 /// `Var("arr")` → `("arr", "0")`; `AddressOf(ArrayAccess("arr", idx))` → `("arr", rendered_idx)`
 fn decompose_java_array_ref(
@@ -2456,28 +2671,36 @@ mod tests {
         let registry = make_registry();
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
-        // The internal core is emitted, package-private (no `public`).
-        assert!(output.contains("   RetCode SMA_Internal("), "Missing guarded core");
+        // #236 step 5: the C-shaped tier is GONE. Two tiers remain -- the
+        // public wrapper and the body it calls -- and nothing in the shipped
+        // library answers a RetCode any more.
+        assert!(!output.contains("SMA_Internal"), "the C-shaped tier must not come back");
         assert!(!output.contains("Unguarded"), "no unguarded tier may exist");
         assert!(
             !output.contains("public RetCode SMA"),
             "cores must be package-private — RetCode never appears on the public surface"
         );
 
-        // The surviving core validates. Bounded to the double core's own body so
-        // a match inside the float overload cannot stand in for it.
-        let guarded_pos = output.find("RetCode SMA_Internal( ").unwrap();
-        let guarded_section = &output[guarded_pos..];
-        let guarded_end = guarded_section[1..]
+        // The BODY validates. Bounded to the double body's own text so a match
+        // inside the float overload cannot stand in for it.
+        let body_pos = output.find("RetCode SMA_Impl( ").unwrap();
+        let body_section = &output[body_pos..];
+        let body_end = body_section[1..]
             .find("   RetCode ")
-            .map_or(guarded_section.len(), |i| i + 1);
+            .map_or(body_section.len(), |i| i + 1);
         assert!(
-            guarded_section[..guarded_end].contains("OutOfRangeStartIndex"),
-            "Guarded core should contain validation"
+            body_section[..body_end].contains("OutOfRangeStartIndex"),
+            "the body should contain validation"
         );
 
-        // The public surface is OutRange-returning wrappers over those cores.
+        // The public surface is OutRange-returning wrappers, and they call the
+        // BODY, not the shim — a sub-call's throw has to propagate rather than be
+        // converted and re-thrown under the outer function's name.
         assert!(output.contains("   public OutRange SMA( "), "Missing public SMA wrapper");
+        assert!(
+            output.contains("RetCode retCode = SMA_Impl("),
+            "the public wrapper must call the body directly"
+        );
         assert!(
             output.contains("throw failure(\"SMA\", retCode);"),
             "guarded wrapper must map RetCode onto the documented exception"

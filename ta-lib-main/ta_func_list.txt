@@ -1,3 +1,4 @@
+AC                  Accelerator/Decelerator Oscillator
 ACCBANDS            Acceleration Bands
 ACOS                Vector Trigonometric ACos
 AD                  Chaikin A/D Line
@@ -5,6 +6,7 @@ ADD                 Vector Arithmetic Add
 ADOSC               Chaikin A/D Oscillator
 ADX                 Average Directional Movement Index
 ADXR                Average Directional Movement Index Rating
+AO                  Awesome Oscillator
 APO                 Absolute Price Oscillator
 AROON               Aroon
 AROONOSC            Aroon Oscillator
@@ -147,6 +149,7 @@ SAREXT              Parabolic SAR - Extended
 SIN                 Vector Trigonometric Sin
 SINH                Vector Trigonometric Sinh
 SMA                 Simple Moving Average
+SMI                 Stochastic Momentum Index
 SQRT                Vector Square Root
 STDDEV              Standard Deviation
 STOCH               Stochastic

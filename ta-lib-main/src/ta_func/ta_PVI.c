@@ -237,7 +237,7 @@ static void TA_PVI_StepInternal( struct TA_PVI_Stream *sp, double inClose, doubl
    sp->prevVolume = tempVolume;
 }
 
-static TA_RetCode TA_PVI_OpenCore( struct TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_PVI_OpenPass( struct TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_PVI_Stream *sp;
    int endIdx;
@@ -326,7 +326,7 @@ TA_RetCode TA_PVI_OpenInternal( struct TA_PVI_Stream **stream, const double inCl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_PVI_OpenCore( stream, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_PVI_OpenPass( stream, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -336,6 +336,11 @@ TA_RetCode TA_PVI_OpenInternal( struct TA_PVI_Stream **stream, const double inCl
 
 TA_LIB_API TA_RetCode TA_PVI_Open( TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int historyLen, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_PVI_OpenInternal( stream, inClose, inVolume, 0, historyLen, outReal );
 }
 
@@ -344,19 +349,23 @@ TA_LIB_API TA_RetCode TA_PVI_OpenAndFill( TA_PVI_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   return TA_PVI_OpenCore( stream, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_PVI_OpenPass( stream, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_PVI_OpenAndFillInternal( struct TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_PVI_OpenCore( stream, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_PVI_OpenPass( stream, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_PVI_Update( TA_PVI_Stream *stream, double inClose, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    TA_PVI_StepInternal( stream, inClose, inVolume, outReal );
    return TA_SUCCESS;
 }
@@ -366,6 +375,7 @@ TA_LIB_API TA_RetCode TA_PVI_Peek( const TA_PVI_Stream *stream, double inClose, 
    struct TA_PVI_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_PVI_StepInternal( &scratch, inClose, inVolume, outReal );
    return TA_SUCCESS;

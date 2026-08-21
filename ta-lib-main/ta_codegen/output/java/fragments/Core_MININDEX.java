@@ -33,13 +33,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode MININDEX_Internal( int startIdx,
-                              int endIdx,
-                              double inReal[],
-                              int optInTimePeriod,
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              int outInteger[] )
+   RetCode MININDEX_Impl( int startIdx,
+                          int endIdx,
+                          double inReal[],
+                          int optInTimePeriod,
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          int outInteger[] )
    {
       double lowest = 0;
       double tmp = 0;
@@ -114,13 +114,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode MININDEX_Internal( int startIdx,
-                              int endIdx,
-                              float inReal[],
-                              int optInTimePeriod,
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              int outInteger[] )
+   RetCode MININDEX_Impl( int startIdx,
+                          int endIdx,
+                          float inReal[],
+                          int optInTimePeriod,
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          int outInteger[] )
    {
       double lowest = 0;
       double tmp = 0;
@@ -211,8 +211,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MIN
     * @see Core#MAXINDEX
@@ -225,9 +232,15 @@
                              int optInTimePeriod,
                              int outInteger[] )
    {
+      requireIndexRange("MININDEX", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, MININDEX_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("MININDEX", "inReal", inReal, guardInLen);
+      requireLength("MININDEX", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MININDEX_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = MININDEX_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("MININDEX", retCode);
       }
@@ -267,8 +280,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MIN
     * @see Core#MAXINDEX
@@ -281,9 +301,15 @@
                              int optInTimePeriod,
                              int outInteger[] )
    {
+      requireIndexRange("MININDEX", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, MININDEX_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("MININDEX", "inReal", inReal, guardInLen);
+      requireLength("MININDEX", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MININDEX_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = MININDEX_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("MININDEX", retCode);
       }
@@ -362,10 +388,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public int update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("MININDEX update: BadParam", RetCode.BadParam);
          core.MININDEX_StreamStep(this, inReal);
          return this.cur_outInteger;
       }
@@ -378,6 +414,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public int peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("MININDEX peek: BadParam", RetCode.BadParam);
          MININDEX_Stream scratch = new MININDEX_Stream(this);
          core.MININDEX_StreamStep(scratch, inReal);
          return scratch.cur_outInteger;
@@ -431,7 +469,7 @@
       sp.trailingIdx += 1;
       sp.today += 1;
    }
-   private RetCode MININDEX_OpenCore( MININDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
+   private RetCode MININDEX_OpenPass( MININDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       double lowest = 0;
       double tmp = 0;
@@ -469,7 +507,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Proceed with the calculation for the requested range.
        * (The integer output can never share the real input's buffer —
@@ -530,55 +568,55 @@
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode MININDEX_OpenBody( MININDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode MININDEX_OpenImpl( MININDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       int[] sink_outInteger = new int[1];
-      return MININDEX_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outInteger, 0 );
+      return MININDEX_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
-   private RetCode MININDEX_OpenAndFillBody( MININDEX_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode MININDEX_OpenAndFillImpl( MININDEX_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       if( (Object)outInteger == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return MININDEX_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1 );
+      return MININDEX_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1 );
    }
-   private RetCode MININDEX_OpenAndFillInternalBody( MININDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode MININDEX_OpenAndFillInternalImpl( MININDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      return MININDEX_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1);
+      return MININDEX_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1);
    }
    /* MININDEX_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MININDEX_Stream MININDEX_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       MININDEX_Stream sp = new MININDEX_Stream(this);
-      RetCode retCode = MININDEX_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = MININDEX_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MININDEX openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MININDEX openAndFill: internal error");
+         throw new TaLibStateException("MININDEX openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("MININDEX openAndFill: " + retCode);
+      throw new TaLibArgumentException("MININDEX openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind MININDEX_Open (composition seam). */
    MININDEX_Stream MININDEX_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       MININDEX_Stream sp = new MININDEX_Stream(this);
-      RetCode retCode = MININDEX_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = MININDEX_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MININDEX open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MININDEX open: internal error");
+         throw new TaLibStateException("MININDEX open: internal error", retCode);
       }
-      throw new IllegalArgumentException("MININDEX open: " + retCode);
+      throw new TaLibArgumentException("MININDEX open: " + retCode, retCode);
    }
    /**
     * Open a live MININDEX stream over the warm-up history; the handle's
@@ -608,16 +646,16 @@
       MININDEX_Stream sp = new MININDEX_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MININDEX_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = MININDEX_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MININDEX openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MININDEX openAndFill: internal error");
+         throw new TaLibStateException("MININDEX openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("MININDEX openAndFill: " + retCode);
+      throw new TaLibArgumentException("MININDEX openAndFill: " + retCode, retCode);
    }

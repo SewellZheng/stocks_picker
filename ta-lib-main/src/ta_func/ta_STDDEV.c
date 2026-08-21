@@ -67,7 +67,7 @@ TA_LIB_API int TA_STDDEV_Lookback( int optInTimePeriod, double optInNbDev )
       return -1;
    if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
-   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+   else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
       return -1;
    /* Lookback is driven by the variance. */
    return TA_VAR_Lookback(optInTimePeriod,optInNbDev);
@@ -99,11 +99,26 @@ TA_LIB_API TA_RetCode TA_STDDEV( int    startIdx,
       return TA_BAD_PARAM;
    if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
-   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+   else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
+   /* Nothing to produce: the range is shorter than the lookback. Return before
+    * touching anything.
+    *
+    * Same shape as the guard in apo and bbands: the variance below runs on the
+    * same range and its lookback IS stddev's, so it declines and yields 0,0
+    * without reading. Observably identical, but it makes "a range shorter than
+    * the lookback reads nothing" true of stddev itself rather than only of var.
+    * Pinned by the zero-length no-I/O probe over every guarded core.
+    */
+   if( TA_STDDEV_Lookback(optInTimePeriod,optInNbDev) > endIdx )
+   {
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      return TA_SUCCESS;
+   }
    /* Calculate the variance. */
    retCode = TA_VAR(startIdx,endIdx,inReal,optInTimePeriod,1.0,outBegIdx,outNBElement,outReal);
    if( retCode != TA_SUCCESS )
@@ -171,11 +186,17 @@ TA_RetCode TA_S_STDDEV( int    startIdx,
       return TA_BAD_PARAM;
    if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
-   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+   else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
+   if( TA_STDDEV_Lookback(optInTimePeriod,optInNbDev) > endIdx )
+   {
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      return TA_SUCCESS;
+   }
    retCode = TA_S_VAR(startIdx,endIdx,inReal,optInTimePeriod,1.0,outBegIdx,outNBElement,outReal);
    if( retCode != TA_SUCCESS )
    {
@@ -224,17 +245,21 @@ struct TA_STDDEV_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_STDDEV_StepInternal( struct TA_STDDEV_Stream *sp, double inReal, double *outReal )
+static TA_RetCode TA_STDDEV_StepInternal( struct TA_STDDEV_Stream *sp, double inReal, double *outReal )
 {
    double tempReal;
-   double cur_outReal;
+   double cur_outReal = 0.0;
 
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
-   if( sp->peekMode )
-      TA_VAR_Peek( (const TA_VAR_Stream *)sp->sub0, inReal, &cur_outReal );
-   else
-      TA_VAR_Update( sp->sub0, inReal, &cur_outReal );
+   {
+      TA_RetCode subRc;
+      if( sp->peekMode )
+         subRc = TA_VAR_Peek( (const TA_VAR_Stream *)sp->sub0, inReal, &cur_outReal );
+      else
+         subRc = TA_VAR_Update( sp->sub0, inReal, &cur_outReal );
+      if( subRc != TA_SUCCESS ) return subRc;
+   }
    /* Combine map (batch tail, per bar). */
    if( sp->optInNbDev != 1.0 )
    {
@@ -258,9 +283,10 @@ static void TA_STDDEV_StepInternal( struct TA_STDDEV_Stream *sp, double inReal, 
       }
    }
    *outReal = cur_outReal;
+   return TA_SUCCESS;
 }
 
-static TA_RetCode TA_STDDEV_OpenCore( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_STDDEV_OpenPass( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_STDDEV_Stream *sp;
    int endIdx;
@@ -282,7 +308,7 @@ static TA_RetCode TA_STDDEV_OpenCore( struct TA_STDDEV_Stream **stream, const do
       return TA_BAD_PARAM;
    if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
-   else if( optInNbDev < TA_REAL_MIN || optInNbDev > TA_REAL_MAX )
+   else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
@@ -292,13 +318,33 @@ static TA_RetCode TA_STDDEV_OpenCore( struct TA_STDDEV_Stream **stream, const do
    subOpenDummy = 0.0;
    sub0 = NULL;
    (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
-   sc_outReal = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );
-   if( !sc_outReal ) { return TA_ALLOC_ERR; }
+   if( outStride ) sc_outReal = outReal;
+   else
+   {
+      sc_outReal = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );
+      if( !sc_outReal ) { return TA_ALLOC_ERR; }
+   }
 
    {
       int i;
       TA_RetCode retCode;
       double tempReal;
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Same shape as the guard in apo and bbands: the variance below runs on the
+       * same range and its lookback IS stddev's, so it declines and yields 0,0
+       * without reading. Observably identical, but it makes "a range shorter than
+       * the lookback reads nothing" true of stddev itself rather than only of var.
+       * Pinned by the zero-length no-I/O probe over every guarded core.
+       */
+      if( TA_STDDEV_Lookback(optInTimePeriod,optInNbDev) > endIdx )
+      {
+         dummyBegIdx = 0;
+         dummyNBElement = 0;
+         TA_VAR_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal );
+         return TA_INSUFFICIENT_HISTORY;
+      }
       /* Calculate the variance. */
       /* Sub-stream 0: var over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
@@ -306,14 +352,14 @@ static TA_RetCode TA_STDDEV_OpenCore( struct TA_STDDEV_Stream **stream, const do
          subRc = TA_VAR_OpenAndFillInternal( &sub0, inReal, (startIdx), (endIdx) + 1, optInTimePeriod, 1.0, &dummyBegIdx, &dummyNBElement, sc_outReal );
          if( subRc != TA_SUCCESS )
          {
-            TA_VAR_Close( sub0 ); TA_Free( sc_outReal );
+            TA_VAR_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal );
             return subRc;
          }
       }
       retCode = subRc;
       if( retCode != TA_SUCCESS )
       {
-         TA_VAR_Close( sub0 ); TA_Free( sc_outReal );
+         TA_VAR_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal );
          return retCode;
       }
       /* Calculate the square root of each variance, this
@@ -350,18 +396,17 @@ static TA_RetCode TA_STDDEV_OpenCore( struct TA_STDDEV_Stream **stream, const do
       }
 
       /* Capture the live producer state + sub handles. */
-      if( dummyNBElement < 1 ) { TA_VAR_Close( sub0 ); TA_Free( sc_outReal ); return TA_BAD_PARAM; }
+      if( dummyNBElement < 1 ) { TA_VAR_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal ); return TA_INSUFFICIENT_HISTORY; }
       sp = (struct TA_STDDEV_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { TA_VAR_Close( sub0 ); TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
+      if( !sp ) { TA_VAR_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
       sp->optInNbDev = optInNbDev;
       sp->sub0 = sub0;
       *outBegIdx = dummyBegIdx;
       *outNBElement = dummyNBElement;
-      if( outStride ) memcpy( outReal, sc_outReal, sizeof(double) * (size_t)dummyNBElement );
-      else outReal[0] = sc_outReal[dummyNBElement - 1];
-      TA_Free( sc_outReal );
+      if( !outStride ) outReal[0] = sc_outReal[dummyNBElement - 1];
+      if( !outStride ) TA_Free( sc_outReal );
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -374,7 +419,7 @@ TA_RetCode TA_STDDEV_OpenInternal( struct TA_STDDEV_Stream **stream, const doubl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_STDDEV_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_STDDEV_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -384,6 +429,11 @@ TA_RetCode TA_STDDEV_OpenInternal( struct TA_STDDEV_Stream **stream, const doubl
 
 TA_LIB_API TA_RetCode TA_STDDEV_Open( TA_STDDEV_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInNbDev, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_STDDEV_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outReal );
 }
 
@@ -392,21 +442,24 @@ TA_LIB_API TA_RetCode TA_STDDEV_OpenAndFill( TA_STDDEV_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_STDDEV_OpenCore( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+   return TA_STDDEV_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_STDDEV_OpenAndFillInternal( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_STDDEV_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+   return TA_STDDEV_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_STDDEV_Update( TA_STDDEV_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   TA_STDDEV_StepInternal( stream, inReal, outReal );
-   return TA_SUCCESS;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   return TA_STDDEV_StepInternal( stream, inReal, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_STDDEV_Peek( const TA_STDDEV_Stream *stream, double inReal, double *outReal )
@@ -414,10 +467,10 @@ TA_LIB_API TA_RetCode TA_STDDEV_Peek( const TA_STDDEV_Stream *stream, double inR
    struct TA_STDDEV_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.peekMode = 1;
-   TA_STDDEV_StepInternal( &scratch, inReal, outReal );
-   return TA_SUCCESS;
+   return TA_STDDEV_StepInternal( &scratch, inReal, outReal );
 }
 
 TA_LIB_API TA_RetCode TA_STDDEV_Close( TA_STDDEV_Stream *stream )

@@ -19,6 +19,18 @@ void server_verify_shutdown(void);
 /* Returns 1 if server verification is active (at least one pipe). */
 int server_verify_active(void);
 
+/* How many candle-setting changes have been pushed to servers, summed over all
+ * pipes (#215). A caller that varies the settings asserts this moved: a sweep
+ * whose settings never reached the servers compares every language at the
+ * defaults and passes without testing anything it claims to test. */
+int server_verify_candle_syncs(void);
+
+/* Comparisons whose verdict was actually taken, summed over pipes. Require this
+ * to ADVANCE across a gate: "no failure reported" and "nothing was ever
+ * compared" are otherwise the same observation, which is how a server erroring
+ * every request produced a byte-identical green run. */
+int server_verify_comparisons(void);
+
 /* Verify a C function call against all active servers.
  *
  * Uses ta_abstract metadata to build JSON-RPC requests internally.

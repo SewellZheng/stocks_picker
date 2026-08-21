@@ -26,6 +26,7 @@
 #include "ta_common/ta_version.c"
 #include "ta_common/ta_retcode.c"
 
+#include "ta_AC.c"
 #include "ta_ACCBANDS.c"
 #include "ta_ACOS.c"
 #include "ta_AD.c"
@@ -33,6 +34,7 @@
 #include "ta_ADOSC.c"
 #include "ta_ADX.c"
 #include "ta_ADXR.c"
+#include "ta_AO.c"
 #include "ta_APO.c"
 #include "ta_AROON.c"
 #include "ta_AROONOSC.c"
@@ -174,6 +176,7 @@
 #include "ta_SIN.c"
 #include "ta_SINH.c"
 #include "ta_SMA.c"
+#include "ta_SMI.c"
 #include "ta_SQRT.c"
 #include "ta_STDDEV.c"
 #include "ta_STOCH.c"
@@ -298,6 +301,22 @@ static int func_matches(const char *filter, const char *name) {
 static volatile int g_sink = 0;
 
 static void bench_all(const char *filter, int iters) {
+    if( func_matches(filter, "AC") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_AC(0, g_nPoints - 1, g_high, g_low, 5, 34, 5, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("AC %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "ACCBANDS") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -410,6 +429,22 @@ static void bench_all(const char *filter, int iters) {
             g_sink += (int)g_outBuf0[0];
         }
         printf("ADXR %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "AO") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_AO(0, g_nPoints - 1, g_high, g_low, 5, 34, &outBegIdx, &outNBElement, g_outBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+        }
+        printf("AO %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "APO") ) {
@@ -2696,6 +2731,23 @@ static void bench_all(const char *filter, int iters) {
             g_sink += (int)g_outBuf0[0];
         }
         printf("SMA %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "SMI") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_SMI(0, g_nPoints - 1, g_high, g_low, g_close, 13, 2, 25, 9, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+            g_sink += (int)g_outBuf1[0];
+        }
+        printf("SMI %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "SQRT") ) {

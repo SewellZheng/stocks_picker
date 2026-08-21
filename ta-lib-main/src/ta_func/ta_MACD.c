@@ -567,7 +567,7 @@ static void TA_MACD_StepInternal( struct TA_MACD_Stream *sp, double inReal, doub
    *outMACDHist= macdValue - sp->prevSignal;
 }
 
-static TA_RetCode TA_MACD_OpenCore( struct TA_MACD_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outMACD[], double outMACDSignal[], double outMACDHist[], int outStride )
+static TA_RetCode TA_MACD_OpenPass( struct TA_MACD_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outMACD[], double outMACDSignal[], double outMACDHist[], int outStride )
 {
    struct TA_MACD_Stream *sp;
    int endIdx;
@@ -666,7 +666,7 @@ static TA_RetCode TA_MACD_OpenCore( struct TA_MACD_Stream **stream, const double
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Everything is computed in a single lockstep pass: each bar
        * advances the fast and slow EMA (two independent recursions),
@@ -832,7 +832,7 @@ TA_RetCode TA_MACD_OpenInternal( struct TA_MACD_Stream **stream, const double in
    double sink_outMACD = 0.0;
    double sink_outMACDSignal = 0.0;
    double sink_outMACDHist = 0.0;
-   retCode = TA_MACD_OpenCore( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &dummyBegIdx, &dummyNBElement, &sink_outMACD, &sink_outMACDSignal, &sink_outMACDHist, 0 );
+   retCode = TA_MACD_OpenPass( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &dummyBegIdx, &dummyNBElement, &sink_outMACD, &sink_outMACDSignal, &sink_outMACDHist, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outMACD = sink_outMACD;
@@ -844,6 +844,11 @@ TA_RetCode TA_MACD_OpenInternal( struct TA_MACD_Stream **stream, const double in
 
 TA_LIB_API TA_RetCode TA_MACD_Open( TA_MACD_Stream **stream, const double inReal[], int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outMACD, double *outMACDSignal, double *outMACDHist )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_MACD_OpenInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outMACD, outMACDSignal, outMACDHist );
 }
 
@@ -852,19 +857,23 @@ TA_LIB_API TA_RetCode TA_MACD_OpenAndFill( TA_MACD_Stream **stream, const double
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
+   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outMACD == (const void *)inReal || (const void *)outMACDSignal == (const void *)inReal || (const void *)outMACDHist == (const void *)inReal || (const void *)outMACD == (const void *)outMACDSignal || (const void *)outMACD == (const void *)outMACDHist || (const void *)outMACDSignal == (const void *)outMACDHist ) return TA_BAD_PARAM;
-   return TA_MACD_OpenCore( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1 );
+   return TA_MACD_OpenPass( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_MACD_OpenAndFillInternal( struct TA_MACD_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outMACD[], double outMACDSignal[], double outMACDHist[] )
 {
-   return TA_MACD_OpenCore( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1 );
+   return TA_MACD_OpenPass( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_MACD_Update( TA_MACD_Stream *stream, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist )
 {
    if( !stream || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_MACD_StepInternal( stream, inReal, outMACD, outMACDSignal, outMACDHist );
    return TA_SUCCESS;
 }
@@ -874,6 +883,7 @@ TA_LIB_API TA_RetCode TA_MACD_Peek( const TA_MACD_Stream *stream, double inReal,
    struct TA_MACD_Stream scratch;
 
    if( !stream || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_MACD_StepInternal( &scratch, inReal, outMACD, outMACDSignal, outMACDHist );
    return TA_SUCCESS;

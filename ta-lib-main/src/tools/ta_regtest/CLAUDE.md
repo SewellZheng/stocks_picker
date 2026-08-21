@@ -12,7 +12,7 @@ ta_regtest validates TA-Lib indicator implementations. It has two modes:
 
 | Flag | Description |
 |------|-------------|
-| `--function=CSV` | Substring filter — matched against the **group tag** in `DO_TEST`, not the function name. A function absent from its group's tag is unreachable by this filter (that is why the composite group is tagged `PVO,VWMA,COMPOSITE`). |
+| `--function=CSV` | Substring filter — matched against the **group tag** in `DO_TEST`, not the function name. A function absent from its group's tag is unreachable by this filter (that is why the composite groups spell out their members, e.g. `PVO,VWMA,CMF,...`). A tag element ending in `*` is a **prefix claim** instead: `All Candlesticks,CDL*` reaches all 61 candlesticks without spelling them out, and keeps reaching a 62nd. **A filter matching no group is now an error** (`TA_REGTEST_FILTER_MATCHED_NOTHING`) on a run with no `--codegen`/`--xlang-hash`/`--fuzz-064` — those legs filter by real function name and legitimately match no group. |
 | `--codegen` | Run codegen verification after C reference tests |
 | `--language=CSV` | Filter languages for codegen verification (e.g., `c,rust,java`) |
 | `-p` | Profile mode |
@@ -291,7 +291,7 @@ byte-identical numbers while the gate checks strictly less.
 sends one function twice to the *same* server — once normally, once with
 `"use_float":1` — on float-widened inputs, and requires the two to agree. That
 covers the other two float surfaces: Java's `float[]` Core overloads and C#'s,
-168 functions each. Rust has no single-precision surface and is the only
+every function in each. Rust has no single-precision surface and is the only
 exclusion. Each call must come back with `"used_float":1`; a server that ignored
 the flag would return its double result twice and pass while verifying nothing.
 
@@ -302,7 +302,7 @@ the same declared default" and needs no oracle). The sentinel vector is not a
 refinement: it is the one that exposed the `TA_S_EMA` k-factor defect fixed in
 `2e9767397`, where the float body derived `k` from the raw sentinel because its
 initialiser ran before the prologue substituted it. The same defect was live in
-Java's float `EMA_Internal` and C#'s float `EMA`, and reaching only resolved
+Java's float `EMA_Impl` and C#'s float `EMA`, and reaching only resolved
 defaults, no gate could see it there. Sabotage-proven both ways: reintroducing
 it in the Java and C# float bodies fails the sentinel pass on both, and with the
 sentinel pass switched off the identical sabotage passes clean.
@@ -437,8 +437,8 @@ worktree, no second build, no network.
 
 Note the tag names no function, breaking the house rule that every function a
 group covers appears in its tag — 148 names will not fit, and the group is
-all-or-nothing anyway. So `--function=SMA` does **not** reach it; `--function=LEGACY`
-(or `064`, or `FROZEN`) does, and a bare run always does.
+all-or-nothing anyway. So `--function=SMA` does **not** reach *this* group;
+`--function=LEGACY` (or `064`, or `FROZEN`) does, and a bare run always does.
 
 **Why it exists.** `checkExpectedValue` compares against an absolute `0.01`
 window, and the hand-written constants carry 2–6 significant digits. That window
@@ -460,8 +460,9 @@ cannot catch a bug it already had. It is a *pin*. Correctness lives in the
 independent oracles: `test_stddev.c`'s two-pass/NIST variance work, the
 candlestick predicate gate, the metamorphic laws.
 
-**Scope: 142 of 168.** 26 are deliberately absent — 7 post-date v0.6.4 (CMF,
-CMOU, HMA, NVI, PVI, PVO, VWMA); STOCHRSI diverges on purpose (#107, pinned by
+**Scope: 142 functions.** The rest are deliberately absent — every function that
+post-dates v0.6.4 (there is nothing frozen to compare against, so the set grows
+with each new indicator); STOCHRSI, which diverges on purpose (#107, pinned by
 `test_stoch.c`); and 18 for one reason: **the host libm**.
 
 That reason is the one worth internalising, because it is *created* by freezing.

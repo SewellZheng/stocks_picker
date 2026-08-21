@@ -69,12 +69,12 @@ public partial class Core
       return 0 ;
 
    }
-   internal RetCode COSH( int startIdx,
-                          int endIdx,
-                          double[] inReal,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode COSH_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<double> inReal,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -86,6 +86,9 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
+      if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
+         return RetCode.BadParam ;
+      }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx] = Math.Cosh(inReal[i]);
       }
@@ -93,12 +96,12 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode COSH( int startIdx,
-                          int endIdx,
-                          float[] inReal,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode COSH_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<float> inReal,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -145,14 +148,27 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange COSH( int startIdx,
                          int endIdx,
-                         double[] inReal,
-                         double[] outReal )
+                         ReadOnlySpan<double> inReal,
+                         Span<double> outReal )
    {
-      RetCode retCode = COSH(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, COSH_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("COSH", "inReal", inReal.Length, guardInLen);
+      RequireLength("COSH", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = COSH_Impl(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("COSH", retCode);
       }
@@ -192,17 +208,259 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange COSH( int startIdx,
                          int endIdx,
-                         float[] inReal,
-                         double[] outReal )
+                         ReadOnlySpan<float> inReal,
+                         Span<double> outReal )
    {
-      RetCode retCode = COSH(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, COSH_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("COSH", "inReal", inReal.Length, guardInLen);
+      RequireLength("COSH", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = COSH_Impl(startIdx, endIdx, inReal, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("COSH", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>COSH</c> stream: one value per closed bar, bit-identical to
+   /// <c>COSH</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.COSH_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class COSH_Stream
+   {
+      internal Core core;
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal COSH_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>COSH_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal COSH_Stream( COSH_Stream other )
+      {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( COSH_Stream other )
+      {
+         this.core = other.core;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inReal )
+      {
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("COSH", "update", RetCode.BadParam);
+         core.COSH_StreamStep(this, inReal);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inReal )
+      {
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("COSH", "peek", RetCode.BadParam);
+         COSH_Stream scratch = new COSH_Stream(this);
+         core.COSH_StreamStep(scratch, inReal);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public COSH_Stream Clone()
+      {
+         return new COSH_Stream(this);
+      }
+   }
+
+   internal void COSH_StreamStep( COSH_Stream sp, double inReal )
+   {
+      sp.cur_outReal = Math.Cosh(inReal);
+   }
+
+   private RetCode COSH_OpenPass( COSH_Stream sp, ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      int outIdx = 0;
+      int i = 0;
+      int historyLen = inReal.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
+         outReal[outIdx * outStride] = Math.Cosh(inReal[i]);
+      }
+      outNBElement = outIdx;
+      outBegIdx = startIdx;
+      /* Capture the live batch state into the handle. */
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode COSH_OpenImpl( COSH_Stream sp, ReadOnlySpan<double> inReal, int startIdx )
+   {
+      double[] sink_outReal = new double[1];
+      return COSH_OpenPass( sp, inReal, startIdx, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode COSH_OpenAndFillImpl( COSH_Stream sp, ReadOnlySpan<double> inReal, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inReal) ) {
+         return RetCode.BadParam;
+      }
+      return COSH_OpenPass( sp, inReal, 0, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode COSH_OpenAndFillInternalImpl( COSH_Stream sp, ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return COSH_OpenPass(sp, inReal, startIdx, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* COSH_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal COSH_Stream COSH_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      COSH_Stream sp = new COSH_Stream(this);
+      RetCode retCode = COSH_OpenAndFillInternalImpl(sp, inReal, startIdx, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("COSH", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind COSH_Open (composition seam). */
+   internal COSH_Stream COSH_OpenInternal( ReadOnlySpan<double> inReal, int startIdx )
+   {
+      COSH_Stream sp = new COSH_Stream(this);
+      RetCode retCode = COSH_OpenImpl(sp, inReal, startIdx);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("COSH", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>COSH</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="COSH_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>COSH</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>COSH_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>COSH_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inReal">Input values to transform. The warm-up history, oldest bar first.</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>COSH_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public COSH_Stream COSH_Open( ReadOnlySpan<double> inReal )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      return COSH_OpenInternal(inReal, 0);
+   }
+
+   /// <summary><c>COSH_Open</c> that also fills the output array(s) over the whole
+   /// history in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>COSH</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - COSH_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="COSH_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inReal">Input values to transform. The warm-up history, oldest bar first.</param>
+   /// <param name="outReal">Hyperbolic cosine of each input. Must hold at least <c>historyLen -
+   /// COSH_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>COSH_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public COSH_Stream COSH_OpenAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      COSH_Stream sp = new COSH_Stream(this);
+      RetCode retCode = COSH_OpenAndFillImpl(sp, inReal, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("COSH", "openAndFill", retCode);
    }
 }

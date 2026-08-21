@@ -137,7 +137,7 @@ static void TA_ADD_StepInternal( struct TA_ADD_Stream *sp, double inReal0, doubl
    *outReal= inReal0 + inReal1;
 }
 
-static TA_RetCode TA_ADD_OpenCore( struct TA_ADD_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_ADD_OpenPass( struct TA_ADD_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_ADD_Stream *sp;
    int endIdx;
@@ -181,7 +181,7 @@ TA_RetCode TA_ADD_OpenInternal( struct TA_ADD_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_ADD_OpenCore( stream, inReal0, inReal1, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_ADD_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -191,6 +191,11 @@ TA_RetCode TA_ADD_OpenInternal( struct TA_ADD_Stream **stream, const double inRe
 
 TA_LIB_API TA_RetCode TA_ADD_Open( TA_ADD_Stream **stream, const double inReal0[], const double inReal1[], int historyLen, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_ADD_OpenInternal( stream, inReal0, inReal1, 0, historyLen, outReal );
 }
 
@@ -199,19 +204,23 @@ TA_LIB_API TA_RetCode TA_ADD_OpenAndFill( TA_ADD_Stream **stream, const double i
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
-   return TA_ADD_OpenCore( stream, inReal0, inReal1, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_ADD_OpenPass( stream, inReal0, inReal1, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_ADD_OpenAndFillInternal( struct TA_ADD_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_ADD_OpenCore( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_ADD_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_ADD_Update( TA_ADD_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    TA_ADD_StepInternal( stream, inReal0, inReal1, outReal );
    return TA_SUCCESS;
 }
@@ -221,6 +230,7 @@ TA_LIB_API TA_RetCode TA_ADD_Peek( const TA_ADD_Stream *stream, double inReal0, 
    struct TA_ADD_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_ADD_StepInternal( &scratch, inReal0, inReal1, outReal );
    return TA_SUCCESS;

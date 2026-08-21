@@ -75,7 +75,7 @@ TA_LIB_API int TA_T3_Lookback( int optInTimePeriod, double optInVFactor )
       return -1;
    if( optInVFactor == TA_REAL_DEFAULT )
       optInVFactor = 0.7;
-   else if( optInVFactor < 0e0 || optInVFactor > 1e0 )
+   else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) )
       return -1;
    return 6 * (optInTimePeriod - 1) + TA_GLOBALS_UNSTABLE_PERIOD(TA_FUNC_UNST_T3,T3);
 }
@@ -121,7 +121,7 @@ TA_LIB_API TA_RetCode TA_T3( int    startIdx,
       return TA_BAD_PARAM;
    if( optInVFactor == TA_REAL_DEFAULT )
       optInVFactor = 0.7;
-   else if( optInVFactor < 0e0 || optInVFactor > 1e0 )
+   else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -311,7 +311,7 @@ TA_RetCode TA_S_T3( int    startIdx,
       return TA_BAD_PARAM;
    if( optInVFactor == TA_REAL_DEFAULT )
       optInVFactor = 0.7;
-   else if( optInVFactor < 0e0 || optInVFactor > 1e0 )
+   else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -460,7 +460,7 @@ static void TA_T3_StepInternal( struct TA_T3_Stream *sp, double inReal, double *
    *outReal= fma(sp->c4, sp->e3, fma(sp->c3, sp->e4, fma(sp->c1, sp->e6, sp->c2 * sp->e5)));
 }
 
-static TA_RetCode TA_T3_OpenCore( struct TA_T3_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInVFactor, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_T3_OpenPass( struct TA_T3_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInVFactor, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_T3_Stream *sp;
    int endIdx;
@@ -478,7 +478,7 @@ static TA_RetCode TA_T3_OpenCore( struct TA_T3_Stream **stream, const double inR
       return TA_BAD_PARAM;
    if( optInVFactor == TA_REAL_DEFAULT )
       optInVFactor = 0.7;
-   else if( optInVFactor < 0e0 || optInVFactor > 1e0 )
+   else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) )
       return TA_BAD_PARAM;
 
    endIdx = historyLen - 1;
@@ -488,7 +488,7 @@ static TA_RetCode TA_T3_OpenCore( struct TA_T3_Stream **stream, const double inR
 
    if( optInTimePeriod == 1 )
    {
-      if( historyLen < TA_T3_Lookback( optInTimePeriod, optInVFactor ) + 1 ) return TA_BAD_PARAM;
+      if( historyLen < TA_T3_Lookback( optInTimePeriod, optInVFactor ) + 1 ) return TA_INSUFFICIENT_HISTORY;
       sp = (struct TA_T3_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -559,7 +559,7 @@ static TA_RetCode TA_T3_OpenCore( struct TA_T3_Stream **stream, const double inR
       {
          *outNBElement= 0;
          *outBegIdx= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
       today = startIdx - lookbackTotal;
@@ -688,7 +688,7 @@ TA_RetCode TA_T3_OpenInternal( struct TA_T3_Stream **stream, const double inReal
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_T3_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, optInVFactor, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_T3_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInVFactor, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -698,6 +698,11 @@ TA_RetCode TA_T3_OpenInternal( struct TA_T3_Stream **stream, const double inReal
 
 TA_LIB_API TA_RetCode TA_T3_Open( TA_T3_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInVFactor, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_T3_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outReal );
 }
 
@@ -706,19 +711,23 @@ TA_LIB_API TA_RetCode TA_T3_OpenAndFill( TA_T3_Stream **stream, const double inR
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_T3_OpenCore( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1 );
+   return TA_T3_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_T3_OpenAndFillInternal( struct TA_T3_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInVFactor, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_T3_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1 );
+   return TA_T3_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_T3_Update( TA_T3_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_T3_StepInternal( stream, inReal, outReal );
    return TA_SUCCESS;
 }
@@ -728,6 +737,7 @@ TA_LIB_API TA_RetCode TA_T3_Peek( const TA_T3_Stream *stream, double inReal, dou
    struct TA_T3_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    TA_T3_StepInternal( &scratch, inReal, outReal );
    return TA_SUCCESS;

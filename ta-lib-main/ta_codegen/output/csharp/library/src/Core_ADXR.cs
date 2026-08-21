@@ -88,19 +88,19 @@ public partial class Core
       }
 
    }
-   internal RetCode ADXR( int startIdx,
-                          int endIdx,
-                          double[] inHigh,
-                          double[] inLow,
-                          double[] inClose,
-                          int optInTimePeriod,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode ADXR_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<double> inHigh,
+                               ReadOnlySpan<double> inLow,
+                               ReadOnlySpan<double> inClose,
+                               int optInTimePeriod,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
-      double[] adx;
+      Span<double> adx;
       int adxrLookback = 0;
       int outIdx = 0;
       int nbElement = 0;
@@ -115,6 +115,9 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) || (outReal.Overlaps(inClose) && outReal != inClose) ) {
+         return RetCode.BadParam ;
       }
       /* Original implementation from Wilder's book was doing some integer
        * rounding in its calculations.
@@ -146,7 +149,10 @@ public partial class Core
       /* Compute ADX over a range that starts (period-1) bars earlier, so each
        * ADXR bar can pair the current ADX with the ADX from (period-1) bars ago.
        */
-      retCode = ADX(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, adx);
+      OutRange _xr0 = ADX(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, adx);
+      outBegIdx = _xr0.BegIdx;
+      outNBElement = _xr0.Count;
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -162,19 +168,19 @@ public partial class Core
       outNBElement = nbElement;
       return RetCode.Success ;
    }
-   internal RetCode ADXR( int startIdx,
-                          int endIdx,
-                          float[] inHigh,
-                          float[] inLow,
-                          float[] inClose,
-                          int optInTimePeriod,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode ADXR_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<float> inHigh,
+                               ReadOnlySpan<float> inLow,
+                               ReadOnlySpan<float> inClose,
+                               int optInTimePeriod,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
-      double[] adx;
+      Span<double> adx;
       int adxrLookback = 0;
       int outIdx = 0;
       int nbElement = 0;
@@ -200,7 +206,10 @@ public partial class Core
          return RetCode.Success ;
       }
       adx = new double[(int)((endIdx - startIdx + optInTimePeriod) * 1)];
-      retCode = ADX(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, adx);
+      OutRange _xr0 = ADX(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, adx);
+      outBegIdx = _xr0.BegIdx;
+      outNBElement = _xr0.Count;
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -249,17 +258,32 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange ADXR( int startIdx,
                          int endIdx,
-                         double[] inHigh,
-                         double[] inLow,
-                         double[] inClose,
+                         ReadOnlySpan<double> inHigh,
+                         ReadOnlySpan<double> inLow,
+                         ReadOnlySpan<double> inClose,
                          int optInTimePeriod,
-                         double[] outReal )
+                         Span<double> outReal )
    {
-      RetCode retCode = ADXR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, ADXR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("ADXR", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("ADXR", "inLow", inLow.Length, guardInLen);
+      RequireLength("ADXR", "inClose", inClose.Length, guardInLen);
+      RequireLength("ADXR", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = ADXR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("ADXR", retCode);
       }
@@ -308,20 +332,378 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange ADXR( int startIdx,
                          int endIdx,
-                         float[] inHigh,
-                         float[] inLow,
-                         float[] inClose,
+                         ReadOnlySpan<float> inHigh,
+                         ReadOnlySpan<float> inLow,
+                         ReadOnlySpan<float> inClose,
                          int optInTimePeriod,
-                         double[] outReal )
+                         Span<double> outReal )
    {
-      RetCode retCode = ADXR(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, ADXR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("ADXR", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("ADXR", "inLow", inLow.Length, guardInLen);
+      RequireLength("ADXR", "inClose", inClose.Length, guardInLen);
+      RequireLength("ADXR", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = ADXR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("ADXR", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>ADXR</c> stream: one value per closed bar, bit-identical to
+   /// <c>ADXR</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.ADXR_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class ADXR_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal double cur_outReal;
+      internal int lagRingPos_adx;
+      internal int lagRingCap_adx;
+      internal double[] lagRing_adx = [];
+      internal ADX_Stream sub0 = null!;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal ADXR_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>ADXR_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal ADXR_Stream( ADXR_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.cur_outReal = other.cur_outReal;
+         this.lagRingPos_adx = other.lagRingPos_adx;
+         this.lagRingCap_adx = other.lagRingCap_adx;
+         this.lagRing_adx = new double[other.lagRing_adx.Length];
+         Array.Copy( other.lagRing_adx, this.lagRing_adx, other.lagRing_adx.Length );
+         this.sub0 = new ADX_Stream(other.sub0);
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( ADXR_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.cur_outReal = other.cur_outReal;
+         this.lagRingPos_adx = other.lagRingPos_adx;
+         this.lagRingCap_adx = other.lagRingCap_adx;
+         if( this.lagRing_adx.Length != other.lagRing_adx.Length ) {
+            this.lagRing_adx = new double[other.lagRing_adx.Length];
+         }
+         Array.Copy( other.lagRing_adx, this.lagRing_adx, other.lagRing_adx.Length );
+         if( this.sub0 is null ) {
+            this.sub0 = new ADX_Stream(other.sub0);
+         } else {
+            this.sub0.CopyFrom(other.sub0);
+         }
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ADXR", "update", RetCode.BadParam);
+         core.ADXR_StreamStep(this, inHigh, inLow, inClose);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ADXR", "peek", RetCode.BadParam);
+         ADXR_Stream scratch = new ADXR_Stream(this);
+         core.ADXR_StreamStep(scratch, inHigh, inLow, inClose);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public ADXR_Stream Clone()
+      {
+         return new ADXR_Stream(this);
+      }
+   }
+
+   internal void ADXR_StreamStep( ADXR_Stream sp, double inHigh, double inLow, double inClose )
+   {
+      double cur_adx = 0.0;
+      double cur_outReal = 0.0;
+      /* Pipeline the new bar through the sub-streams (batch tail order). */
+      cur_adx = sp.sub0.Update(inHigh, inLow, inClose);
+      /* Combine map (batch tail, per bar). */
+      cur_outReal = ((cur_adx + sp.lagRing_adx[sp.lagRingPos_adx]) / 2.0);
+      sp.lagRing_adx[sp.lagRingPos_adx] = cur_adx;
+      sp.lagRingPos_adx = (sp.lagRingPos_adx + 1) % sp.lagRingCap_adx;
+      sp.cur_outReal = cur_outReal;
+   }
+
+   private RetCode ADXR_OpenPass( ADXR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      Span<double> adx;
+      int adxrLookback = 0;
+      int outIdx = 0;
+      int nbElement = 0;
+      RetCode retCode;
+      int historyLen = inHigh.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 14;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen < ADXR_Lookback(optInTimePeriod) + 1 ) {
+         return RetCode.InsufficientHistory;
+      }
+      Span<double> sc_outReal = outStride == 1 ? outReal : new double[historyLen];
+      /* Original implementation from Wilder's book was doing some integer
+       * rounding in its calculations.
+       *
+       * This was understandable in the context that at the time the book
+       * was written, most user were doing the calculation by hand.
+       *
+       * For a computer, rounding is unnecessary (and even problematic when inputs
+       * are close to 1).
+       *
+       * TA-Lib does not do the rounding. Still, if you want to reproduce Wilder's examples,
+       * you can comment out the following #undef/#define and rebuild the library.
+       */
+      /* Move up the start index if there is not
+       * enough initial data.
+       * Always one price bar gets consumed.
+       */
+      adxrLookback = ADXR_Lookback(optInTimePeriod);
+      if( startIdx < adxrLookback ) {
+         startIdx = adxrLookback;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      adx = new double[(int)((endIdx - startIdx + optInTimePeriod) * 1)];
+      /* Compute ADX over a range that starts (period-1) bars earlier, so each
+       * ADXR bar can pair the current ADX with the ADX from (period-1) bars ago.
+       */
+      /* Sub-stream 0: adx over `inHigh, inLow, inClose`, warmed from bar 0 up to the
+       * sub-call's own startIdx (the seeding point). */
+      ADX_Stream sub0 = ADX_OpenAndFillInternal(inHigh, inLow, inClose, startIdx - (optInTimePeriod - 1), optInTimePeriod, out outBegIdx, out outNBElement, adx);
+      retCode = RetCode.Success;
+      if( retCode != RetCode.Success ) {
+         return retCode ;
+      }
+      /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
+       * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
+       * is adx[k]; the ADX range holds (period-1) more elements than the output.
+       */
+      nbElement = outNBElement - (optInTimePeriod - 1);
+      for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
+         sc_outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
+      }
+      outBegIdx = startIdx;
+      outNBElement = nbElement;
+      /* Capture the live producer state + sub handles. */
+      if( outNBElement < 1 ) {
+         return RetCode.InsufficientHistory;
+      }
+      int lagCap_adx = (int)(optInTimePeriod - 1);
+      double[] lagRing_adx = new double[lagCap_adx];
+      for( int lagI = 0; lagI < lagCap_adx; lagI++ ) {
+         lagRing_adx[lagI] = adx[outNBElement + lagI];
+      }
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.sub0 = sub0;
+      sp.lagRingPos_adx = 0;
+      sp.lagRingCap_adx = lagCap_adx;
+      sp.lagRing_adx = lagRing_adx;
+      sp.cur_outReal = sc_outReal[outNBElement - 1];
+      return RetCode.Success;
+   }
+
+   private RetCode ADXR_OpenImpl( ADXR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return ADXR_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode ADXR_OpenAndFillImpl( ADXR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
+         return RetCode.BadParam;
+      }
+      return ADXR_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode ADXR_OpenAndFillInternalImpl( ADXR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return ADXR_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* ADXR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal ADXR_Stream ADXR_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      ADXR_Stream sp = new ADXR_Stream(this);
+      RetCode retCode = ADXR_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("ADXR", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind ADXR_Open (composition seam). */
+   internal ADXR_Stream ADXR_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
+   {
+      ADXR_Stream sp = new ADXR_Stream(this);
+      RetCode retCode = ADXR_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("ADXR", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>ADXR</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="ADXR_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>ADXR</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>ADXR_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>ADXR_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="ADXR_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>ADXR_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public ADXR_Stream ADXR_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      return ADXR_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>ADXR_Open</c> that also fills the output array(s) over the whole
+   /// history in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>ADXR</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - ADXR_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="ADXR_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="ADXR_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">ADXR line (averaged ADX) Must hold at least <c>historyLen -
+   /// ADXR_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>ADXR_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public ADXR_Stream ADXR_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      ADXR_Stream sp = new ADXR_Stream(this);
+      RetCode retCode = ADXR_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("ADXR", "openAndFill", retCode);
    }
 }

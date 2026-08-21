@@ -81,8 +81,8 @@ impl Core {
     ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT,
     ///   `MAType::DEFAULT` selects the default)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn MAVP_Lookback(&self, mut optInMinPeriod: i32, mut optInMaxPeriod: i32, mut optInMAType: MAType) -> usize {
         if ((optInMinPeriod) as i32) == (i32::MIN) {
@@ -106,81 +106,9 @@ impl Core {
         }
         return self.MA_Lookback(optInMaxPeriod, optInMAType);
     }
-    /// Moving average whose period varies per bar, driven by a companion period series. For each
-    /// bar it computes an MA of the selected type over the (clamped) period given by inPeriods.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// p_i = clamp((int)inPeriods[startIdx+i], optInMinPeriod, optInMaxPeriod); outReal[i] = MA(inReal, p_i, optInMAType) at bar startIdx+i
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * Fractional per-bar periods are truncated to whole numbers before being clamped to the
-    ///   minimum and maximum period.
-    /// * Period values of 1 perform no smoothing (the bar's output equals its input); the minimum
-    ///   allowed period is 1 since 0.6.5.
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — series to be averaged.
-    /// * `inPeriods` — per-bar desired MA period.
-    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=100000)
-    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=100000)
-    /// * `optInMAType` — Moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
-    ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT,
-    ///   `MAType::DEFAULT` selects the default)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — variable-period moving average.
-    ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode, MAType};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let periods = vec![14.0; 252];
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.MAVP(
-    ///     0, data.len() - 1, &data, &periods, 2, 30, MAType::SMA,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::MA`] · [`Core::SMA`] · [`Core::MAMA`] · [`Core::T3`]
-    ///
-    /// Further reading: [ta-lib.org/functions/mavp](https://ta-lib.org/functions/mavp)
-    #[doc(alias = "MovingAverageVariablePeriod")]
-    #[doc(alias = "VariablePeriodMovingAverage")]
-    pub fn MAVP(
+    /// C-shaped body behind [`Core::MAVP`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn MAVP_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -193,10 +121,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInMinPeriod) as i32) == (i32::MIN) {
@@ -224,6 +152,9 @@ impl Core {
         let mut firstOut: usize = 0_usize;
         let mut tempInt: i32 = 0_i32;
         let mut curPeriod: usize = 0_usize;
+        let mut tempPeriod: f64 = 0.0_f64;
+        let mut minPeriodReal: f64 = 0.0_f64;
+        let mut maxPeriodReal: f64 = 0.0_f64;
         let mut firstOccurrence: usize = 0_usize;
         let mut lastOccurrence: usize = 0_usize;
         let mut bucketStart: usize = 0_usize;
@@ -306,14 +237,28 @@ impl Core {
             minUsed = 1;
         }
         maxUsed = 1;
+        // Both bounds widened once, outside the loop. In the C backend, left to the
+        // compiler, only the first of the two is hoisted.
+        minPeriodReal = ((optInMinPeriod) as f64);
+        maxPeriodReal = ((optInMaxPeriod) as f64);
         // for( i = 0; i < outputSize; i += 1 )
         i = 0;
         while i < outputSize {
-            tempInt = (inPeriods[startIdx + i]) as i32;
-            if tempInt < optInMinPeriod {
+            // Clamp in the real domain, then narrow -- the order matters in the C
+            // backend, and only there. C leaves an out-of-range narrowing undefined
+            // and x86 lands EVERY such value on INT_MIN, so clamping afterwards pulls
+            // a huge POSITIVE period down to the minimum. Java, C# and Rust saturate
+            // to their maximum instead, so they were already right and this form
+            // simply keeps them so.
+            // `!(x >= min)` rather than `x < min`: both plain comparisons are false
+            // for NaN, so only the inverted spelling catches it.
+            tempPeriod = inPeriods[startIdx + i];
+            if !(tempPeriod >= minPeriodReal) {
                 tempInt = optInMinPeriod;
-            } else if tempInt > optInMaxPeriod {
+            } else if tempPeriod > maxPeriodReal {
                 tempInt = optInMaxPeriod;
+            } else {
+                tempInt = (tempPeriod) as i32;
             }
             if tempInt < 1 {
                 tempInt = 1;
@@ -361,7 +306,7 @@ impl Core {
         if minUsed == maxUsed {
             // Single distinct period: one MA pass, written straight into the
             // destination buffer. Nothing to group or copy.
-            retCode = self.MA(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localFinalArray[..]);
+            retCode = self.MA_Impl(startIdx, endIdx, inReal, (minUsed) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localFinalArray[..]);
             if retCode != RetCode::Success {
                 if finalIsAllocated != 0 {
                 }
@@ -418,7 +363,7 @@ impl Core {
                     firstOccurrence = (sortedIdx[bucketStart]) as usize;
                     lastOccurrence = (sortedIdx[bucketEnd - 1]) as usize;
                     // Calculation of the MA required.
-                    retCode = self.MA(startIdx, startIdx + lastOccurrence, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
+                    retCode = self.MA_Impl(startIdx, startIdx + lastOccurrence, inReal, (curPeriod) as i32, optInMAType, &mut localBegIdx, &mut localNbElement, &mut localOutputArray[..]);
                     if retCode != RetCode::Success {
                         if finalIsAllocated != 0 {
                         }
@@ -466,6 +411,115 @@ impl Core {
         (*outNBElement) = outputSize;
         return RetCode::Success;
     }
+    /// Moving average whose period varies per bar, driven by a companion period series. For each
+    /// bar it computes an MA of the selected type over the (clamped) period given by inPeriods.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// p_i = clamp((int)inPeriods[startIdx+i], optInMinPeriod, optInMaxPeriod); outReal[i] = MA(inReal, p_i, optInMAType) at bar startIdx+i
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// * Fractional per-bar periods are truncated to whole numbers before being clamped to the
+    ///   minimum and maximum period.
+    /// * Period values of 1 perform no smoothing (the bar's output equals its input); the minimum
+    ///   allowed period is 1 since 0.6.5.
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — series to be averaged.
+    /// * `inPeriods` — per-bar desired MA period.
+    /// * `optInMinPeriod` — Lower clamp for the per-bar period (default 2, range 1..=100000)
+    /// * `optInMaxPeriod` — Upper clamp for the per-bar period (default 30, range 1..=100000)
+    /// * `optInMAType` — Moving-average type applied (default 0 = SMA, values: 0=SMA, 1=EMA,
+    ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT,
+    ///   `MAType::DEFAULT` selects the default)
+    /// * `outReal` — variable-period moving average.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::{Core, MAType};
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let periods = vec![14.0; 252];
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.MAVP(
+    ///     0, data.len() - 1, &data, &periods, 2, 30, MAType::SMA,
+    ///     &mut out,
+    /// )?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::MA`] · [`Core::SMA`] · [`Core::MAMA`] · [`Core::T3`]
+    ///
+    /// Further reading: [ta-lib.org/functions/mavp](https://ta-lib.org/functions/mavp)
+    #[doc(alias = "MovingAverageVariablePeriod")]
+    #[doc(alias = "VariablePeriodMovingAverage")]
+    pub fn MAVP(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        inPeriods: &[f64],
+        optInMinPeriod: i32,
+        optInMaxPeriod: i32,
+        optInMAType: MAType,
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.MAVP_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            inPeriods,
+            optInMinPeriod,
+            optInMaxPeriod,
+            optInMAType,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -525,7 +579,7 @@ impl MAVP_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn MAVP_step_internal(&self, sp: &mut MAVP_StreamState, inReal: f64, inPeriods: f64, outReal: &mut f64) {
+    fn MAVP_step_internal(&self, sp: &mut MAVP_StreamState, inReal: f64, inPeriods: f64, outReal: &mut f64) -> Result<(), RetCode> {
         let mut cp: i32 = inPeriods as i32;
         if cp < sp.optInMinPeriod {
             cp = sp.optInMinPeriod;
@@ -534,11 +588,12 @@ impl Core {
         }
         let slot: usize = (cp - sp.optInMinPeriod) as usize;
         for (bankIdx, sub) in sp.bank.iter_mut().enumerate() {
-            let subValue = sub.update(inReal);
+            let subValue = sub.update(inReal)?;
             if bankIdx == slot {
                 (*outReal) = subValue;
             }
         }
+        Ok(())
     }
 
     /// Internal startIdx-anchored open behind [`Core::MAVP_Open`] (composition seam).
@@ -548,7 +603,7 @@ impl Core {
         if inReal.is_empty() || inPeriods.is_empty() || inPeriods.len() != inReal.len() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInMinPeriod) as i32) == (i32::MIN) {
@@ -601,8 +656,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
@@ -611,8 +668,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MAVP_Open(&data, &periods, 2, 30, MAType::SMA).expect("enough history");
-    /// let peeked = s.peek(100.9, 14.0);
-    /// let updated = s.update(100.9, 14.0);
+    /// let peeked = s.peek(100.9, 14.0).expect("a finite bar");
+    /// let updated = s.update(100.9, 14.0).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_MAVP_Open")]
@@ -621,16 +678,17 @@ impl Core {
     }
 
     /// [`Core::MAVP_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::MAVP`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::MAVP`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_MAVP_OpenAndFill")]
     pub fn MAVP_OpenAndFill(
-        &self, inReal: &[f64], inPeriods: &[f64], mut optInMinPeriod: i32, mut optInMaxPeriod: i32, mut optInMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<MAVP_Stream, RetCode> {
+        &self, inReal: &[f64], inPeriods: &[f64], mut optInMinPeriod: i32, mut optInMaxPeriod: i32, mut optInMAType: MAType, outReal: &mut [f64],
+    ) -> Result<(MAVP_Stream, OutRange), RetCode> {
         if inReal.is_empty() || inPeriods.is_empty() || inPeriods.len() != inReal.len() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInMinPeriod) as i32) == (i32::MIN) {
@@ -653,7 +711,7 @@ impl Core {
         let historyLen: usize = inReal.len();
         let lookbackTotal: usize = self.MA_Lookback(optInMaxPeriod, optInMAType);
         if historyLen < lookbackTotal + 1 {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         let nBank: usize = (optInMaxPeriod - optInMinPeriod + 1) as usize;
         // Seed each sub-MA at the first output bar (lookbackTotal), NOT the last.
@@ -675,7 +733,7 @@ impl Core {
         let mut t: usize = lookbackTotal + 1;
         while t < historyLen {
             for (bankIdx, sub) in bank.iter_mut().enumerate() {
-                scratch[bankIdx] = sub.update(inReal[t]);
+                scratch[bankIdx] = sub.update(inReal[t])?;
             }
             cp = inPeriods[t] as i32;
             if cp < optInMinPeriod {
@@ -686,10 +744,8 @@ impl Core {
             outReal[t - lookbackTotal] = scratch[(cp - optInMinPeriod) as usize];
             t += 1;
         }
-        (*outBegIdx) = lookbackTotal;
-        (*outNBElement) = historyLen - lookbackTotal;
         let state = MAVP_StreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank };
-        Ok(MAVP_Stream { core: self.clone(), state })
+        Ok((MAVP_Stream { core: self.clone(), state }, OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal }))
     }
 
 }
@@ -705,12 +761,25 @@ thread_local! {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl MAVP_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_MAVP_Update")]
-    pub fn update(&mut self, inReal: f64, inPeriods: f64) -> f64 {
+    pub fn update(&mut self, inReal: f64, inPeriods: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() || !inPeriods.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
-        self.core.MAVP_step_internal(&mut self.state, inReal, inPeriods, &mut outReal);
-        outReal
+        self.core.MAVP_step_internal(&mut self.state, inReal, inPeriods, &mut outReal)?;
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -718,9 +787,16 @@ impl MAVP_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. The copy it runs on is held per thread and reused,
     /// so only the first peek of this function on a thread allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_MAVP_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64, inPeriods: f64) -> f64 {
+    pub fn peek(&self, inReal: f64, inPeriods: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() || !inPeriods.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         MAVP_PEEK_SCRATCH.with(|cell| {
             let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
             scratch.restore_from(self);

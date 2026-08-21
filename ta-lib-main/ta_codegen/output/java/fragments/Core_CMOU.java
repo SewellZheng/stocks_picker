@@ -40,13 +40,13 @@
       return optInTimePeriod ;
 
    }
-   RetCode CMOU_Internal( int startIdx,
-                          int endIdx,
-                          double inReal[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode CMOU_Impl( int startIdx,
+                      int endIdx,
+                      double inReal[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -169,13 +169,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode CMOU_Internal( int startIdx,
-                          int endIdx,
-                          float inReal[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode CMOU_Impl( int startIdx,
+                      int endIdx,
+                      float inReal[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -295,8 +295,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CMO
     * @see Core#RSI
@@ -307,9 +314,15 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("CMOU", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CMOU_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CMOU", "inReal", inReal, guardInLen);
+      requireLength("CMOU", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CMOU_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CMOU_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("CMOU", retCode);
       }
@@ -349,8 +362,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CMO
     * @see Core#RSI
@@ -361,9 +381,15 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("CMOU", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CMOU_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CMOU", "inReal", inReal, guardInLen);
+      requireLength("CMOU", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CMOU_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CMOU_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("CMOU", retCode);
       }
@@ -445,10 +471,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("CMOU update: BadParam", RetCode.BadParam);
          core.CMOU_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -461,6 +497,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("CMOU peek: BadParam", RetCode.BadParam);
          CMOU_Stream scratch = new CMOU_Stream(this);
          core.CMOU_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -524,7 +562,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode CMOU_OpenCore( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode CMOU_OpenPass( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int today = 0;
@@ -570,7 +608,7 @@
       }
       /* Make sure there is still something to evaluate. */
       if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Accumulate the up/down sums over the first window: the optInTimePeriod
        * changes ending at startIdx (prices inReal[startIdx-optInTimePeriod ..
@@ -667,55 +705,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode CMOU_OpenBody( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode CMOU_OpenImpl( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return CMOU_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return CMOU_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode CMOU_OpenAndFillBody( CMOU_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode CMOU_OpenAndFillImpl( CMOU_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return CMOU_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return CMOU_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode CMOU_OpenAndFillInternalBody( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode CMOU_OpenAndFillInternalImpl( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return CMOU_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return CMOU_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* CMOU_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CMOU_Stream CMOU_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       CMOU_Stream sp = new CMOU_Stream(this);
-      RetCode retCode = CMOU_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CMOU_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CMOU openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CMOU openAndFill: internal error");
+         throw new TaLibStateException("CMOU openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CMOU openAndFill: " + retCode);
+      throw new TaLibArgumentException("CMOU openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind CMOU_Open (composition seam). */
    CMOU_Stream CMOU_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       CMOU_Stream sp = new CMOU_Stream(this);
-      RetCode retCode = CMOU_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = CMOU_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CMOU open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CMOU open: internal error");
+         throw new TaLibStateException("CMOU open: internal error", retCode);
       }
-      throw new IllegalArgumentException("CMOU open: " + retCode);
+      throw new TaLibArgumentException("CMOU open: " + retCode, retCode);
    }
    /**
     * Open a live CMOU stream over the warm-up history; the handle's
@@ -745,16 +783,16 @@
       CMOU_Stream sp = new CMOU_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CMOU_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CMOU_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CMOU openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CMOU openAndFill: internal error");
+         throw new TaLibStateException("CMOU openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CMOU openAndFill: " + retCode);
+      throw new TaLibArgumentException("CMOU openAndFill: " + retCode, retCode);
    }

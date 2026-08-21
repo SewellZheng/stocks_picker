@@ -72,13 +72,13 @@ public partial class Core
       return 0 ;
 
    }
-   internal RetCode NVI( int startIdx,
-                         int endIdx,
-                         double[] inClose,
-                         double[] inVolume,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode NVI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inClose,
+                              ReadOnlySpan<double> inVolume,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -95,6 +95,9 @@ public partial class Core
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
+      }
+      if( (outReal.Overlaps(inClose) && outReal != inClose) || (outReal.Overlaps(inVolume) && outReal != inVolume) ) {
+         return RetCode.BadParam ;
       }
       /* The index is a running cumulative value seeded at 1000, updated only on
        * bars whose volume decreased versus the prior bar (Negative Volume).
@@ -136,13 +139,13 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode NVI( int startIdx,
-                         int endIdx,
-                         float[] inClose,
-                         float[] inVolume,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode NVI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inClose,
+                              ReadOnlySpan<float> inVolume,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -223,15 +226,29 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange NVI( int startIdx,
                         int endIdx,
-                        double[] inClose,
-                        double[] inVolume,
-                        double[] outReal )
+                        ReadOnlySpan<double> inClose,
+                        ReadOnlySpan<double> inVolume,
+                        Span<double> outReal )
    {
-      RetCode retCode = NVI(startIdx, endIdx, inClose, inVolume, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, NVI_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("NVI", "inClose", inClose.Length, guardInLen);
+      RequireLength("NVI", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("NVI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = NVI_Impl(startIdx, endIdx, inClose, inVolume, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("NVI", retCode);
       }
@@ -284,18 +301,350 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange NVI( int startIdx,
                         int endIdx,
-                        float[] inClose,
-                        float[] inVolume,
-                        double[] outReal )
+                        ReadOnlySpan<float> inClose,
+                        ReadOnlySpan<float> inVolume,
+                        Span<double> outReal )
    {
-      RetCode retCode = NVI(startIdx, endIdx, inClose, inVolume, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, NVI_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("NVI", "inClose", inClose.Length, guardInLen);
+      RequireLength("NVI", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("NVI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = NVI_Impl(startIdx, endIdx, inClose, inVolume, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("NVI", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>NVI</c> stream: one value per closed bar, bit-identical to
+   /// <c>NVI</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.NVI_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class NVI_Stream
+   {
+      internal Core core;
+      internal double prevNVI;
+      internal double prevClose;
+      internal double prevVolume;
+      internal double tempNVI;
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal NVI_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>NVI_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal NVI_Stream( NVI_Stream other )
+      {
+         this.core = other.core;
+         this.prevNVI = other.prevNVI;
+         this.prevClose = other.prevClose;
+         this.prevVolume = other.prevVolume;
+         this.tempNVI = other.tempNVI;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( NVI_Stream other )
+      {
+         this.core = other.core;
+         this.prevNVI = other.prevNVI;
+         this.prevClose = other.prevClose;
+         this.prevVolume = other.prevVolume;
+         this.tempNVI = other.tempNVI;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inClose, double inVolume )
+      {
+         if( !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("NVI", "update", RetCode.BadParam);
+         core.NVI_StreamStep(this, inClose, inVolume);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inClose, double inVolume )
+      {
+         if( !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("NVI", "peek", RetCode.BadParam);
+         NVI_Stream scratch = new NVI_Stream(this);
+         core.NVI_StreamStep(scratch, inClose, inVolume);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public NVI_Stream Clone()
+      {
+         return new NVI_Stream(this);
+      }
+   }
+
+   internal void NVI_StreamStep( NVI_Stream sp, double inClose, double inVolume )
+   {
+      double tempClose = 0.0;
+      double tempVolume = 0.0;
+      tempClose = inClose;
+      tempVolume = inVolume;
+      /* prevClose != 0 guards the percentage-change division: a zero previous
+       * close is a degenerate input that would otherwise emit NaN/Inf; carry
+       * the index forward unchanged instead. Never triggers on real prices.
+       */
+      if( tempVolume < sp.prevVolume && sp.prevClose != 0.0 ) {
+         /* The index is a running product, so it has no upper bound: enough
+          * compounding gains push it past the largest double. Keep the last
+          * representable value instead of writing +/-Inf, which no caller can
+          * chart and which poisons every arithmetic downstream of it. Real
+          * price series never come close.
+          *
+          * Written as a compound assignment on the copy, exactly as the update
+          * was before the guard: spelling it `a + r*a` would match the FMA
+          * fusion detector and silently re-round every bar, not just the
+          * overflowing one.
+          */
+         sp.tempNVI = sp.prevNVI;
+         sp.tempNVI += (tempClose - sp.prevClose) / sp.prevClose * sp.tempNVI;
+         if( (double.IsFinite(sp.tempNVI)) ) {
+            sp.prevNVI = sp.tempNVI;
+         }
+      }
+      sp.cur_outReal = sp.prevNVI;
+      sp.prevClose = tempClose;
+      sp.prevVolume = tempVolume;
+   }
+
+   private RetCode NVI_OpenPass( NVI_Stream sp, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      int i = 0;
+      int outIdx = 0;
+      double prevNVI = 0;
+      double prevClose = 0;
+      double prevVolume = 0;
+      double tempClose = 0;
+      double tempVolume = 0;
+      double tempNVI = 0;
+      int historyLen = inClose.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inVolume.Length != inClose.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      /* The index is a running cumulative value seeded at 1000, updated only on
+       * bars whose volume decreased versus the prior bar (Negative Volume).
+       */
+      prevNVI = 1000.0;
+      prevClose = inClose[startIdx];
+      prevVolume = inVolume[startIdx];
+      outIdx = 0;
+      for( i = startIdx; i <= endIdx; i += 1 ) {
+         tempClose = inClose[i];
+         tempVolume = inVolume[i];
+         /* prevClose != 0 guards the percentage-change division: a zero previous
+          * close is a degenerate input that would otherwise emit NaN/Inf; carry
+          * the index forward unchanged instead. Never triggers on real prices.
+          */
+         if( tempVolume < prevVolume && prevClose != 0.0 ) {
+            /* The index is a running product, so it has no upper bound: enough
+             * compounding gains push it past the largest double. Keep the last
+             * representable value instead of writing +/-Inf, which no caller can
+             * chart and which poisons every arithmetic downstream of it. Real
+             * price series never come close.
+             *
+             * Written as a compound assignment on the copy, exactly as the update
+             * was before the guard: spelling it `a + r*a` would match the FMA
+             * fusion detector and silently re-round every bar, not just the
+             * overflowing one.
+             */
+            tempNVI = prevNVI;
+            tempNVI += (tempClose - prevClose) / prevClose * tempNVI;
+            if( (double.IsFinite(tempNVI)) ) {
+               prevNVI = tempNVI;
+            }
+         }
+         outReal[outIdx++ * outStride] = prevNVI;
+         prevClose = tempClose;
+         prevVolume = tempVolume;
+      }
+      outBegIdx = startIdx;
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      sp.prevNVI = prevNVI;
+      sp.prevClose = prevClose;
+      sp.prevVolume = prevVolume;
+      sp.tempNVI = tempNVI;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode NVI_OpenImpl( NVI_Stream sp, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx )
+   {
+      double[] sink_outReal = new double[1];
+      return NVI_OpenPass( sp, inClose, inVolume, startIdx, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode NVI_OpenAndFillImpl( NVI_Stream sp, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) {
+         return RetCode.BadParam;
+      }
+      return NVI_OpenPass( sp, inClose, inVolume, 0, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode NVI_OpenAndFillInternalImpl( NVI_Stream sp, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return NVI_OpenPass(sp, inClose, inVolume, startIdx, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* NVI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal NVI_Stream NVI_OpenAndFillInternal( ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      NVI_Stream sp = new NVI_Stream(this);
+      RetCode retCode = NVI_OpenAndFillInternalImpl(sp, inClose, inVolume, startIdx, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("NVI", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind NVI_Open (composition seam). */
+   internal NVI_Stream NVI_OpenInternal( ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx )
+   {
+      NVI_Stream sp = new NVI_Stream(this);
+      RetCode retCode = NVI_OpenImpl(sp, inClose, inVolume, startIdx);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("NVI", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>NVI</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="NVI_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>NVI</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>NVI_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>NVI_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>NVI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public NVI_Stream NVI_Open( ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume )
+   {
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      return NVI_OpenInternal(inClose, inVolume, 0);
+   }
+
+   /// <summary><c>NVI_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>NVI</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - NVI_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="NVI_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="outReal">Cumulative negative volume index (seeded at 1000) Must hold at least
+   /// <c>historyLen - NVI_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>NVI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public NVI_Stream NVI_OpenAndFill( ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, Span<double> outReal )
+   {
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      NVI_Stream sp = new NVI_Stream(this);
+      RetCode retCode = NVI_OpenAndFillImpl(sp, inClose, inVolume, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("NVI", "openAndFill", retCode);
    }
 }

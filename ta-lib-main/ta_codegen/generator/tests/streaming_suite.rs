@@ -263,14 +263,18 @@ fn all_declared_functions_are_streamable() {
 /* ---- CDL tranche: candle helpers, offset rings, array state ---- */
 
 #[test]
-fn cdldoji_is_t3_with_plain_ohlc_ring() {
+fn cdldoji_is_t3_with_a_derived_ring() {
     let f = load("cdldoji");
     let m = streaming::analyze(&f).expect("CDLDOJI analyzes");
     assert_eq!(m.tier, StreamTier::T3);
     assert_eq!(m.rings().len(), 1);
     let r = &m.rings()[0];
     assert_eq!(r.var, "BodyDojiTrailingIdx");
-    assert_eq!(r.arrays, ["inOpen", "inHigh", "inLow", "inClose"]);
+    // ONE derived lane holding the computed candle range, not four raw OHLC
+    // lanes: #229's collapse. The trailing subtraction needs the range, not the
+    // prices, so retaining the prices was four times the memory and four times
+    // the copy for a value the step recomputed anyway.
+    assert_eq!(r.arrays, ["derived"]);
     assert_eq!((r.back, r.fwd), (0, 0), "plain oldest-slot ring");
     assert!(m.state.iter().any(|(n, _)| n == "BodyDojiPeriodTotal"));
 }
@@ -303,11 +307,48 @@ fn cdleveningstar_ring_has_forward_offset() {
     assert!(r.back >= 1, "forward reads force the absolute-mod layout");
 }
 
+/// Array names read anywhere in a transition, so a test can see which buffer a
+/// read was routed to without rendering a backend.
+fn read_arrays(m: &streaming::StreamModel<'_>) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    for st in &m.steady_stmts {
+        streaming::walk_stmt_exprs(st, &mut |e| {
+            streaming::walk_expr(e, &mut |x| {
+                if let ir::Expr::ArrayAccess(n, _) = x {
+                    out.insert(n.clone());
+                }
+            });
+        });
+    }
+    out
+}
+
+/// Raw input columns still read at an index mentioning `off` — what a dropped
+/// window buffer must leave none of. The lag reads (`in[cursor]`,
+/// `in[cursor - 2]`) that feed the pattern logic name no counter and are not
+/// this fold's business, so keying on the offset is what keeps the assertion
+/// about the fold rather than about the function.
+fn raw_reads_offset_by(m: &streaming::StreamModel<'_>, off: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for st in &m.steady_stmts {
+        streaming::walk_stmt_exprs(st, &mut |e| {
+            streaming::walk_expr(e, &mut |x| {
+                if let ir::Expr::ArrayAccess(n, idx) = x {
+                    if m.bar_inputs.iter().any(|b| b == n) && format!("{idx:?}").contains(off) {
+                        out.push(format!("{n}[{idx:?}]"));
+                    }
+                }
+            });
+        });
+    }
+    out
+}
+
 #[test]
 fn cdl3blackcrows_var_offset_ring_window_and_array_state() {
     // in[ShadowVeryShortTrailingIdx - totIdx] with for(totIdx=2; totIdx>=0;):
-    // ring back = counter max (2), rescan window on totIdx, and the per-candle
-    // totals carry as fixed-size array state.
+    // ring back = counter max (2), and the per-candle totals carry as
+    // fixed-size array state.
     let f = load("cdl3blackcrows");
     let m = streaming::analyze(&f).expect("CDL3BLACKCROWS analyzes");
     let r = m
@@ -316,13 +357,61 @@ fn cdl3blackcrows_var_offset_ring_window_and_array_state() {
         .find(|r| r.var == "ShadowVeryShortTrailingIdx")
         .expect("ShadowVeryShort ring");
     assert!(r.back >= 2, "counter-offset ring, got {}", r.back);
-    assert!(!m.windows().is_empty(), "in[i - totIdx] rescan window");
     assert!(
         m.state
             .iter()
             .any(|(n, t)| n == "ShadowVeryShortPeriodTotal"
                 && matches!(t, ta_codegen_lib::ir::VarType::RealArray(_))),
         "fixed-size array state"
+    );
+}
+
+#[test]
+fn cdl3blackcrows_window_folds_into_its_ring() {
+    // #229 last tranche: `in*[i - totIdx]` is read only through
+    // ta_candlerange(ShadowVeryShort, ...) — the exact value the ShadowVeryShort
+    // ring already stores — so the window keeps NO buffer of its own.
+    let f = load("cdl3blackcrows");
+    let m = streaming::analyze(&f).expect("CDL3BLACKCROWS analyzes");
+    assert!(
+        m.windows().is_empty(),
+        "the totIdx window is served by the ring, got {:?}",
+        m.windows().iter().map(|w| &w.var).collect::<Vec<_>>()
+    );
+    // Dropping a window is only correct if the reads went SOMEWHERE: pin the
+    // routing, not just the absence. An empty window list with the reads still
+    // naming raw columns would be the fail-open this asserts against.
+    let reads = read_arrays(&m);
+    assert!(
+        reads.contains("derivedAt_ShadowVeryShortTrailingIdx"),
+        "window reads routed into the ShadowVeryShort ring, saw {reads:?}"
+    );
+    assert!(
+        raw_reads_offset_by(&m, "totIdx").is_empty(),
+        "no raw column is still read through the counter, saw {:?}",
+        raw_reads_offset_by(&m, "totIdx")
+    );
+}
+
+#[test]
+fn avgdev_window_keeps_its_buffer() {
+    // The control for the fold above, over the real corpus. Two guards would
+    // each hold it on their own and it is the FIRST that fires: AVGDEV's window
+    // is bounded by `optInTimePeriod`, not a literal, so the ring depth has
+    // nothing to compare against. Its reads being raw columns is the second.
+    // (The raw-column refusal itself is pinned by
+    // `window_keeps_its_buffer_when_one_read_is_raw` in `streaming.rs`, where
+    // the fixture can hold the two apart.)
+    let f = load("avgdev");
+    let m = streaming::analyze(&f).expect("AVGDEV analyzes");
+    assert_eq!(
+        m.windows().len(),
+        1,
+        "raw rescan reads keep their own buffer"
+    );
+    assert!(
+        read_arrays(&m).contains("inReal"),
+        "AVGDEV still reads the raw column"
     );
 }
 
@@ -337,16 +426,44 @@ fn cdlkickingbylength_ternary_index_hoisted() {
 
 #[test]
 fn cdladvanceblock_merges_window_bounds_to_widest() {
-    // totIdx is bound by three loops (2, 1, 2 inclusive) — the window keeps
-    // the widest literal bound instead of rejecting.
+    // totIdx is bound by three loops (2, 1, 2 inclusive) — the merge keeps the
+    // widest literal bound instead of rejecting. Since #229 dropped the window
+    // buffer the bound is observable on the rings it sizes: every ring read at
+    // `[<Setting>TrailingIdx - totIdx]` gets back = cap - 1 = 2, which is also
+    // what makes the ring deep enough to serve the window read.
     let f = load("cdladvanceblock");
     let m = streaming::analyze(&f).expect("CDLADVANCEBLOCK analyzes");
-    let w = m.windows().iter().find(|w| w.var == "totIdx").expect("totIdx window");
-    assert!(
-        matches!(w.cap, ta_codegen_lib::ir::Expr::IntLiteral(3)),
-        "widest inclusive bound 2 -> exclusive cap 3, got {:?}",
-        w.cap
-    );
+    for setting in ["ShadowShort", "ShadowLong", "Near", "Far"] {
+        let v = format!("{setting}TrailingIdx");
+        let r = m
+            .rings()
+            .iter()
+            .find(|r| r.var == v)
+            .unwrap_or_else(|| panic!("{v} ring"));
+        assert_eq!(r.back, 2, "widest inclusive bound 2 sizes {v}");
+    }
+}
+
+#[test]
+fn cdladvanceblock_window_folds_per_setting() {
+    // One window counter, FOUR candle settings read through it, each routed to
+    // its own ring — the case that made a single shared "derived" slot name
+    // insufficient. `ta_CDLADVANCEBLOCK.c:186` also holds a window read and a
+    // ring read of the same Near setting in ONE statement, so the two folds
+    // must be told apart by index form rather than by shape.
+    let f = load("cdladvanceblock");
+    let m = streaming::analyze(&f).expect("CDLADVANCEBLOCK analyzes");
+    assert!(m.windows().is_empty(), "the totIdx window is served by rings");
+    let reads = read_arrays(&m);
+    for setting in ["ShadowShort", "ShadowLong", "Near", "Far"] {
+        assert!(
+            reads.contains(&format!("derivedAt_{setting}TrailingIdx")),
+            "{setting} window read routed to its own ring, saw {reads:?}"
+        );
+    }
+    // The trailing side of the same statements still resolves through the
+    // shared slot: both folds fired, neither swallowed the other.
+    assert!(reads.contains("derived"), "trailing reads still folded");
 }
 
 #[test]
@@ -675,6 +792,7 @@ fn dispatch_hard_errors_when_flagged_callee_arm_loses_shape() {
         fn callee(&self, name: &str) -> Option<streaming::CalleeSig> {
             (name == "sma").then_some(streaming::CalleeSig {
                 streaming: true,
+                nan_inf_output: false,
                 n_inputs: 1,
                 n_opts: 1,
                 n_outputs: 1,
@@ -890,6 +1008,7 @@ fn composed_hard_errors_when_subcall_callee_lacks_stream() {
         fn callee(&self, name: &str) -> Option<streaming::CalleeSig> {
             (name == "ma").then_some(streaming::CalleeSig {
                 streaming: false,
+                nan_inf_output: false,
                 n_inputs: 1,
                 n_opts: 2,
                 n_outputs: 1,
@@ -1295,4 +1414,170 @@ TA_RetCode apo( int startIdx, int endIdx,
         matches!(err, StreamError::Unsupported(ref m) if m.contains("same-bar")),
         "combine over sub-calls with different endIdx must be refused as not same-bar, got: {err}"
     );
+}
+
+/* ---- #205: the fill-mode scratch-aliasing precondition ---- */
+
+/// Inventory of composed functions that hand one of their OWN outputs to a
+/// sub-call as its **destination**.
+///
+/// This is the shape that bounds `sc_<out>`'s writes by the *callee's* output
+/// count rather than by the caller's own final count. Since #205 the fill-mode
+/// scratch IS the caller's array (exactly `historyLen - lookback` wide), so for
+/// every function in this set, safety rests on the callee's count equalling our
+/// final count — true for each of them because the sub-call that writes our
+/// output is what defines that count, but a per-function argument rather than a
+/// structural guarantee.
+///
+/// `fill_scratch_may_alias_output` deliberately does NOT screen this shape (it
+/// would decline eight of the ten and forfeit most of the win). Pinning the set
+/// is what keeps that decision honest: a new composed function joins it by
+/// someone updating this list, not by silently inheriting the optimization.
+/// Failure is loud in Rust (slice bound) and Java (AIOOBE) but **silent in C**.
+#[test]
+fn composed_sub_call_destination_funcs() {
+    let lk = lookup();
+    let mut found: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(input_dir()).expect("input dir") {
+        let path = entry.expect("dir entry").path();
+        if !path.is_dir() {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if !path.join(format!("{name}.yaml")).exists() || !path.join(format!("{name}.c")).exists() {
+            continue;
+        }
+        let f = load(&name);
+        if !f.streaming {
+            continue;
+        }
+        let Ok(streaming::StreamPlan::Composed(cp)) = streaming::validate_streamable(&f, &lk) else {
+            continue;
+        };
+        let outs: Vec<String> = f.outputs.iter().map(|o| o.name.clone()).collect();
+        if cp
+            .subs
+            .iter()
+            .any(|s| s.dsts.iter().any(|d| outs.contains(d)))
+        {
+            found.push(name.to_uppercase());
+        }
+    }
+    // Membership alone would not tell the next author WHICH invariant to keep:
+    // no two of these are safe for the same reason. The reason is recorded with
+    // each entry and printed on failure. (Reasons proved by kevinlincg, #205.)
+    let expected: [(&str, &str); 8] = [
+        ("APO", "sub-call uses optInSlowPeriod and the body swaps so slow == max(slow,fast); \
+                 the swap is load-bearing -- see apo_family_period_swap_is_a_write_bound_precondition"),
+        ("MACDEXT", "the body RUNTIME-CHECKS the premise (outNbElement1 == endIdx-startIdx+1+lookbackSignal) \
+                 and bails otherwise, so signal count == N_MACDEXT"),
+        ("PPO", "as APO -- the slow/fast swap is the precondition"),
+        ("PVO", "as APO -- the slow/fast swap is the precondition"),
+        ("STDDEV", "stddev_lookback DELEGATES to var_lookback in the source, so the counts are \
+                 equal by construction rather than by arithmetic coincidence"),
+        ("STOCH", "the callee is handed tempBuffer[..*outNBElement], so its output cannot exceed \
+                 the slice it was given -- bound holds via the INPUT length, not a lookback identity"),
+        ("STOCHF", "as STOCH, with outIdx in place of *outNBElement"),
+        ("STOCHRSI", "tempRSIBuffer is SIZED as endIdx-startIdx+1+lookbackSTOCHF precisely so the \
+                 callee's count comes out at N_STOCHRSI"),
+    ];
+    found.sort();
+    let want: Vec<String> = expected.iter().map(|(n, _)| (*n).to_string()).collect();
+    let why: String = expected
+        .iter()
+        .map(|(n, r)| format!("\n  {n}: {r}"))
+        .collect();
+    assert_eq!(
+        found, want,
+        "a composed function's sub-call writes into one of its own outputs. Since #205 that \
+         output IS the caller's array in fill mode, so the callee's count must equal this \
+         function's FINAL count -- not whichever intermediate a sub-call left in *outNBElement \
+         (ADXR is the case where the intermediate is LARGER). State the reason for the new \
+         function here; the existing ones hold for four different reasons:{why}"
+    );
+}
+
+/// A [`CalleeLookup`] that reports ONE callee as `nan_inf_output`, leaving the
+/// rest of the real corpus exactly as it is.
+struct FlagOneCallee<'a> {
+    inner: &'a ta_codegen_lib::registry::Registry,
+    flagged: &'a str,
+}
+
+impl streaming::CalleeLookup for FlagOneCallee<'_> {
+    fn callee(&self, name: &str) -> Option<streaming::CalleeSig> {
+        let mut sig = self.inner.callee(name)?;
+        if name == self.flagged {
+            sig.nan_inf_output = true;
+        }
+        Some(sig)
+    }
+}
+
+/// A function that can return NaN or ±Inf (`nan_inf_output`, #191) may not drive
+/// another function's sub-stream: the streaming tier checks finiteness only at
+/// the caller boundary, and the composed step has nowhere to put a sub-stream's
+/// rejection, so the bar's state advance would be dropped silently.
+///
+/// None of the seven flagged functions (ACOS, ASIN, LN, LOG10, SQRT, DIV, VWMA)
+/// is composed by anything today, so the gate is dormant against the shipped
+/// corpus — which is exactly why it needs a test that can see it fire. The
+/// flag is injected rather than written to `ma.yaml`, so the corpus is untouched.
+#[test]
+fn nan_inf_callee_is_refused() {
+    let reg = lookup();
+    let bbands = load("bbands"); // composes MA (sub0) and STDDEV (sub1)
+    let sma = load("sma"); // loop tier: composes nothing
+
+    // Control: as shipped, MA is finite-output and BBANDS composes it happily.
+    assert!(
+        streaming::validate_streamable(&bbands, &reg).is_ok(),
+        "BBANDS must derive a plan against the unmodified corpus, or the probe below \
+         proves nothing"
+    );
+
+    let flagged = FlagOneCallee { inner: &reg, flagged: "ma" };
+    let err = streaming::validate_streamable(&bbands, &flagged)
+        .expect_err("BBANDS composes MA, so a nan_inf_output MA must be refused");
+    assert!(
+        err.contains("nan_inf_output")
+            && err.contains("composing ma,")
+            && err.contains("BBANDS"),
+        "the refusal must name the flag, the callee and the composing function: {err}"
+    );
+    // `contains("ma")` would be satisfied by the fixed prose ("...MAy not drive
+    // a sub-stream"), i.e. by a message that named the wrong callee entirely.
+    // Anchoring on "composing ma," is what makes the callee half discriminating.
+
+    // ...and only the composing functions: SMA calls nothing, so flagging MA
+    // must not disturb it. Without this the gate could pass by rejecting
+    // everything.
+    assert!(
+        streaming::validate_streamable(&sma, &flagged).is_ok(),
+        "SMA composes no sub-stream; flagging MA must not touch it"
+    );
+
+    // `plan_callees` has a separate arm per tier, and one arm being right says
+    // nothing about the others. BBANDS above is Composed; MAVP is the
+    // PERIOD-BANK arm (its bank of MA sub-streams) and MA itself is the
+    // DISPATCH arm (its per-MAType sub-streams).
+    let mavp = load("mavp");
+    let err = streaming::validate_streamable(&mavp, &flagged)
+        .expect_err("MAVP banks MA sub-streams, so a nan_inf_output MA must be refused");
+    assert!(
+        err.contains("nan_inf_output") && err.contains("composing ma,") && err.contains("MAVP"),
+        "the period-bank arm must name the flag, the callee and the function: {err}"
+    );
+
+    let ma = load("ma");
+    let flagged_sma = FlagOneCallee { inner: &reg, flagged: "sma" };
+    let err = streaming::validate_streamable(&ma, &flagged_sma)
+        .expect_err("MA dispatches to SMA, so a nan_inf_output SMA must be refused");
+    assert!(
+        err.contains("nan_inf_output") && err.contains("composing sma,") && err.contains("MA"),
+        "the dispatch arm must name the flag, the callee and the function: {err}"
+    );
+    // Control for both: unflagged, they derive plans as usual.
+    assert!(streaming::validate_streamable(&mavp, &reg).is_ok(), "MAVP plans normally");
+    assert!(streaming::validate_streamable(&ma, &reg).is_ok(), "MA plans normally");
 }

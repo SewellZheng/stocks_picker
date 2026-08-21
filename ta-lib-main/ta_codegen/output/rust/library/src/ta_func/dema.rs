@@ -75,8 +75,8 @@ impl Core {
     ///
     /// * `optInTimePeriod` — Smoothing period for both EMA passes (default 30, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn DEMA_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -88,74 +88,9 @@ impl Core {
         // Multiply by two (because double smoothing).
         return (self.EMA_Lookback(optInTimePeriod) * 2) as usize;
     }
-    /// Double Exponential Moving Average: an EMA combined with an EMA-of-EMA to reduce lag versus a
-    /// plain EMA. Overlap Studies overlay on price.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// EMA1 = EMA(inReal, period); EMA2 = EMA(EMA1, period); DEMA = 2*EMA1 - EMA2
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * A period of 1 performs no smoothing: the output is a copy of the input. Allowed since
-    ///   0.6.5 (issues #48/#59).
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Source series (typically price)
-    /// * `optInTimePeriod` — Smoothing period for both EMA passes (default 30, range 1..=100000)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — DEMA line.
-    ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.DEMA(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::EMA`] · [`Core::TEMA`] · [`Core::MA`]
-    ///
-    /// # References
-    ///
-    /// * Patrick G. Mulloy, *Smoothing Data with Faster Moving Averages*, Technical Analysis of
-    ///   Stocks & Commodities, V.12:1 (January 1994)
-    ///
-    /// Further reading: [ta-lib.org/functions/dema](https://ta-lib.org/functions/dema)
-    #[doc(alias = "DoubleExponentialMovingAverage")]
-    pub fn DEMA(
+    /// C-shaped body behind [`Core::DEMA`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn DEMA_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -166,13 +101,13 @@ impl Core {
         outReal: &mut [f64],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, DEMA_fma, DEMA_impl, (startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal));
+        return ta_lib_dispatch::dispatch_fma!(self, DEMA_Impl_fma, DEMA_Impl_impl, (startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal));
         #[cfg(not(target_arch = "x86_64"))]
-        self.DEMA_impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal)
+        self.DEMA_Impl_impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn DEMA_fma(
+    fn DEMA_Impl_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -182,10 +117,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        self.DEMA_impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal)
+        self.DEMA_Impl_impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal)
     }
     #[inline(always)]
-    fn DEMA_impl(
+    fn DEMA_Impl_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -195,10 +130,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -352,6 +287,102 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Double Exponential Moving Average: an EMA combined with an EMA-of-EMA to reduce lag versus a
+    /// plain EMA. Overlap Studies overlay on price.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// EMA1 = EMA(inReal, period); EMA2 = EMA(EMA1, period); DEMA = 2*EMA1 - EMA2
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// * A period of 1 performs no smoothing: the output is a copy of the input. Allowed since
+    ///   0.6.5 (issues #48/#59).
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Source series (typically price)
+    /// * `optInTimePeriod` — Smoothing period for both EMA passes (default 30, range 1..=100000)
+    /// * `outReal` — DEMA line.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.DEMA(0, data.len() - 1, &data, 30, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::EMA`] · [`Core::TEMA`] · [`Core::MA`]
+    ///
+    /// # References
+    ///
+    /// * Patrick G. Mulloy, *Smoothing Data with Faster Moving Averages*, Technical Analysis of
+    ///   Stocks & Commodities, V.12:1 (January 1994)
+    ///
+    /// Further reading: [ta-lib.org/functions/dema](https://ta-lib.org/functions/dema)
+    #[doc(alias = "DoubleExponentialMovingAverage")]
+    pub fn DEMA(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        optInTimePeriod: i32,
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.DEMA_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            optInTimePeriod,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -416,13 +447,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::DEMA_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::DEMA_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn DEMA_OpenCore(
+    pub(crate) fn DEMA_OpenPass(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<DEMA_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -437,7 +468,7 @@ impl Core {
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
             if historyLen < self.DEMA_Lookback(optInTimePeriod) + 1 {
-                return Err(RetCode::BadParam);
+                return Err(RetCode::InsufficientHistory);
             }
             let state = DEMA_StreamState {
                 optInTimePeriod: optInTimePeriod,
@@ -501,7 +532,7 @@ impl Core {
         }
         // Make sure there is still something to evaluate.
         if startIdx > endIdx {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Both EMA are computed in a single lockstep pass: each new
         // EMA1 value is immediately fed into EMA2. No temporary
@@ -595,7 +626,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.DEMA_OpenCore(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.DEMA_OpenPass(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -604,8 +635,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -613,8 +646,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.DEMA_Open(&data, 30).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_DEMA_Open")]
@@ -623,13 +656,17 @@ impl Core {
     }
 
     /// [`Core::DEMA_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::DEMA`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::DEMA`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_DEMA_OpenAndFill")]
     pub fn DEMA_OpenAndFill(
-        &self, inReal: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<DEMA_Stream, RetCode> {
-        self.DEMA_OpenCore(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
+    ) -> Result<(DEMA_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.DEMA_OpenPass(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::DEMA_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -637,7 +674,7 @@ impl Core {
     pub(crate) fn DEMA_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<DEMA_Stream, RetCode> {
-        self.DEMA_OpenCore(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.DEMA_OpenPass(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -645,12 +682,25 @@ impl Core {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl DEMA_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_DEMA_Update")]
-    pub fn update(&mut self, inReal: f64) -> f64 {
+    pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.DEMA_step_internal(&mut self.state, inReal, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -658,9 +708,16 @@ impl DEMA_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. This handle holds only scalars, so the copy is a
     /// few machine words and `peek` never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_DEMA_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> f64 {
+    pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut scratch = self.clone();
         scratch.update(inReal)
     }

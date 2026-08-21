@@ -40,6 +40,7 @@
 #include "ta_def_ui.h"
 #include "ta_abstract.h"
 
+extern const TA_FuncDef TA_DEF_AC;
 extern const TA_FuncDef TA_DEF_ACCBANDS;
 extern const TA_FuncDef TA_DEF_ACOS;
 extern const TA_FuncDef TA_DEF_AD;
@@ -47,6 +48,7 @@ extern const TA_FuncDef TA_DEF_ADD;
 extern const TA_FuncDef TA_DEF_ADOSC;
 extern const TA_FuncDef TA_DEF_ADX;
 extern const TA_FuncDef TA_DEF_ADXR;
+extern const TA_FuncDef TA_DEF_AO;
 extern const TA_FuncDef TA_DEF_APO;
 extern const TA_FuncDef TA_DEF_AROON;
 extern const TA_FuncDef TA_DEF_AROONOSC;
@@ -189,6 +191,7 @@ extern const TA_FuncDef TA_DEF_SAREXT;
 extern const TA_FuncDef TA_DEF_SIN;
 extern const TA_FuncDef TA_DEF_SINH;
 extern const TA_FuncDef TA_DEF_SMA;
+extern const TA_FuncDef TA_DEF_SMI;
 extern const TA_FuncDef TA_DEF_SQRT;
 extern const TA_FuncDef TA_DEF_STDDEV;
 extern const TA_FuncDef TA_DEF_STOCH;
@@ -279,8 +282,10 @@ NULL };
 #define SIZE_GROUP_3 ((sizeof(TA_PerGroupFunc_3)/sizeof(const TA_FuncDef *))-1)
 
 const TA_FuncDef *TA_PerGroupFunc_4[] = {
+&TA_DEF_AC,
 &TA_DEF_ADX,
 &TA_DEF_ADXR,
+&TA_DEF_AO,
 &TA_DEF_APO,
 &TA_DEF_AROON,
 &TA_DEF_AROONOSC,
@@ -306,6 +311,7 @@ const TA_FuncDef *TA_PerGroupFunc_4[] = {
 &TA_DEF_ROCR,
 &TA_DEF_ROCR100,
 &TA_DEF_RSI,
+&TA_DEF_SMI,
 &TA_DEF_STOCH,
 &TA_DEF_STOCHF,
 &TA_DEF_STOCHRSI,

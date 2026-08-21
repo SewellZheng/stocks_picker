@@ -58,12 +58,12 @@
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
-      } else if( optInNbDevUp < REAL_MIN || optInNbDevUp > REAL_MAX ) {
+      } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
          return -1;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
-      } else if( optInNbDevDn < REAL_MIN || optInNbDevDn > REAL_MAX ) {
+      } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
          return -1;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -88,18 +88,18 @@
       return (maLookback > stddevLookback) ? maLookback : stddevLookback ;
 
    }
-   RetCode BBANDS_Internal( int startIdx,
-                            int endIdx,
-                            double inReal[],
-                            int optInTimePeriod,
-                            double optInNbDevUp,
-                            double optInNbDevDn,
-                            MAType optInMAType,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outRealUpperBand[],
-                            double outRealMiddleBand[],
-                            double outRealLowerBand[] )
+   RetCode BBANDS_Impl( int startIdx,
+                        int endIdx,
+                        double inReal[],
+                        int optInTimePeriod,
+                        double optInNbDevUp,
+                        double optInNbDevDn,
+                        MAType optInMAType,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outRealUpperBand[],
+                        double outRealMiddleBand[],
+                        double outRealLowerBand[] )
    {
       RetCode retCode;
       int i = 0;
@@ -122,12 +122,12 @@
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
-      } else if( optInNbDevUp < REAL_MIN || optInNbDevUp > REAL_MAX ) {
+      } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
-      } else if( optInNbDevDn < REAL_MIN || optInNbDevDn > REAL_MAX ) {
+      } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -288,10 +288,33 @@
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Without this the moving average below runs first, and for the MA types whose
+       * lookback is BELOW the deviation's - TA_MAType_DISABLED (MA lookback 0) and
+       * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
+       * computes a middle band the empty standard deviation then discards.
+       * Observably identical (the empty deviation already yields 0,0 here), but it
+       * is the difference between "a range shorter than the lookback reads nothing"
+       * being true of this function and being false: with a caller-supplied inReal
+       * that stops short of endIdx, that discarded work is an out-of-bounds read.
+       * The SMA fast path above needs no such guard - its own lookback IS the
+       * deviation's, so its clamp already covers it. Pinned by the zero-length
+       * no-I/O probe over every guarded core, at every MA type.
+       */
+      if( BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.Success ;
+      }
       tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
       tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
       /* Calculate the middle band moving average. */
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+      OutRange _xr0 = MA(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer1);
+      outBegIdx.value = _xr0.begIdx();
+      outNBElement.value = _xr0.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return retCode ;
@@ -299,7 +322,10 @@
       /* Remember where the moving average begins, to realign it below. */
       maBegIdx = (int)outBegIdx.value;
       /* Calculate the Standard Deviation into tempBuffer2. */
-      retCode = STDDEV_Internal((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
+      OutRange _xr1 = STDDEV((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, tempBuffer2);
+      outBegIdx.value = _xr1.begIdx();
+      outNBElement.value = _xr1.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          outNBElement.value = 0;
          return retCode ;
@@ -336,18 +362,18 @@
       }
       return RetCode.Success ;
    }
-   RetCode BBANDS_Internal( int startIdx,
-                            int endIdx,
-                            float inReal[],
-                            int optInTimePeriod,
-                            double optInNbDevUp,
-                            double optInNbDevDn,
-                            MAType optInMAType,
-                            MInteger outBegIdx,
-                            MInteger outNBElement,
-                            double outRealUpperBand[],
-                            double outRealMiddleBand[],
-                            double outRealLowerBand[] )
+   RetCode BBANDS_Impl( int startIdx,
+                        int endIdx,
+                        float inReal[],
+                        int optInTimePeriod,
+                        double optInNbDevUp,
+                        double optInNbDevDn,
+                        MAType optInMAType,
+                        MInteger outBegIdx,
+                        MInteger outNBElement,
+                        double outRealUpperBand[],
+                        double outRealMiddleBand[],
+                        double outRealLowerBand[] )
    {
       RetCode retCode;
       int i = 0;
@@ -370,12 +396,12 @@
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
-      } else if( optInNbDevUp < REAL_MIN || optInNbDevUp > REAL_MAX ) {
+      } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
-      } else if( optInNbDevDn < REAL_MIN || optInNbDevDn > REAL_MAX ) {
+      } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( optInMAType == MAType.DEFAULT ) {
@@ -510,15 +536,26 @@
          }
          return RetCode.Success ;
       }
+      if( BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.Success ;
+      }
       tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
       tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
-      retCode = MA_Internal(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
+      OutRange _xr0 = MA(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, tempBuffer1);
+      outBegIdx.value = _xr0.begIdx();
+      outNBElement.value = _xr0.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return retCode ;
       }
       maBegIdx = (int)outBegIdx.value;
-      retCode = STDDEV_Internal((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
+      OutRange _xr1 = STDDEV((int)outBegIdx.value, endIdx, inReal, optInTimePeriod, 1.0, tempBuffer2);
+      outBegIdx.value = _xr1.begIdx();
+      outNBElement.value = _xr1.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          outNBElement.value = 0;
          return retCode ;
@@ -598,8 +635,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MA
     * @see Core#STDDEV
@@ -616,9 +660,18 @@
                            double outRealMiddleBand[],
                            double outRealLowerBand[] )
    {
+      requireIndexRange("BBANDS", startIdx, endIdx);
+      requireArgument("BBANDS", "optInMAType", optInMAType);
+      int guardStart = clampedStart(startIdx, endIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("BBANDS", "inReal", inReal, guardInLen);
+      requireLength("BBANDS", "outRealUpperBand", outRealUpperBand, guardOutLen);
+      requireLength("BBANDS", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
+      requireLength("BBANDS", "outRealLowerBand", outRealLowerBand, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BBANDS_Internal(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = BBANDS_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       if( retCode != RetCode.Success ) {
          throw failure("BBANDS", retCode);
       }
@@ -680,8 +733,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MA
     * @see Core#STDDEV
@@ -698,9 +758,18 @@
                            double outRealMiddleBand[],
                            double outRealLowerBand[] )
    {
+      requireIndexRange("BBANDS", startIdx, endIdx);
+      requireArgument("BBANDS", "optInMAType", optInMAType);
+      int guardStart = clampedStart(startIdx, endIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("BBANDS", "inReal", inReal, guardInLen);
+      requireLength("BBANDS", "outRealUpperBand", outRealUpperBand, guardOutLen);
+      requireLength("BBANDS", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
+      requireLength("BBANDS", "outRealLowerBand", outRealLowerBand, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BBANDS_Internal(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = BBANDS_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       if( retCode != RetCode.Success ) {
          throw failure("BBANDS", retCode);
       }
@@ -803,10 +872,20 @@
       public record Value(double realUpperBand, double realMiddleBand, double realLowerBand) { }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public Value update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("BBANDS update: BadParam", RetCode.BadParam);
          core.BBANDS_StreamStep(this, inReal);
          this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
          return this.cachedValue;
@@ -822,6 +901,8 @@
        * the thread.
        */
       public Value peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("BBANDS peek: BadParam", RetCode.BadParam);
          BBANDS_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new BBANDS_Stream(this);
@@ -876,7 +957,7 @@
       sp.cur_outRealMiddleBand = cur_tempBuffer1;
       sp.cur_outRealLowerBand = cur_outRealLowerBand;
    }
-   private RetCode BBANDS_OpenCore( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
+   private RetCode BBANDS_OpenPass( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
    {
       RetCode retCode;
       int i = 0;
@@ -901,28 +982,48 @@
       }
       if( optInNbDevUp == REAL_DEFAULT ) {
          optInNbDevUp = 2e0;
-      } else if( optInNbDevUp < REAL_MIN || optInNbDevUp > REAL_MAX ) {
+      } else if( !(optInNbDevUp >= REAL_MIN && optInNbDevUp <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( optInNbDevDn == REAL_DEFAULT ) {
          optInNbDevDn = 2e0;
-      } else if( optInNbDevDn < REAL_MIN || optInNbDevDn > REAL_MAX ) {
+      } else if( !(optInNbDevDn >= REAL_MIN && optInNbDevDn <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
       }
       if( historyLen < BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.InsufficientHistory;
       }
-      double[] sc_outRealUpperBand = new double[historyLen];
-      double[] sc_outRealMiddleBand = new double[historyLen];
-      double[] sc_outRealLowerBand = new double[historyLen];
+      double[] sc_outRealUpperBand = outStride == 1 ? outRealUpperBand : new double[historyLen];
+      double[] sc_outRealMiddleBand = outStride == 1 ? outRealMiddleBand : new double[historyLen];
+      double[] sc_outRealLowerBand = outStride == 1 ? outRealLowerBand : new double[historyLen];
       /* General path (every MA type other than SMA): the middle band is the moving
        * average and the deviation is the standard deviation of the input, combined
        * at the same bar. Two intermediate buffers are allocated so the input may
        * safely alias an output (it is only read here).
        */
+      /* Nothing to produce: the range is shorter than the lookback. Return before
+       * touching anything.
+       *
+       * Without this the moving average below runs first, and for the MA types whose
+       * lookback is BELOW the deviation's - TA_MAType_DISABLED (MA lookback 0) and
+       * TA_MAType_MAMA at optInTimePeriod >= 34 - it reads the whole range and
+       * computes a middle band the empty standard deviation then discards.
+       * Observably identical (the empty deviation already yields 0,0 here), but it
+       * is the difference between "a range shorter than the lookback reads nothing"
+       * being true of this function and being false: with a caller-supplied inReal
+       * that stops short of endIdx, that discarded work is an out-of-bounds read.
+       * The SMA fast path above needs no such guard - its own lookback IS the
+       * deviation's, so its clamp already covers it. Pinned by the zero-length
+       * no-I/O probe over every guarded core, at every MA type.
+       */
+      if( BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory ;
+      }
       tempBuffer1 = new double[(int)((endIdx - startIdx + 1) * 1)];
       tempBuffer2 = new double[(int)((endIdx - startIdx + 1) * 1)];
       /* Calculate the middle band moving average. */
@@ -977,7 +1078,7 @@
       }
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.InsufficientHistory;
       }
       sp.optInTimePeriod = optInTimePeriod;
       sp.optInNbDevUp = optInNbDevUp;
@@ -989,62 +1090,59 @@
       sp.cur_outRealMiddleBand = sc_outRealMiddleBand[outNBElement.value - 1];
       sp.cur_outRealLowerBand = sc_outRealLowerBand[outNBElement.value - 1];
       sp.cachedValue = new BBANDS_Stream.Value(sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand);
-      if( outStride == 1 ) System.arraycopy(sc_outRealUpperBand, 0, outRealUpperBand, 0, outNBElement.value);
-      if( outStride == 1 ) System.arraycopy(sc_outRealMiddleBand, 0, outRealMiddleBand, 0, outNBElement.value);
-      if( outStride == 1 ) System.arraycopy(sc_outRealLowerBand, 0, outRealLowerBand, 0, outNBElement.value);
       return RetCode.Success;
    }
-   private RetCode BBANDS_OpenBody( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
+   private RetCode BBANDS_OpenImpl( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outRealUpperBand = new double[1];
       double[] sink_outRealMiddleBand = new double[1];
       double[] sink_outRealLowerBand = new double[1];
-      return BBANDS_OpenCore( sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0 );
+      return BBANDS_OpenPass( sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0 );
    }
-   private RetCode BBANDS_OpenAndFillBody( BBANDS_Stream sp, double inReal[], int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
+   private RetCode BBANDS_OpenAndFillImpl( BBANDS_Stream sp, double inReal[], int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
       if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
          return RetCode.BadParam;
       }
-      return BBANDS_OpenCore( sp, inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
+      return BBANDS_OpenPass( sp, inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
    }
-   private RetCode BBANDS_OpenAndFillInternalBody( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
+   private RetCode BBANDS_OpenAndFillInternalImpl( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
-      return BBANDS_OpenCore(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
+      return BBANDS_OpenPass(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
    }
    /* BBANDS_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    BBANDS_Stream BBANDS_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
       BBANDS_Stream sp = new BBANDS_Stream(this);
-      RetCode retCode = BBANDS_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = BBANDS_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BBANDS openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BBANDS openAndFill: internal error");
+         throw new TaLibStateException("BBANDS openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("BBANDS openAndFill: " + retCode);
+      throw new TaLibArgumentException("BBANDS openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind BBANDS_Open (composition seam). */
    BBANDS_Stream BBANDS_OpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
       BBANDS_Stream sp = new BBANDS_Stream(this);
-      RetCode retCode = BBANDS_OpenBody(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
+      RetCode retCode = BBANDS_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BBANDS open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BBANDS open: internal error");
+         throw new TaLibStateException("BBANDS open: internal error", retCode);
       }
-      throw new IllegalArgumentException("BBANDS open: " + retCode);
+      throw new TaLibArgumentException("BBANDS open: " + retCode, retCode);
    }
    /**
     * Open a live BBANDS stream over the warm-up history; the handle's
@@ -1074,16 +1172,16 @@
       BBANDS_Stream sp = new BBANDS_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BBANDS_OpenAndFillBody(sp, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = BBANDS_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BBANDS openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BBANDS openAndFill: internal error");
+         throw new TaLibStateException("BBANDS openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("BBANDS openAndFill: " + retCode);
+      throw new TaLibArgumentException("BBANDS openAndFill: " + retCode, retCode);
    }

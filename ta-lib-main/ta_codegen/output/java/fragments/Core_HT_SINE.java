@@ -38,13 +38,13 @@
       return 63 + this.unstablePeriod[FuncUnstId.HT_SINE.ordinal()] ;
 
    }
-   RetCode HT_SINE_Internal( int startIdx,
-                             int endIdx,
-                             double inReal[],
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             double outSine[],
-                             double outLeadSine[] )
+   RetCode HT_SINE_Impl( int startIdx,
+                         int endIdx,
+                         double inReal[],
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outSine[],
+                         double outLeadSine[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -453,13 +453,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode HT_SINE_Internal( int startIdx,
-                             int endIdx,
-                             float inReal[],
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             double outSine[],
-                             double outLeadSine[] )
+   RetCode HT_SINE_Impl( int startIdx,
+                         int endIdx,
+                         float inReal[],
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outSine[],
+                         double outLeadSine[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -825,8 +825,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#HT_DCPHASE
     * @see Core#HT_DCPERIOD
@@ -840,9 +847,16 @@
                             double outSine[],
                             double outLeadSine[] )
    {
+      requireIndexRange("HT_SINE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, HT_SINE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("HT_SINE", "inReal", inReal, guardInLen);
+      requireLength("HT_SINE", "outSine", outSine, guardOutLen);
+      requireLength("HT_SINE", "outLeadSine", outLeadSine, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_SINE_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine);
+      RetCode retCode = HT_SINE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine);
       if( retCode != RetCode.Success ) {
          throw failure("HT_SINE", retCode);
       }
@@ -874,8 +888,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#HT_DCPHASE
     * @see Core#HT_DCPERIOD
@@ -889,9 +910,16 @@
                             double outSine[],
                             double outLeadSine[] )
    {
+      requireIndexRange("HT_SINE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, HT_SINE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("HT_SINE", "inReal", inReal, guardInLen);
+      requireLength("HT_SINE", "outSine", outSine, guardOutLen);
+      requireLength("HT_SINE", "outLeadSine", outLeadSine, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_SINE_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine);
+      RetCode retCode = HT_SINE_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine);
       if( retCode != RetCode.Success ) {
          throw failure("HT_SINE", retCode);
       }
@@ -1208,10 +1236,20 @@
       public record Value(double sine, double leadSine) { }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public Value update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("HT_SINE update: BadParam", RetCode.BadParam);
          core.HT_SINE_StreamStep(this, inReal);
          this.cachedValue = new Value(this.cur_outSine, this.cur_outLeadSine);
          return this.cachedValue;
@@ -1227,6 +1265,8 @@
        * the thread.
        */
       public Value peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("HT_SINE peek: BadParam", RetCode.BadParam);
          HT_SINE_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new HT_SINE_Stream(this);
@@ -1451,7 +1491,7 @@
       }
       sp.streamParity = 1 - sp.streamParity;
    }
-   private RetCode HT_SINE_OpenCore( HT_SINE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[], int outStride )
+   private RetCode HT_SINE_OpenPass( HT_SINE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -1560,7 +1600,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       outBegIdx.value = startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -1942,56 +1982,56 @@
       sp.cachedValue = new HT_SINE_Stream.Value(sp.cur_outSine, sp.cur_outLeadSine);
       return RetCode.Success;
    }
-   private RetCode HT_SINE_OpenBody( HT_SINE_Stream sp, double inReal[], int startIdx )
+   private RetCode HT_SINE_OpenImpl( HT_SINE_Stream sp, double inReal[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outSine = new double[1];
       double[] sink_outLeadSine = new double[1];
-      return HT_SINE_OpenCore( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outSine, sink_outLeadSine, 0 );
+      return HT_SINE_OpenPass( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outSine, sink_outLeadSine, 0 );
    }
-   private RetCode HT_SINE_OpenAndFillBody( HT_SINE_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[] )
+   private RetCode HT_SINE_OpenAndFillImpl( HT_SINE_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[] )
    {
       if( (Object)outSine == (Object)inReal || (Object)outLeadSine == (Object)inReal || (Object)outSine == (Object)outLeadSine ) {
          return RetCode.BadParam;
       }
-      return HT_SINE_OpenCore( sp, inReal, 0, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
+      return HT_SINE_OpenPass( sp, inReal, 0, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
    }
-   private RetCode HT_SINE_OpenAndFillInternalBody( HT_SINE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[] )
+   private RetCode HT_SINE_OpenAndFillInternalImpl( HT_SINE_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[] )
    {
-      return HT_SINE_OpenCore(sp, inReal, startIdx, outBegIdx, outNBElement, outSine, outLeadSine, 1);
+      return HT_SINE_OpenPass(sp, inReal, startIdx, outBegIdx, outNBElement, outSine, outLeadSine, 1);
    }
    /* HT_SINE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    HT_SINE_Stream HT_SINE_OpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outSine[], double outLeadSine[] )
    {
       HT_SINE_Stream sp = new HT_SINE_Stream(this);
-      RetCode retCode = HT_SINE_OpenAndFillInternalBody(sp, inReal, startIdx, outBegIdx, outNBElement, outSine, outLeadSine);
+      RetCode retCode = HT_SINE_OpenAndFillInternalImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outSine, outLeadSine);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("HT_SINE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("HT_SINE openAndFill: internal error");
+         throw new TaLibStateException("HT_SINE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("HT_SINE openAndFill: " + retCode);
+      throw new TaLibArgumentException("HT_SINE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind HT_SINE_Open (composition seam). */
    HT_SINE_Stream HT_SINE_OpenInternal( double inReal[], int startIdx )
    {
       HT_SINE_Stream sp = new HT_SINE_Stream(this);
-      RetCode retCode = HT_SINE_OpenBody(sp, inReal, startIdx);
+      RetCode retCode = HT_SINE_OpenImpl(sp, inReal, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("HT_SINE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("HT_SINE open: internal error");
+         throw new TaLibStateException("HT_SINE open: internal error", retCode);
       }
-      throw new IllegalArgumentException("HT_SINE open: " + retCode);
+      throw new TaLibArgumentException("HT_SINE open: " + retCode, retCode);
    }
    /**
     * Open a live HT_SINE stream over the warm-up history; the handle's
@@ -2021,16 +2061,16 @@
       HT_SINE_Stream sp = new HT_SINE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HT_SINE_OpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outSine, outLeadSine);
+      RetCode retCode = HT_SINE_OpenAndFillImpl(sp, inReal, outBegIdx, outNBElement, outSine, outLeadSine);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("HT_SINE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("HT_SINE openAndFill: internal error");
+         throw new TaLibStateException("HT_SINE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("HT_SINE openAndFill: " + retCode);
+      throw new TaLibArgumentException("HT_SINE openAndFill: " + retCode, retCode);
    }

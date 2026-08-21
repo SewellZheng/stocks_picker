@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
+#include <limits.h>
 #include <math.h>
 #include <time.h>
 #ifdef __APPLE__
@@ -19,6 +20,7 @@
 #include "ta_common/ta_version.c"
 #include "ta_common/ta_retcode.c"
 
+#include "ta_func/ta_AC.c"
 #include "ta_func/ta_ACCBANDS.c"
 #include "ta_func/ta_ACOS.c"
 #include "ta_func/ta_AD.c"
@@ -26,6 +28,7 @@
 #include "ta_func/ta_ADOSC.c"
 #include "ta_func/ta_ADX.c"
 #include "ta_func/ta_ADXR.c"
+#include "ta_func/ta_AO.c"
 #include "ta_func/ta_APO.c"
 #include "ta_func/ta_AROON.c"
 #include "ta_func/ta_AROONOSC.c"
@@ -167,6 +170,7 @@
 #include "ta_func/ta_SIN.c"
 #include "ta_func/ta_SINH.c"
 #include "ta_func/ta_SMA.c"
+#include "ta_func/ta_SMI.c"
 #include "ta_func/ta_SQRT.c"
 #include "ta_func/ta_STDDEV.c"
 #include "ta_func/ta_STOCH.c"
@@ -233,14 +237,32 @@ static int json_appendc(char *buf, int buf_size, int pos, char c) {
     return pos;
 }
 
+/* Parses wide and saturates, rather than atoi's silent truncation to int.
+ * A wire value of 2^32 truncates to 0, so `atoi` turned an out-of-domain
+ * request into a legal one and the server answered "ok" to a setting nobody
+ * asked for -- while the Rust and Java servers, which range-check a 64-bit
+ * parse, rejected the same request. Saturating fails closed instead: no
+ * parameter in the library has a legal domain reaching INT_MAX (the widest
+ * integer range is 100000, and the index ceiling is TA_MAX_INDEX = 1e8), so a
+ * saturated value is refused by whatever validation the field already has.
+ *
+ * INT_MIN is deliberately NOT the negative clamp: it is TA_INTEGER_DEFAULT,
+ * and manufacturing it would turn an out-of-range request into "use the
+ * documented default" -- silently wrong in the one direction that looks like
+ * success. A wire value of exactly INT_MIN still parses to INT_MIN, since that
+ * is how a caller legitimately asks for the default. */
 static int json_find_int(const char *json, const char *field) {
     char pattern[256];
+    long long v;
     snprintf(pattern, sizeof(pattern), "\"%s\":", field);
     const char *p = strstr(json, pattern);
     if( !p ) return 0;
     p += strlen(pattern);
     while( *p == ' ' ) p++;
-    return atoi(p);
+    v = strtoll(p, NULL, 10);
+    if( v > (long long)INT_MAX ) return INT_MAX;
+    if( v < (long long)INT_MIN ) return INT_MIN + 1;
+    return (int)v;
 }
 
 static double json_find_double(const char *json, const char *field) {
@@ -251,6 +273,37 @@ static double json_find_double(const char *json, const char *field) {
     p += strlen(pattern);
     while( *p == ' ' ) p++;
     return strtod(p, NULL);
+}
+
+/* One f64, transported as the 16 hex chars of its IEEE-754 bit pattern.
+ *
+ * A scalar the caller wants delivered EXACTLY cannot go over the wire as a JSON
+ * number. %.17g does round-trip every finite double, but NaN and the infinities
+ * have no JSON number spelling at all -- and `factor` has to carry a NaN,
+ * because refusing one is part of the contract being compared across languages.
+ * Same encoding json_find_double_array already uses for arrays (#115), one
+ * group instead of many. Returns `def` when the field is absent or malformed,
+ * so a caller that omits it gets a documented value rather than a silent 0. */
+static double json_find_f64_bits(const char *json, const char *field, double def) {
+    char pattern[256];
+    unsigned long long bits = 0;
+    double out;
+    int k;
+    snprintf(pattern, sizeof(pattern), "\"%s\":\"", field);
+    const char *p = strstr(json, pattern);
+    if( !p ) return def;
+    p += strlen(pattern);
+    for( k = 0; k < 16; k++ ) {
+        char c = p[k];
+        unsigned int v;
+        if     ( c >= '0' && c <= '9' ) v = (unsigned int)(c - '0');
+        else if( c >= 'a' && c <= 'f' ) v = (unsigned int)(c - 'a' + 10);
+        else if( c >= 'A' && c <= 'F' ) v = (unsigned int)(c - 'A' + 10);
+        else return def;   /* short or non-hex group */
+        bits = (bits << 4) | v;
+    }
+    memcpy(&out, &bits, sizeof(double));
+    return out;
 }
 
 static int json_find_double_array(const char *json, const char *field,
@@ -399,6 +452,8 @@ static void preload_to_working(int nInputs, int isPriceInput) {
 /* ---- stream_verify: bitwise batch-vs-stream comparison ---- */
 #ifndef TA_REF_SERVE
 #define SV_MAXN 256
+#define SV_FILL_CANARY (-1.2345678901234e300)
+#define SV_FILL_CANARY_I (-987654321)
 #define SV_PEEK_EVERY 7
 static double sv_o[SV_MAXN], sv_h[SV_MAXN], sv_l[SV_MAXN];
 static double sv_c[SV_MAXN], sv_v[SV_MAXN], sv_oi[SV_MAXN];
@@ -439,7 +494,106 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
     fuzz_gen(svShape, svSeed, svN, sv_o, sv_h, sv_l, sv_c, sv_v, sv_oi);
     TA_SetCompatibility((TA_Compatibility)svCompat);
 
-    if( fnLen == 11 && strncmp(fn, "TA_ACCBANDS", 11) == 0 ) {
+    if( fnLen == 5 && strncmp(fn, "TA_AC", 5) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        rc = TA_AC(0, svN - 1, sv_h, sv_l, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_AC_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_AC_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_AC_Open(&st, sv_h, sv_l, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_AC_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AC_Stream *stf = NULL;
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AC_OpenAndFill(&stf, sv_h, sv_l, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
+            if( stf ) TA_AC_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AC_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AC_OpenAndFill(&sal, sv_h, sv_l, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AC_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_AC_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_AC_Open(&st, sv_h, sv_l, P, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_AC_Peek(st, sv_h[t], sv_l[t], &pk0);
+                TA_AC_Update(st, sv_h[t], sv_l[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_AC_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AC(Sidx, svN - 1, sv_h, sv_l, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_AC_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AC_OpenInternal(&stA, sv_h, sv_l, Sidx, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_AC_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
+    else if( fnLen == 11 && strncmp(fn, "TA_ACCBANDS", 11) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
@@ -459,7 +613,13 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ACCBANDS_Stream *stf = NULL;
-            TA_RetCode frc = TA_ACCBANDS_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+               sv_f2[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ACCBANDS_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
@@ -467,6 +627,12 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f2[ft], sv_b2[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f2[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ACCBANDS_Close(stf);
         }
         {
@@ -566,12 +732,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ACOS_Stream *stf = NULL;
-            TA_RetCode frc = TA_ACOS_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ACOS_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ACOS_Close(stf);
         }
         {
@@ -654,12 +828,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_AD_Stream *stf = NULL;
-            TA_RetCode frc = TA_AD_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AD_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_AD_Close(stf);
         }
         {
@@ -742,12 +924,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ADD_Stream *stf = NULL;
-            TA_RetCode frc = TA_ADD_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ADD_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ADD_Close(stf);
         }
         {
@@ -834,12 +1024,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ADOSC_Stream *stf = NULL;
-            TA_RetCode frc = TA_ADOSC_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInFastPeriod, optInSlowPeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ADOSC_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInFastPeriod, optInSlowPeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ADOSC_Close(stf);
         }
         {
@@ -926,12 +1124,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ADX_Stream *stf = NULL;
-            TA_RetCode frc = TA_ADX_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ADX_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ADX_Close(stf);
         }
         {
@@ -1018,12 +1224,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ADXR_Stream *stf = NULL;
-            TA_RetCode frc = TA_ADXR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ADXR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ADXR_Close(stf);
         }
         {
@@ -1088,6 +1302,104 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
         return;
     }
+    else if( fnLen == 5 && strncmp(fn, "TA_AO", 5) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        rc = TA_AO(0, svN - 1, sv_h, sv_l, optInFastPeriod, optInSlowPeriod, &svBeg, &svNb, sv_b0);
+        lb = TA_AO_Lookback(optInFastPeriod, optInSlowPeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_AO_Stream *st = NULL; double v0 = 0.0; TA_RetCode orc = TA_AO_Open(&st, sv_h, sv_l, svN, optInFastPeriod, optInSlowPeriod, &v0);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_AO_Close(st); }
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_AO_Stream *stf = NULL;
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AO_OpenAndFill(&stf, sv_h, sv_l, svN, optInFastPeriod, optInSlowPeriod, &fBeg, &fNb, sv_f0);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+            }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
+            if( stf ) TA_AO_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_AO_Stream *sal = NULL;
+            TA_RetCode alrc = TA_AO_OpenAndFill(&sal, sv_h, sv_l, svN, optInFastPeriod, optInSlowPeriod, &alB, &alN, sv_h);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_AO_Close(sal);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_AO_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            rc = TA_AO_Open(&st, sv_h, sv_l, P, optInFastPeriod, optInSlowPeriod, &v0);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_AO_Peek(st, sv_h[t], sv_l[t], &pk0);
+                TA_AO_Update(st, sv_h[t], sv_l[t], &v0);
+                if( doPeek && (sv_bitne(pk0, v0)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+            }
+            if( st ) TA_AO_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_AO(Sidx, svN - 1, sv_h, sv_l, optInFastPeriod, optInSlowPeriod, &svBegS, &svNbS, sv_b0);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    TA_AO_Stream *stA = NULL;
+                    TA_RetCode arc = TA_AO_OpenInternal(&stA, sv_h, sv_l, Sidx, svN, optInFastPeriod, optInSlowPeriod, &v0);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( stA ) TA_AO_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
     else if( fnLen == 6 && strncmp(fn, "TA_APO", 6) == 0 ) {
         int optInFastPeriod = json_find_int(json, "optInFastPeriod");
         int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
@@ -1118,12 +1430,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_APO_Stream *stf = NULL;
-            TA_RetCode frc = TA_APO_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_APO_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_APO_Close(stf);
         }
         {
@@ -1211,13 +1531,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_AROON_Stream *stf = NULL;
-            TA_RetCode frc = TA_AROON_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AROON_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_AROON_Close(stf);
         }
         {
@@ -1313,12 +1643,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_AROONOSC_Stream *stf = NULL;
-            TA_RetCode frc = TA_AROONOSC_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AROONOSC_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_AROONOSC_Close(stf);
         }
         {
@@ -1401,12 +1739,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ASIN_Stream *stf = NULL;
-            TA_RetCode frc = TA_ASIN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ASIN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ASIN_Close(stf);
         }
         {
@@ -1489,12 +1835,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ATAN_Stream *stf = NULL;
-            TA_RetCode frc = TA_ATAN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ATAN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ATAN_Close(stf);
         }
         {
@@ -1580,12 +1934,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ATR_Stream *stf = NULL;
-            TA_RetCode frc = TA_ATR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ATR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ATR_Close(stf);
         }
         {
@@ -1670,12 +2032,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_AVGDEV_Stream *stf = NULL;
-            TA_RetCode frc = TA_AVGDEV_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AVGDEV_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_AVGDEV_Close(stf);
         }
         {
@@ -1758,12 +2128,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_AVGPRICE_Stream *stf = NULL;
-            TA_RetCode frc = TA_AVGPRICE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_AVGPRICE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_AVGPRICE_Close(stf);
         }
         {
@@ -1858,7 +2236,13 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_BBANDS_Stream *stf = NULL;
-            TA_RetCode frc = TA_BBANDS_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+               sv_f2[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_BBANDS_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
@@ -1866,6 +2250,12 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f2[ft], sv_b2[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f2[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_BBANDS_Close(stf);
         }
         {
@@ -1970,12 +2360,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_BETA_Stream *stf = NULL;
-            TA_RetCode frc = TA_BETA_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_BETA_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_BETA_Close(stf);
         }
         {
@@ -2058,12 +2456,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_BOP_Stream *stf = NULL;
-            TA_RetCode frc = TA_BOP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_BOP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_BOP_Close(stf);
         }
         {
@@ -2147,12 +2553,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CCI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CCI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_CCI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_CCI_Close(stf);
         }
         {
@@ -2243,12 +2657,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL2CROWS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL2CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL2CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL2CROWS_Close(stf);
         }
         npref = 0;
@@ -2334,12 +2756,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL3BLACKCROWS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL3BLACKCROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL3BLACKCROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL3BLACKCROWS_Close(stf);
         }
         npref = 0;
@@ -2425,12 +2855,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL3INSIDE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL3INSIDE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL3INSIDE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL3INSIDE_Close(stf);
         }
         npref = 0;
@@ -2516,12 +2954,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL3LINESTRIKE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL3LINESTRIKE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL3LINESTRIKE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL3LINESTRIKE_Close(stf);
         }
         npref = 0;
@@ -2607,12 +3053,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL3OUTSIDE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL3OUTSIDE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL3OUTSIDE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL3OUTSIDE_Close(stf);
         }
         npref = 0;
@@ -2698,12 +3152,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL3STARSINSOUTH_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL3STARSINSOUTH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL3STARSINSOUTH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL3STARSINSOUTH_Close(stf);
         }
         npref = 0;
@@ -2789,12 +3251,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDL3WHITESOLDIERS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDL3WHITESOLDIERS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDL3WHITESOLDIERS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDL3WHITESOLDIERS_Close(stf);
         }
         npref = 0;
@@ -2881,12 +3351,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLABANDONEDBABY_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLABANDONEDBABY_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLABANDONEDBABY_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLABANDONEDBABY_Close(stf);
         }
         npref = 0;
@@ -2972,12 +3450,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLADVANCEBLOCK_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLADVANCEBLOCK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLADVANCEBLOCK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLADVANCEBLOCK_Close(stf);
         }
         npref = 0;
@@ -3063,12 +3549,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLBELTHOLD_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLBELTHOLD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLBELTHOLD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLBELTHOLD_Close(stf);
         }
         npref = 0;
@@ -3154,12 +3648,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLBREAKAWAY_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLBREAKAWAY_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLBREAKAWAY_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLBREAKAWAY_Close(stf);
         }
         npref = 0;
@@ -3245,12 +3747,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLCLOSINGMARUBOZU_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLCLOSINGMARUBOZU_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLCLOSINGMARUBOZU_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLCLOSINGMARUBOZU_Close(stf);
         }
         npref = 0;
@@ -3336,12 +3846,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLCONCEALBABYSWALL_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLCONCEALBABYSWALL_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLCONCEALBABYSWALL_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLCONCEALBABYSWALL_Close(stf);
         }
         npref = 0;
@@ -3427,12 +3945,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLCOUNTERATTACK_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLCOUNTERATTACK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLCOUNTERATTACK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLCOUNTERATTACK_Close(stf);
         }
         npref = 0;
@@ -3519,12 +4045,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLDARKCLOUDCOVER_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLDARKCLOUDCOVER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLDARKCLOUDCOVER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLDARKCLOUDCOVER_Close(stf);
         }
         npref = 0;
@@ -3610,12 +4144,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLDOJI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLDOJI_Close(stf);
         }
         npref = 0;
@@ -3701,12 +4243,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLDOJISTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLDOJISTAR_Close(stf);
         }
         npref = 0;
@@ -3792,12 +4342,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLDRAGONFLYDOJI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLDRAGONFLYDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLDRAGONFLYDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLDRAGONFLYDOJI_Close(stf);
         }
         npref = 0;
@@ -3883,12 +4441,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLENGULFING_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLENGULFING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLENGULFING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLENGULFING_Close(stf);
         }
         npref = 0;
@@ -3975,12 +4541,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLEVENINGDOJISTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLEVENINGDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLEVENINGDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLEVENINGDOJISTAR_Close(stf);
         }
         npref = 0;
@@ -4067,12 +4641,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLEVENINGSTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLEVENINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLEVENINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLEVENINGSTAR_Close(stf);
         }
         npref = 0;
@@ -4158,12 +4740,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLGAPSIDESIDEWHITE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLGAPSIDESIDEWHITE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLGAPSIDESIDEWHITE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLGAPSIDESIDEWHITE_Close(stf);
         }
         npref = 0;
@@ -4249,12 +4839,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLGRAVESTONEDOJI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLGRAVESTONEDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLGRAVESTONEDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLGRAVESTONEDOJI_Close(stf);
         }
         npref = 0;
@@ -4340,12 +4938,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHAMMER_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHAMMER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHAMMER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHAMMER_Close(stf);
         }
         npref = 0;
@@ -4431,12 +5037,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHANGINGMAN_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHANGINGMAN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHANGINGMAN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHANGINGMAN_Close(stf);
         }
         npref = 0;
@@ -4522,12 +5136,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHARAMI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHARAMI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHARAMI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHARAMI_Close(stf);
         }
         npref = 0;
@@ -4613,12 +5235,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHARAMICROSS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHARAMICROSS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHARAMICROSS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHARAMICROSS_Close(stf);
         }
         npref = 0;
@@ -4704,12 +5334,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHIGHWAVE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHIGHWAVE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHIGHWAVE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHIGHWAVE_Close(stf);
         }
         npref = 0;
@@ -4795,12 +5433,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHIKKAKE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHIKKAKE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHIKKAKE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHIKKAKE_Close(stf);
         }
         npref = 0;
@@ -4886,12 +5532,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHIKKAKEMOD_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHIKKAKEMOD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHIKKAKEMOD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHIKKAKEMOD_Close(stf);
         }
         npref = 0;
@@ -4977,12 +5631,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLHOMINGPIGEON_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLHOMINGPIGEON_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLHOMINGPIGEON_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLHOMINGPIGEON_Close(stf);
         }
         npref = 0;
@@ -5068,12 +5730,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLIDENTICAL3CROWS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLIDENTICAL3CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLIDENTICAL3CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLIDENTICAL3CROWS_Close(stf);
         }
         npref = 0;
@@ -5159,12 +5829,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLINNECK_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLINNECK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLINNECK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLINNECK_Close(stf);
         }
         npref = 0;
@@ -5250,12 +5928,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLINVERTEDHAMMER_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLINVERTEDHAMMER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLINVERTEDHAMMER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLINVERTEDHAMMER_Close(stf);
         }
         npref = 0;
@@ -5341,12 +6027,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLKICKING_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLKICKING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLKICKING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLKICKING_Close(stf);
         }
         npref = 0;
@@ -5432,12 +6126,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLKICKINGBYLENGTH_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLKICKINGBYLENGTH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLKICKINGBYLENGTH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLKICKINGBYLENGTH_Close(stf);
         }
         npref = 0;
@@ -5523,12 +6225,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLLADDERBOTTOM_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLLADDERBOTTOM_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLLADDERBOTTOM_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLLADDERBOTTOM_Close(stf);
         }
         npref = 0;
@@ -5614,12 +6324,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLLONGLEGGEDDOJI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLLONGLEGGEDDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLLONGLEGGEDDOJI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLLONGLEGGEDDOJI_Close(stf);
         }
         npref = 0;
@@ -5705,12 +6423,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLLONGLINE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLLONGLINE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLLONGLINE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLLONGLINE_Close(stf);
         }
         npref = 0;
@@ -5796,12 +6522,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLMARUBOZU_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLMARUBOZU_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLMARUBOZU_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLMARUBOZU_Close(stf);
         }
         npref = 0;
@@ -5887,12 +6621,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLMATCHINGLOW_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLMATCHINGLOW_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLMATCHINGLOW_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLMATCHINGLOW_Close(stf);
         }
         npref = 0;
@@ -5979,12 +6721,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLMATHOLD_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLMATHOLD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLMATHOLD_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLMATHOLD_Close(stf);
         }
         npref = 0;
@@ -6071,12 +6821,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLMORNINGDOJISTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLMORNINGDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLMORNINGDOJISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLMORNINGDOJISTAR_Close(stf);
         }
         npref = 0;
@@ -6163,12 +6921,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLMORNINGSTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLMORNINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLMORNINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, optInPenetration, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLMORNINGSTAR_Close(stf);
         }
         npref = 0;
@@ -6254,12 +7020,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLONNECK_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLONNECK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLONNECK_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLONNECK_Close(stf);
         }
         npref = 0;
@@ -6345,12 +7119,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLPIERCING_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLPIERCING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLPIERCING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLPIERCING_Close(stf);
         }
         npref = 0;
@@ -6436,12 +7218,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLRICKSHAWMAN_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLRICKSHAWMAN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLRICKSHAWMAN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLRICKSHAWMAN_Close(stf);
         }
         npref = 0;
@@ -6527,12 +7317,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLRISEFALL3METHODS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLRISEFALL3METHODS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLRISEFALL3METHODS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLRISEFALL3METHODS_Close(stf);
         }
         npref = 0;
@@ -6618,12 +7416,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLSEPARATINGLINES_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLSEPARATINGLINES_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLSEPARATINGLINES_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLSEPARATINGLINES_Close(stf);
         }
         npref = 0;
@@ -6709,12 +7515,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLSHOOTINGSTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLSHOOTINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLSHOOTINGSTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLSHOOTINGSTAR_Close(stf);
         }
         npref = 0;
@@ -6800,12 +7614,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLSHORTLINE_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLSHORTLINE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLSHORTLINE_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLSHORTLINE_Close(stf);
         }
         npref = 0;
@@ -6891,12 +7713,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLSPINNINGTOP_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLSPINNINGTOP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLSPINNINGTOP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLSPINNINGTOP_Close(stf);
         }
         npref = 0;
@@ -6982,12 +7812,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLSTALLEDPATTERN_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLSTALLEDPATTERN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLSTALLEDPATTERN_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLSTALLEDPATTERN_Close(stf);
         }
         npref = 0;
@@ -7073,12 +7911,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLSTICKSANDWICH_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLSTICKSANDWICH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLSTICKSANDWICH_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLSTICKSANDWICH_Close(stf);
         }
         npref = 0;
@@ -7164,12 +8010,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLTAKURI_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLTAKURI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLTAKURI_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLTAKURI_Close(stf);
         }
         npref = 0;
@@ -7255,12 +8109,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLTASUKIGAP_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLTASUKIGAP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLTASUKIGAP_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLTASUKIGAP_Close(stf);
         }
         npref = 0;
@@ -7346,12 +8208,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLTHRUSTING_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLTHRUSTING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLTHRUSTING_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLTHRUSTING_Close(stf);
         }
         npref = 0;
@@ -7437,12 +8307,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLTRISTAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLTRISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLTRISTAR_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLTRISTAR_Close(stf);
         }
         npref = 0;
@@ -7528,12 +8406,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLUNIQUE3RIVER_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLUNIQUE3RIVER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLUNIQUE3RIVER_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLUNIQUE3RIVER_Close(stf);
         }
         npref = 0;
@@ -7619,12 +8505,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLUPSIDEGAP2CROWS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLUPSIDEGAP2CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLUPSIDEGAP2CROWS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLUPSIDEGAP2CROWS_Close(stf);
         }
         npref = 0;
@@ -7710,12 +8604,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CDLXSIDEGAP3METHODS_Stream *stf = NULL;
-            TA_RetCode frc = TA_CDLXSIDEGAP3METHODS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_CDLXSIDEGAP3METHODS_OpenAndFill(&stf, sv_o, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_CDLXSIDEGAP3METHODS_Close(stf);
         }
         npref = 0;
@@ -7793,12 +8695,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CEIL_Stream *stf = NULL;
-            TA_RetCode frc = TA_CEIL_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_CEIL_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_CEIL_Close(stf);
         }
         {
@@ -7882,12 +8792,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CMF_Stream *stf = NULL;
-            TA_RetCode frc = TA_CMF_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_CMF_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_CMF_Close(stf);
         }
         {
@@ -7973,12 +8891,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CMO_Stream *stf = NULL;
-            TA_RetCode frc = TA_CMO_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_CMO_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_CMO_Close(stf);
         }
         {
@@ -8063,12 +8989,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CMOU_Stream *stf = NULL;
-            TA_RetCode frc = TA_CMOU_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_CMOU_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_CMOU_Close(stf);
         }
         {
@@ -8152,12 +9086,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_CORREL_Stream *stf = NULL;
-            TA_RetCode frc = TA_CORREL_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_CORREL_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_CORREL_Close(stf);
         }
         {
@@ -8240,12 +9182,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_COS_Stream *stf = NULL;
-            TA_RetCode frc = TA_COS_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_COS_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_COS_Close(stf);
         }
         {
@@ -8328,12 +9278,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_COSH_Stream *stf = NULL;
-            TA_RetCode frc = TA_COSH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_COSH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_COSH_Close(stf);
         }
         {
@@ -8419,12 +9377,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_DEMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_DEMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_DEMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_DEMA_Close(stf);
         }
         {
@@ -8508,12 +9474,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_DIV_Stream *stf = NULL;
-            TA_RetCode frc = TA_DIV_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_DIV_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_DIV_Close(stf);
         }
         {
@@ -8599,12 +9573,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_DX_Stream *stf = NULL;
-            TA_RetCode frc = TA_DX_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_DX_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_DX_Close(stf);
         }
         {
@@ -8689,12 +9671,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_EFI_Stream *stf = NULL;
-            TA_RetCode frc = TA_EFI_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_EFI_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_EFI_Close(stf);
         }
         {
@@ -8780,12 +9770,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_EMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_EMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_EMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_EMA_Close(stf);
         }
         {
@@ -8869,12 +9867,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_EXP_Stream *stf = NULL;
-            TA_RetCode frc = TA_EXP_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_EXP_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_EXP_Close(stf);
         }
         {
@@ -8957,12 +9963,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_FLOOR_Stream *stf = NULL;
-            TA_RetCode frc = TA_FLOOR_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_FLOOR_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_FLOOR_Close(stf);
         }
         {
@@ -9046,12 +10060,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_HMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_HMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_HMA_Close(stf);
         }
         {
@@ -9136,12 +10158,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HT_DCPERIOD_Stream *stf = NULL;
-            TA_RetCode frc = TA_HT_DCPERIOD_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_HT_DCPERIOD_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_HT_DCPERIOD_Close(stf);
         }
         {
@@ -9227,12 +10257,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HT_DCPHASE_Stream *stf = NULL;
-            TA_RetCode frc = TA_HT_DCPHASE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_HT_DCPHASE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_HT_DCPHASE_Close(stf);
         }
         {
@@ -9318,13 +10356,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HT_PHASOR_Stream *stf = NULL;
-            TA_RetCode frc = TA_HT_PHASOR_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_HT_PHASOR_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_HT_PHASOR_Close(stf);
         }
         {
@@ -9422,13 +10470,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HT_SINE_Stream *stf = NULL;
-            TA_RetCode frc = TA_HT_SINE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_HT_SINE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_HT_SINE_Close(stf);
         }
         {
@@ -9526,12 +10584,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HT_TRENDLINE_Stream *stf = NULL;
-            TA_RetCode frc = TA_HT_TRENDLINE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_HT_TRENDLINE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_HT_TRENDLINE_Close(stf);
         }
         {
@@ -9617,12 +10683,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_HT_TRENDMODE_Stream *stf = NULL;
-            TA_RetCode frc = TA_HT_TRENDMODE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_HT_TRENDMODE_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_HT_TRENDMODE_Close(stf);
         }
         npref = 0;
@@ -9700,12 +10774,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_IMI_Stream *stf = NULL;
-            TA_RetCode frc = TA_IMI_OpenAndFill(&stf, sv_o, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_IMI_OpenAndFill(&stf, sv_o, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_IMI_Close(stf);
         }
         {
@@ -9791,12 +10873,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_KAMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_KAMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_KAMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_KAMA_Close(stf);
         }
         {
@@ -9881,12 +10971,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_LINEARREG_Stream *stf = NULL;
-            TA_RetCode frc = TA_LINEARREG_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_LINEARREG_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_LINEARREG_Close(stf);
         }
         {
@@ -9970,12 +11068,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_LINEARREG_ANGLE_Stream *stf = NULL;
-            TA_RetCode frc = TA_LINEARREG_ANGLE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_LINEARREG_ANGLE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_LINEARREG_ANGLE_Close(stf);
         }
         {
@@ -10059,12 +11165,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_LINEARREG_INTERCEPT_Stream *stf = NULL;
-            TA_RetCode frc = TA_LINEARREG_INTERCEPT_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_LINEARREG_INTERCEPT_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_LINEARREG_INTERCEPT_Close(stf);
         }
         {
@@ -10148,12 +11262,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_LINEARREG_SLOPE_Stream *stf = NULL;
-            TA_RetCode frc = TA_LINEARREG_SLOPE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_LINEARREG_SLOPE_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_LINEARREG_SLOPE_Close(stf);
         }
         {
@@ -10236,12 +11358,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_LN_Stream *stf = NULL;
-            TA_RetCode frc = TA_LN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_LN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_LN_Close(stf);
         }
         {
@@ -10324,12 +11454,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_LOG10_Stream *stf = NULL;
-            TA_RetCode frc = TA_LOG10_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_LOG10_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_LOG10_Close(stf);
         }
         {
@@ -10422,12 +11560,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MA_Stream *stf = NULL;
-            TA_RetCode frc = TA_MA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInMAType, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MA_Close(stf);
         }
         {
@@ -10519,7 +11665,13 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MACD_Stream *stf = NULL;
-            TA_RetCode frc = TA_MACD_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+               sv_f2[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MACD_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
@@ -10527,6 +11679,12 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f2[ft], sv_b2[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f2[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MACD_Close(stf);
         }
         {
@@ -10641,7 +11799,13 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MACDEXT_Stream *stf = NULL;
-            TA_RetCode frc = TA_MACDEXT_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+               sv_f2[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MACDEXT_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
@@ -10649,6 +11813,12 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f2[ft], sv_b2[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f2[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MACDEXT_Close(stf);
         }
         {
@@ -10755,7 +11925,13 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MACDFIX_Stream *stf = NULL;
-            TA_RetCode frc = TA_MACDFIX_OpenAndFill(&stf, sv_c, svN, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+               sv_f2[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MACDFIX_OpenAndFill(&stf, sv_c, svN, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1, sv_f2);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
@@ -10763,6 +11939,12 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f2[ft], sv_b2[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f2[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MACDFIX_Close(stf);
         }
         {
@@ -10867,13 +12049,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MAMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_MAMA_OpenAndFill(&stf, sv_c, svN, optInFastLimit, optInSlowLimit, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MAMA_OpenAndFill(&stf, sv_c, svN, optInFastLimit, optInSlowLimit, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MAMA_Close(stf);
         }
         {
@@ -10969,12 +12161,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MARKETFI_Stream *stf = NULL;
-            TA_RetCode frc = TA_MARKETFI_OpenAndFill(&stf, sv_h, sv_l, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MARKETFI_OpenAndFill(&stf, sv_h, sv_l, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MARKETFI_Close(stf);
         }
         {
@@ -11069,12 +12269,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MAVP_Stream *stf = NULL;
-            TA_RetCode frc = TA_MAVP_OpenAndFill(&stf, sv_c, sv_v, svN, optInMinPeriod, optInMaxPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MAVP_OpenAndFill(&stf, sv_c, sv_v, svN, optInMinPeriod, optInMaxPeriod, optInMAType, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MAVP_Close(stf);
         }
         {
@@ -11162,12 +12370,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MAX_Stream *stf = NULL;
-            TA_RetCode frc = TA_MAX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MAX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MAX_Close(stf);
         }
         {
@@ -11251,12 +12467,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MAXINDEX_Stream *stf = NULL;
-            TA_RetCode frc = TA_MAXINDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_MAXINDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_MAXINDEX_Close(stf);
         }
         npref = 0;
@@ -11332,12 +12556,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MEDPRICE_Stream *stf = NULL;
-            TA_RetCode frc = TA_MEDPRICE_OpenAndFill(&stf, sv_h, sv_l, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MEDPRICE_OpenAndFill(&stf, sv_h, sv_l, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MEDPRICE_Close(stf);
         }
         {
@@ -11421,12 +12653,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MFI_Stream *stf = NULL;
-            TA_RetCode frc = TA_MFI_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MFI_OpenAndFill(&stf, sv_h, sv_l, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MFI_Close(stf);
         }
         {
@@ -11510,12 +12750,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MIDPOINT_Stream *stf = NULL;
-            TA_RetCode frc = TA_MIDPOINT_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MIDPOINT_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MIDPOINT_Close(stf);
         }
         {
@@ -11599,12 +12847,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MIDPRICE_Stream *stf = NULL;
-            TA_RetCode frc = TA_MIDPRICE_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MIDPRICE_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MIDPRICE_Close(stf);
         }
         {
@@ -11688,12 +12944,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MIN_Stream *stf = NULL;
-            TA_RetCode frc = TA_MIN_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MIN_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MIN_Close(stf);
         }
         {
@@ -11777,12 +13041,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MININDEX_Stream *stf = NULL;
-            TA_RetCode frc = TA_MININDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_MININDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_MININDEX_Close(stf);
         }
         npref = 0;
@@ -11859,13 +13131,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MINMAX_Stream *stf = NULL;
-            TA_RetCode frc = TA_MINMAX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MINMAX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MINMAX_Close(stf);
         }
         {
@@ -11961,13 +13243,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MINMAXINDEX_Stream *stf = NULL;
-            TA_RetCode frc = TA_MINMAXINDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0, sv_if1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_if0[ft] = SV_FILL_CANARY_I;
+               sv_if1[ft] = SV_FILL_CANARY_I;
+            }
+            frc = TA_MINMAXINDEX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_if0, sv_if1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_if0[ft] != sv_ib0[ft] ) fillOk = 0;
                 if( sv_if1[ft] != sv_ib1[ft] ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_if0[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+                  if( sv_if1[ft] != SV_FILL_CANARY_I ) fillOk = 0;
+               }
             if( stf ) TA_MINMAXINDEX_Close(stf);
         }
         {
@@ -12058,12 +13350,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MINUS_DI_Stream *stf = NULL;
-            TA_RetCode frc = TA_MINUS_DI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MINUS_DI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MINUS_DI_Close(stf);
         }
         {
@@ -12150,12 +13450,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MINUS_DM_Stream *stf = NULL;
-            TA_RetCode frc = TA_MINUS_DM_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MINUS_DM_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MINUS_DM_Close(stf);
         }
         {
@@ -12240,12 +13548,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MOM_Stream *stf = NULL;
-            TA_RetCode frc = TA_MOM_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MOM_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MOM_Close(stf);
         }
         {
@@ -12328,12 +13644,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_MULT_Stream *stf = NULL;
-            TA_RetCode frc = TA_MULT_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_MULT_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_MULT_Close(stf);
         }
         {
@@ -12419,12 +13743,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_NATR_Stream *stf = NULL;
-            TA_RetCode frc = TA_NATR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_NATR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_NATR_Close(stf);
         }
         {
@@ -12508,12 +13840,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_NVI_Stream *stf = NULL;
-            TA_RetCode frc = TA_NVI_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_NVI_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_NVI_Close(stf);
         }
         {
@@ -12596,12 +13936,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_OBV_Stream *stf = NULL;
-            TA_RetCode frc = TA_OBV_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_OBV_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_OBV_Close(stf);
         }
         {
@@ -12687,12 +14035,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_PLUS_DI_Stream *stf = NULL;
-            TA_RetCode frc = TA_PLUS_DI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_PLUS_DI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_PLUS_DI_Close(stf);
         }
         {
@@ -12779,12 +14135,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_PLUS_DM_Stream *stf = NULL;
-            TA_RetCode frc = TA_PLUS_DM_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_PLUS_DM_OpenAndFill(&stf, sv_h, sv_l, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_PLUS_DM_Close(stf);
         }
         {
@@ -12879,12 +14243,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_PPO_Stream *stf = NULL;
-            TA_RetCode frc = TA_PPO_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_PPO_OpenAndFill(&stf, sv_c, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_PPO_Close(stf);
         }
         {
@@ -12971,12 +14343,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_PVI_Stream *stf = NULL;
-            TA_RetCode frc = TA_PVI_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_PVI_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_PVI_Close(stf);
         }
         {
@@ -13070,12 +14450,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_PVO_Stream *stf = NULL;
-            TA_RetCode frc = TA_PVO_OpenAndFill(&stf, sv_v, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_PVO_OpenAndFill(&stf, sv_v, svN, optInFastPeriod, optInSlowPeriod, optInMAType, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_PVO_Close(stf);
         }
         {
@@ -13163,12 +14551,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_QSTICK_Stream *stf = NULL;
-            TA_RetCode frc = TA_QSTICK_OpenAndFill(&stf, sv_o, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_QSTICK_OpenAndFill(&stf, sv_o, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_QSTICK_Close(stf);
         }
         {
@@ -13252,12 +14648,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ROC_Stream *stf = NULL;
-            TA_RetCode frc = TA_ROC_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ROC_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ROC_Close(stf);
         }
         {
@@ -13341,12 +14745,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ROCP_Stream *stf = NULL;
-            TA_RetCode frc = TA_ROCP_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ROCP_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ROCP_Close(stf);
         }
         {
@@ -13430,12 +14842,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ROCR_Stream *stf = NULL;
-            TA_RetCode frc = TA_ROCR_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ROCR_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ROCR_Close(stf);
         }
         {
@@ -13519,12 +14939,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ROCR100_Stream *stf = NULL;
-            TA_RetCode frc = TA_ROCR100_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ROCR100_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ROCR100_Close(stf);
         }
         {
@@ -13610,12 +15038,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_RSI_Stream *stf = NULL;
-            TA_RetCode frc = TA_RSI_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_RSI_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_RSI_Close(stf);
         }
         {
@@ -13701,12 +15137,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_SAR_OpenAndFill(&stf, sv_h, sv_l, svN, optInAcceleration, optInMaximum, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SAR_OpenAndFill(&stf, sv_h, sv_l, svN, optInAcceleration, optInMaximum, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SAR_Close(stf);
         }
         {
@@ -13797,12 +15241,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SAREXT_Stream *stf = NULL;
-            TA_RetCode frc = TA_SAREXT_OpenAndFill(&stf, sv_h, sv_l, svN, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SAREXT_OpenAndFill(&stf, sv_h, sv_l, svN, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SAREXT_Close(stf);
         }
         {
@@ -13885,12 +15337,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SIN_Stream *stf = NULL;
-            TA_RetCode frc = TA_SIN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SIN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SIN_Close(stf);
         }
         {
@@ -13973,12 +15433,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SINH_Stream *stf = NULL;
-            TA_RetCode frc = TA_SINH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SINH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SINH_Close(stf);
         }
         {
@@ -14062,12 +15530,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_SMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SMA_Close(stf);
         }
         {
@@ -14131,6 +15607,124 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
         return;
     }
+    else if( fnLen == 6 && strncmp(fn, "TA_SMI", 6) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        TA_RetCode rc;
+        int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
+        int fillOk = 1, fillChecked = 0;
+        int svZsign = 0;
+        int pref[4]; int pc[4];
+        TA_SetUnstablePeriod(5, (unsigned int)svK);
+        rc = TA_SMI(0, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &svBeg, &svNb, sv_b0, sv_b1);
+        lb = TA_SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        if( rc != TA_SUCCESS || svNb <= 0 ) {
+            int openRejects = 0;
+            { TA_SMI_Stream *st = NULL; double v0 = 0.0; double v1 = 0.0; TA_RetCode orc = TA_SMI_Open(&st, sv_h, sv_l, sv_c, svN, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &v0, &v1);
+              if( orc != TA_SUCCESS && !st ) openRejects = 1; else TA_SMI_Close(st); }
+            TA_SetUnstablePeriod(5, 0);
+            TA_SetCompatibility((TA_Compatibility)savedCompat);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"legs\":0,\"nb\":%d,\"openRejects\":%d,\"ok\":%d,\"peek_ok\":1}", (int)rc, svNb, openRejects, openRejects);
+            return;
+        }
+        {
+            int fBeg = 0, fNb = 0, ft;
+            TA_SMI_Stream *stf = NULL;
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SMI_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &fBeg, &fNb, sv_f0, sv_f1);
+            fillChecked = 1;
+            if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
+            else for( ft = 0; fillOk && ft < svNb; ft++ ) {
+                if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
+                if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
+            }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
+            if( stf ) TA_SMI_Close(stf);
+        }
+        {
+            int alB = 0, alN = 0;
+            TA_SMI_Stream *sal = NULL;
+            TA_RetCode alrc = TA_SMI_OpenAndFill(&sal, sv_h, sv_l, sv_c, svN, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &alB, &alN, sv_h, sv_f1);
+            if( !( alrc == TA_BAD_PARAM && !sal ) ) fillOk = 0;
+            if( sal ) TA_SMI_Close(sal);
+        }
+        {
+            int aaB = 0, aaN = 0;
+            TA_SMI_Stream *saa = NULL;
+            TA_RetCode aarc = TA_SMI_OpenAndFill(&saa, sv_h, sv_l, sv_c, svN, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &aaB, &aaN, sv_f0, sv_f0);
+            if( !( aarc == TA_BAD_PARAM && !saa ) ) fillOk = 0;
+            if( saa ) TA_SMI_Close(saa);
+        }
+        npref = 0;
+        pc[0] = lb + 1; pc[1] = lb + 13; pc[2] = svN / 2; pc[3] = svN - 1;
+        for( li = 0; li < 4; li++ ) {
+            int P = pc[li]; int seen = 0, k;
+            if( P < lb + 1 ) P = lb + 1;
+            if( P > svN - 1 ) P = svN - 1;
+            if( P < 1 ) continue;
+            for( k = 0; k < npref; k++ ) if( pref[k] == P ) seen = 1;
+            if( !seen ) pref[npref++] = P;
+        }
+        pos = json_appendf(resp, resp_size, 0, "{\"retCode\":0,\"beg\":%d,\"nb\":%d,\"legs\":%d", svBeg, svNb, npref);
+        for( li = 0; li < npref; li++ ) {
+            int P = pref[li]; int t, ok = 1, pkOk = 1, badBar = -1, badOut = -1;
+            double bv = 0.0, sv = 0.0;
+            TA_SMI_Stream *st = NULL;
+            double v0 = 0.0, pk0 = 0.0;
+            double v1 = 0.0, pk1 = 0.0;
+            rc = TA_SMI_Open(&st, sv_h, sv_l, sv_c, P, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &v0, &v1);
+            if( rc != TA_SUCCESS || !st ) { ok = 0; badBar = P - 1; }
+            if( ok && sv_xtier_ne(v0, sv_b0[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 0; bv = sv_b0[(P - 1) - svBeg]; sv = v0; }
+            if( ok && sv_xtier_ne(v1, sv_b1[(P - 1) - svBeg], &svZsign) ) { ok = 0; badBar = P - 1; badOut = 1; bv = sv_b1[(P - 1) - svBeg]; sv = v1; }
+            for( t = P; ok && t < svN; t++ ) {
+                int doPeek = ((t % SV_PEEK_EVERY) == 0);
+                if( doPeek ) TA_SMI_Peek(st, sv_h[t], sv_l[t], sv_c[t], &pk0, &pk1);
+                TA_SMI_Update(st, sv_h[t], sv_l[t], sv_c[t], &v0, &v1);
+                if( doPeek && (sv_bitne(pk0, v0) || sv_bitne(pk1, v1)) ) pkOk = 0;
+                if(  sv_xtier_ne(v0, sv_b0[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 0; bv = sv_b0[t - svBeg]; sv = v0; }
+                if(  sv_xtier_ne(v1, sv_b1[t - svBeg], &svZsign) ) { ok = 0; badBar = t; badOut = 1; bv = sv_b1[t - svBeg]; sv = v1; }
+            }
+            if( st ) TA_SMI_Close(st);
+            pos = json_appendf(resp, resp_size, pos, ",\"p%d\":%d,\"match%d\":%d,\"peek%d\":%d", li, P, li, ok, li, pkOk);
+            if( !ok ) { allOk = 0; pos = json_appendf(resp, resp_size, pos, ",\"bar%d\":%d,\"out%d\":%d,\"batchv%d\":\"%a\",\"streamv%d\":\"%a\"", li, badBar, li, badOut, li, bv, li, sv); }
+            if( !pkOk ) peekAll = 0;
+        }
+        {
+            int Sidx = lb + (svN - lb) / 3;
+            if( Sidx > lb && Sidx < svN - 1 ) {
+                int svBegS = 0, svNbS = 0;
+                rc = TA_SMI(Sidx, svN - 1, sv_h, sv_l, sv_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &svBegS, &svNbS, sv_b0, sv_b1);
+                if( rc == TA_SUCCESS && svNbS > 0 ) {
+                    int ok = 1, badBar = -1, badOut = -1; double bv = 0.0, sv = 0.0;
+                    double v0 = 0.0;
+                    double v1 = 0.0;
+                    TA_SMI_Stream *stA = NULL;
+                    TA_RetCode arc = TA_SMI_OpenInternal(&stA, sv_h, sv_l, sv_c, Sidx, svN, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &v0, &v1);
+                    if( arc != TA_SUCCESS || !stA ) ok = 0;
+                    if( ok && sv_xtier_ne(v0, sv_b0[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 0; bv = sv_b0[(svN - 1) - svBegS]; sv = v0; }
+                    if( ok && sv_xtier_ne(v1, sv_b1[(svN - 1) - svBegS], &svZsign) ) { ok = 0; badBar = svN - 1; badOut = 1; bv = sv_b1[(svN - 1) - svBegS]; sv = v1; }
+                    if( stA ) TA_SMI_Close(stA);
+                    if( !ok ) allOk = 0;
+                    (void)badBar; (void)badOut; (void)bv; (void)sv;
+                }
+            }
+        }
+        TA_SetUnstablePeriod(5, 0);
+        TA_SetCompatibility((TA_Compatibility)savedCompat);
+        if( fillChecked && !fillOk ) allOk = 0;
+        pos = json_appendf(resp, resp_size, pos, ",\"fill_checked\":%d,\"fill_ok\":%d,\"ok\":%d,\"peek_ok\":%d,\"benign\":%d}", fillChecked, fillOk, allOk, peekAll, svZsign);
+        return;
+    }
     else if( fnLen == 7 && strncmp(fn, "TA_SQRT", 7) == 0 ) {
         TA_RetCode rc;
         int svBeg = 0, svNb = 0, lb, li, npref, pos, allOk = 1, peekAll = 1;
@@ -14150,12 +15744,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SQRT_Stream *stf = NULL;
-            TA_RetCode frc = TA_SQRT_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SQRT_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SQRT_Close(stf);
         }
         {
@@ -14240,12 +15842,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_STDDEV_Stream *stf = NULL;
-            TA_RetCode frc = TA_STDDEV_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDev, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_STDDEV_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDev, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_STDDEV_Close(stf);
         }
         {
@@ -14341,13 +15951,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_STOCH_Stream *stf = NULL;
-            TA_RetCode frc = TA_STOCH_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_STOCH_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_STOCH_Close(stf);
         }
         {
@@ -14457,13 +16077,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_STOCHF_Stream *stf = NULL;
-            TA_RetCode frc = TA_STOCHF_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_STOCHF_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_STOCHF_Close(stf);
         }
         {
@@ -14576,13 +16206,23 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_STOCHRSI_Stream *stf = NULL;
-            TA_RetCode frc = TA_STOCHRSI_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+               sv_f1[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_STOCHRSI_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &fBeg, &fNb, sv_f0, sv_f1);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
                 if( sv_xtier_ne(sv_f1[ft], sv_b1[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+                  if( sv_f1[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_STOCHRSI_Close(stf);
         }
         {
@@ -14682,12 +16322,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SUB_Stream *stf = NULL;
-            TA_RetCode frc = TA_SUB_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SUB_OpenAndFill(&stf, sv_c, sv_v, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SUB_Close(stf);
         }
         {
@@ -14771,12 +16419,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_SUM_Stream *stf = NULL;
-            TA_RetCode frc = TA_SUM_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_SUM_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_SUM_Close(stf);
         }
         {
@@ -14863,12 +16519,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_T3_Stream *stf = NULL;
-            TA_RetCode frc = TA_T3_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInVFactor, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_T3_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInVFactor, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_T3_Close(stf);
         }
         {
@@ -14952,12 +16616,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TAN_Stream *stf = NULL;
-            TA_RetCode frc = TA_TAN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TAN_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TAN_Close(stf);
         }
         {
@@ -15040,12 +16712,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TANH_Stream *stf = NULL;
-            TA_RetCode frc = TA_TANH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TANH_OpenAndFill(&stf, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TANH_Close(stf);
         }
         {
@@ -15131,12 +16811,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TEMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_TEMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TEMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TEMA_Close(stf);
         }
         {
@@ -15220,12 +16908,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TRANGE_Stream *stf = NULL;
-            TA_RetCode frc = TA_TRANGE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TRANGE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TRANGE_Close(stf);
         }
         {
@@ -15309,12 +17005,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TRIMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_TRIMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TRIMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TRIMA_Close(stf);
         }
         {
@@ -15400,12 +17104,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TRIX_Stream *stf = NULL;
-            TA_RetCode frc = TA_TRIX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TRIX_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TRIX_Close(stf);
         }
         {
@@ -15490,12 +17202,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TSF_Stream *stf = NULL;
-            TA_RetCode frc = TA_TSF_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TSF_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TSF_Close(stf);
         }
         {
@@ -15578,12 +17298,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_TYPPRICE_Stream *stf = NULL;
-            TA_RetCode frc = TA_TYPPRICE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_TYPPRICE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_TYPPRICE_Close(stf);
         }
         {
@@ -15669,12 +17397,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_ULTOSC_Stream *stf = NULL;
-            TA_RetCode frc = TA_ULTOSC_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_ULTOSC_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_ULTOSC_Close(stf);
         }
         {
@@ -15759,12 +17495,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_VAR_Stream *stf = NULL;
-            TA_RetCode frc = TA_VAR_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDev, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_VAR_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, optInNbDev, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_VAR_Close(stf);
         }
         {
@@ -15848,12 +17592,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_VWMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_VWMA_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_VWMA_OpenAndFill(&stf, sv_c, sv_v, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_VWMA_Close(stf);
         }
         {
@@ -15936,12 +17688,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_WAD_Stream *stf = NULL;
-            TA_RetCode frc = TA_WAD_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_WAD_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_WAD_Close(stf);
         }
         {
@@ -16024,12 +17784,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_WCLPRICE_Stream *stf = NULL;
-            TA_RetCode frc = TA_WCLPRICE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_WCLPRICE_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_WCLPRICE_Close(stf);
         }
         {
@@ -16113,12 +17881,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_WILLR_Stream *stf = NULL;
-            TA_RetCode frc = TA_WILLR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_WILLR_OpenAndFill(&stf, sv_h, sv_l, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_WILLR_Close(stf);
         }
         {
@@ -16202,12 +17978,20 @@ static void handle_stream_verify(const char *json, char *resp, int resp_size) {
         {
             int fBeg = 0, fNb = 0, ft;
             TA_WMA_Stream *stf = NULL;
-            TA_RetCode frc = TA_WMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
+            TA_RetCode frc;
+            for( ft = 0; ft < SV_MAXN; ft++ ) {
+               sv_f0[ft] = SV_FILL_CANARY;
+            }
+            frc = TA_WMA_OpenAndFill(&stf, sv_c, svN, optInTimePeriod, &fBeg, &fNb, sv_f0);
             fillChecked = 1;
             if( frc != TA_SUCCESS || !stf || fBeg != svBeg || fNb != svNb ) fillOk = 0;
             else for( ft = 0; fillOk && ft < svNb; ft++ ) {
                 if( sv_xtier_ne(sv_f0[ft], sv_b0[ft], &svZsign) ) fillOk = 0;
             }
+            if( frc == TA_SUCCESS )
+               for( ft = fNb; fillOk && ft < SV_MAXN; ft++ ) {
+                  if( sv_f0[ft] != SV_FILL_CANARY ) fillOk = 0;
+               }
             if( stf ) TA_WMA_Close(stf);
         }
         {
@@ -16305,7 +18089,95 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         return;
     }
 
-    if ( methodLen == 11 && strncmp(method, "TA_ACCBANDS", 11) == 0 ) {
+    if ( methodLen == 5 && strncmp(method, "TA_AC", 5) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inHigh", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inLow", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_AC(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInSignalPeriod,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AC_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_AC_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &_openOut0 );
+            if( _h ) TA_AC_Close( _h );
+        }
+        else {
+            TA_AC_Stream *_h = NULL;
+            rc = TA_AC_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_AC_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_AC(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                optInFastPeriod,
+                optInSlowPeriod,
+                optInSignalPeriod,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
+    else if ( methodLen == 11 && strncmp(method, "TA_ACCBANDS", 11) == 0 ) {
         int startIdx = json_find_int(json, "startIdx");
         int endIdx = json_find_int(json, "endIdx");
         int use_preloaded = json_find_int(json, "use_preloaded");
@@ -16387,8 +18259,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16466,8 +18338,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16553,8 +18425,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16632,8 +18504,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16725,8 +18597,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16812,8 +18684,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16898,8 +18770,93 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
+    else if ( methodLen == 5 && strncmp(method, "TA_AO", 5) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(2, 1);
+        } else {
+            json_find_double_array(json, "inHigh", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inLow", g_inBuf1, MAX_ARRAY_SIZE);
+        }
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(2, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_AO(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            optInFastPeriod,
+            optInSlowPeriod,
+            &outBegIdx, &outNBElement, g_outBuf0);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_AO_Stream *_h = NULL;
+            double _openOut0 = 0;
+            rc = TA_AO_Open( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInFastPeriod, optInSlowPeriod, &_openOut0 );
+            if( _h ) TA_AO_Close( _h );
+        }
+        else {
+            TA_AO_Stream *_h = NULL;
+            rc = TA_AO_OpenAndFill( &_h, g_inBuf0, g_inBuf1, endIdx + 1, optInFastPeriod, optInSlowPeriod, &outBegIdx, &outNBElement, g_outBuf0 );
+            if( _h ) TA_AO_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            rc = TA_S_AO(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                optInFastPeriod,
+                optInSlowPeriod,
+                &outBegIdx, &outNBElement, g_outBuf0);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -16982,8 +18939,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17066,8 +19023,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17150,8 +19107,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17225,8 +19182,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17300,8 +19257,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17387,8 +19344,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17465,8 +19422,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17552,8 +19509,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17643,8 +19600,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17729,8 +19686,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17816,8 +19773,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17902,8 +19859,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -17989,8 +19946,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18076,8 +20033,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18163,8 +20120,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18250,8 +20207,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18337,8 +20294,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18424,8 +20381,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18511,8 +20468,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18601,8 +20558,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18688,8 +20645,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18775,8 +20732,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18862,8 +20819,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -18949,8 +20906,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19036,8 +20993,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19123,8 +21080,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19213,8 +21170,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19300,8 +21257,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19387,8 +21344,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19474,8 +21431,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19561,8 +21518,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19651,8 +21608,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19741,8 +21698,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19828,8 +21785,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -19915,8 +21872,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20002,8 +21959,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20089,8 +22046,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20176,8 +22133,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20263,8 +22220,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20350,8 +22307,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20437,8 +22394,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20524,8 +22481,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20611,8 +22568,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20698,8 +22655,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20785,8 +22742,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20872,8 +22829,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -20959,8 +22916,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21046,8 +23003,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21133,8 +23090,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21220,8 +23177,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21307,8 +23264,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21394,8 +23351,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21481,8 +23438,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21571,8 +23528,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21661,8 +23618,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21751,8 +23708,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21838,8 +23795,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -21925,8 +23882,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22012,8 +23969,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22099,8 +24056,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22186,8 +24143,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22273,8 +24230,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22360,8 +24317,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22447,8 +24404,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22534,8 +24491,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22621,8 +24578,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22708,8 +24665,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22795,8 +24752,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22882,8 +24839,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -22969,8 +24926,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -23056,8 +25013,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -23143,8 +25100,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -23230,8 +25187,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -23305,8 +25262,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23395,8 +25352,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23474,8 +25431,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23552,8 +25509,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23634,8 +25591,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23709,8 +25666,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23784,8 +25741,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23862,8 +25819,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -23941,8 +25898,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24028,8 +25985,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24110,8 +26067,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24189,8 +26146,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24264,8 +26221,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24339,8 +26296,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24417,8 +26374,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24493,8 +26450,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24569,8 +26526,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24647,8 +26604,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24727,8 +26684,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24805,8 +26762,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -24881,8 +26838,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -24963,8 +26920,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25042,8 +26999,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25120,8 +27077,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25198,8 +27155,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25276,8 +27233,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25354,8 +27311,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25429,8 +27386,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25504,8 +27461,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25585,8 +27542,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25673,8 +27630,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25774,8 +27731,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25860,8 +27817,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -25948,8 +27905,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26033,8 +27990,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26121,8 +28078,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26199,8 +28156,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26277,8 +28234,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -26356,8 +28313,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26446,8 +28403,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26524,8 +28481,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26606,8 +28563,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26684,8 +28641,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26762,8 +28719,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -26842,8 +28799,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -26924,8 +28881,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outInteger\":");
         pos = json_write_int_array(resp, resp_size, pos, g_outIntBuf0, outNBElement);
@@ -27013,8 +28970,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27096,8 +29053,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27174,8 +29131,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27253,8 +29210,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27340,8 +29297,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27419,8 +29376,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27498,8 +29455,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27585,8 +29542,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27668,8 +29625,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27752,8 +29709,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27831,8 +29788,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27915,8 +29872,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -27997,8 +29954,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28075,8 +30032,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28153,8 +30110,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28231,8 +30188,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28309,8 +30266,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28388,8 +30345,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28473,8 +30430,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28576,8 +30533,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28651,8 +30608,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28726,8 +30683,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28804,11 +30761,110 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        }
+        pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
+    else if ( methodLen == 6 && strncmp(method, "TA_SMI", 6) == 0 ) {
+        int startIdx = json_find_int(json, "startIdx");
+        int endIdx = json_find_int(json, "endIdx");
+        int use_preloaded = json_find_int(json, "use_preloaded");
+        if( use_preloaded && g_refN > 0 ) {
+            preload_to_working(3, 1);
+        } else {
+            json_find_double_array(json, "inHigh", g_inBuf0, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inLow", g_inBuf1, MAX_ARRAY_SIZE);
+            json_find_double_array(json, "inClose", g_inBuf2, MAX_ARRAY_SIZE);
+        }
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        int outBegIdx = 0, outNBElement = 0;
+        int bench_iters = json_find_int(json, "iters");
+        if( bench_iters < 1 ) bench_iters = 1;
+        int bench_mode = json_find_int(json, "bench_mode");
+#ifdef TA_REF_SERVE
+        if( bench_mode != 0 ) {
+            snprintf(resp, resp_size, "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}");
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        TA_RetCode rc = 0;
+        if( use_preloaded ) {
+            preload_to_working(3, 1);
+        }
+        long _t0 = 0;
+        for( int _bi = 0; _bi <= bench_iters; _bi++ ) {
+        if( _bi == 1 ) _t0 = get_nanotime();
+        if( bench_mode == 0 )
+        rc = TA_SMI(
+            startIdx, endIdx,
+            g_inBuf0,
+            g_inBuf1,
+            g_inBuf2,
+            optInTimePeriod,
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInSignalPeriod,
+            &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+#ifndef TA_REF_SERVE
+        else if( bench_mode == 1 ) {
+            TA_SMI_Stream *_h = NULL;
+            double _openOut0 = 0;
+            double _openOut1 = 0;
+            rc = TA_SMI_Open( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &_openOut0, &_openOut1 );
+            if( _h ) TA_SMI_Close( _h );
+        }
+        else {
+            TA_SMI_Stream *_h = NULL;
+            rc = TA_SMI_OpenAndFill( &_h, g_inBuf0, g_inBuf1, g_inBuf2, endIdx + 1, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1 );
+            if( _h ) TA_SMI_Close( _h );
+        }
+#endif /* TA_REF_SERVE */
+        }
+        long elapsed_ns = (get_nanotime() - _t0) / bench_iters;
+#ifndef TA_REF_SERVE
+        if( json_find_int(json, "want_hash") && !json_find_int(json, "full_output") ) {
+            unsigned long long _oh = fuzz_hash_init();
+            if( rc == TA_SUCCESS && outNBElement > 0 ) {
+                _oh = fuzz_hash_bytes(_oh, g_outBuf0, (unsigned long)outNBElement * sizeof(double));
+                _oh = fuzz_hash_bytes(_oh, g_outBuf1, (unsigned long)outNBElement * sizeof(double));
+            }
+            _oh = fuzz_hash_fin(_oh);
+            snprintf(resp, resp_size, "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_hash\":\"%016llx\"}", (int)rc, outBegIdx, outNBElement, _oh);
+            return;
+        }
+#endif /* TA_REF_SERVE */
+        int usedFloat = 0;
+        if( json_find_int(json, "use_float") ) {
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf0[_fi] = (float)g_inBuf0[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf1[_fi] = (float)g_inBuf1[_fi];
+            for( int _fi = 0; _fi <= endIdx; _fi++ ) g_sinBuf2[_fi] = (float)g_inBuf2[_fi];
+            rc = TA_S_SMI(
+                startIdx, endIdx,
+                g_sinBuf0,
+                g_sinBuf1,
+                g_sinBuf2,
+                optInTimePeriod,
+                optInFastPeriod,
+                optInSlowPeriod,
+                optInSignalPeriod,
+                &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1);
+            usedFloat = 1;
+        }
+        int pos = json_appendf(resp, resp_size, 0,
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
+        if( !json_find_int(json, "no_output") ) {
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
+        pos = json_appendf(resp, resp_size, pos, ",\"outReal1\":");
+        pos = json_write_double_array(resp, resp_size, pos, g_outBuf1, outNBElement);
         }
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
     }
@@ -28879,8 +30935,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -28960,8 +31016,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29060,8 +31116,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29156,8 +31212,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29247,8 +31303,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29328,8 +31384,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29406,8 +31462,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29488,8 +31544,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29563,8 +31619,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29638,8 +31694,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29716,8 +31772,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29799,8 +31855,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29877,8 +31933,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -29955,8 +32011,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30033,8 +32089,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30116,8 +32172,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30208,8 +32264,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30289,8 +32345,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30371,8 +32427,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30454,8 +32510,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30537,8 +32593,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30623,8 +32679,8 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
@@ -30701,13 +32757,21 @@ static void handle_request(const char *json, char *resp, int resp_size) {
             usedFloat = 1;
         }
         int pos = json_appendf(resp, resp_size, 0,
-            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"timing_ns\":%ld",
-            (int)rc, outBegIdx, outNBElement, elapsed_ns);
+            "{\"retCode\":%d,\"outBegIdx\":%d,\"outNBElement\":%d,\"out_len\":%d,\"timing_ns\":%ld",
+            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);
         if( !json_find_int(json, "no_output") ) {
         pos = json_appendf(resp, resp_size, pos, ",\"outReal\":");
         pos = json_write_double_array(resp, resp_size, pos, g_outBuf0, outNBElement);
         }
         pos = json_appendf(resp, resp_size, pos, ",\"used_float\":%d}", usedFloat);
+    }
+    else if ( methodLen == 14 && strncmp(method, "TA_AC_Lookback", 14) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        int lookback = TA_AC_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
     }
     else if ( methodLen == 20 && strncmp(method, "TA_ACCBANDS_Lookback", 20) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
@@ -30746,6 +32810,13 @@ static void handle_request(const char *json, char *resp, int resp_size) {
     else if ( methodLen == 16 && strncmp(method, "TA_ADXR_Lookback", 16) == 0 ) {
         int optInTimePeriod = json_find_int(json, "optInTimePeriod");
         int lookback = TA_ADXR_Lookback(optInTimePeriod);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
+    else if ( methodLen == 14 && strncmp(method, "TA_AO_Lookback", 14) == 0 ) {
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int lookback = TA_AO_Lookback(optInFastPeriod, optInSlowPeriod);
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
@@ -31549,6 +33620,15 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         snprintf(resp, resp_size,
             "{\"lookback\":%d}", lookback);
     }
+    else if ( methodLen == 15 && strncmp(method, "TA_SMI_Lookback", 15) == 0 ) {
+        int optInTimePeriod = json_find_int(json, "optInTimePeriod");
+        int optInFastPeriod = json_find_int(json, "optInFastPeriod");
+        int optInSlowPeriod = json_find_int(json, "optInSlowPeriod");
+        int optInSignalPeriod = json_find_int(json, "optInSignalPeriod");
+        int lookback = TA_SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        snprintf(resp, resp_size,
+            "{\"lookback\":%d}", lookback);
+    }
     else if ( methodLen == 16 && strncmp(method, "TA_SQRT_Lookback", 16) == 0 ) {
         int lookback = TA_SQRT_Lookback();
         snprintf(resp, resp_size,
@@ -31695,13 +33775,15 @@ static void handle_request(const char *json, char *resp, int resp_size) {
     }
     else if ( methodLen == 14 && strncmp(method, "list_functions", 14) == 0 ) {
         int pos = json_appendf(resp, resp_size, 0, "{\"functions\":[");
-        pos = json_appendf(resp, resp_size, pos, "\"TA_ACCBANDS\"");
+        pos = json_appendf(resp, resp_size, pos, "\"TA_AC\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_ACCBANDS\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ACOS\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_AD\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADD\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADOSC\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADX\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_ADXR\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_AO\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_APO\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_AROON\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_AROONOSC\"");
@@ -31844,6 +33926,7 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SIN\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SINH\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SMA\"");
+        pos = json_appendf(resp, resp_size, pos, ",\"TA_SMI\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_SQRT\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_STDDEV\"");
         pos = json_appendf(resp, resp_size, pos, ",\"TA_STOCH\"");
@@ -31890,6 +33973,27 @@ static void handle_request(const char *json, char *resp, int resp_size) {
         int mode = json_find_int(json, "mode");
         TA_SetCompatibility((TA_Compatibility)mode);
         snprintf(resp, resp_size, "{\"status\":\"ok\"}");
+    }
+    else if ( methodLen == 19 && strncmp(method, "set_candle_settings", 19) == 0 ) {
+        int settingType = json_find_int(json, "settingType");
+        int rangeType   = json_find_int(json, "rangeType");
+        int avgPeriod   = json_find_int(json, "avgPeriod");
+        double factor   = json_find_f64_bits(json, "factorBits", 1.0);
+        TA_RetCode csRc = TA_SetCandleSettings((TA_CandleSettingType)settingType,
+                                              (TA_RangeType)rangeType,
+                                              avgPeriod, factor);
+        if( csRc == TA_SUCCESS )
+           snprintf(resp, resp_size, "{\"status\":\"ok\"}");
+        else
+           snprintf(resp, resp_size, "{\"error\":\"Invalid candle setting\"}");
+    }
+    else if ( methodLen == 31 && strncmp(method, "restore_candle_default_settings", 31) == 0 ) {
+        int settingType = json_find_int(json, "settingType");
+        TA_RetCode csRc = TA_RestoreCandleDefaultSettings((TA_CandleSettingType)settingType);
+        if( csRc == TA_SUCCESS )
+           snprintf(resp, resp_size, "{\"status\":\"ok\"}");
+        else
+           snprintf(resp, resp_size, "{\"error\":\"Invalid candle setting type\"}");
     }
     else if ( methodLen == 14 && strncmp(method, "eval_predicate", 14) == 0 ) {
         double _pv[512]; double _ps[512]; int _pr[512];

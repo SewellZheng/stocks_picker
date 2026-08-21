@@ -42,14 +42,14 @@
       }
 
    }
-   RetCode PLUS_DM_Internal( int startIdx,
-                             int endIdx,
-                             double inHigh[],
-                             double inLow[],
-                             int optInTimePeriod,
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             double outReal[] )
+   RetCode PLUS_DM_Impl( int startIdx,
+                         int endIdx,
+                         double inHigh[],
+                         double inLow[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int today = 0;
       int lookbackTotal = 0;
@@ -255,14 +255,14 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode PLUS_DM_Internal( int startIdx,
-                             int endIdx,
-                             float inHigh[],
-                             float inLow[],
-                             int optInTimePeriod,
-                             MInteger outBegIdx,
-                             MInteger outNBElement,
-                             double outReal[] )
+   RetCode PLUS_DM_Impl( int startIdx,
+                         int endIdx,
+                         float inHigh[],
+                         float inLow[],
+                         int optInTimePeriod,
+                         MInteger outBegIdx,
+                         MInteger outNBElement,
+                         double outReal[] )
    {
       int today = 0;
       int lookbackTotal = 0;
@@ -404,8 +404,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MINUS_DM
     * @see Core#PLUS_DI
@@ -421,9 +428,16 @@
                             int optInTimePeriod,
                             double outReal[] )
    {
+      requireIndexRange("PLUS_DM", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, PLUS_DM_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("PLUS_DM", "inHigh", inHigh, guardInLen);
+      requireLength("PLUS_DM", "inLow", inLow, guardInLen);
+      requireLength("PLUS_DM", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PLUS_DM_Internal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PLUS_DM_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("PLUS_DM", retCode);
       }
@@ -462,8 +476,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MINUS_DM
     * @see Core#PLUS_DI
@@ -479,9 +500,16 @@
                             int optInTimePeriod,
                             double outReal[] )
    {
+      requireIndexRange("PLUS_DM", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, PLUS_DM_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("PLUS_DM", "inHigh", inHigh, guardInLen);
+      requireLength("PLUS_DM", "inLow", inLow, guardInLen);
+      requireLength("PLUS_DM", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PLUS_DM_Internal(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PLUS_DM_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("PLUS_DM", retCode);
       }
@@ -553,10 +581,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inHigh, double inLow ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw new TaLibArgumentException("PLUS_DM update: BadParam", RetCode.BadParam);
          core.PLUS_DM_StreamStep(this, inHigh, inLow);
          return this.cur_outReal;
       }
@@ -569,6 +607,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw new TaLibArgumentException("PLUS_DM peek: BadParam", RetCode.BadParam);
          PLUS_DM_Stream scratch = new PLUS_DM_Stream(this);
          core.PLUS_DM_StreamStep(scratch, inHigh, inLow);
          return scratch.cur_outReal;
@@ -627,7 +667,7 @@
          sp.cur_outReal = sp.prevPlusDM;
       }
    }
-   private RetCode PLUS_DM_OpenCore( PLUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode PLUS_DM_OpenPass( PLUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
@@ -731,7 +771,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.OutOfRangeEndIndex ;
+            return RetCode.InsufficientHistory ;
          }
          /* Indicate where the next output should be put
           * in the outReal.
@@ -862,7 +902,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.OutOfRangeEndIndex ;
+            return RetCode.InsufficientHistory ;
          }
          /* Indicate where the next output should be put
           * in the outReal.
@@ -949,55 +989,55 @@
          return RetCode.Success;
       }
    }
-   private RetCode PLUS_DM_OpenBody( PLUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
+   private RetCode PLUS_DM_OpenImpl( PLUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return PLUS_DM_OpenCore( sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return PLUS_DM_OpenPass( sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode PLUS_DM_OpenAndFillBody( PLUS_DM_Stream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode PLUS_DM_OpenAndFillImpl( PLUS_DM_Stream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
          return RetCode.BadParam;
       }
-      return PLUS_DM_OpenCore( sp, inHigh, inLow, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return PLUS_DM_OpenPass( sp, inHigh, inLow, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode PLUS_DM_OpenAndFillInternalBody( PLUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode PLUS_DM_OpenAndFillInternalImpl( PLUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return PLUS_DM_OpenCore(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return PLUS_DM_OpenPass(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* PLUS_DM_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    PLUS_DM_Stream PLUS_DM_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       PLUS_DM_Stream sp = new PLUS_DM_Stream(this);
-      RetCode retCode = PLUS_DM_OpenAndFillInternalBody(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PLUS_DM_OpenAndFillInternalImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("PLUS_DM openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("PLUS_DM openAndFill: internal error");
+         throw new TaLibStateException("PLUS_DM openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("PLUS_DM openAndFill: " + retCode);
+      throw new TaLibArgumentException("PLUS_DM openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind PLUS_DM_Open (composition seam). */
    PLUS_DM_Stream PLUS_DM_OpenInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
    {
       PLUS_DM_Stream sp = new PLUS_DM_Stream(this);
-      RetCode retCode = PLUS_DM_OpenBody(sp, inHigh, inLow, startIdx, optInTimePeriod);
+      RetCode retCode = PLUS_DM_OpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("PLUS_DM open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("PLUS_DM open: internal error");
+         throw new TaLibStateException("PLUS_DM open: internal error", retCode);
       }
-      throw new IllegalArgumentException("PLUS_DM open: " + retCode);
+      throw new TaLibArgumentException("PLUS_DM open: " + retCode, retCode);
    }
    /**
     * Open a live PLUS_DM stream over the warm-up history; the handle's
@@ -1027,16 +1067,16 @@
       PLUS_DM_Stream sp = new PLUS_DM_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = PLUS_DM_OpenAndFillBody(sp, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = PLUS_DM_OpenAndFillImpl(sp, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("PLUS_DM openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("PLUS_DM openAndFill: internal error");
+         throw new TaLibStateException("PLUS_DM openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("PLUS_DM openAndFill: " + retCode);
+      throw new TaLibArgumentException("PLUS_DM openAndFill: " + retCode, retCode);
    }

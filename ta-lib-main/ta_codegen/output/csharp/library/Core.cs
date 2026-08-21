@@ -177,26 +177,116 @@ public partial class Core
         return unstablePeriod[slot];
     }
 
+    /* The requested start after the lookback clamp -- max(startIdx, lookback) --
+     * or -1 when the core will reject the call before it reaches the algorithm.
+     *
+     * -1 means "check no length at all": a negative or out-of-range index,
+     * endIdx < startIdx, or the -1 a lookback returns for an out-of-range
+     * optional parameter. The core owns that diagnosis and Failure() translates
+     * it, so pre-empting it would replace a documented exception with a length
+     * complaint.
+     *
+     * A result ABOVE endIdx is not an error: the range is shorter than the
+     * lookback, so the call produces no values. That switches the OUTPUT bound
+     * off -- any length will do, including none -- but not the input bound. An
+     * endIdx past the end of the series the caller supplied is a caller bug in
+     * any range; C answers it with TA_SUCCESS only because it has no size to
+     * check against.
+     *
+     * Same shape and same bound as Java's Core.clampedStart. NOT the same as Rust:
+     * rust_lang.rs prefixes BOTH of its generated asserts with
+     * `_assertStart > endIdx ||`, so on a sub-lookback range Rust asserts nothing
+     * about the input length and SMA(0, 5, &[], 30, &mut []) is Ok(count 0) there
+     * while it throws here. This input bound is the one place C# and Java check
+     * more than C and Rust do; it is a diagnostic, not a safety net, since
+     * NoPhantomIoTest pins that no core reads on such a range. */
+    internal static int ClampedStart(int startIdx, int endIdx, int lookback)
+    {
+        if (lookback < 0 || startIdx < 0 || endIdx < startIdx || endIdx > MAX_INDEX)
+        {
+            return -1;
+        }
+        return startIdx > lookback ? startIdx : lookback;
+    }
+
+    /* Reject a span too short for the values this call would read or write.
+     *
+     * C cannot make this check -- it is handed bare pointers and has no sizes --
+     * and without it an undersized span surfaces as
+     * "IndexOutOfRangeException: Index was outside the bounds of the array",
+     * from inside the algorithm, with the output already partly written, naming
+     * neither the buffer nor either size.
+     *
+     * Takes the length rather than the span: a Span<T> is a ref struct that can
+     * never be null, so there is nothing to check but the count, and one method
+     * then serves every element type and both directions. */
+    internal static void RequireLength(string funcName, string argName, int actual, int required)
+    {
+        if (actual < required)
+        {
+            throw new TaLibArgumentException(
+                "TA_" + funcName + ": " + argName + " has length " + actual
+                    + ", needs " + required,
+                argName, RetCode.BadParam);
+        }
+    }
+
+    /* The RetCode -> exception mapping for the STREAMING tier. Deliberately not
+     * a reuse of Failure(): the two tiers spell the same code differently. A
+     * stream CAN still report OutOfRangeEndIndex (a history longer than
+     * MAX_INDEX + 1), and Failure() would render that as
+     * ArgumentOutOfRangeException("endIdx") — meaningless to a caller whose
+     * method has no endIdx parameter.
+     *
+     * The "<NAME> open: " prefix is a cross-language contract (see
+     * docs/streaming-api-design.md) and deliberately differs from Failure()'s
+     * "TA_<NAME>: ". Do not unify them. Centralising the mapping here also
+     * means the ~520 generated reject sites are one line each instead of four,
+     * and the message prefix the stream gate greps has a single source. */
+    internal static Exception StreamFailure(string funcName, string what, RetCode retCode)
+    {
+        string where = funcName + " " + what + ": ";
+        return retCode switch
+        {
+            RetCode.InsufficientHistory => new InsufficientHistoryException(
+                where + "history shorter than lookback + 1"),
+            RetCode.InternalError => new TaLibInvalidOperationException(where + "internal error", retCode),
+            RetCode.AllocErr => new TaLibInvalidOperationException(where + "allocation failed", retCode),
+            _ => new TaLibArgumentException(where + retCode, retCode),
+        };
+    }
+
     /* The RetCode -> exception mapping the generated guarded wrappers throw
      * through. Returns (rather than throws) so the call sites read
-     * `throw Failure(...)` and the compiler knows the path ends. */
+     * `throw Failure(...)` and the compiler knows the path ends.
+     *
+     * Every type returned here implements ITaLibFailure, so the code is
+     * recoverable from the thrown object. The exception types are coarser than
+     * the codes -- one InvalidOperationException serves both AllocErr and
+     * InternalError -- and a caller that cannot tell them apart cannot respond
+     * to either. */
     internal static Exception Failure(string funcName, RetCode retCode)
     {
         string where = "TA_" + funcName + ": ";
         switch (retCode)
         {
             case RetCode.OutOfRangeStartIndex:
-                return new ArgumentOutOfRangeException("startIdx", where + "startIdx out of range");
+                return new TaLibArgumentOutOfRangeException("startIdx", where + "startIdx out of range", retCode);
             case RetCode.OutOfRangeEndIndex:
-                return new ArgumentOutOfRangeException("endIdx", where + "endIdx out of range");
+                return new TaLibArgumentOutOfRangeException("endIdx", where + "endIdx out of range", retCode);
             case RetCode.BadParam:
-                return new ArgumentException(where + "bad parameter");
+                return new TaLibArgumentException(where + "bad parameter", retCode);
             case RetCode.AllocErr:
-                return new InvalidOperationException(where + "allocation failed");
+                return new TaLibInvalidOperationException(where + "allocation failed", retCode);
             case RetCode.InternalError:
-                return new InvalidOperationException(where + "internal error");
+                return new TaLibInvalidOperationException(where + "internal error", retCode);
+            case RetCode.InsufficientHistory:
+                /* Streaming-only in practice: a batch range shorter than the
+                 * lookback is Success with a zero count, never this. Mapped
+                 * anyway so the code -> exception function stays total. */
+                return new InsufficientHistoryException(where + "history shorter than the lookback");
             default:
-                return new InvalidOperationException(where + retCode);
+                return new TaLibInvalidOperationException(where + retCode, retCode);
         }
     }
 }

@@ -79,14 +79,14 @@ public partial class Core
       return optInTimePeriod - 1 ;
 
    }
-   internal RetCode VWMA( int startIdx,
-                          int endIdx,
-                          double[] inReal,
-                          double[] inVolume,
-                          int optInTimePeriod,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode VWMA_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<double> inReal,
+                               ReadOnlySpan<double> inVolume,
+                               int optInTimePeriod,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -109,6 +109,9 @@ public partial class Core
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inReal) && outReal != inReal) || (outReal.Overlaps(inVolume) && outReal != inVolume) ) {
+         return RetCode.BadParam ;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
@@ -191,14 +194,14 @@ public partial class Core
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
-   internal RetCode VWMA( int startIdx,
-                          int endIdx,
-                          float[] inReal,
-                          float[] inVolume,
-                          int optInTimePeriod,
-                          out int outBegIdx,
-                          out int outNBElement,
-                          double[] outReal )
+   internal RetCode VWMA_Impl( int startIdx,
+                               int endIdx,
+                               ReadOnlySpan<float> inReal,
+                               ReadOnlySpan<float> inVolume,
+                               int optInTimePeriod,
+                               out int outBegIdx,
+                               out int outNBElement,
+                               Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -315,16 +318,30 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange VWMA( int startIdx,
                          int endIdx,
-                         double[] inReal,
-                         double[] inVolume,
+                         ReadOnlySpan<double> inReal,
+                         ReadOnlySpan<double> inVolume,
                          int optInTimePeriod,
-                         double[] outReal )
+                         Span<double> outReal )
    {
-      RetCode retCode = VWMA(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, VWMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("VWMA", "inReal", inReal.Length, guardInLen);
+      RequireLength("VWMA", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("VWMA", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = VWMA_Impl(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("VWMA", retCode);
       }
@@ -379,19 +396,463 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange VWMA( int startIdx,
                          int endIdx,
-                         float[] inReal,
-                         float[] inVolume,
+                         ReadOnlySpan<float> inReal,
+                         ReadOnlySpan<float> inVolume,
                          int optInTimePeriod,
-                         double[] outReal )
+                         Span<double> outReal )
    {
-      RetCode retCode = VWMA(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, VWMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("VWMA", "inReal", inReal.Length, guardInLen);
+      RequireLength("VWMA", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("VWMA", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = VWMA_Impl(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("VWMA", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>VWMA</c> stream: one value per closed bar, bit-identical to
+   /// <c>VWMA</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.VWMA_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class VWMA_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal double sumPV;
+      internal double sumV;
+      internal double tempPV;
+      internal double tempV;
+      internal int ringPos_trailingIdx;
+      internal int ringCap_trailingIdx;
+      internal double[] ring_trailingIdx_inReal = [];
+      internal double[] ring_trailingIdx_inVolume = [];
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal VWMA_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>VWMA_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal VWMA_Stream( VWMA_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.sumPV = other.sumPV;
+         this.sumV = other.sumV;
+         this.tempPV = other.tempPV;
+         this.tempV = other.tempV;
+         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+         this.ring_trailingIdx_inReal = new double[other.ring_trailingIdx_inReal.Length];
+         Array.Copy( other.ring_trailingIdx_inReal, this.ring_trailingIdx_inReal, other.ring_trailingIdx_inReal.Length );
+         this.ring_trailingIdx_inVolume = new double[other.ring_trailingIdx_inVolume.Length];
+         Array.Copy( other.ring_trailingIdx_inVolume, this.ring_trailingIdx_inVolume, other.ring_trailingIdx_inVolume.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( VWMA_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.sumPV = other.sumPV;
+         this.sumV = other.sumV;
+         this.tempPV = other.tempPV;
+         this.tempV = other.tempV;
+         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
+         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
+         if( this.ring_trailingIdx_inReal.Length != other.ring_trailingIdx_inReal.Length ) {
+            this.ring_trailingIdx_inReal = new double[other.ring_trailingIdx_inReal.Length];
+         }
+         Array.Copy( other.ring_trailingIdx_inReal, this.ring_trailingIdx_inReal, other.ring_trailingIdx_inReal.Length );
+         if( this.ring_trailingIdx_inVolume.Length != other.ring_trailingIdx_inVolume.Length ) {
+            this.ring_trailingIdx_inVolume = new double[other.ring_trailingIdx_inVolume.Length];
+         }
+         Array.Copy( other.ring_trailingIdx_inVolume, this.ring_trailingIdx_inVolume, other.ring_trailingIdx_inVolume.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /* Peek's reusable scratch — one per thread, see CopyFrom. */
+      [ThreadStatic] private static VWMA_Stream? peekScratch;
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inReal, double inVolume )
+      {
+         if( !double.IsFinite(inReal) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("VWMA", "update", RetCode.BadParam);
+         core.VWMA_StreamStep(this, inReal, inVolume);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
+      /// nothing after this thread's first peek of this indicator. That scratch is
+      /// retained for the life of the thread.</para>
+      /// </remarks>
+      /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inReal, double inVolume )
+      {
+         if( !double.IsFinite(inReal) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("VWMA", "peek", RetCode.BadParam);
+         VWMA_Stream? scratch = peekScratch;
+         if( scratch is null ) {
+            scratch = new VWMA_Stream(this);
+            peekScratch = scratch;
+         } else {
+            scratch.CopyFrom(this);
+         }
+         core.VWMA_StreamStep(scratch, inReal, inVolume);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public VWMA_Stream Clone()
+      {
+         return new VWMA_Stream(this);
+      }
+   }
+
+   internal void VWMA_StreamStep( VWMA_Stream sp, double inReal, double inVolume )
+   {
+      double tempReal = 0.0;
+      if( sp.optInTimePeriod == 1 ) {
+         sp.cur_outReal = inReal;
+         return ;
+      }
+      if( sp.ringCap_trailingIdx == 0 ) {
+         sp.ring_trailingIdx_inReal[0] = inReal;
+         sp.ring_trailingIdx_inVolume[0] = inVolume;
+      }
+      tempReal = inReal * inVolume;
+      sp.sumPV += tempReal;
+      sp.sumV += inVolume;
+      /* Snapshot both sums before removing the trailing bar, mirroring the
+       * add-new / snapshot / subtract-old order of TA_SMA. That order is what
+       * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+       */
+      sp.tempPV = sp.sumPV;
+      sp.tempV = sp.sumV;
+      /* Read the trailing values before writing the output, since the caller
+       * may pass the same buffer for an input and the output.
+       */
+      tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] * sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+      sp.sumPV -= tempReal;
+      sp.sumV -= sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
+      sp.cur_outReal = sp.tempPV / (double)sp.optInTimePeriod / (sp.tempV / (double)sp.optInTimePeriod);
+      sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
+      sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
+      sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
+      if( sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+         sp.ringPos_trailingIdx = 0;
+      }
+   }
+
+   private RetCode VWMA_OpenPass( VWMA_Stream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      double sumPV = 0;
+      double sumV = 0;
+      double tempPV = 0;
+      double tempV = 0;
+      double tempReal = 0;
+      int i = 0;
+      int outIdx = 0;
+      int trailingIdx = 0;
+      int lookbackTotal = 0;
+      int historyLen = inReal.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inVolume.Length != inReal.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 30;
+      } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      if( optInTimePeriod == 1 ) {
+         if( historyLen < VWMA_Lookback(optInTimePeriod) + 1 ) {
+            return RetCode.InsufficientHistory;
+         }
+         sp.optInTimePeriod = optInTimePeriod;
+         sp.sumPV = 0.0;
+         sp.sumV = 0.0;
+         sp.tempPV = 0.0;
+         sp.tempV = 0.0;
+         sp.ringPos_trailingIdx = 0;
+         sp.ringCap_trailingIdx = 0;
+         sp.ring_trailingIdx_inReal = new double[1];
+         sp.ring_trailingIdx_inVolume = new double[1];
+         int fillLb = VWMA_Lookback(optInTimePeriod);
+         outBegIdx = fillLb;
+         outNBElement = historyLen - fillLb;
+         if( outStride == 0 ) {
+            outReal[0] = inReal[historyLen - 1];
+         } else {
+            for( int fillIdx = 0; fillIdx < historyLen - fillLb; fillIdx++ ) {
+               outReal[fillIdx] = inReal[fillLb + fillIdx];
+            }
+         }
+         sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+         return RetCode.Success;
+      }
+      /* Identify the minimum number of price bar needed
+       * to calculate at least one output.
+       */
+      lookbackTotal = (int)(optInTimePeriod - 1);
+      /* Move up the start index if there is not
+       * enough initial data.
+       */
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory ;
+      }
+      /* Add-up the initial period, except for the last value.
+       *
+       * The price*volume product is kept in its own statement so no compiler may
+       * contract it into an FMA: that would make this function disagree with the
+       * Rust/Java backends under the cross-language bitwise gate, and with the
+       * two-TA_SMA composite reference.
+       */
+      sumPV = 0.0;
+      sumV = 0.0;
+      trailingIdx = startIdx - lookbackTotal;
+      i = trailingIdx;
+      if( optInTimePeriod > 1 ) {
+         while( i < startIdx ) {
+            tempReal = inReal[i] * inVolume[i];
+            sumPV += tempReal;
+            sumV += inVolume[i];
+            i = i + 1;
+         }
+      }
+      /* Proceed with the calculation for the requested range.
+       * Note that this algorithm allows the inReal and
+       * outReal to be the same buffer.
+       */
+      outIdx = 0;
+      while( i <= endIdx ) {
+         tempReal = inReal[i] * inVolume[i];
+         sumPV += tempReal;
+         sumV += inVolume[i];
+         i = i + 1;
+         /* Snapshot both sums before removing the trailing bar, mirroring the
+          * add-new / snapshot / subtract-old order of TA_SMA. That order is what
+          * makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+          */
+         tempPV = sumPV;
+         tempV = sumV;
+         /* Read the trailing values before writing the output, since the caller
+          * may pass the same buffer for an input and the output.
+          */
+         tempReal = inReal[trailingIdx] * inVolume[trailingIdx];
+         sumPV -= tempReal;
+         sumV -= inVolume[trailingIdx];
+         outReal[outIdx * outStride] = tempPV / (double)optInTimePeriod / (tempV / (double)optInTimePeriod);
+         trailingIdx = trailingIdx + 1;
+         outIdx = outIdx + 1;
+      }
+      /* All done. Indicate the output limits and return. */
+      outNBElement = outIdx;
+      outBegIdx = startIdx;
+      /* Capture the live batch state into the handle. */
+      int cap_trailingIdx = i - trailingIdx;
+      if( cap_trailingIdx < 0 || cap_trailingIdx > historyLen ) {
+         return RetCode.InternalError;
+      }
+      int allocN_trailingIdx = (cap_trailingIdx > 0)? cap_trailingIdx : 1;
+      double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
+      inReal.Slice(historyLen - cap_trailingIdx, cap_trailingIdx).CopyTo(capRing_trailingIdx_inReal);
+      double[] capRing_trailingIdx_inVolume = new double[allocN_trailingIdx];
+      inVolume.Slice(historyLen - cap_trailingIdx, cap_trailingIdx).CopyTo(capRing_trailingIdx_inVolume);
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.sumPV = sumPV;
+      sp.sumV = sumV;
+      sp.tempPV = tempPV;
+      sp.tempV = tempV;
+      sp.ringPos_trailingIdx = 0;
+      sp.ringCap_trailingIdx = cap_trailingIdx;
+      sp.ring_trailingIdx_inReal = capRing_trailingIdx_inReal;
+      sp.ring_trailingIdx_inVolume = capRing_trailingIdx_inVolume;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode VWMA_OpenImpl( VWMA_Stream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return VWMA_OpenPass( sp, inReal, inVolume, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode VWMA_OpenAndFillImpl( VWMA_Stream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inReal) || outReal.Overlaps(inVolume) ) {
+         return RetCode.BadParam;
+      }
+      return VWMA_OpenPass( sp, inReal, inVolume, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode VWMA_OpenAndFillInternalImpl( VWMA_Stream sp, ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return VWMA_OpenPass(sp, inReal, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* VWMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal VWMA_Stream VWMA_OpenAndFillInternal( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      VWMA_Stream sp = new VWMA_Stream(this);
+      RetCode retCode = VWMA_OpenAndFillInternalImpl(sp, inReal, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("VWMA", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind VWMA_Open (composition seam). */
+   internal VWMA_Stream VWMA_OpenInternal( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod )
+   {
+      VWMA_Stream sp = new VWMA_Stream(this);
+      RetCode retCode = VWMA_OpenImpl(sp, inReal, inVolume, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("VWMA", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>VWMA</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="VWMA_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>VWMA</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>VWMA_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>VWMA_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inReal">Source price series, close by convention. The warm-up history, oldest bar
+   /// first.</param>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="VWMA_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>VWMA_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public VWMA_Stream VWMA_Open( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int optInTimePeriod )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      return VWMA_OpenInternal(inReal, inVolume, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>VWMA_Open</c> that also fills the output array(s) over the whole
+   /// history in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>VWMA</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - VWMA_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="VWMA_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inReal">Source price series, close by convention. The warm-up history, oldest bar
+   /// first.</param>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="VWMA_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">Volume weighted moving average of the input. Must hold at least
+   /// <c>historyLen - VWMA_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>VWMA_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public VWMA_Stream VWMA_OpenAndFill( ReadOnlySpan<double> inReal, ReadOnlySpan<double> inVolume, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      VWMA_Stream sp = new VWMA_Stream(this);
+      RetCode retCode = VWMA_OpenAndFillImpl(sp, inReal, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("VWMA", "openAndFill", retCode);
    }
 }

@@ -1099,7 +1099,7 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_TRENDLINE_OpenCore( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_HT_TRENDLINE_Stream *sp;
    int endIdx;
@@ -1208,7 +1208,7 @@ static TA_RetCode TA_HT_TRENDLINE_OpenCore( struct TA_HT_TRENDLINE_Stream **stre
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -1590,7 +1590,7 @@ TA_RetCode TA_HT_TRENDLINE_OpenInternal( struct TA_HT_TRENDLINE_Stream **stream,
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_HT_TRENDLINE_OpenCore( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_HT_TRENDLINE_OpenPass( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1600,6 +1600,11 @@ TA_RetCode TA_HT_TRENDLINE_OpenInternal( struct TA_HT_TRENDLINE_Stream **stream,
 
 TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Open( TA_HT_TRENDLINE_Stream **stream, const double inReal[], int historyLen, double *outReal )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_HT_TRENDLINE_OpenInternal( stream, inReal, 0, historyLen, outReal );
 }
 
@@ -1608,19 +1613,23 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_OpenAndFill( TA_HT_TRENDLINE_Stream **stre
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_HT_TRENDLINE_OpenCore( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_HT_TRENDLINE_OpenPass( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDLINE_OpenAndFillInternal( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_HT_TRENDLINE_OpenCore( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_HT_TRENDLINE_OpenPass( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Update( TA_HT_TRENDLINE_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_HT_TRENDLINE_StepInternal( stream, inReal, outReal );
    return TA_SUCCESS;
 }
@@ -1630,6 +1639,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Peek( const TA_HT_TRENDLINE_Stream *stream
    struct TA_HT_TRENDLINE_Stream scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.ring_trailingWMAIdx_inReal = stream->ringMirror_trailingWMAIdx_inReal;
    memcpy( scratch.ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingWMAIdx > 0 ? stream->ringCap_trailingWMAIdx : 1) );

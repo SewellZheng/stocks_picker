@@ -68,69 +68,9 @@ impl Core {
     pub fn MULT_Lookback(&self) -> usize {
         return (0) as usize;
     }
-    /// Element-wise multiplication of two input series. Produces outReal\[i] = inReal0\[i] *
-    /// inReal1\[i].
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// outReal[i] = inReal0[i] * inReal1[i]
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal0` — First operand series.
-    /// * `inReal1` — Second operand series.
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — Product of the two inputs at each index.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`], and
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data0: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let data1: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.MULT(
-    ///     0, data0.len() - 1, &data0, &data1,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::ADD`] · [`Core::SUB`] · [`Core::DIV`]
-    ///
-    /// Further reading: [ta-lib.org/functions/mult](https://ta-lib.org/functions/mult)
-    #[doc(alias = "VectorMultiply")]
-    #[doc(alias = "VectorArithmeticMult")]
-    #[doc(alias = "Element-wiseProduct")]
-    pub fn MULT(
+    /// C-shaped body behind [`Core::MULT`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn MULT_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -140,10 +80,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.MULT_Lookback();
@@ -165,6 +105,94 @@ impl Core {
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
+    /// Element-wise multiplication of two input series. Produces outReal\[i] = inReal0\[i] *
+    /// inReal1\[i].
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// outReal[i] = inReal0[i] * inReal1[i]
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal0` — First operand series.
+    /// * `inReal1` — Second operand series.
+    /// * `outReal` — Product of the two inputs at each index.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// zero [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data0: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let data1: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 + 0.7).sin())
+    ///     .collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.MULT(0, data0.len() - 1, &data0, &data1, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::ADD`] · [`Core::SUB`] · [`Core::DIV`]
+    ///
+    /// Further reading: [ta-lib.org/functions/mult](https://ta-lib.org/functions/mult)
+    #[doc(alias = "VectorMultiply")]
+    #[doc(alias = "VectorArithmeticMult")]
+    #[doc(alias = "Element-wiseProduct")]
+    pub fn MULT(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal0: &[f64],
+        inReal1: &[f64],
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.MULT_Impl(
+            startIdx,
+            endIdx,
+            inReal0,
+            inReal1,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -215,13 +243,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::MULT_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::MULT_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn MULT_OpenCore(
+    pub(crate) fn MULT_OpenPass(
         &self, inReal0: &[f64], inReal1: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<MULT_Stream, RetCode> {
         if inReal0.is_empty() || inReal1.is_empty() || inReal1.len() != inReal0.len() {
             return Err(RetCode::BadParam);
         }
-        if inReal0.len() > MAX_INDEX + 1 {
+        if inReal0.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inReal0.len();
@@ -254,7 +282,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.MULT_OpenCore(inReal0, inReal1, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.MULT_OpenPass(inReal0, inReal1, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -263,8 +291,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -275,8 +305,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MULT_Open(&data0, &data1).expect("enough history");
-    /// let peeked = s.peek(100.9, 101.3);
-    /// let updated = s.update(100.9, 101.3);
+    /// let peeked = s.peek(100.9, 101.3).expect("a finite bar");
+    /// let updated = s.update(100.9, 101.3).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_MULT_Open")]
@@ -285,13 +315,17 @@ impl Core {
     }
 
     /// [`Core::MULT_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::MULT`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::MULT`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_MULT_OpenAndFill")]
     pub fn MULT_OpenAndFill(
-        &self, inReal0: &[f64], inReal1: &[f64], outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<MULT_Stream, RetCode> {
-        self.MULT_OpenCore(inReal0, inReal1, 0, outBegIdx, outNBElement, outReal, 1)
+        &self, inReal0: &[f64], inReal1: &[f64], outReal: &mut [f64],
+    ) -> Result<(MULT_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.MULT_OpenPass(inReal0, inReal1, 0, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::MULT_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -299,7 +333,7 @@ impl Core {
     pub(crate) fn MULT_OpenAndFillInternal(
         &self, inReal0: &[f64], inReal1: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<MULT_Stream, RetCode> {
-        self.MULT_OpenCore(inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1)
+        self.MULT_OpenPass(inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -307,12 +341,25 @@ impl Core {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl MULT_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_MULT_Update")]
-    pub fn update(&mut self, inReal0: f64, inReal1: f64) -> f64 {
+    pub fn update(&mut self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
+        if !inReal0.is_finite() || !inReal1.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.MULT_step_internal(&mut self.state, inReal0, inReal1, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -320,9 +367,16 @@ impl MULT_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. This handle holds only scalars, so the copy is a
     /// few machine words and `peek` never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_MULT_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal0: f64, inReal1: f64) -> f64 {
+    pub fn peek(&self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
+        if !inReal0.is_finite() || !inReal1.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut scratch = self.clone();
         scratch.update(inReal0, inReal1)
     }

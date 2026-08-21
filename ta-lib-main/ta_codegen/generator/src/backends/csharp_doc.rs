@@ -114,9 +114,20 @@ pub fn guarded_docs(
          one array.",
     );
     b.exception(
-        "System.NullReferenceException",
-        "An input or output array is null. (Unlike the C library, the managed \
-         tier does not pre-validate nulls; the first array access throws.)",
+        "System.ArgumentException",
+        "A span is too short for the range requested: an input this function <i>reads</i> \
+         that does not reach <c>endIdx</c>, or an output that cannot hold the values \
+         produced. Checked before anything is written, so a rejected call leaves every \
+         buffer untouched. An empty span — which is what a null array becomes, since a \
+         span cannot be null — fails the same check, because any valid range needs at \
+         least one element. A few candlestick patterns declare an OHLC series they never \
+         index; those are not checked at all, because rejecting them would refuse a call \
+         the algorithm can answer.",
+    );
+    b.exception(
+        "System.ArgumentException",
+        "Two output buffers overlap, or an output partially overlaps an input. Computing \
+         wholly in place (an output that IS an input) is allowed.",
     );
     b.render()
 }
@@ -189,7 +200,7 @@ fn input_desc(name: &str, doc: &DocDef) -> String {
     .to_string()
 }
 
-fn output_desc(output: &Output, doc: &DocDef) -> String {
+pub(super) fn output_desc(output: &Output, doc: &DocDef) -> String {
     doc.outputs
         .iter()
         .find(|(n, _)| n == &output.name)

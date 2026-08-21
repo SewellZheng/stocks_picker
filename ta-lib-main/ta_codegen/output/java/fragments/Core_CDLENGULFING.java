@@ -28,15 +28,15 @@
       return 2 ;
 
    }
-   RetCode CDLENGULFING_Internal( int startIdx,
-                                  int endIdx,
-                                  double inOpen[],
-                                  double inHigh[],
-                                  double inLow[],
-                                  double inClose[],
-                                  MInteger outBegIdx,
-                                  MInteger outNBElement,
-                                  int outInteger[] )
+   RetCode CDLENGULFING_Impl( int startIdx,
+                              int endIdx,
+                              double inOpen[],
+                              double inHigh[],
+                              double inLow[],
+                              double inClose[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -97,15 +97,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode CDLENGULFING_Internal( int startIdx,
-                                  int endIdx,
-                                  float inOpen[],
-                                  float inHigh[],
-                                  float inLow[],
-                                  float inClose[],
-                                  MInteger outBegIdx,
-                                  MInteger outNBElement,
-                                  int outInteger[] )
+   RetCode CDLENGULFING_Impl( int startIdx,
+                              int endIdx,
+                              float inOpen[],
+                              float inHigh[],
+                              float inLow[],
+                              float inClose[],
+                              MInteger outBegIdx,
+                              MInteger outNBElement,
+                              int outInteger[] )
    {
       int i = 0;
       int outIdx = 0;
@@ -146,12 +146,12 @@
    /**
     * A two-candle reversal pattern where the second candle's real body engulfs
     * the first candle's opposite-colored real body. Bullish (white engulfs
-    * black) or bearish (black engulfs white) reversal signal. Bullish reversal
-    * at +100/+80, bearish at -100/-80; ideally after a downtrend (bullish) or
-    * uptrend (bearish), which the code does not verify.
+    * black) or bearish (black engulfs white) reversal signal; ideally after a
+    * downtrend (bullish) or uptrend (bearish), which the code does not verify.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend (down for bullish, up for bearish) the reversal classically assumes.</li>
+    * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. ([thepatternsite.com](https://thepatternsite.com/BearEngulfing.html))</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -175,8 +175,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CDLHARAMI
     * @see Core#CDLCOUNTERATTACK
@@ -190,9 +197,16 @@
                                  double inClose[],
                                  int outInteger[] )
    {
+      requireIndexRange("CDLENGULFING", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CDLENGULFING_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CDLENGULFING", "inOpen", inOpen, guardInLen);
+      requireLength("CDLENGULFING", "inClose", inClose, guardInLen);
+      requireLength("CDLENGULFING", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLENGULFING_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLENGULFING_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLENGULFING", retCode);
       }
@@ -201,12 +215,12 @@
    /**
     * A two-candle reversal pattern where the second candle's real body engulfs
     * the first candle's opposite-colored real body. Bullish (white engulfs
-    * black) or bearish (black engulfs white) reversal signal. Bullish reversal
-    * at +100/+80, bearish at -100/-80; ideally after a downtrend (bullish) or
-    * uptrend (bearish), which the code does not verify.
+    * black) or bearish (black engulfs white) reversal signal; ideally after a
+    * downtrend (bullish) or uptrend (bearish), which the code does not verify.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend (down for bullish, up for bearish) the reversal classically assumes.</li>
+    * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. ([thepatternsite.com](https://thepatternsite.com/BearEngulfing.html))</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -233,8 +247,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CDLHARAMI
     * @see Core#CDLCOUNTERATTACK
@@ -248,9 +269,16 @@
                                  float inClose[],
                                  int outInteger[] )
    {
+      requireIndexRange("CDLENGULFING", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, CDLENGULFING_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("CDLENGULFING", "inOpen", inOpen, guardInLen);
+      requireLength("CDLENGULFING", "inClose", inClose, guardInLen);
+      requireLength("CDLENGULFING", "outInteger", outInteger, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLENGULFING_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLENGULFING_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       if( retCode != RetCode.Success ) {
          throw failure("CDLENGULFING", retCode);
       }
@@ -307,10 +335,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("CDLENGULFING update: BadParam", RetCode.BadParam);
          core.CDLENGULFING_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outInteger;
       }
@@ -323,6 +361,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("CDLENGULFING peek: BadParam", RetCode.BadParam);
          CDLENGULFING_Stream scratch = new CDLENGULFING_Stream(this);
          core.CDLENGULFING_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outInteger;
@@ -361,7 +401,7 @@
       sp.lag1_inOpen = inOpen;
       sp.lag1_inClose = inClose;
    }
-   private RetCode CDLENGULFING_OpenCore( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
+   private RetCode CDLENGULFING_OpenPass( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -388,7 +428,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Do the calculation using tight loops. */
       /* Add-up the initial period, except for the last value. */
@@ -428,55 +468,55 @@
       sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode CDLENGULFING_OpenBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode CDLENGULFING_OpenImpl( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       int[] sink_outInteger = new int[1];
-      return CDLENGULFING_OpenCore( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
+      return CDLENGULFING_OpenPass( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outInteger, 0 );
    }
-   private RetCode CDLENGULFING_OpenAndFillBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLENGULFING_OpenAndFillImpl( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return CDLENGULFING_OpenCore( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
+      return CDLENGULFING_OpenPass( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1 );
    }
-   private RetCode CDLENGULFING_OpenAndFillInternalBody( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
+   private RetCode CDLENGULFING_OpenAndFillInternalImpl( CDLENGULFING_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
-      return CDLENGULFING_OpenCore(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
+      return CDLENGULFING_OpenPass(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1);
    }
    /* CDLENGULFING_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CDLENGULFING_Stream CDLENGULFING_OpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, int outInteger[] )
    {
       CDLENGULFING_Stream sp = new CDLENGULFING_Stream(this);
-      RetCode retCode = CDLENGULFING_OpenAndFillInternalBody(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLENGULFING_OpenAndFillInternalImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDLENGULFING openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDLENGULFING openAndFill: internal error");
+         throw new TaLibStateException("CDLENGULFING openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDLENGULFING openAndFill: " + retCode);
+      throw new TaLibArgumentException("CDLENGULFING openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind CDLENGULFING_Open (composition seam). */
    CDLENGULFING_Stream CDLENGULFING_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       CDLENGULFING_Stream sp = new CDLENGULFING_Stream(this);
-      RetCode retCode = CDLENGULFING_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      RetCode retCode = CDLENGULFING_OpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDLENGULFING open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDLENGULFING open: internal error");
+         throw new TaLibStateException("CDLENGULFING open: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDLENGULFING open: " + retCode);
+      throw new TaLibArgumentException("CDLENGULFING open: " + retCode, retCode);
    }
    /**
     * Open a live CDLENGULFING stream over the warm-up history; the handle's
@@ -506,16 +546,16 @@
       CDLENGULFING_Stream sp = new CDLENGULFING_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CDLENGULFING_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
+      RetCode retCode = CDLENGULFING_OpenAndFillImpl(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outInteger);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("CDLENGULFING openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("CDLENGULFING openAndFill: internal error");
+         throw new TaLibStateException("CDLENGULFING openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("CDLENGULFING openAndFill: " + retCode);
+      throw new TaLibArgumentException("CDLENGULFING openAndFill: " + retCode, retCode);
    }

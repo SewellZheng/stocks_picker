@@ -26,15 +26,15 @@
       return 0 ;
 
    }
-   RetCode BOP_Internal( int startIdx,
-                         int endIdx,
-                         double inOpen[],
-                         double inHigh[],
-                         double inLow[],
-                         double inClose[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode BOP_Impl( int startIdx,
+                     int endIdx,
+                     double inOpen[],
+                     double inHigh[],
+                     double inLow[],
+                     double inClose[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -59,15 +59,15 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode BOP_Internal( int startIdx,
-                         int endIdx,
-                         float inOpen[],
-                         float inHigh[],
-                         float inLow[],
-                         float inClose[],
-                         MInteger outBegIdx,
-                         MInteger outNBElement,
-                         double outReal[] )
+   RetCode BOP_Impl( int startIdx,
+                     int endIdx,
+                     float inOpen[],
+                     float inHigh[],
+                     float inLow[],
+                     float inClose[],
+                     MInteger outBegIdx,
+                     MInteger outNBElement,
+                     double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -119,8 +119,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     */
    public OutRange BOP( int startIdx,
                         int endIdx,
@@ -130,9 +137,18 @@
                         double inClose[],
                         double outReal[] )
    {
+      requireIndexRange("BOP", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, BOP_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("BOP", "inOpen", inOpen, guardInLen);
+      requireLength("BOP", "inHigh", inHigh, guardInLen);
+      requireLength("BOP", "inLow", inLow, guardInLen);
+      requireLength("BOP", "inClose", inClose, guardInLen);
+      requireLength("BOP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BOP_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("BOP", retCode);
       }
@@ -169,8 +185,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     */
    public OutRange BOP( int startIdx,
                         int endIdx,
@@ -180,9 +203,18 @@
                         float inClose[],
                         double outReal[] )
    {
+      requireIndexRange("BOP", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, BOP_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("BOP", "inOpen", inOpen, guardInLen);
+      requireLength("BOP", "inHigh", inHigh, guardInLen);
+      requireLength("BOP", "inLow", inLow, guardInLen);
+      requireLength("BOP", "inClose", inClose, guardInLen);
+      requireLength("BOP", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BOP_Internal(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("BOP", retCode);
       }
@@ -233,10 +265,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("BOP update: BadParam", RetCode.BadParam);
          core.BOP_StreamStep(this, inOpen, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
@@ -249,6 +291,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("BOP peek: BadParam", RetCode.BadParam);
          BOP_Stream scratch = new BOP_Stream(this);
          core.BOP_StreamStep(scratch, inOpen, inHigh, inLow, inClose);
          return scratch.cur_outReal;
@@ -281,7 +325,7 @@
          sp.cur_outReal = (inClose - inOpen) / tempReal;
       }
    }
-   private RetCode BOP_OpenCore( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode BOP_OpenPass( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -310,55 +354,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode BOP_OpenBody( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
+   private RetCode BOP_OpenImpl( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return BOP_OpenCore( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return BOP_OpenPass( sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode BOP_OpenAndFillBody( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode BOP_OpenAndFillImpl( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inOpen || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return BOP_OpenCore( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
+      return BOP_OpenPass( sp, inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode BOP_OpenAndFillInternalBody( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode BOP_OpenAndFillInternalImpl( BOP_Stream sp, double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return BOP_OpenCore(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return BOP_OpenPass(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* BOP_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    BOP_Stream BOP_OpenAndFillInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       BOP_Stream sp = new BOP_Stream(this);
-      RetCode retCode = BOP_OpenAndFillInternalBody(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BOP_OpenAndFillInternalImpl(sp, inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BOP openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BOP openAndFill: internal error");
+         throw new TaLibStateException("BOP openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("BOP openAndFill: " + retCode);
+      throw new TaLibArgumentException("BOP openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind BOP_Open (composition seam). */
    BOP_Stream BOP_OpenInternal( double inOpen[], double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       BOP_Stream sp = new BOP_Stream(this);
-      RetCode retCode = BOP_OpenBody(sp, inOpen, inHigh, inLow, inClose, startIdx);
+      RetCode retCode = BOP_OpenImpl(sp, inOpen, inHigh, inLow, inClose, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BOP open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BOP open: internal error");
+         throw new TaLibStateException("BOP open: internal error", retCode);
       }
-      throw new IllegalArgumentException("BOP open: " + retCode);
+      throw new TaLibArgumentException("BOP open: " + retCode, retCode);
    }
    /**
     * Open a live BOP stream over the warm-up history; the handle's
@@ -388,16 +432,16 @@
       BOP_Stream sp = new BOP_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BOP_OpenAndFillBody(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BOP_OpenAndFillImpl(sp, inOpen, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BOP openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BOP openAndFill: internal error");
+         throw new TaLibStateException("BOP openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("BOP openAndFill: " + retCode);
+      throw new TaLibArgumentException("BOP openAndFill: " + retCode, retCode);
    }

@@ -89,16 +89,16 @@ public partial class Core
       return optInTimePeriod ;
 
    }
-   internal RetCode MFI( int startIdx,
-                         int endIdx,
-                         double[] inHigh,
-                         double[] inLow,
-                         double[] inClose,
-                         double[] inVolume,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode MFI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inHigh,
+                              ReadOnlySpan<double> inLow,
+                              ReadOnlySpan<double> inClose,
+                              ReadOnlySpan<double> inVolume,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -126,6 +126,9 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) || (outReal.Overlaps(inClose) && outReal != inClose) || (outReal.Overlaps(inVolume) && outReal != inVolume) ) {
+         return RetCode.BadParam ;
       }
       /* Id, Type, Static Size */
       if( optInTimePeriod < 1 ) return RetCode.InternalError;
@@ -229,16 +232,16 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode MFI( int startIdx,
-                         int endIdx,
-                         float[] inHigh,
-                         float[] inLow,
-                         float[] inClose,
-                         float[] inVolume,
-                         int optInTimePeriod,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode MFI_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inHigh,
+                              ReadOnlySpan<float> inLow,
+                              ReadOnlySpan<float> inClose,
+                              ReadOnlySpan<float> inVolume,
+                              int optInTimePeriod,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -383,18 +386,34 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MFI( int startIdx,
                         int endIdx,
-                        double[] inHigh,
-                        double[] inLow,
-                        double[] inClose,
-                        double[] inVolume,
+                        ReadOnlySpan<double> inHigh,
+                        ReadOnlySpan<double> inLow,
+                        ReadOnlySpan<double> inClose,
+                        ReadOnlySpan<double> inVolume,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = MFI(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, MFI_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("MFI", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("MFI", "inLow", inLow.Length, guardInLen);
+      RequireLength("MFI", "inClose", inClose.Length, guardInLen);
+      RequireLength("MFI", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("MFI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = MFI_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("MFI", retCode);
       }
@@ -442,21 +461,500 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MFI( int startIdx,
                         int endIdx,
-                        float[] inHigh,
-                        float[] inLow,
-                        float[] inClose,
-                        float[] inVolume,
+                        ReadOnlySpan<float> inHigh,
+                        ReadOnlySpan<float> inLow,
+                        ReadOnlySpan<float> inClose,
+                        ReadOnlySpan<float> inVolume,
                         int optInTimePeriod,
-                        double[] outReal )
+                        Span<double> outReal )
    {
-      RetCode retCode = MFI(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, MFI_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("MFI", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("MFI", "inLow", inLow.Length, guardInLen);
+      RequireLength("MFI", "inClose", inClose.Length, guardInLen);
+      RequireLength("MFI", "inVolume", inVolume.Length, guardInLen);
+      RequireLength("MFI", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = MFI_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("MFI", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>MFI</c> stream: one value per closed bar, bit-identical to
+   /// <c>MFI</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.MFI_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class MFI_Stream
+   {
+      internal Core core;
+      internal int optInTimePeriod;
+      internal double posSumMF;
+      internal double negSumMF;
+      internal double prevValue;
+      internal double tempValue1;
+      internal double tempValue2;
+      internal double tempValue3;
+      internal int mflow_Idx;
+      internal int maxIdx_mflow;
+      internal int cbSize_mflow;
+      internal double[] cb_mflow_positive = [];
+      internal double[] cb_mflow_negative = [];
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal MFI_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>MFI_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal MFI_Stream( MFI_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.posSumMF = other.posSumMF;
+         this.negSumMF = other.negSumMF;
+         this.prevValue = other.prevValue;
+         this.tempValue1 = other.tempValue1;
+         this.tempValue2 = other.tempValue2;
+         this.tempValue3 = other.tempValue3;
+         this.mflow_Idx = other.mflow_Idx;
+         this.maxIdx_mflow = other.maxIdx_mflow;
+         this.cbSize_mflow = other.cbSize_mflow;
+         this.cb_mflow_positive = new double[other.cb_mflow_positive.Length];
+         Array.Copy( other.cb_mflow_positive, this.cb_mflow_positive, other.cb_mflow_positive.Length );
+         this.cb_mflow_negative = new double[other.cb_mflow_negative.Length];
+         Array.Copy( other.cb_mflow_negative, this.cb_mflow_negative, other.cb_mflow_negative.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( MFI_Stream other )
+      {
+         this.core = other.core;
+         this.optInTimePeriod = other.optInTimePeriod;
+         this.posSumMF = other.posSumMF;
+         this.negSumMF = other.negSumMF;
+         this.prevValue = other.prevValue;
+         this.tempValue1 = other.tempValue1;
+         this.tempValue2 = other.tempValue2;
+         this.tempValue3 = other.tempValue3;
+         this.mflow_Idx = other.mflow_Idx;
+         this.maxIdx_mflow = other.maxIdx_mflow;
+         this.cbSize_mflow = other.cbSize_mflow;
+         if( this.cb_mflow_positive.Length != other.cb_mflow_positive.Length ) {
+            this.cb_mflow_positive = new double[other.cb_mflow_positive.Length];
+         }
+         Array.Copy( other.cb_mflow_positive, this.cb_mflow_positive, other.cb_mflow_positive.Length );
+         if( this.cb_mflow_negative.Length != other.cb_mflow_negative.Length ) {
+            this.cb_mflow_negative = new double[other.cb_mflow_negative.Length];
+         }
+         Array.Copy( other.cb_mflow_negative, this.cb_mflow_negative, other.cb_mflow_negative.Length );
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /* Peek's reusable scratch — one per thread, see CopyFrom. */
+      [ThreadStatic] private static MFI_Stream? peekScratch;
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inHigh, double inLow, double inClose, double inVolume )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MFI", "update", RetCode.BadParam);
+         core.MFI_StreamStep(this, inHigh, inLow, inClose, inVolume);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
+      /// nothing after this thread's first peek of this indicator. That scratch is
+      /// retained for the life of the thread.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <param name="inVolume">This bar's volume.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inHigh, double inLow, double inClose, double inVolume )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MFI", "peek", RetCode.BadParam);
+         MFI_Stream? scratch = peekScratch;
+         if( scratch is null ) {
+            scratch = new MFI_Stream(this);
+            peekScratch = scratch;
+         } else {
+            scratch.CopyFrom(this);
+         }
+         core.MFI_StreamStep(scratch, inHigh, inLow, inClose, inVolume);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public MFI_Stream Clone()
+      {
+         return new MFI_Stream(this);
+      }
+   }
+
+   internal void MFI_StreamStep( MFI_Stream sp, double inHigh, double inLow, double inClose, double inVolume )
+   {
+      sp.posSumMF -= sp.cb_mflow_positive[sp.mflow_Idx];
+      sp.negSumMF -= sp.cb_mflow_negative[sp.mflow_Idx];
+      sp.tempValue1 = (inHigh + inLow + inClose) / 3.0;
+      sp.tempValue2 = sp.tempValue1 - sp.prevValue;
+      /* Dead-zone scaled to the two typical prices being compared (issue #107).
+       * Captured before prevValue/tempValue1 are repurposed below.
+       */
+      sp.tempValue3 = Math.Abs(sp.tempValue1) + Math.Abs(sp.prevValue);
+      sp.prevValue = sp.tempValue1;
+      sp.tempValue1 *= inVolume;
+      if( (Math.Abs(sp.tempValue2) <= 0.00000000000001 * (sp.tempValue3)) ) {
+         sp.cb_mflow_positive[sp.mflow_Idx] = 0.0;
+         sp.cb_mflow_negative[sp.mflow_Idx] = 0.0;
+      } else if( sp.tempValue2 < 0 ) {
+         sp.cb_mflow_negative[sp.mflow_Idx] = sp.tempValue1;
+         sp.negSumMF += sp.tempValue1;
+         sp.cb_mflow_positive[sp.mflow_Idx] = 0.0;
+      } else {
+         sp.cb_mflow_positive[sp.mflow_Idx] = sp.tempValue1;
+         sp.posSumMF += sp.tempValue1;
+         sp.cb_mflow_negative[sp.mflow_Idx] = 0.0;
+      }
+      sp.tempValue1 = sp.posSumMF + sp.negSumMF;
+      if( sp.tempValue1 < 1.0 ) {
+         sp.cur_outReal = 0.0;
+      } else {
+         sp.cur_outReal = 100.0 * (sp.posSumMF / sp.tempValue1);
+      }
+      sp.mflow_Idx = sp.mflow_Idx + 1;
+      if( sp.mflow_Idx > sp.maxIdx_mflow ) {
+         sp.mflow_Idx = 0;
+      }
+   }
+
+   private RetCode MFI_OpenPass( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      double posSumMF = 0;
+      double negSumMF = 0;
+      double prevValue = 0;
+      double tempValue1 = 0;
+      double tempValue2 = 0;
+      double tempValue3 = 0;
+      int lookbackTotal = 0;
+      int outIdx = 0;
+      int i = 0;
+      int today = 0;
+      double[] mflow_positive = [];
+      double[] mflow_negative = [];
+      int mflow_Idx = 0;
+      int maxIdx_mflow = (50)-1;
+      int historyLen = inHigh.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length || inVolume.Length != inHigh.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      if( optInTimePeriod == int.MinValue ) {
+         optInTimePeriod = 14;
+      } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
+         return RetCode.BadParam;
+      }
+      /* Id, Type, Static Size */
+      if( optInTimePeriod < 1 ) return RetCode.InternalError;
+      mflow_positive = new double[optInTimePeriod];
+      mflow_negative = new double[optInTimePeriod];
+      maxIdx_mflow = (optInTimePeriod)-1;
+      mflow_Idx = 0;
+      outBegIdx = 0;
+      outNBElement = 0;
+      /* Adjust startIdx to account for the lookback period. */
+      lookbackTotal = optInTimePeriod;
+      if( startIdx < lookbackTotal ) {
+         startIdx = lookbackTotal;
+      }
+      /* Make sure there is still something to evaluate. */
+      if( startIdx > endIdx ) {
+         return RetCode.InsufficientHistory ;
+      }
+      outIdx = 0;
+      /* Index into the output. */
+      /* Accumulate the positive and negative money flow
+       * among the initial period.
+       */
+      today = startIdx - lookbackTotal;
+      prevValue = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
+      posSumMF = 0.0;
+      negSumMF = 0.0;
+      today += 1;
+      for( i = optInTimePeriod; i > 0; i -= 1 ) {
+         tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
+         tempValue2 = tempValue1 - prevValue;
+         /* Dead-zone scaled to the two typical prices being compared (issue #107).
+          * Captured before prevValue/tempValue1 are repurposed below.
+          */
+         tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
+         prevValue = tempValue1;
+         tempValue1 *= inVolume[today++];
+         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+            mflow_positive[mflow_Idx] = 0.0;
+            mflow_negative[mflow_Idx] = 0.0;
+         } else if( tempValue2 < 0 ) {
+            mflow_negative[mflow_Idx] = tempValue1;
+            negSumMF += tempValue1;
+            mflow_positive[mflow_Idx] = 0.0;
+         } else {
+            mflow_positive[mflow_Idx] = tempValue1;
+            posSumMF += tempValue1;
+            mflow_negative[mflow_Idx] = 0.0;
+         }
+         mflow_Idx++;
+         if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
+      }
+      /* The following two equations are equivalent:
+       *    MFI = 100 - (100 / 1 + (posSumMF/negSumMF))
+       *    MFI = 100 * (posSumMF/(posSumMF+negSumMF))
+       * The second equation is used here for speed optimization.
+       */
+      /* The first full window is complete: emit its output for startIdx here,
+       * then slide the window over the remaining bars below.
+       */
+      tempValue1 = posSumMF + negSumMF;
+      if( tempValue1 < 1.0 ) {
+         outReal[outIdx++ * outStride] = 0.0;
+      } else {
+         outReal[outIdx++ * outStride] = 100.0 * (posSumMF / tempValue1);
+      }
+      /* Now continue processing the remaining bars. */
+      while( today <= endIdx ) {
+         posSumMF -= mflow_positive[mflow_Idx];
+         negSumMF -= mflow_negative[mflow_Idx];
+         tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
+         tempValue2 = tempValue1 - prevValue;
+         /* Dead-zone scaled to the two typical prices being compared (issue #107).
+          * Captured before prevValue/tempValue1 are repurposed below.
+          */
+         tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
+         prevValue = tempValue1;
+         tempValue1 *= inVolume[today++];
+         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
+            mflow_positive[mflow_Idx] = 0.0;
+            mflow_negative[mflow_Idx] = 0.0;
+         } else if( tempValue2 < 0 ) {
+            mflow_negative[mflow_Idx] = tempValue1;
+            negSumMF += tempValue1;
+            mflow_positive[mflow_Idx] = 0.0;
+         } else {
+            mflow_positive[mflow_Idx] = tempValue1;
+            posSumMF += tempValue1;
+            mflow_negative[mflow_Idx] = 0.0;
+         }
+         tempValue1 = posSumMF + negSumMF;
+         if( tempValue1 < 1.0 ) {
+            outReal[outIdx++ * outStride] = 0.0;
+         } else {
+            outReal[outIdx++ * outStride] = 100.0 * (posSumMF / tempValue1);
+         }
+         mflow_Idx++;
+         if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
+      }
+      outBegIdx = startIdx;
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      int capCb_mflow = maxIdx_mflow + 1;
+      if( capCb_mflow > historyLen + 1 ) {
+         return RetCode.InternalError;
+      }
+      sp.optInTimePeriod = optInTimePeriod;
+      sp.posSumMF = posSumMF;
+      sp.negSumMF = negSumMF;
+      sp.prevValue = prevValue;
+      sp.tempValue1 = tempValue1;
+      sp.tempValue2 = tempValue2;
+      sp.tempValue3 = tempValue3;
+      sp.mflow_Idx = mflow_Idx;
+      sp.maxIdx_mflow = maxIdx_mflow;
+      sp.cbSize_mflow = capCb_mflow;
+      sp.cb_mflow_positive = mflow_positive;
+      sp.cb_mflow_negative = mflow_negative;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode MFI_OpenImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod )
+   {
+      double[] sink_outReal = new double[1];
+      return MFI_OpenPass( sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode MFI_OpenAndFillImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) {
+         return RetCode.BadParam;
+      }
+      return MFI_OpenPass( sp, inHigh, inLow, inClose, inVolume, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode MFI_OpenAndFillInternalImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return MFI_OpenPass(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* MFI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal MFI_Stream MFI_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      MFI_Stream sp = new MFI_Stream(this);
+      RetCode retCode = MFI_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("MFI", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind MFI_Open (composition seam). */
+   internal MFI_Stream MFI_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod )
+   {
+      MFI_Stream sp = new MFI_Stream(this);
+      RetCode retCode = MFI_OpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("MFI", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>MFI</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="MFI_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>MFI</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>MFI_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>MFI_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="MFI_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MFI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public MFI_Stream MFI_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int optInTimePeriod )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      return MFI_OpenInternal(inHigh, inLow, inClose, inVolume, 0, optInTimePeriod);
+   }
+
+   /// <summary><c>MFI_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>MFI</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - MFI_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="MFI_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="optInTimePeriod">As in the batch call; see <see cref="MFI_Lookback"/> for its default and
+   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// <param name="outReal">Money Flow Index. Must hold at least <c>historyLen - MFI_Lookback(...)</c>
+   /// values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MFI_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public MFI_Stream MFI_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int optInTimePeriod, Span<double> outReal )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
+      MFI_Stream sp = new MFI_Stream(this);
+      RetCode retCode = MFI_OpenAndFillImpl(sp, inHigh, inLow, inClose, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("MFI", "openAndFill", retCode);
    }
 }

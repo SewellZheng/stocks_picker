@@ -73,87 +73,9 @@ impl Core {
         // series is this one without the leading zero.
         return (0) as usize;
     }
-    /// Williams' Accumulation/Distribution: a cumulative line that measures each bar's close
-    /// against the *true range* extreme — the previous close, whenever it lies outside the
-    /// current bar — rather than against the bar's own high and low. A close above the previous
-    /// one accumulates the distance up from the true low; a close below it distributes the distance
-    /// down from the true high; an unchanged close contributes nothing. **It consumes no volume.**
-    /// Larry Williams' original multiplies each move by that bar's volume; Steven Achelis published
-    /// the modification that drops the multiplier (*Technical Analysis from A to Z*, 2nd ed.,
-    /// p.368), and the industry kept Williams' name on that no-volume form. That industry-wide
-    /// decision is enough for TA-Lib to ship the same form under the same name.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// TRH_t = max(close_{t-1}, high_t); TRL_t = min(close_{t-1}, low_t); AD_t = close_t - TRL_t if close_t > close_{t-1}, close_t - TRH_t if close_t < close_{t-1}, otherwise 0; WAD_t = WAD_{t-1} + AD_t
-    ///
-    /// The first bar of the requested range has no previous close, so it contributes 0 and the line starts there — the same convention as AD, OBV, NVI and PVI. The accumulator restarts wherever the caller starts, so a different `startIdx` shifts the whole line by a constant.
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inHigh` — High price of each bar.
-    /// * `inLow` — Low price of each bar.
-    /// * `inClose` — Close price of each bar.
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — Cumulative accumulation/distribution.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`], and
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.WAD(
-    ///     0, high.len() - 1, &high, &low, &close,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::AD`] · [`Core::ADOSC`] · [`Core::NVI`] · [`Core::OBV`] · [`Core::PVI`]
-    ///
-    /// # References
-    ///
-    /// * Larry Williams is the originator; Steven Achelis, *Technical Analysis from A to Z*, 2nd
-    ///   edition, page 368 publishes the no-volume form this ships, with the worked 12-bar example
-    ///   pinned in the test suite.
-    /// * IncredibleCharts, *Williams Accumulation Distribution* — Williams' volume-weighted
-    ///   original, `AD = Price Move × Volume` over the same true-range price move.
-    /// * IncredibleCharts, *Williams Accumulate Distribute* — the Achelis form under its
-    ///   disambiguating name, "not a volume indicator despite the name".
-    ///
-    /// Further reading: [ta-lib.org/functions/wad](https://ta-lib.org/functions/wad)
-    pub fn WAD(
+    /// C-shaped body behind [`Core::WAD`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn WAD_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -164,10 +86,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.WAD_Lookback();
@@ -242,6 +164,114 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Williams' Accumulation/Distribution: a cumulative line that measures each bar's close
+    /// against the *true range* extreme — the previous close, whenever it lies outside the
+    /// current bar — rather than against the bar's own high and low. A close above the previous
+    /// one accumulates the distance up from the true low; a close below it distributes the distance
+    /// down from the true high; an unchanged close contributes nothing. **It consumes no volume.**
+    /// Larry Williams' original multiplies each move by that bar's volume; Steven Achelis published
+    /// the modification that drops the multiplier (*Technical Analysis from A to Z*, 2nd ed.,
+    /// p.368), and the industry kept Williams' name on that no-volume form. That industry-wide
+    /// decision is enough for TA-Lib to ship the same form under the same name.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// TRH_t = max(close_{t-1}, high_t); TRL_t = min(close_{t-1}, low_t); AD_t = close_t - TRL_t if close_t > close_{t-1}, close_t - TRH_t if close_t < close_{t-1}, otherwise 0; WAD_t = WAD_{t-1} + AD_t
+    ///
+    /// The first bar of the requested range has no previous close, so it contributes 0 and the line starts there — the same convention as AD, OBV, NVI and PVI. The accumulator restarts wherever the caller starts, so a different `startIdx` shifts the whole line by a constant.
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inHigh` — High price of each bar.
+    /// * `inLow` — Low price of each bar.
+    /// * `inClose` — Close price of each bar.
+    /// * `outReal` — Cumulative accumulation/distribution.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// zero [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.WAD(0, high.len() - 1, &high, &low, &close, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::AD`] · [`Core::ADOSC`] · [`Core::NVI`] · [`Core::OBV`] · [`Core::PVI`]
+    ///
+    /// # References
+    ///
+    /// * Larry Williams is the originator; Steven Achelis, *Technical Analysis from A to Z*, 2nd
+    ///   edition, page 368 publishes the no-volume form this ships, with the worked 12-bar example
+    ///   pinned in the test suite.
+    /// * IncredibleCharts, *Williams Accumulation Distribution* — Williams' volume-weighted
+    ///   original, `AD = Price Move × Volume` over the same true-range price move.
+    /// * IncredibleCharts, *Williams Accumulate Distribute* — the Achelis form under its
+    ///   disambiguating name, "not a volume indicator despite the name".
+    ///
+    /// Further reading: [ta-lib.org/functions/wad](https://ta-lib.org/functions/wad)
+    pub fn WAD(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inHigh: &[f64],
+        inLow: &[f64],
+        inClose: &[f64],
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.WAD_Impl(
+            startIdx,
+            endIdx,
+            inHigh,
+            inLow,
+            inClose,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -314,13 +344,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::WAD_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::WAD_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn WAD_OpenCore(
+    pub(crate) fn WAD_OpenPass(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<WAD_Stream, RetCode> {
         if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
-        if inHigh.len() > MAX_INDEX + 1 {
+        if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inHigh.len();
@@ -408,7 +438,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.WAD_OpenCore(inHigh, inLow, inClose, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.WAD_OpenPass(inHigh, inLow, inClose, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -417,8 +447,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -430,8 +462,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.WAD_Open(&high, &low, &close).expect("enough history");
-    /// let peeked = s.peek(101.4, 99.1, 100.9);
-    /// let updated = s.update(101.4, 99.1, 100.9);
+    /// let peeked = s.peek(101.4, 99.1, 100.9).expect("a finite bar");
+    /// let updated = s.update(101.4, 99.1, 100.9).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_WAD_Open")]
@@ -440,13 +472,17 @@ impl Core {
     }
 
     /// [`Core::WAD_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::WAD`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::WAD`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_WAD_OpenAndFill")]
     pub fn WAD_OpenAndFill(
-        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<WAD_Stream, RetCode> {
-        self.WAD_OpenCore(inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1)
+        &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64],
+    ) -> Result<(WAD_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.WAD_OpenPass(inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::WAD_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -454,7 +490,7 @@ impl Core {
     pub(crate) fn WAD_OpenAndFillInternal(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<WAD_Stream, RetCode> {
-        self.WAD_OpenCore(inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1)
+        self.WAD_OpenPass(inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -462,12 +498,25 @@ impl Core {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl WAD_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_WAD_Update")]
-    pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> f64 {
+    pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
+        if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.WAD_step_internal(&mut self.state, inHigh, inLow, inClose, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -475,9 +524,16 @@ impl WAD_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. This handle holds only scalars, so the copy is a
     /// few machine words and `peek` never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_WAD_Peek")]
-    #[must_use]
-    pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> f64 {
+    pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
+        if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut scratch = self.clone();
         scratch.update(inHigh, inLow, inClose)
     }

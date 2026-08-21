@@ -68,85 +68,16 @@ impl Core {
     /// before the first output value can be produced.
     pub fn CDL3LINESTRIKE_Lookback(&self) -> usize {
         #[allow(non_snake_case)]
-        let Near_rangeType: i32 = self.candle_settings.near.range_type;
+        let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
         #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
         #[allow(non_snake_case)]
         let Near_factor: f64 = self.candle_settings.near.factor;
         return (Near_avgPeriod + 3) as usize;
     }
-    /// A four-candle pattern: three same-color candles with consecutively higher (or lower) closes,
-    /// each opening within or near the prior real body, then a fourth opposite-color candle that
-    /// opens beyond the third close and closes past the first candle's open. TA-Lib emits a signed
-    /// continuation-style signal keyed to the color of the first three candles. +100 = three-white
-    /// (bullish) strike, -100 = three-black (bearish) strike; traditionally read as significant
-    /// only inside a trend matching the first three candles.
-    ///
-    /// # Notes
-    ///
-    /// * Does not verify the surrounding trend the pattern classically assumes for significance.
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inOpen` — Open price of each bar.
-    /// * `inHigh` — High price of each bar.
-    /// * `inLow` — Low price of each bar.
-    /// * `inClose` — Close price of each bar.
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outInteger` — +100 for a white (rising) three-line strike, -100 for a black (falling)
-    ///   three-line strike, 0 otherwise. Sign is the color of the first three candles:
-    ///   candlecolor(i-1)*100.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`], and
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let open: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
-    ///     .collect();
-    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    /// let close: Vec<f64> = (0..252)
-    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
-    ///     .collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0i32; 252];
-    ///
-    /// let ret = core.CDL3LINESTRIKE(
-    ///     0, open.len() - 1, &open, &high, &low, &close,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::CDL3WHITESOLDIERS`] · [`Core::CDL3BLACKCROWS`]
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/cdl3linestrike](https://ta-lib.org/functions/cdl3linestrike)
-    #[doc(alias = "Three-LineStrike")]
-    #[doc(alias = "3-LineStrike")]
-    pub fn CDL3LINESTRIKE(
+    /// C-shaped body behind [`Core::CDL3LINESTRIKE`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn CDL3LINESTRIKE_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -158,10 +89,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.CDL3LINESTRIKE_Lookback();
@@ -179,7 +110,7 @@ impl Core {
         let mut NearTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         #[allow(non_snake_case)]
-        let Near_rangeType: i32 = self.candle_settings.near.range_type;
+        let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
         #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
         #[allow(non_snake_case)]
@@ -214,7 +145,7 @@ impl Core {
                     _candlerange_0 = inHigh[i - 3] - inLow[i - 3];
                 }
                 2 => {
-                    _candlerange_0 = inHigh[i - 3] - inLow[i - 3] - (inClose[i - 3] - inOpen[i - 3]).abs();
+                    _candlerange_0 = (inHigh[i - 3] - (if inClose[i - 3] >= inOpen[i - 3] { inClose[i - 3] } else { inOpen[i - 3] })) + ((if inClose[i - 3] >= inOpen[i - 3] { inOpen[i - 3] } else { inClose[i - 3] }) - inLow[i - 3]);
                 }
                 _ => {
                     _candlerange_0 = 0.0;
@@ -230,7 +161,7 @@ impl Core {
                     _candlerange_1 = inHigh[i - 2] - inLow[i - 2];
                 }
                 2 => {
-                    _candlerange_1 = inHigh[i - 2] - inLow[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs();
+                    _candlerange_1 = (inHigh[i - 2] - (if inClose[i - 2] >= inOpen[i - 2] { inClose[i - 2] } else { inOpen[i - 2] })) + ((if inClose[i - 2] >= inOpen[i - 2] { inOpen[i - 2] } else { inClose[i - 2] }) - inLow[i - 2]);
                 }
                 _ => {
                     _candlerange_1 = 0.0;
@@ -255,10 +186,10 @@ impl Core {
             if (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { 0 - 1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) && // three with same color
                (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) &&
                (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 0 - (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) && // 4th opposite color
-               inOpen[i - 2] >= (inOpen[i - 3]).min(inClose[i - 3]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 3] - inOpen[i - 3]).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), _ => (inHigh[i - 3]) - (inLow[i - 3]) - ((inClose[i - 3]) - (inOpen[i - 3])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd opens within/near 1st rb
-               inOpen[i - 2] <= (inOpen[i - 3]).max(inClose[i - 3]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 3] - inOpen[i - 3]).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), _ => (inHigh[i - 3]) - (inLow[i - 3]) - ((inClose[i - 3]) - (inOpen[i - 3])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               inOpen[i - 1] >= (inOpen[i - 2]).min(inClose[i - 2]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd opens within/near 2nd rb
-               inOpen[i - 1] <= (inOpen[i - 2]).max(inClose[i - 2]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+               inOpen[i - 2] >= (inOpen[i - 3]).min(inClose[i - 3]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd opens within/near 1st rb
+               inOpen[i - 2] <= (inOpen[i - 3]).max(inClose[i - 3]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+               inOpen[i - 1] >= (inOpen[i - 2]).min(inClose[i - 2]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd opens within/near 2nd rb
+               inOpen[i - 1] <= (inOpen[i - 2]).max(inClose[i - 2]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
                ((if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 1 && inClose[i - 1] > inClose[i - 2] && inClose[i - 2] > inClose[i - 3] && inOpen[i] > inClose[i - 1] && inClose[i] < inOpen[i - 3] || (((if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && inClose[i - 1] < inClose[i - 2] && inClose[i - 2] < inClose[i - 3] && inOpen[i] < inClose[i - 1] && inClose[i] > inOpen[i - 3]) // if three white consecutive higher closes 4th opens above prior close 4th closes below 1st open if three black consecutive lower closes 4th opens below prior close 4th closes above 1st open
             {
                 outInteger[outIdx] = ((if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) * 100) as i32;
@@ -281,7 +212,7 @@ impl Core {
                         _candlerange_2 = inHigh[i - totIdx] - inLow[i - totIdx];
                     }
                     2 => {
-                        _candlerange_2 = inHigh[i - totIdx] - inLow[i - totIdx] - (inClose[i - totIdx] - inOpen[i - totIdx]).abs();
+                        _candlerange_2 = (inHigh[i - totIdx] - (if inClose[i - totIdx] >= inOpen[i - totIdx] { inClose[i - totIdx] } else { inOpen[i - totIdx] })) + ((if inClose[i - totIdx] >= inOpen[i - totIdx] { inOpen[i - totIdx] } else { inClose[i - totIdx] }) - inLow[i - totIdx]);
                     }
                     _ => {
                         _candlerange_2 = 0.0;
@@ -296,7 +227,7 @@ impl Core {
                         _candlerange_3 = inHigh[NearTrailingIdx - totIdx] - inLow[NearTrailingIdx - totIdx];
                     }
                     2 => {
-                        _candlerange_3 = inHigh[NearTrailingIdx - totIdx] - inLow[NearTrailingIdx - totIdx] - (inClose[NearTrailingIdx - totIdx] - inOpen[NearTrailingIdx - totIdx]).abs();
+                        _candlerange_3 = (inHigh[NearTrailingIdx - totIdx] - (if inClose[NearTrailingIdx - totIdx] >= inOpen[NearTrailingIdx - totIdx] { inClose[NearTrailingIdx - totIdx] } else { inOpen[NearTrailingIdx - totIdx] })) + ((if inClose[NearTrailingIdx - totIdx] >= inOpen[NearTrailingIdx - totIdx] { inOpen[NearTrailingIdx - totIdx] } else { inClose[NearTrailingIdx - totIdx] }) - inLow[NearTrailingIdx - totIdx]);
                     }
                     _ => {
                         _candlerange_3 = 0.0;
@@ -315,6 +246,114 @@ impl Core {
         (*outBegIdx) = startIdx;
         return RetCode::Success;
     }
+    /// A four-candle pattern: three same-color candles with consecutively higher (or lower) closes,
+    /// each opening within or near the prior real body, then a fourth opposite-color candle that
+    /// opens beyond the third close and closes past the first candle's open. TA-Lib emits a signed
+    /// continuation-style signal keyed to the color of the first three candles, traditionally read
+    /// as significant only inside a trend matching those three candles.
+    ///
+    /// # Notes
+    ///
+    /// * Does not verify the surrounding trend the pattern classically assumes for significance.
+    /// * TA-Lib's sign follows the classic continuation reading. Thomas Bulkowski's statistical
+    ///   study of the pattern (*Encyclopedia of Candlestick Charts*) found the opposite in practice
+    ///   — it acted as a reversal far more often than a continuation — so traders who follow
+    ///   his research read this pattern's signal in the opposite direction from what its sign here
+    ///   suggests.
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inOpen` — Open price of each bar.
+    /// * `inHigh` — High price of each bar.
+    /// * `inLow` — Low price of each bar.
+    /// * `inClose` — Close price of each bar.
+    /// * `outInteger` — +100 for a white (rising) three-line strike, -100 for a black (falling)
+    ///   three-line strike, 0 otherwise. Sign is the color of the first three candles:
+    ///   candlecolor(i-1)*100.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// zero [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let open: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64 - 0.05).sin())
+    ///     .collect();
+    /// let high: Vec<f64> = (0..252).map(|i| 101.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let low: Vec<f64> = (0..252).map(|i| 99.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    /// let close: Vec<f64> = (0..252)
+    ///     .map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin() + 0.8 * (0.7 * i as f64).sin())
+    ///     .collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0i32; 252];
+    ///
+    /// let out_range = core.CDL3LINESTRIKE(
+    ///     0, open.len() - 1, &open, &high, &low, &close,
+    ///     &mut out,
+    /// )?;
+    /// assert!(out_range.count > 0);
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::CDL3WHITESOLDIERS`] · [`Core::CDL3BLACKCROWS`]
+    ///
+    /// Further reading:
+    /// [ta-lib.org/functions/cdl3linestrike](https://ta-lib.org/functions/cdl3linestrike)
+    #[doc(alias = "Three-LineStrike")]
+    #[doc(alias = "3-LineStrike")]
+    pub fn CDL3LINESTRIKE(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inOpen: &[f64],
+        inHigh: &[f64],
+        inLow: &[f64],
+        inClose: &[f64],
+        outInteger: &mut [i32],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.CDL3LINESTRIKE_Impl(
+            startIdx,
+            endIdx,
+            inOpen,
+            inHigh,
+            inLow,
+            inClose,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outInteger,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -359,16 +398,7 @@ struct CDL3LINESTRIKE_StreamState {
     ringPos_NearTrailingIdx: usize,
     ringCap_NearTrailingIdx: usize,
     ringLag_NearTrailingIdx: usize,
-    ring_NearTrailingIdx_inOpen: Vec<f64>,
-    ring_NearTrailingIdx_inHigh: Vec<f64>,
-    ring_NearTrailingIdx_inLow: Vec<f64>,
-    ring_NearTrailingIdx_inClose: Vec<f64>,
-    winPos_totIdx: usize,
-    winCap_totIdx: usize,
-    win_totIdx_inOpen: Vec<f64>,
-    win_totIdx_inHigh: Vec<f64>,
-    win_totIdx_inLow: Vec<f64>,
-    win_totIdx_inClose: Vec<f64>,
+    ring_NearTrailingIdx_derived: Vec<f64>,
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -393,16 +423,7 @@ impl CDL3LINESTRIKE_StreamState {
         self.ringPos_NearTrailingIdx = src.ringPos_NearTrailingIdx;
         self.ringCap_NearTrailingIdx = src.ringCap_NearTrailingIdx;
         self.ringLag_NearTrailingIdx = src.ringLag_NearTrailingIdx;
-        self.ring_NearTrailingIdx_inOpen.clone_from(&src.ring_NearTrailingIdx_inOpen);
-        self.ring_NearTrailingIdx_inHigh.clone_from(&src.ring_NearTrailingIdx_inHigh);
-        self.ring_NearTrailingIdx_inLow.clone_from(&src.ring_NearTrailingIdx_inLow);
-        self.ring_NearTrailingIdx_inClose.clone_from(&src.ring_NearTrailingIdx_inClose);
-        self.winPos_totIdx = src.winPos_totIdx;
-        self.winCap_totIdx = src.winCap_totIdx;
-        self.win_totIdx_inOpen.clone_from(&src.win_totIdx_inOpen);
-        self.win_totIdx_inHigh.clone_from(&src.win_totIdx_inHigh);
-        self.win_totIdx_inLow.clone_from(&src.win_totIdx_inLow);
-        self.win_totIdx_inClose.clone_from(&src.win_totIdx_inClose);
+        self.ring_NearTrailingIdx_derived.clone_from(&src.ring_NearTrailingIdx_derived);
     }
 }
 
@@ -415,26 +436,34 @@ impl CDL3LINESTRIKE_StreamState {
 impl Core {
     fn CDL3LINESTRIKE_step_internal(&self, sp: &mut CDL3LINESTRIKE_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         #[allow(non_snake_case)]
-        let Near_rangeType: i32 = self.candle_settings.near.range_type;
+        let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
         #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
         #[allow(non_snake_case)]
         let Near_factor: f64 = self.candle_settings.near.factor;
-        sp.ring_NearTrailingIdx_inOpen[sp.ringPos_NearTrailingIdx] = inOpen;
-        sp.ring_NearTrailingIdx_inHigh[sp.ringPos_NearTrailingIdx] = inHigh;
-        sp.ring_NearTrailingIdx_inLow[sp.ringPos_NearTrailingIdx] = inLow;
-        sp.ring_NearTrailingIdx_inClose[sp.ringPos_NearTrailingIdx] = inClose;
-        sp.win_totIdx_inOpen[sp.winPos_totIdx] = inOpen;
-        sp.win_totIdx_inHigh[sp.winPos_totIdx] = inHigh;
-        sp.win_totIdx_inLow[sp.winPos_totIdx] = inLow;
-        sp.win_totIdx_inClose[sp.winPos_totIdx] = inClose;
+        let mut _candlerange_0: f64;
+        match Near_rangeType {
+            0 => {
+                _candlerange_0 = (inClose - inOpen).abs();
+            }
+            1 => {
+                _candlerange_0 = inHigh - inLow;
+            }
+            2 => {
+                _candlerange_0 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+            }
+            _ => {
+                _candlerange_0 = 0.0;
+            }
+        }
+        sp.ring_NearTrailingIdx_derived[sp.ringPos_NearTrailingIdx] = _candlerange_0;
         if (if sp.lag3_inClose >= sp.lag3_inOpen { 1 } else { 0 - 1 }) == (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) && // three with same color
            (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) &&
            (if inClose >= inOpen { 1 } else { 0 - 1 }) == 0 - (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) && // 4th opposite color
-           sp.lag2_inOpen >= (sp.lag3_inOpen).min(sp.lag3_inClose) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag3_inClose - sp.lag3_inOpen).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), _ => (sp.lag3_inHigh) - (sp.lag3_inLow) - ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd opens within/near 1st rb
-           sp.lag2_inOpen <= (sp.lag3_inOpen).max(sp.lag3_inClose) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag3_inClose - sp.lag3_inOpen).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), _ => (sp.lag3_inHigh) - (sp.lag3_inLow) - ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-           sp.lag1_inOpen >= (sp.lag2_inOpen).min(sp.lag2_inClose) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), _ => (sp.lag2_inHigh) - (sp.lag2_inLow) - ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd opens within/near 2nd rb
-           sp.lag1_inOpen <= (sp.lag2_inOpen).max(sp.lag2_inClose) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (sp.lag2_inClose - sp.lag2_inOpen).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), _ => (sp.lag2_inHigh) - (sp.lag2_inLow) - ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+           sp.lag2_inOpen >= (sp.lag3_inOpen).min(sp.lag3_inClose) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), 2 => ((sp.lag3_inHigh) - (if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inClose) } else { (sp.lag3_inOpen) })) + ((if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inOpen) } else { (sp.lag3_inClose) }) - (sp.lag3_inLow)), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd opens within/near 1st rb
+           sp.lag2_inOpen <= (sp.lag3_inOpen).max(sp.lag3_inClose) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag3_inClose) - (sp.lag3_inOpen)).abs(), 1 => (sp.lag3_inHigh) - (sp.lag3_inLow), 2 => ((sp.lag3_inHigh) - (if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inClose) } else { (sp.lag3_inOpen) })) + ((if (sp.lag3_inClose) >= (sp.lag3_inOpen) { (sp.lag3_inOpen) } else { (sp.lag3_inClose) }) - (sp.lag3_inLow)), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+           sp.lag1_inOpen >= (sp.lag2_inOpen).min(sp.lag2_inClose) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd opens within/near 2nd rb
+           sp.lag1_inOpen <= (sp.lag2_inOpen).max(sp.lag2_inClose) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (sp.NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((sp.lag2_inClose) - (sp.lag2_inOpen)).abs(), 1 => (sp.lag2_inHigh) - (sp.lag2_inLow), 2 => ((sp.lag2_inHigh) - (if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inClose) } else { (sp.lag2_inOpen) })) + ((if (sp.lag2_inClose) >= (sp.lag2_inOpen) { (sp.lag2_inOpen) } else { (sp.lag2_inClose) }) - (sp.lag2_inLow)), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
            ((if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 1 && sp.lag1_inClose > sp.lag2_inClose && sp.lag2_inClose > sp.lag3_inClose && inOpen > sp.lag1_inClose && inClose < sp.lag3_inOpen || (((if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && sp.lag1_inClose < sp.lag2_inClose && sp.lag2_inClose < sp.lag3_inClose && inOpen < sp.lag1_inClose && inClose > sp.lag3_inOpen) // if three white consecutive higher closes 4th opens above prior close 4th closes below 1st open if three black consecutive lower closes 4th opens below prior close 4th closes above 1st open
         {
             (*outInteger) = ((if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) * 100) as i32;
@@ -446,37 +475,7 @@ impl Core {
         // for( sp.totIdx = 3; sp.totIdx >= 2; sp.totIdx -= 1 )
         sp.totIdx = 3;
         loop {
-            let mut _candlerange_0: f64;
-            match Near_rangeType {
-                0 => {
-                    _candlerange_0 = (sp.win_totIdx_inClose[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize] - sp.win_totIdx_inOpen[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize]).abs();
-                }
-                1 => {
-                    _candlerange_0 = sp.win_totIdx_inHigh[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize] - sp.win_totIdx_inLow[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize];
-                }
-                2 => {
-                    _candlerange_0 = sp.win_totIdx_inHigh[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize] - sp.win_totIdx_inLow[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize] - (sp.win_totIdx_inClose[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize] - sp.win_totIdx_inOpen[((if sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx >= sp.winCap_totIdx { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx - sp.winCap_totIdx } else { sp.winPos_totIdx + sp.winCap_totIdx - sp.totIdx })) as usize]).abs();
-                }
-                _ => {
-                    _candlerange_0 = 0.0;
-                }
-            }
-            let mut _candlerange_1: f64;
-            match Near_rangeType {
-                0 => {
-                    _candlerange_1 = (sp.ring_NearTrailingIdx_inClose[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize] - sp.ring_NearTrailingIdx_inOpen[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize]).abs();
-                }
-                1 => {
-                    _candlerange_1 = sp.ring_NearTrailingIdx_inHigh[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize] - sp.ring_NearTrailingIdx_inLow[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize];
-                }
-                2 => {
-                    _candlerange_1 = sp.ring_NearTrailingIdx_inHigh[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize] - sp.ring_NearTrailingIdx_inLow[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize] - (sp.ring_NearTrailingIdx_inClose[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize] - sp.ring_NearTrailingIdx_inOpen[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize]).abs();
-                }
-                _ => {
-                    _candlerange_1 = 0.0;
-                }
-            }
-            sp.NearPeriodTotal[sp.totIdx] = sp.NearPeriodTotal[sp.totIdx] + (_candlerange_0 - _candlerange_1);
+            sp.NearPeriodTotal[sp.totIdx] = sp.NearPeriodTotal[sp.totIdx] + (sp.ring_NearTrailingIdx_derived[((if sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.totIdx >= sp.ringCap_NearTrailingIdx { sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.totIdx - sp.ringCap_NearTrailingIdx } else { sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.totIdx })) as usize] - sp.ring_NearTrailingIdx_derived[((sp.ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - sp.totIdx) % sp.ringCap_NearTrailingIdx) as usize]);
             if sp.totIdx == 2 { break; }
             sp.totIdx -= 1;
         }
@@ -492,29 +491,21 @@ impl Core {
         sp.lag3_inClose = sp.lag2_inClose;
         sp.lag2_inClose = sp.lag1_inClose;
         sp.lag1_inClose = inClose;
-        sp.ring_NearTrailingIdx_inOpen[sp.ringPos_NearTrailingIdx] = inOpen;
-        sp.ring_NearTrailingIdx_inHigh[sp.ringPos_NearTrailingIdx] = inHigh;
-        sp.ring_NearTrailingIdx_inLow[sp.ringPos_NearTrailingIdx] = inLow;
-        sp.ring_NearTrailingIdx_inClose[sp.ringPos_NearTrailingIdx] = inClose;
         sp.ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx + 1;
         if sp.ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx {
             sp.ringPos_NearTrailingIdx = 0;
-        }
-        sp.winPos_totIdx = sp.winPos_totIdx + 1;
-        if sp.winPos_totIdx >= sp.winCap_totIdx {
-            sp.winPos_totIdx = 0;
         }
     }
 
     /// The single whole-history transcription behind [`Core::CDL3LINESTRIKE_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::CDL3LINESTRIKE_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn CDL3LINESTRIKE_OpenCore(
+    pub(crate) fn CDL3LINESTRIKE_OpenPass(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDL3LINESTRIKE_Stream, RetCode> {
         if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
-        if inOpen.len() > MAX_INDEX + 1 {
+        if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inOpen.len();
@@ -529,7 +520,7 @@ impl Core {
         let mut NearTrailingIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         #[allow(non_snake_case)]
-        let Near_rangeType: i32 = self.candle_settings.near.range_type;
+        let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
         #[allow(non_snake_case)]
         let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
         #[allow(non_snake_case)]
@@ -546,7 +537,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Do the calculation using tight loops.
         // Add-up the initial period, except for the last value.
@@ -555,38 +546,38 @@ impl Core {
         NearTrailingIdx = startIdx - ((Near_avgPeriod) as usize);
         i = NearTrailingIdx;
         while i < startIdx {
+            let mut _candlerange_1: f64;
+            match Near_rangeType {
+                0 => {
+                    _candlerange_1 = (inClose[i - 3] - inOpen[i - 3]).abs();
+                }
+                1 => {
+                    _candlerange_1 = inHigh[i - 3] - inLow[i - 3];
+                }
+                2 => {
+                    _candlerange_1 = (inHigh[i - 3] - (if inClose[i - 3] >= inOpen[i - 3] { inClose[i - 3] } else { inOpen[i - 3] })) + ((if inClose[i - 3] >= inOpen[i - 3] { inOpen[i - 3] } else { inClose[i - 3] }) - inLow[i - 3]);
+                }
+                _ => {
+                    _candlerange_1 = 0.0;
+                }
+            }
+            NearPeriodTotal[3] = NearPeriodTotal[3] + _candlerange_1;
             let mut _candlerange_2: f64;
             match Near_rangeType {
                 0 => {
-                    _candlerange_2 = (inClose[i - 3] - inOpen[i - 3]).abs();
+                    _candlerange_2 = (inClose[i - 2] - inOpen[i - 2]).abs();
                 }
                 1 => {
-                    _candlerange_2 = inHigh[i - 3] - inLow[i - 3];
+                    _candlerange_2 = inHigh[i - 2] - inLow[i - 2];
                 }
                 2 => {
-                    _candlerange_2 = inHigh[i - 3] - inLow[i - 3] - (inClose[i - 3] - inOpen[i - 3]).abs();
+                    _candlerange_2 = (inHigh[i - 2] - (if inClose[i - 2] >= inOpen[i - 2] { inClose[i - 2] } else { inOpen[i - 2] })) + ((if inClose[i - 2] >= inOpen[i - 2] { inOpen[i - 2] } else { inClose[i - 2] }) - inLow[i - 2]);
                 }
                 _ => {
                     _candlerange_2 = 0.0;
                 }
             }
-            NearPeriodTotal[3] = NearPeriodTotal[3] + _candlerange_2;
-            let mut _candlerange_3: f64;
-            match Near_rangeType {
-                0 => {
-                    _candlerange_3 = (inClose[i - 2] - inOpen[i - 2]).abs();
-                }
-                1 => {
-                    _candlerange_3 = inHigh[i - 2] - inLow[i - 2];
-                }
-                2 => {
-                    _candlerange_3 = inHigh[i - 2] - inLow[i - 2] - (inClose[i - 2] - inOpen[i - 2]).abs();
-                }
-                _ => {
-                    _candlerange_3 = 0.0;
-                }
-            }
-            NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_3;
+            NearPeriodTotal[2] = NearPeriodTotal[2] + _candlerange_2;
             i += 1;
         }
         i = startIdx;
@@ -605,10 +596,10 @@ impl Core {
             if (if inClose[i - 3] >= inOpen[i - 3] { 1 } else { 0 - 1 }) == (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) && // three with same color
                (if inClose[i - 2] >= inOpen[i - 2] { 1 } else { 0 - 1 }) == (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) &&
                (if inClose[i] >= inOpen[i] { 1 } else { 0 - 1 }) == 0 - (if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) && // 4th opposite color
-               inOpen[i - 2] >= (inOpen[i - 3]).min(inClose[i - 3]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 3] - inOpen[i - 3]).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), _ => (inHigh[i - 3]) - (inLow[i - 3]) - ((inClose[i - 3]) - (inOpen[i - 3])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd opens within/near 1st rb
-               inOpen[i - 2] <= (inOpen[i - 3]).max(inClose[i - 3]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 3] - inOpen[i - 3]).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), _ => (inHigh[i - 3]) - (inLow[i - 3]) - ((inClose[i - 3]) - (inOpen[i - 3])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
-               inOpen[i - 1] >= (inOpen[i - 2]).min(inClose[i - 2]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd opens within/near 2nd rb
-               inOpen[i - 1] <= (inOpen[i - 2]).max(inClose[i - 2]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => (inClose[i - 2] - inOpen[i - 2]).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), _ => (inHigh[i - 2]) - (inLow[i - 2]) - ((inClose[i - 2]) - (inOpen[i - 2])).abs() } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+               inOpen[i - 2] >= (inOpen[i - 3]).min(inClose[i - 3]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd opens within/near 1st rb
+               inOpen[i - 2] <= (inOpen[i - 3]).max(inClose[i - 3]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[3]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 3]) - (inOpen[i - 3])).abs(), 1 => (inHigh[i - 3]) - (inLow[i - 3]), 2 => ((inHigh[i - 3]) - (if (inClose[i - 3]) >= (inOpen[i - 3]) { (inClose[i - 3]) } else { (inOpen[i - 3]) })) + ((if (inClose[i - 3]) >= (inOpen[i - 3]) { (inOpen[i - 3]) } else { (inClose[i - 3]) }) - (inLow[i - 3])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+               inOpen[i - 1] >= (inOpen[i - 2]).min(inClose[i - 2]) - ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd opens within/near 2nd rb
+               inOpen[i - 1] <= (inOpen[i - 2]).max(inClose[i - 2]) + ((Near_factor) * (if (Near_avgPeriod) != 0 { (NearPeriodTotal[2]) / (Near_avgPeriod as f64) } else { match Near_rangeType { 0 => ((inClose[i - 2]) - (inOpen[i - 2])).abs(), 1 => (inHigh[i - 2]) - (inLow[i - 2]), 2 => ((inHigh[i - 2]) - (if (inClose[i - 2]) >= (inOpen[i - 2]) { (inClose[i - 2]) } else { (inOpen[i - 2]) })) + ((if (inClose[i - 2]) >= (inOpen[i - 2]) { (inOpen[i - 2]) } else { (inClose[i - 2]) }) - (inLow[i - 2])), _ => 0.0 } }) / (if (Near_rangeType) == 2 { 2.0 } else { 1.0 })) &&
                ((if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) == 1 && inClose[i - 1] > inClose[i - 2] && inClose[i - 2] > inClose[i - 3] && inOpen[i] > inClose[i - 1] && inClose[i] < inOpen[i - 3] || (((if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 })) as i32) == 0 - 1 && inClose[i - 1] < inClose[i - 2] && inClose[i - 2] < inClose[i - 3] && inOpen[i] < inClose[i - 1] && inClose[i] > inOpen[i - 3]) // if three white consecutive higher closes 4th opens above prior close 4th closes below 1st open if three black consecutive lower closes 4th opens below prior close 4th closes above 1st open
             {
                 outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = ((if inClose[i - 1] >= inOpen[i - 1] { 1 } else { 0 - 1 }) * 100) as i32;
@@ -620,37 +611,37 @@ impl Core {
             // for( totIdx = 3; totIdx >= 2; totIdx -= 1 )
             totIdx = 3;
             loop {
+                let mut _candlerange_3: f64;
+                match Near_rangeType {
+                    0 => {
+                        _candlerange_3 = (inClose[i - totIdx] - inOpen[i - totIdx]).abs();
+                    }
+                    1 => {
+                        _candlerange_3 = inHigh[i - totIdx] - inLow[i - totIdx];
+                    }
+                    2 => {
+                        _candlerange_3 = (inHigh[i - totIdx] - (if inClose[i - totIdx] >= inOpen[i - totIdx] { inClose[i - totIdx] } else { inOpen[i - totIdx] })) + ((if inClose[i - totIdx] >= inOpen[i - totIdx] { inOpen[i - totIdx] } else { inClose[i - totIdx] }) - inLow[i - totIdx]);
+                    }
+                    _ => {
+                        _candlerange_3 = 0.0;
+                    }
+                }
                 let mut _candlerange_4: f64;
                 match Near_rangeType {
                     0 => {
-                        _candlerange_4 = (inClose[i - totIdx] - inOpen[i - totIdx]).abs();
+                        _candlerange_4 = (inClose[NearTrailingIdx - totIdx] - inOpen[NearTrailingIdx - totIdx]).abs();
                     }
                     1 => {
-                        _candlerange_4 = inHigh[i - totIdx] - inLow[i - totIdx];
+                        _candlerange_4 = inHigh[NearTrailingIdx - totIdx] - inLow[NearTrailingIdx - totIdx];
                     }
                     2 => {
-                        _candlerange_4 = inHigh[i - totIdx] - inLow[i - totIdx] - (inClose[i - totIdx] - inOpen[i - totIdx]).abs();
+                        _candlerange_4 = (inHigh[NearTrailingIdx - totIdx] - (if inClose[NearTrailingIdx - totIdx] >= inOpen[NearTrailingIdx - totIdx] { inClose[NearTrailingIdx - totIdx] } else { inOpen[NearTrailingIdx - totIdx] })) + ((if inClose[NearTrailingIdx - totIdx] >= inOpen[NearTrailingIdx - totIdx] { inOpen[NearTrailingIdx - totIdx] } else { inClose[NearTrailingIdx - totIdx] }) - inLow[NearTrailingIdx - totIdx]);
                     }
                     _ => {
                         _candlerange_4 = 0.0;
                     }
                 }
-                let mut _candlerange_5: f64;
-                match Near_rangeType {
-                    0 => {
-                        _candlerange_5 = (inClose[NearTrailingIdx - totIdx] - inOpen[NearTrailingIdx - totIdx]).abs();
-                    }
-                    1 => {
-                        _candlerange_5 = inHigh[NearTrailingIdx - totIdx] - inLow[NearTrailingIdx - totIdx];
-                    }
-                    2 => {
-                        _candlerange_5 = inHigh[NearTrailingIdx - totIdx] - inLow[NearTrailingIdx - totIdx] - (inClose[NearTrailingIdx - totIdx] - inOpen[NearTrailingIdx - totIdx]).abs();
-                    }
-                    _ => {
-                        _candlerange_5 = 0.0;
-                    }
-                }
-                NearPeriodTotal[totIdx] = NearPeriodTotal[totIdx] + (_candlerange_4 - _candlerange_5);
+                NearPeriodTotal[totIdx] = NearPeriodTotal[totIdx] + (_candlerange_3 - _candlerange_4);
                 if totIdx == 2 { break; }
                 totIdx -= 1;
             }
@@ -669,50 +660,14 @@ impl Core {
             return Err(RetCode::InternalError);
         }
         let allocN_NearTrailingIdx: usize = if cap_NearTrailingIdx > 0 { cap_NearTrailingIdx as usize } else { 1 };
-        let mut ring_NearTrailingIdx_inOpen: Vec<f64> = vec![0.0_f64; allocN_NearTrailingIdx];
+        let mut ring_NearTrailingIdx_derived: Vec<f64> = vec![0.0_f64; allocN_NearTrailingIdx];
         {
             let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
             while fillJ < historyLen {
-                ring_NearTrailingIdx_inOpen[fillJ % cap_NearTrailingIdx as usize] = inOpen[fillJ];
+                ring_NearTrailingIdx_derived[fillJ % cap_NearTrailingIdx as usize] = (match Near_rangeType { 0 => ((inClose[(fillJ) as usize]) - (inOpen[(fillJ) as usize])).abs(), 1 => (inHigh[(fillJ) as usize]) - (inLow[(fillJ) as usize]), 2 => ((inHigh[(fillJ) as usize]) - (if (inClose[(fillJ) as usize]) >= (inOpen[(fillJ) as usize]) { (inClose[(fillJ) as usize]) } else { (inOpen[(fillJ) as usize]) })) + ((if (inClose[(fillJ) as usize]) >= (inOpen[(fillJ) as usize]) { (inOpen[(fillJ) as usize]) } else { (inClose[(fillJ) as usize]) }) - (inLow[(fillJ) as usize])), _ => 0.0 });
                 fillJ += 1;
             }
         }
-        let mut ring_NearTrailingIdx_inHigh: Vec<f64> = vec![0.0_f64; allocN_NearTrailingIdx];
-        {
-            let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
-            while fillJ < historyLen {
-                ring_NearTrailingIdx_inHigh[fillJ % cap_NearTrailingIdx as usize] = inHigh[fillJ];
-                fillJ += 1;
-            }
-        }
-        let mut ring_NearTrailingIdx_inLow: Vec<f64> = vec![0.0_f64; allocN_NearTrailingIdx];
-        {
-            let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
-            while fillJ < historyLen {
-                ring_NearTrailingIdx_inLow[fillJ % cap_NearTrailingIdx as usize] = inLow[fillJ];
-                fillJ += 1;
-            }
-        }
-        let mut ring_NearTrailingIdx_inClose: Vec<f64> = vec![0.0_f64; allocN_NearTrailingIdx];
-        {
-            let mut fillJ: usize = historyLen - cap_NearTrailingIdx as usize;
-            while fillJ < historyLen {
-                ring_NearTrailingIdx_inClose[fillJ % cap_NearTrailingIdx as usize] = inClose[fillJ];
-                fillJ += 1;
-            }
-        }
-        let cap_totIdx: i64 = (4) as i64;
-        if cap_totIdx < 1 || cap_totIdx > historyLen as i64 {
-            return Err(RetCode::InternalError);
-        }
-        let mut win_totIdx_inOpen: Vec<f64> = vec![0.0_f64; cap_totIdx as usize];
-        win_totIdx_inOpen.copy_from_slice(&inOpen[historyLen - cap_totIdx as usize..]);
-        let mut win_totIdx_inHigh: Vec<f64> = vec![0.0_f64; cap_totIdx as usize];
-        win_totIdx_inHigh.copy_from_slice(&inHigh[historyLen - cap_totIdx as usize..]);
-        let mut win_totIdx_inLow: Vec<f64> = vec![0.0_f64; cap_totIdx as usize];
-        win_totIdx_inLow.copy_from_slice(&inLow[historyLen - cap_totIdx as usize..]);
-        let mut win_totIdx_inClose: Vec<f64> = vec![0.0_f64; cap_totIdx as usize];
-        win_totIdx_inClose.copy_from_slice(&inClose[historyLen - cap_totIdx as usize..]);
         let state = CDL3LINESTRIKE_StreamState {
             NearPeriodTotal,
             totIdx,
@@ -731,16 +686,7 @@ impl Core {
             ringPos_NearTrailingIdx: historyLen % cap_NearTrailingIdx as usize,
             ringCap_NearTrailingIdx: cap_NearTrailingIdx as usize,
             ringLag_NearTrailingIdx: capLag_NearTrailingIdx as usize,
-            ring_NearTrailingIdx_inOpen,
-            ring_NearTrailingIdx_inHigh,
-            ring_NearTrailingIdx_inLow,
-            ring_NearTrailingIdx_inClose,
-            winPos_totIdx: 0_usize,
-            winCap_totIdx: cap_totIdx as usize,
-            win_totIdx_inOpen,
-            win_totIdx_inHigh,
-            win_totIdx_inLow,
-            win_totIdx_inClose,
+            ring_NearTrailingIdx_derived,
         };
         Ok(CDL3LINESTRIKE_Stream { core: self.clone(), state })
     }
@@ -752,7 +698,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outInteger = [0_i32; 1];
-        let handle = self.CDL3LINESTRIKE_OpenCore(inOpen, inHigh, inLow, inClose, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
+        let handle = self.CDL3LINESTRIKE_OpenPass(inOpen, inHigh, inLow, inClose, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
         Ok((handle, sink_outInteger[0]))
     }
 
@@ -761,8 +707,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -777,8 +725,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.CDL3LINESTRIKE_Open(&open, &high, &low, &close).expect("enough history");
-    /// let peeked = s.peek(100.2, 101.4, 99.1, 100.9);
-    /// let updated = s.update(100.2, 101.4, 99.1, 100.9);
+    /// let peeked = s.peek(100.2, 101.4, 99.1, 100.9).expect("a finite bar");
+    /// let updated = s.update(100.2, 101.4, 99.1, 100.9).expect("a finite bar");
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_CDL3LINESTRIKE_Open")]
@@ -787,13 +735,17 @@ impl Core {
     }
 
     /// [`Core::CDL3LINESTRIKE_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::CDL3LINESTRIKE`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::CDL3LINESTRIKE`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_CDL3LINESTRIKE_OpenAndFill")]
     pub fn CDL3LINESTRIKE_OpenAndFill(
-        &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
-    ) -> Result<CDL3LINESTRIKE_Stream, RetCode> {
-        self.CDL3LINESTRIKE_OpenCore(inOpen, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outInteger, 1)
+        &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32],
+    ) -> Result<(CDL3LINESTRIKE_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.CDL3LINESTRIKE_OpenPass(inOpen, inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outInteger, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::CDL3LINESTRIKE_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -801,45 +753,54 @@ impl Core {
     pub(crate) fn CDL3LINESTRIKE_OpenAndFillInternal(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
     ) -> Result<CDL3LINESTRIKE_Stream, RetCode> {
-        self.CDL3LINESTRIKE_OpenCore(inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1)
+        self.CDL3LINESTRIKE_OpenPass(inOpen, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outInteger, 1)
     }
 
-}
-
-thread_local! {
-    /// `peek`'s reusable scratch handle (see `CDL3LINESTRIKE_StreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDL3LINESTRIKE_PEEK_SCRATCH: std::cell::Cell<Option<Box<CDL3LINESTRIKE_Stream>>> =
-        const { std::cell::Cell::new(None) };
 }
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl CDL3LINESTRIKE_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_CDL3LINESTRIKE_Update")]
-    pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> i32 {
+    pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
+        if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outInteger: i32 = 0_i32;
         self.core.CDL3LINESTRIKE_step_internal(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
-        outInteger
+        Ok(outInteger)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return (it is the same code, run
     /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
+    /// often removed outright by the optimizer, which is why nothing is
+    /// reused here, but that is not a guarantee: budget for a clone of the
+    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_CDL3LINESTRIKE_Peek")]
-    #[must_use]
-    pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> i32 {
-        CDL3LINESTRIKE_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
-            scratch.restore_from(self);
-            let value = scratch.update(inOpen, inHigh, inLow, inClose);
-            cell.set(Some(scratch));
-            value
-        })
+    pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
+        if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            return Err(RetCode::BadParam);
+        }
+        let mut scratch = self.clone();
+        scratch.update(inOpen, inHigh, inLow, inClose)
     }
 }
 

@@ -623,7 +623,7 @@ static void TA_MINMAX_StepInternal( struct TA_MINMAX_Stream *sp, double inReal, 
    sp->today += 1;
 }
 
-static TA_RetCode TA_MINMAX_OpenCore( struct TA_MINMAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outMin[], double outMax[], int outStride )
+static TA_RetCode TA_MINMAX_OpenPass( struct TA_MINMAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outMin[], double outMax[], int outStride )
 {
    struct TA_MINMAX_Stream *sp;
    int endIdx;
@@ -674,7 +674,7 @@ static TA_RetCode TA_MINMAX_OpenCore( struct TA_MINMAX_Stream **stream, const do
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       /* Proceed with the calculation for the requested range.
        * Note that this algorithm allows the input and
@@ -802,7 +802,7 @@ TA_RetCode TA_MINMAX_OpenInternal( struct TA_MINMAX_Stream **stream, const doubl
    int dummyNBElement = 0;
    double sink_outMin = 0.0;
    double sink_outMax = 0.0;
-   retCode = TA_MINMAX_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outMin, &sink_outMax, 0 );
+   retCode = TA_MINMAX_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outMin, &sink_outMax, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outMin = sink_outMin;
@@ -813,6 +813,11 @@ TA_RetCode TA_MINMAX_OpenInternal( struct TA_MINMAX_Stream **stream, const doubl
 
 TA_LIB_API TA_RetCode TA_MINMAX_Open( TA_MINMAX_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outMin, double *outMax )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outMin || !outMax ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_MINMAX_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outMin, outMax );
 }
 
@@ -821,19 +826,23 @@ TA_LIB_API TA_RetCode TA_MINMAX_OpenAndFill( TA_MINMAX_Stream **stream, const do
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outMin || !outMax ) return TA_BAD_PARAM;
+   if( !inReal || !outMin || !outMax ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outMin == (const void *)inReal || (const void *)outMax == (const void *)inReal || (const void *)outMin == (const void *)outMax ) return TA_BAD_PARAM;
-   return TA_MINMAX_OpenCore( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outMin, outMax, 1 );
+   return TA_MINMAX_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outMin, outMax, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_MINMAX_OpenAndFillInternal( struct TA_MINMAX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outMin[], double outMax[] )
 {
-   return TA_MINMAX_OpenCore( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outMin, outMax, 1 );
+   return TA_MINMAX_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outMin, outMax, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_MINMAX_Update( TA_MINMAX_Stream *stream, double inReal, double *outMin, double *outMax )
 {
    if( !stream || !outMin || !outMax ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_MINMAX_StepInternal( stream, inReal, outMin, outMax );
    return TA_SUCCESS;
 }
@@ -843,6 +852,7 @@ TA_LIB_API TA_RetCode TA_MINMAX_Peek( const TA_MINMAX_Stream *stream, double inR
    struct TA_MINMAX_Stream scratch;
 
    if( !stream || !outMin || !outMax ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.x_inReal = stream->xMirror_inReal;
    memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );

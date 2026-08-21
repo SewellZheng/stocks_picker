@@ -35,14 +35,14 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode VWMA_Internal( int startIdx,
-                          int endIdx,
-                          double inReal[],
-                          double inVolume[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode VWMA_Impl( int startIdx,
+                      int endIdx,
+                      double inReal[],
+                      double inVolume[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -145,14 +145,14 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode VWMA_Internal( int startIdx,
-                          int endIdx,
-                          float inReal[],
-                          float inVolume[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode VWMA_Impl( int startIdx,
+                      int endIdx,
+                      float inReal[],
+                      float inVolume[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -263,8 +263,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#WMA
@@ -278,9 +285,16 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("VWMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, VWMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("VWMA", "inReal", inReal, guardInLen);
+      requireLength("VWMA", "inVolume", inVolume, guardInLen);
+      requireLength("VWMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VWMA_Internal(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = VWMA_Impl(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("VWMA", retCode);
       }
@@ -328,8 +342,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#WMA
@@ -343,9 +364,16 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("VWMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, VWMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("VWMA", "inReal", inReal, guardInLen);
+      requireLength("VWMA", "inVolume", inVolume, guardInLen);
+      requireLength("VWMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VWMA_Internal(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = VWMA_Impl(startIdx, endIdx, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("VWMA", retCode);
       }
@@ -434,10 +462,20 @@
       private static final ThreadLocal<VWMA_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal, double inVolume ) {
+         if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
+            throw new TaLibArgumentException("VWMA update: BadParam", RetCode.BadParam);
          core.VWMA_StreamStep(this, inReal, inVolume);
          return this.cur_outReal;
       }
@@ -452,6 +490,8 @@
        * the thread.
        */
       public double peek( double inReal, double inVolume ) {
+         if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
+            throw new TaLibArgumentException("VWMA peek: BadParam", RetCode.BadParam);
          VWMA_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new VWMA_Stream(this);
@@ -514,7 +554,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode VWMA_OpenCore( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode VWMA_OpenPass( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double sumPV = 0;
       double sumV = 0;
@@ -540,7 +580,7 @@
       }
       if( optInTimePeriod == 1 ) {
          if( historyLen < VWMA_Lookback(optInTimePeriod) + 1 ) {
-            return RetCode.OutOfRangeEndIndex;
+            return RetCode.InsufficientHistory;
          }
          sp.optInTimePeriod = optInTimePeriod;
          sp.sumPV = 0.0;
@@ -578,7 +618,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Add-up the initial period, except for the last value.
        *
@@ -650,55 +690,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode VWMA_OpenBody( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
+   private RetCode VWMA_OpenImpl( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return VWMA_OpenCore( sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return VWMA_OpenPass( sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode VWMA_OpenAndFillBody( VWMA_Stream sp, double inReal[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode VWMA_OpenAndFillImpl( VWMA_Stream sp, double inReal[], double inVolume[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
          return RetCode.BadParam;
       }
-      return VWMA_OpenCore( sp, inReal, inVolume, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return VWMA_OpenPass( sp, inReal, inVolume, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode VWMA_OpenAndFillInternalBody( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode VWMA_OpenAndFillInternalImpl( VWMA_Stream sp, double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return VWMA_OpenCore(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return VWMA_OpenPass(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* VWMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    VWMA_Stream VWMA_OpenAndFillInternal( double inReal[], double inVolume[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       VWMA_Stream sp = new VWMA_Stream(this);
-      RetCode retCode = VWMA_OpenAndFillInternalBody(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = VWMA_OpenAndFillInternalImpl(sp, inReal, inVolume, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("VWMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("VWMA openAndFill: internal error");
+         throw new TaLibStateException("VWMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("VWMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("VWMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind VWMA_Open (composition seam). */
    VWMA_Stream VWMA_OpenInternal( double inReal[], double inVolume[], int startIdx, int optInTimePeriod )
    {
       VWMA_Stream sp = new VWMA_Stream(this);
-      RetCode retCode = VWMA_OpenBody(sp, inReal, inVolume, startIdx, optInTimePeriod);
+      RetCode retCode = VWMA_OpenImpl(sp, inReal, inVolume, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("VWMA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("VWMA open: internal error");
+         throw new TaLibStateException("VWMA open: internal error", retCode);
       }
-      throw new IllegalArgumentException("VWMA open: " + retCode);
+      throw new TaLibArgumentException("VWMA open: " + retCode, retCode);
    }
    /**
     * Open a live VWMA stream over the warm-up history; the handle's
@@ -728,16 +768,16 @@
       VWMA_Stream sp = new VWMA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VWMA_OpenAndFillBody(sp, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = VWMA_OpenAndFillImpl(sp, inReal, inVolume, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("VWMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("VWMA openAndFill: internal error");
+         throw new TaLibStateException("VWMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("VWMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("VWMA openAndFill: " + retCode, retCode);
    }

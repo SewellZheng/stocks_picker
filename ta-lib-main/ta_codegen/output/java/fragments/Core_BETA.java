@@ -38,14 +38,14 @@
       return optInTimePeriod ;
 
    }
-   RetCode BETA_Internal( int startIdx,
-                          int endIdx,
-                          double inReal0[],
-                          double inReal1[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode BETA_Impl( int startIdx,
+                      int endIdx,
+                      double inReal0[],
+                      double inReal1[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double S_xx = 0;
       double S_xy = 0;
@@ -208,14 +208,14 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode BETA_Internal( int startIdx,
-                          int endIdx,
-                          float inReal0[],
-                          float inReal1[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode BETA_Impl( int startIdx,
+                      int endIdx,
+                      float inReal0[],
+                      float inReal1[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double S_xx = 0;
       double S_xy = 0;
@@ -369,8 +369,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CORREL
     * @see Core#LINEARREG_SLOPE
@@ -384,9 +391,16 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("BETA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, BETA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("BETA", "inReal0", inReal0, guardInLen);
+      requireLength("BETA", "inReal1", inReal1, guardInLen);
+      requireLength("BETA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BETA_Internal(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BETA_Impl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("BETA", retCode);
       }
@@ -425,8 +439,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#CORREL
     * @see Core#LINEARREG_SLOPE
@@ -440,9 +461,16 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("BETA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, BETA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("BETA", "inReal0", inReal0, guardInLen);
+      requireLength("BETA", "inReal1", inReal1, guardInLen);
+      requireLength("BETA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BETA_Internal(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BETA_Impl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("BETA", retCode);
       }
@@ -552,10 +580,20 @@
       private static final ThreadLocal<BETA_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal0, double inReal1 ) {
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
+            throw new TaLibArgumentException("BETA update: BadParam", RetCode.BadParam);
          core.BETA_StreamStep(this, inReal0, inReal1);
          return this.cur_outReal;
       }
@@ -570,6 +608,8 @@
        * the thread.
        */
       public double peek( double inReal0, double inReal1 ) {
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
+            throw new TaLibArgumentException("BETA peek: BadParam", RetCode.BadParam);
          BETA_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new BETA_Stream(this);
@@ -659,7 +699,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode BETA_OpenCore( BETA_Stream sp, double inReal0[], double inReal1[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode BETA_OpenPass( BETA_Stream sp, double inReal0[], double inReal1[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double S_xx = 0;
       double S_xy = 0;
@@ -737,7 +777,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* Consume first input. */
       trailingIdx = startIdx - nbInitialElementNeeded;
@@ -851,55 +891,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode BETA_OpenBody( BETA_Stream sp, double inReal0[], double inReal1[], int startIdx, int optInTimePeriod )
+   private RetCode BETA_OpenImpl( BETA_Stream sp, double inReal0[], double inReal1[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return BETA_OpenCore( sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return BETA_OpenPass( sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode BETA_OpenAndFillBody( BETA_Stream sp, double inReal0[], double inReal1[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode BETA_OpenAndFillImpl( BETA_Stream sp, double inReal0[], double inReal1[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
          return RetCode.BadParam;
       }
-      return BETA_OpenCore( sp, inReal0, inReal1, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return BETA_OpenPass( sp, inReal0, inReal1, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode BETA_OpenAndFillInternalBody( BETA_Stream sp, double inReal0[], double inReal1[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode BETA_OpenAndFillInternalImpl( BETA_Stream sp, double inReal0[], double inReal1[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return BETA_OpenCore(sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return BETA_OpenPass(sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* BETA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    BETA_Stream BETA_OpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       BETA_Stream sp = new BETA_Stream(this);
-      RetCode retCode = BETA_OpenAndFillInternalBody(sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BETA_OpenAndFillInternalImpl(sp, inReal0, inReal1, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BETA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BETA openAndFill: internal error");
+         throw new TaLibStateException("BETA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("BETA openAndFill: " + retCode);
+      throw new TaLibArgumentException("BETA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind BETA_Open (composition seam). */
    BETA_Stream BETA_OpenInternal( double inReal0[], double inReal1[], int startIdx, int optInTimePeriod )
    {
       BETA_Stream sp = new BETA_Stream(this);
-      RetCode retCode = BETA_OpenBody(sp, inReal0, inReal1, startIdx, optInTimePeriod);
+      RetCode retCode = BETA_OpenImpl(sp, inReal0, inReal1, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BETA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BETA open: internal error");
+         throw new TaLibStateException("BETA open: internal error", retCode);
       }
-      throw new IllegalArgumentException("BETA open: " + retCode);
+      throw new TaLibArgumentException("BETA open: " + retCode, retCode);
    }
    /**
     * Open a live BETA stream over the warm-up history; the handle's
@@ -929,16 +969,16 @@
       BETA_Stream sp = new BETA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BETA_OpenAndFillBody(sp, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = BETA_OpenAndFillImpl(sp, inReal0, inReal1, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("BETA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("BETA openAndFill: internal error");
+         throw new TaLibStateException("BETA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("BETA openAndFill: " + retCode);
+      throw new TaLibArgumentException("BETA openAndFill: " + retCode, retCode);
    }

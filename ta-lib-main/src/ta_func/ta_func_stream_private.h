@@ -15,6 +15,7 @@
 #endif
 
 /* Internal stream-open declarations (startIdx-aware; behind the public Open) */
+struct TA_AC_Stream;
 struct TA_ACCBANDS_Stream;
 struct TA_ACOS_Stream;
 struct TA_AD_Stream;
@@ -22,6 +23,7 @@ struct TA_ADD_Stream;
 struct TA_ADOSC_Stream;
 struct TA_ADX_Stream;
 struct TA_ADXR_Stream;
+struct TA_AO_Stream;
 struct TA_APO_Stream;
 struct TA_AROON_Stream;
 struct TA_AROONOSC_Stream;
@@ -164,6 +166,7 @@ struct TA_SAREXT_Stream;
 struct TA_SIN_Stream;
 struct TA_SINH_Stream;
 struct TA_SMA_Stream;
+struct TA_SMI_Stream;
 struct TA_SQRT_Stream;
 struct TA_STDDEV_Stream;
 struct TA_STOCH_Stream;
@@ -187,6 +190,7 @@ struct TA_WAD_Stream;
 struct TA_WCLPRICE_Stream;
 struct TA_WILLR_Stream;
 struct TA_WMA_Stream;
+TA_RetCode TA_AC_OpenInternal( struct TA_AC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outReal );
 TA_RetCode TA_ACCBANDS_OpenInternal( struct TA_ACCBANDS_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
 TA_RetCode TA_ACOS_OpenInternal( struct TA_ACOS_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outReal );
 TA_RetCode TA_AD_OpenInternal( struct TA_AD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, double *outReal );
@@ -194,6 +198,7 @@ TA_RetCode TA_ADD_OpenInternal( struct TA_ADD_Stream **stream, const double inRe
 TA_RetCode TA_ADOSC_OpenInternal( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal );
 TA_RetCode TA_ADX_OpenInternal( struct TA_ADX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outReal );
 TA_RetCode TA_ADXR_OpenInternal( struct TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, double *outReal );
+TA_RetCode TA_AO_OpenInternal( struct TA_AO_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal );
 TA_RetCode TA_APO_OpenInternal( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, double *outReal );
 TA_RetCode TA_AROON_OpenInternal( struct TA_AROON_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, double *outAroonDown, double *outAroonUp );
 TA_RetCode TA_AROONOSC_OpenInternal( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, double *outReal );
@@ -336,6 +341,7 @@ TA_RetCode TA_SAREXT_OpenInternal( struct TA_SAREXT_Stream **stream, const doubl
 TA_RetCode TA_SIN_OpenInternal( struct TA_SIN_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outReal );
 TA_RetCode TA_SINH_OpenInternal( struct TA_SINH_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outReal );
 TA_RetCode TA_SMA_OpenInternal( struct TA_SMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal );
+TA_RetCode TA_SMI_OpenInternal( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double *outSMI, double *outSMISignal );
 TA_RetCode TA_SQRT_OpenInternal( struct TA_SQRT_Stream **stream, const double inReal[], int startIdx, int historyLen, double *outReal );
 TA_RetCode TA_STDDEV_OpenInternal( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, double *outReal );
 TA_RetCode TA_STOCH_OpenInternal( struct TA_STOCH_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType, double *outSlowK, double *outSlowD );
@@ -361,6 +367,7 @@ TA_RetCode TA_WILLR_OpenInternal( struct TA_WILLR_Stream **stream, const double 
 TA_RetCode TA_WMA_OpenInternal( struct TA_WMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double *outReal );
 
 /* Internal stream open+fill declarations (startIdx-aware; one pass, fills arrays) */
+TA_RetCode TA_AC_OpenAndFillInternal( struct TA_AC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_ACCBANDS_OpenAndFillInternal( struct TA_ACCBANDS_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] );
 TA_RetCode TA_ACOS_OpenAndFillInternal( struct TA_ACOS_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_AD_OpenAndFillInternal( struct TA_AD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
@@ -368,6 +375,7 @@ TA_RetCode TA_ADD_OpenAndFillInternal( struct TA_ADD_Stream **stream, const doub
 TA_RetCode TA_ADOSC_OpenAndFillInternal( struct TA_ADOSC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_ADX_OpenAndFillInternal( struct TA_ADX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_ADXR_OpenAndFillInternal( struct TA_ADXR_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+TA_RetCode TA_AO_OpenAndFillInternal( struct TA_AO_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_APO_OpenAndFillInternal( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_AROON_OpenAndFillInternal( struct TA_AROON_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outAroonDown[], double outAroonUp[] );
 TA_RetCode TA_AROONOSC_OpenAndFillInternal( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
@@ -509,6 +517,7 @@ TA_RetCode TA_SAREXT_OpenAndFillInternal( struct TA_SAREXT_Stream **stream, cons
 TA_RetCode TA_SIN_OpenAndFillInternal( struct TA_SIN_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_SINH_OpenAndFillInternal( struct TA_SINH_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_SMA_OpenAndFillInternal( struct TA_SMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+TA_RetCode TA_SMI_OpenAndFillInternal( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[] );
 TA_RetCode TA_SQRT_OpenAndFillInternal( struct TA_SQRT_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_STDDEV_OpenAndFillInternal( struct TA_STDDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] );
 TA_RetCode TA_STOCH_OpenAndFillInternal( struct TA_STOCH_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType, int *outBegIdx, int *outNBElement, double outSlowK[], double outSlowD[] );

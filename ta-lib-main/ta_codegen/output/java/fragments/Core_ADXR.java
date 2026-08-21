@@ -45,15 +45,15 @@
       }
 
    }
-   RetCode ADXR_Internal( int startIdx,
-                          int endIdx,
-                          double inHigh[],
-                          double inLow[],
-                          double inClose[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode ADXR_Impl( int startIdx,
+                      int endIdx,
+                      double inHigh[],
+                      double inLow[],
+                      double inClose[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double[] adx;
       int adxrLookback = 0;
@@ -101,7 +101,10 @@
       /* Compute ADX over a range that starts (period-1) bars earlier, so each
        * ADXR bar can pair the current ADX with the ADX from (period-1) bars ago.
        */
-      retCode = ADX_Internal(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, adx);
+      OutRange _xr0 = ADX(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, adx);
+      outBegIdx.value = _xr0.begIdx();
+      outNBElement.value = _xr0.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -117,15 +120,15 @@
       outNBElement.value = nbElement;
       return RetCode.Success ;
    }
-   RetCode ADXR_Internal( int startIdx,
-                          int endIdx,
-                          float inHigh[],
-                          float inLow[],
-                          float inClose[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode ADXR_Impl( int startIdx,
+                      int endIdx,
+                      float inHigh[],
+                      float inLow[],
+                      float inClose[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double[] adx;
       int adxrLookback = 0;
@@ -153,7 +156,10 @@
          return RetCode.Success ;
       }
       adx = new double[(int)((endIdx - startIdx + optInTimePeriod) * 1)];
-      retCode = ADX_Internal(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, adx);
+      OutRange _xr0 = ADX(startIdx - (optInTimePeriod - 1), endIdx, inHigh, inLow, inClose, optInTimePeriod, adx);
+      outBegIdx.value = _xr0.begIdx();
+      outNBElement.value = _xr0.count();
+      retCode = RetCode.Success;
       if( retCode != RetCode.Success ) {
          return retCode ;
       }
@@ -199,8 +205,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#ADX
     * @see Core#DX
@@ -215,9 +228,17 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("ADXR", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ADXR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ADXR", "inHigh", inHigh, guardInLen);
+      requireLength("ADXR", "inLow", inLow, guardInLen);
+      requireLength("ADXR", "inClose", inClose, guardInLen);
+      requireLength("ADXR", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ADXR_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADXR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ADXR", retCode);
       }
@@ -260,8 +281,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#ADX
     * @see Core#DX
@@ -276,9 +304,17 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("ADXR", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, ADXR_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("ADXR", "inHigh", inHigh, guardInLen);
+      requireLength("ADXR", "inLow", inLow, guardInLen);
+      requireLength("ADXR", "inClose", inClose, guardInLen);
+      requireLength("ADXR", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ADXR_Internal(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADXR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("ADXR", retCode);
       }
@@ -352,10 +388,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("ADXR update: BadParam", RetCode.BadParam);
          core.ADXR_StreamStep(this, inHigh, inLow, inClose);
          return this.cur_outReal;
       }
@@ -368,6 +414,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+            throw new TaLibArgumentException("ADXR peek: BadParam", RetCode.BadParam);
          ADXR_Stream scratch = new ADXR_Stream(this);
          core.ADXR_StreamStep(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
@@ -402,7 +450,7 @@
       sp.lagRingPos_adx = (sp.lagRingPos_adx + 1) % sp.lagRingCap_adx;
       sp.cur_outReal = cur_outReal;
    }
-   private RetCode ADXR_OpenCore( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode ADXR_OpenPass( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double[] adx;
       int adxrLookback = 0;
@@ -423,9 +471,9 @@
          return RetCode.BadParam;
       }
       if( historyLen < ADXR_Lookback(optInTimePeriod) + 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.InsufficientHistory;
       }
-      double[] sc_outReal = new double[historyLen];
+      double[] sc_outReal = outStride == 1 ? outReal : new double[historyLen];
       /* Original implementation from Wilder's book was doing some integer
        * rounding in its calculations.
        *
@@ -450,7 +498,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       adx = new double[(int)((endIdx - startIdx + optInTimePeriod) * 1)];
       /* Compute ADX over a range that starts (period-1) bars earlier, so each
@@ -475,7 +523,7 @@
       outNBElement.value = nbElement;
       /* Capture the live producer state + sub handles. */
       if( outNBElement.value < 1 ) {
-         return RetCode.OutOfRangeEndIndex;
+         return RetCode.InsufficientHistory;
       }
       int lagCap_adx = (int)(optInTimePeriod - 1);
       double[] lagRing_adx = new double[lagCap_adx];
@@ -488,58 +536,57 @@
       sp.lagRingCap_adx = lagCap_adx;
       sp.lagRing_adx = lagRing_adx;
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
-      if( outStride == 1 ) System.arraycopy(sc_outReal, 0, outReal, 0, outNBElement.value);
       return RetCode.Success;
    }
-   private RetCode ADXR_OpenBody( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
+   private RetCode ADXR_OpenImpl( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return ADXR_OpenCore( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return ADXR_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode ADXR_OpenAndFillBody( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ADXR_OpenAndFillImpl( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          return RetCode.BadParam;
       }
-      return ADXR_OpenCore( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return ADXR_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode ADXR_OpenAndFillInternalBody( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode ADXR_OpenAndFillInternalImpl( ADXR_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return ADXR_OpenCore(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return ADXR_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* ADXR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    ADXR_Stream ADXR_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       ADXR_Stream sp = new ADXR_Stream(this);
-      RetCode retCode = ADXR_OpenAndFillInternalBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADXR_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ADXR openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ADXR openAndFill: internal error");
+         throw new TaLibStateException("ADXR openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ADXR openAndFill: " + retCode);
+      throw new TaLibArgumentException("ADXR openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind ADXR_Open (composition seam). */
    ADXR_Stream ADXR_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       ADXR_Stream sp = new ADXR_Stream(this);
-      RetCode retCode = ADXR_OpenBody(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      RetCode retCode = ADXR_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ADXR open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ADXR open: internal error");
+         throw new TaLibStateException("ADXR open: internal error", retCode);
       }
-      throw new IllegalArgumentException("ADXR open: " + retCode);
+      throw new TaLibArgumentException("ADXR open: " + retCode, retCode);
    }
    /**
     * Open a live ADXR stream over the warm-up history; the handle's
@@ -569,16 +616,16 @@
       ADXR_Stream sp = new ADXR_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = ADXR_OpenAndFillBody(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = ADXR_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("ADXR openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("ADXR openAndFill: internal error");
+         throw new TaLibStateException("ADXR openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("ADXR openAndFill: " + retCode);
+      throw new TaLibArgumentException("ADXR openAndFill: " + retCode, retCode);
    }

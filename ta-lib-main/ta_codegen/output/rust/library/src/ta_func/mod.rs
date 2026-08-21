@@ -78,8 +78,11 @@ impl TryFrom<i32> for MAType {
 // Hand-written test-only modules (not generated; see templates/rust/).
 #[cfg(test)]
 mod scratch_election;
+#[cfg(test)]
+mod stream_finite;
 
 // Generated indicator modules:
+mod ac;
 mod accbands;
 mod acos;
 mod ad;
@@ -87,6 +90,7 @@ mod add;
 mod adosc;
 mod adx;
 mod adxr;
+mod ao;
 mod apo;
 mod aroon;
 mod aroonosc;
@@ -229,6 +233,7 @@ mod sarext;
 mod sin;
 mod sinh;
 mod sma;
+mod smi;
 mod sqrt;
 mod stddev;
 mod stoch;
@@ -254,6 +259,7 @@ mod willr;
 mod wma;
 
 // Generated stream handles (one per streamable indicator):
+pub use ac::AC_Stream;
 pub use accbands::ACCBANDS_Stream;
 pub use acos::ACOS_Stream;
 pub use ad::AD_Stream;
@@ -261,6 +267,7 @@ pub use add::ADD_Stream;
 pub use adosc::ADOSC_Stream;
 pub use adx::ADX_Stream;
 pub use adxr::ADXR_Stream;
+pub use ao::AO_Stream;
 pub use apo::APO_Stream;
 pub use aroon::AROON_Stream;
 pub use aroonosc::AROONOSC_Stream;
@@ -403,6 +410,7 @@ pub use sarext::SAREXT_Stream;
 pub use sin::SIN_Stream;
 pub use sinh::SINH_Stream;
 pub use sma::SMA_Stream;
+pub use smi::SMI_Stream;
 pub use sqrt::SQRT_Stream;
 pub use stddev::STDDEV_Stream;
 pub use stoch::STOCH_Stream;

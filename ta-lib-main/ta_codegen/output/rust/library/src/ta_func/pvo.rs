@@ -75,8 +75,8 @@ impl Core {
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
     ///   11=DEFAULT, `MAType::DEFAULT` selects the default)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn PVO_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType) -> usize {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -94,6 +94,106 @@ impl Core {
         }
         // Lookback is driven by the slowest MA.
         return self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType);
+    }
+    /// C-shaped body behind [`Core::PVO`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn PVO_Impl(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inVolume: &[f64],
+        mut optInFastPeriod: i32,
+        mut optInSlowPeriod: i32,
+        mut optInMAType: MAType,
+        outBegIdx: &mut usize,
+        outNBElement: &mut usize,
+        outReal: &mut [f64],
+    ) -> RetCode {
+        if startIdx > Self::MAX_INDEX {
+            return RetCode::OutOfRangeStartIndex;
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return RetCode::OutOfRangeEndIndex;
+        }
+        if ((optInFastPeriod) as i32) == (i32::MIN) {
+            optInFastPeriod = 12;
+        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
+            return RetCode::BadParam;
+        }
+        if ((optInSlowPeriod) as i32) == (i32::MIN) {
+            optInSlowPeriod = 26;
+        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+            return RetCode::BadParam;
+        }
+        if optInMAType == MAType::DEFAULT {
+            optInMAType = MAType::EMA;
+        }
+        let _assertLb = self.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
+        assert!(_assertStart > endIdx || endIdx < inVolume.len());
+        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
+        let mut startIdx = startIdx;
+        let mut tempBuffer: Vec<f64> = Vec::new();
+        let mut retCode: RetCode = RetCode::Success;
+        let mut tempReal: f64 = 0.0_f64;
+        let mut tempInteger: usize = 0_usize;
+        let mut fastBeg: usize = 0_usize;
+        let mut fastNb: usize = 0_usize;
+        let mut offset: usize = 0_usize;
+        let mut i: usize = 0_usize;
+        // Nothing to produce: the range is shorter than the lookback. Return before
+        // touching anything.
+        //
+        // Without this the fast MA below runs first, and its lookback is SMALLER
+        // than pvo's own — so it reads the whole range and computes a result the
+        // empty slow MA then discards. Observably identical (the slow MA's own early
+        // return already yields 0,0 here), but it is the difference between "a range
+        // shorter than the lookback reads nothing" being true of this function and
+        // being false: with a caller-supplied inVolume that stops short of endIdx, that
+        // discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
+        // probe over every guarded core.
+        if self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType) > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return RetCode::Success;
+        }
+        // Allocate an intermediate buffer.
+        tempBuffer = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
+        // Make sure slow is really slower than
+        // the fast period! if not, swap...
+        if optInSlowPeriod < optInFastPeriod {
+            // swap
+            tempInteger = (optInSlowPeriod) as usize;
+            optInSlowPeriod = optInFastPeriod;
+            optInFastPeriod = (tempInteger) as i32;
+        }
+        // Calculate the fast MA into the tempBuffer.
+        retCode = self.MA_Impl(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, &mut fastBeg, &mut fastNb, &mut tempBuffer[..]);
+        if retCode != RetCode::Success {
+            return retCode;
+        }
+        // Calculate the slow MA into the output.
+        retCode = self.MA_Impl(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
+        if retCode != RetCode::Success {
+            return retCode;
+        }
+        // fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
+        // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
+        // outReal[i], with a non-negative index. An empty slow MA skips the loop.
+        offset = fastNb - (*outNBElement);
+        // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
+        // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
+        i = 0;
+        while i < ((((*outNBElement) as usize)) as usize) {
+            tempReal = outReal[i];
+            if !((tempReal).abs() < 1e-14) {
+                outReal[i] = (((tempBuffer[i + offset] - tempReal) / tempReal * 100.0) as f64);
+            } else {
+                outReal[i] = 0.0;
+            }
+            i += 1;
+        }
+        return RetCode::Success;
     }
     /// Percentage Volume Oscillator: a variation of the [Percentage Price
     /// Oscillator](https://ta-lib.org/functions/ppo) (PPO, created by Gerald Appel) applied to the
@@ -126,17 +226,23 @@ impl Core {
     /// * `optInMAType` — Moving average type used for both MAs (default 1 = EMA, values: 0=SMA,
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
     ///   11=DEFAULT, `MAType::DEFAULT` selects the default)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
     /// * `outReal` — PVO value in percent.
     ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
     ///
     /// # Errors
     ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
     ///
     /// # Panics
     ///
@@ -147,24 +253,19 @@ impl Core {
     /// # Examples
     ///
     /// ```
-    /// use ta_lib::{Core, RetCode, MAType};
+    /// use ta_lib::{Core, MAType};
     ///
     /// let volume: Vec<f64> = (0..252)
     ///     .map(|i| 10_000.0 + 100.0 * i as f64 + 2_000.0 * (0.3 * i as f64).sin())
     ///     .collect();
     ///
     /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
     /// let mut out = vec![0.0; 252];
     ///
-    /// let ret = core.PVO(
-    ///     0, volume.len() - 1, &volume, 12, 26, MAType::EMA,
-    ///     &mut out_beg, &mut out_nb, &mut out,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
+    /// let out_range = core.PVO(0, volume.len() - 1, &volume, 12, 26, MAType::EMA, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
     /// # See also
@@ -187,83 +288,30 @@ impl Core {
         startIdx: usize,
         endIdx: usize,
         inVolume: &[f64],
-        mut optInFastPeriod: i32,
-        mut optInSlowPeriod: i32,
-        mut optInMAType: MAType,
-        outBegIdx: &mut usize,
-        outNBElement: &mut usize,
+        optInFastPeriod: i32,
+        optInSlowPeriod: i32,
+        optInMAType: MAType,
         outReal: &mut [f64],
-    ) -> RetCode {
-        if startIdx > MAX_INDEX {
-            return RetCode::OutOfRangeStartIndex;
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.PVO_Impl(
+            startIdx,
+            endIdx,
+            inVolume,
+            optInFastPeriod,
+            optInSlowPeriod,
+            optInMAType,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
-            return RetCode::OutOfRangeEndIndex;
-        }
-        if ((optInFastPeriod) as i32) == (i32::MIN) {
-            optInFastPeriod = 12;
-        } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
-            return RetCode::BadParam;
-        }
-        if ((optInSlowPeriod) as i32) == (i32::MIN) {
-            optInSlowPeriod = 26;
-        } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
-            return RetCode::BadParam;
-        }
-        if optInMAType == MAType::DEFAULT {
-            optInMAType = MAType::EMA;
-        }
-        let _assertLb = self.PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
-        let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
-        assert!(_assertStart > endIdx || endIdx < inVolume.len());
-        assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
-        let mut startIdx = startIdx;
-        let mut tempBuffer: Vec<f64> = Vec::new();
-        let mut retCode: RetCode = RetCode::Success;
-        let mut tempReal: f64 = 0.0_f64;
-        let mut tempInteger: usize = 0_usize;
-        let mut fastBeg: usize = 0_usize;
-        let mut fastNb: usize = 0_usize;
-        let mut offset: usize = 0_usize;
-        let mut i: usize = 0_usize;
-        // Allocate an intermediate buffer.
-        tempBuffer = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
-        // Make sure slow is really slower than
-        // the fast period! if not, swap...
-        if optInSlowPeriod < optInFastPeriod {
-            // swap
-            tempInteger = (optInSlowPeriod) as usize;
-            optInSlowPeriod = optInFastPeriod;
-            optInFastPeriod = (tempInteger) as i32;
-        }
-        // Calculate the fast MA into the tempBuffer.
-        retCode = self.MA(startIdx, endIdx, inVolume, optInFastPeriod, optInMAType, &mut fastBeg, &mut fastNb, &mut tempBuffer[..]);
-        if retCode != RetCode::Success {
-            return retCode;
-        }
-        // Calculate the slow MA into the output.
-        retCode = self.MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
-        if retCode != RetCode::Success {
-            return retCode;
-        }
-        // fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
-        // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
-        // outReal[i], with a non-negative index. An empty slow MA skips the loop.
-        offset = fastNb - (*outNBElement);
-        // Calculate ((fast MA)-(slow MA))/(slow MA) in the output.
-        // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
-        i = 0;
-        while i < ((((*outNBElement) as usize)) as usize) {
-            tempReal = outReal[i];
-            if !((tempReal).abs() < 1e-14) {
-                outReal[i] = (((tempBuffer[i + offset] - tempReal) / tempReal * 100.0) as f64);
-            } else {
-                outReal[i] = 0.0;
-            }
-            i += 1;
-        }
-        return RetCode::Success;
     }
+
 }
 /**** Streaming API *****/
 
@@ -318,14 +366,14 @@ impl PVO_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn PVO_step_internal(&self, sp: &mut PVO_StreamState, inVolume: f64, outReal: &mut f64) {
+    fn PVO_step_internal(&self, sp: &mut PVO_StreamState, inVolume: f64, outReal: &mut f64) -> Result<(), RetCode> {
         let mut tempReal: f64 = 0.0_f64;
         let mut cur_tempBuffer: f64 = 0.0_f64;
         let mut cur_outReal: f64 = 0.0_f64;
 
         // Pipeline the new bar through the sub-streams (batch tail order).
-        cur_tempBuffer = sp.sub0.update(inVolume);
-        cur_outReal = sp.sub1.update(inVolume);
+        cur_tempBuffer = sp.sub0.update(inVolume)?;
+        cur_outReal = sp.sub1.update(inVolume)?;
         // Combine map (batch tail, per bar).
         tempReal = cur_outReal;
         if !((tempReal).abs() < 1e-14) {
@@ -334,17 +382,18 @@ impl Core {
             cur_outReal = 0.0;
         }
         (*outReal) = cur_outReal;
+        Ok(())
     }
 
     /// The single whole-history transcription behind [`Core::PVO_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::PVO_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn PVO_OpenCore(
+    pub(crate) fn PVO_OpenPass(
         &self, inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<PVO_Stream, RetCode> {
         if inVolume.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inVolume.len() > MAX_INDEX + 1 {
+        if inVolume.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -365,7 +414,10 @@ impl Core {
         let mut startIdx = startIdx;
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
-        let mut sc_outReal: Vec<f64> = vec![0.0_f64; historyLen];
+        let mut owned_sc_outReal: Vec<f64> =
+            if outStride == 1 { Vec::new() } else { vec![0.0_f64; historyLen] };
+        let sc_outReal: &mut [f64] =
+            if outStride == 1 { &mut *outReal } else { &mut owned_sc_outReal };
         let mut tempBuffer: Vec<f64> = Vec::new();
         let mut retCode: RetCode = RetCode::Success;
         let mut tempReal: f64 = 0.0_f64;
@@ -374,6 +426,22 @@ impl Core {
         let mut fastNb: usize = 0_usize;
         let mut offset: usize = 0_usize;
         let mut i: usize = 0_usize;
+        // Nothing to produce: the range is shorter than the lookback. Return before
+        // touching anything.
+        //
+        // Without this the fast MA below runs first, and its lookback is SMALLER
+        // than pvo's own — so it reads the whole range and computes a result the
+        // empty slow MA then discards. Observably identical (the slow MA's own early
+        // return already yields 0,0 here), but it is the difference between "a range
+        // shorter than the lookback reads nothing" being true of this function and
+        // being false: with a caller-supplied inVolume that stops short of endIdx, that
+        // discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
+        // probe over every guarded core.
+        if self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType) > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         // Allocate an intermediate buffer.
         tempBuffer = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
         // Make sure slow is really slower than
@@ -419,7 +487,7 @@ impl Core {
 
         // Capture the live producer state + sub handles.
         if *outNBElement < 1 {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         let state = PVO_StreamState {
             optInFastPeriod,
@@ -428,10 +496,9 @@ impl Core {
             sub0,
             sub1,
         };
-        if outStride == 1 {
-            outReal[..*outNBElement].copy_from_slice(&sc_outReal[..*outNBElement]);
-        } else if *outNBElement > 0 {
-            outReal[0] = sc_outReal[*outNBElement - 1];
+        if outStride != 1 && *outNBElement > 0 {
+            let last_sc_outReal = sc_outReal[*outNBElement - 1];
+            outReal[0] = last_sc_outReal;
         }
         Ok(PVO_Stream { core: self.clone(), state })
     }
@@ -443,7 +510,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.PVO_OpenCore(inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.PVO_OpenPass(inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -452,8 +519,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
@@ -463,8 +532,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.PVO_Open(&volume, 12, 26, MAType::EMA).expect("enough history");
-    /// let peeked = s.peek(12_345.0);
-    /// let updated = s.update(12_345.0);
+    /// let peeked = s.peek(12_345.0).expect("a finite bar");
+    /// let updated = s.update(12_345.0).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_PVO_Open")]
@@ -473,13 +542,17 @@ impl Core {
     }
 
     /// [`Core::PVO_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::PVO`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::PVO`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_PVO_OpenAndFill")]
     pub fn PVO_OpenAndFill(
-        &self, inVolume: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<PVO_Stream, RetCode> {
-        self.PVO_OpenCore(inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1)
+        &self, inVolume: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType, outReal: &mut [f64],
+    ) -> Result<(PVO_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.PVO_OpenPass(inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::PVO_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -487,7 +560,7 @@ impl Core {
     pub(crate) fn PVO_OpenAndFillInternal(
         &self, inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<PVO_Stream, RetCode> {
-        self.PVO_OpenCore(inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1)
+        self.PVO_OpenPass(inVolume, startIdx, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -503,12 +576,25 @@ thread_local! {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl PVO_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_PVO_Update")]
-    pub fn update(&mut self, inVolume: f64) -> f64 {
+    pub fn update(&mut self, inVolume: f64) -> Result<f64, RetCode> {
+        if !inVolume.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
-        self.core.PVO_step_internal(&mut self.state, inVolume, &mut outReal);
-        outReal
+        self.core.PVO_step_internal(&mut self.state, inVolume, &mut outReal)?;
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -516,9 +602,16 @@ impl PVO_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. The copy it runs on is held per thread and reused,
     /// so only the first peek of this function on a thread allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_PVO_Peek")]
-    #[must_use]
-    pub fn peek(&self, inVolume: f64) -> f64 {
+    pub fn peek(&self, inVolume: f64) -> Result<f64, RetCode> {
+        if !inVolume.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         PVO_PEEK_SCRATCH.with(|cell| {
             let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
             scratch.restore_from(self);

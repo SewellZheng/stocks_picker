@@ -71,8 +71,8 @@ impl Core {
     /// * `optInTimePeriod` — Window length over which the minimum is located (default 30, range
     ///   2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`
-    /// to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
     pub fn MININDEX_Lookback(&self, mut optInTimePeriod: i32) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -82,71 +82,9 @@ impl Core {
         }
         return (optInTimePeriod - 1) as usize;
     }
-    /// Returns the absolute index of the lowest value within a rolling window of the given period.
-    /// Same scan as MIN but outputs the position of the minimum rather than its value.
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// outInteger[t] = argmin_{t-period+1 <= i <= t} inReal[i]  (absolute index into inReal)
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * When several bars in a window share the lowest value, which bar's index is returned is not
-    ///   guaranteed to be a specific one of the tied bars.
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Series to scan for its minimum.
-    /// * `optInTimePeriod` — Window length over which the minimum is located (default 30, range
-    ///   2..=100000)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outInteger` — Absolute index in inReal of the lowest value in each window.
-    ///
-    /// Integer parameters accept `i32::MIN` to select their default value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0i32; 252];
-    ///
-    /// let ret = core.MININDEX(0, data.len() - 1, &data, 30, &mut out_beg, &mut out_nb, &mut out);
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::MIN`] · [`Core::MAXINDEX`] · [`Core::MINMAXINDEX`] · [`Core::MINMAX`]
-    ///
-    /// Further reading: [ta-lib.org/functions/minindex](https://ta-lib.org/functions/minindex)
-    #[doc(alias = "IndexofLowestValue")]
-    #[doc(alias = "LowestValueIndex")]
-    #[doc(alias = "RollingArgmin")]
-    pub fn MININDEX(
+    /// C-shaped body behind [`Core::MININDEX`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn MININDEX_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -156,10 +94,10 @@ impl Core {
         outNBElement: &mut usize,
         outInteger: &mut [i32],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -231,6 +169,99 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Returns the absolute index of the lowest value within a rolling window of the given period.
+    /// Same scan as MIN but outputs the position of the minimum rather than its value.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// outInteger[t] = argmin_{t-period+1 <= i <= t} inReal[i]  (absolute index into inReal)
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// * When several bars in a window share the lowest value, which bar's index is returned is not
+    ///   guaranteed to be a specific one of the tied bars.
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Series to scan for its minimum.
+    /// * `optInTimePeriod` — Window length over which the minimum is located (default 30, range
+    ///   2..=100000)
+    /// * `outInteger` — Absolute index in inReal of the lowest value in each window.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0i32; 252];
+    ///
+    /// let out_range = core.MININDEX(0, data.len() - 1, &data, 30, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::MIN`] · [`Core::MAXINDEX`] · [`Core::MINMAXINDEX`] · [`Core::MINMAX`]
+    ///
+    /// Further reading: [ta-lib.org/functions/minindex](https://ta-lib.org/functions/minindex)
+    #[doc(alias = "IndexofLowestValue")]
+    #[doc(alias = "LowestValueIndex")]
+    #[doc(alias = "RollingArgmin")]
+    pub fn MININDEX(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        optInTimePeriod: i32,
+        outInteger: &mut [i32],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.MININDEX_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            optInTimePeriod,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outInteger,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -324,13 +355,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::MININDEX_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::MININDEX_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn MININDEX_OpenCore(
+    pub(crate) fn MININDEX_OpenPass(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<MININDEX_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -364,7 +395,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         // Proceed with the calculation for the requested range.
         // (The integer output can never share the real input's buffer —
@@ -437,7 +468,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outInteger = [0_i32; 1];
-        let handle = self.MININDEX_OpenCore(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
+        let handle = self.MININDEX_OpenPass(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
         Ok((handle, sink_outInteger[0]))
     }
 
@@ -446,8 +477,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -455,8 +488,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MININDEX_Open(&data, 30).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_MININDEX_Open")]
@@ -465,13 +498,17 @@ impl Core {
     }
 
     /// [`Core::MININDEX_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::MININDEX`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::MININDEX`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_MININDEX_OpenAndFill")]
     pub fn MININDEX_OpenAndFill(
-        &self, inReal: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
-    ) -> Result<MININDEX_Stream, RetCode> {
-        self.MININDEX_OpenCore(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1)
+        &self, inReal: &[f64], mut optInTimePeriod: i32, outInteger: &mut [i32],
+    ) -> Result<(MININDEX_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.MININDEX_OpenPass(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outInteger, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::MININDEX_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -479,7 +516,7 @@ impl Core {
     pub(crate) fn MININDEX_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
     ) -> Result<MININDEX_Stream, RetCode> {
-        self.MININDEX_OpenCore(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1)
+        self.MININDEX_OpenPass(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1)
     }
 
 }
@@ -487,12 +524,25 @@ impl Core {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl MININDEX_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_MININDEX_Update")]
-    pub fn update(&mut self, inReal: f64) -> i32 {
+    pub fn update(&mut self, inReal: f64) -> Result<i32, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outInteger: i32 = 0_i32;
         self.core.MININDEX_step_internal(&mut self.state, inReal, &mut outInteger);
-        outInteger
+        Ok(outInteger)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -501,10 +551,17 @@ impl MININDEX_Stream {
     /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
     /// often removed outright by the optimizer, which is why nothing is
     /// reused here, but that is not a guarantee: budget for a clone of the
-    /// window and prefer `update` on a `clone()` in a hot loop.
+    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_MININDEX_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> i32 {
+    pub fn peek(&self, inReal: f64) -> Result<i32, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut scratch = self.clone();
         scratch.update(inReal)
     }

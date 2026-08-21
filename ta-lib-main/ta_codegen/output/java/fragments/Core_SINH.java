@@ -25,12 +25,12 @@
       return 0 ;
 
    }
-   RetCode SINH_Internal( int startIdx,
-                          int endIdx,
-                          double inReal[],
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode SINH_Impl( int startIdx,
+                      int endIdx,
+                      double inReal[],
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -47,12 +47,12 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode SINH_Internal( int startIdx,
-                          int endIdx,
-                          float inReal[],
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode SINH_Impl( int startIdx,
+                      int endIdx,
+                      float inReal[],
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -92,8 +92,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#COSH
     * @see Core#TANH
@@ -103,9 +110,15 @@
                          double inReal[],
                          double outReal[] )
    {
+      requireIndexRange("SINH", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, SINH_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SINH", "inReal", inReal, guardInLen);
+      requireLength("SINH", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SINH_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SINH_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SINH", retCode);
       }
@@ -137,8 +150,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#COSH
     * @see Core#TANH
@@ -148,9 +168,15 @@
                          float inReal[],
                          double outReal[] )
    {
+      requireIndexRange("SINH", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, SINH_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("SINH", "inReal", inReal, guardInLen);
+      requireLength("SINH", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SINH_Internal(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SINH_Impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("SINH", retCode);
       }
@@ -201,10 +227,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("SINH update: BadParam", RetCode.BadParam);
          core.SINH_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -217,6 +253,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("SINH peek: BadParam", RetCode.BadParam);
          SINH_Stream scratch = new SINH_Stream(this);
          core.SINH_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -243,7 +281,7 @@
    {
       sp.cur_outReal = Math.sinh(inReal);
    }
-   private RetCode SINH_OpenCore( SINH_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode SINH_OpenPass( SINH_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -264,55 +302,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode SINH_OpenBody( SINH_Stream sp, double inReal[], int startIdx )
+   private RetCode SINH_OpenImpl( SINH_Stream sp, double inReal[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return SINH_OpenCore( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return SINH_OpenPass( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode SINH_OpenAndFillBody( SINH_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SINH_OpenAndFillImpl( SINH_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return SINH_OpenCore( sp, inReal, 0, outBegIdx, outNBElement, outReal, 1 );
+      return SINH_OpenPass( sp, inReal, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode SINH_OpenAndFillInternalBody( SINH_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode SINH_OpenAndFillInternalImpl( SINH_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return SINH_OpenCore(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return SINH_OpenPass(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* SINH_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    SINH_Stream SINH_OpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       SINH_Stream sp = new SINH_Stream(this);
-      RetCode retCode = SINH_OpenAndFillInternalBody(sp, inReal, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SINH_OpenAndFillInternalImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SINH openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SINH openAndFill: internal error");
+         throw new TaLibStateException("SINH openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("SINH openAndFill: " + retCode);
+      throw new TaLibArgumentException("SINH openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind SINH_Open (composition seam). */
    SINH_Stream SINH_OpenInternal( double inReal[], int startIdx )
    {
       SINH_Stream sp = new SINH_Stream(this);
-      RetCode retCode = SINH_OpenBody(sp, inReal, startIdx);
+      RetCode retCode = SINH_OpenImpl(sp, inReal, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SINH open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SINH open: internal error");
+         throw new TaLibStateException("SINH open: internal error", retCode);
       }
-      throw new IllegalArgumentException("SINH open: " + retCode);
+      throw new TaLibArgumentException("SINH open: " + retCode, retCode);
    }
    /**
     * Open a live SINH stream over the warm-up history; the handle's
@@ -342,16 +380,16 @@
       SINH_Stream sp = new SINH_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SINH_OpenAndFillBody(sp, inReal, outBegIdx, outNBElement, outReal);
+      RetCode retCode = SINH_OpenAndFillImpl(sp, inReal, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("SINH openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("SINH openAndFill: internal error");
+         throw new TaLibStateException("SINH openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("SINH openAndFill: " + retCode);
+      throw new TaLibArgumentException("SINH openAndFill: " + retCode, retCode);
    }

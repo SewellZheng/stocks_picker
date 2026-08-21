@@ -441,15 +441,21 @@ public static class MetadataTest
         Check(noOutput == RetCode.OutputNotAllInitialize && rNoOut.Count == 0,
             $"TryInvoke reports an unbound output as a code ({noOutput})");
 
-        /* `(int)value` on an out-of-range double is unspecified in C# and on x86
-           lands on int.MinValue -- the "use the default" sentinel. So an absurd
-           magnitude silently meant "use the default" where the caller meant an
-           error. The sentinel itself stays reachable: asking for the default is a
-           legal request (issue #162). */
+        /* `(int)value` on an out-of-range double is unspecified in ECMA-334, and
+           .NET saturates: a large NEGATIVE value lands on int.MinValue -- which
+           is the "use the default" sentinel -- so it silently meant "use the
+           default" where the caller meant an error. Both signs are probed: the
+           negative one is the case that reaches the sentinel, the positive one
+           lands on int.MaxValue and silently meant a period of 2147483647. The
+           sentinel itself stays reachable: asking for the default is a legal
+           request (issue #162). */
         OptInputInfo smaPeriod = sma.OptInputs[0];
         CheckThrows<ArgumentOutOfRangeException>(
             () => sma.CreateCall().SetParam(smaPeriod, 1e18),
             "SetParam rejects a magnitude no integer parameter can hold");
+        CheckThrows<ArgumentOutOfRangeException>(
+            () => sma.CreateCall().SetParam(smaPeriod, -1e18),
+            "SetParam rejects the negative magnitude that saturates ONTO the sentinel");
         CheckThrows<ArgumentOutOfRangeException>(
             () => sma.CreateCall().SetParam(smaPeriod, double.NaN), "SetParam rejects NaN");
         Check(sma.CreateCall().SetParam(smaPeriod, int.MinValue) is not null,
@@ -615,10 +621,28 @@ public static class MetadataTest
             $"almost every comparison produced values ({withValues}/{compared}) — an all-empty run compares nothing");
     }
 
-    /// <summary>Invokes the typed public wrapper, as an independent second path.</summary>
+    /// <summary>Checks the typed overload exists with the catalogue's declared shapes, then
+    /// invokes with SENTINEL options to compare against the caller's explicit-default call.</summary>
+    /// <remarks>
+    /// <para>Not an independent code path, and it stopped being one when the API took spans: a
+    /// span is a ref struct and cannot be boxed into <c>MethodInfo.Invoke</c>'s
+    /// <c>object[]</c>, so reflective invocation of this API is impossible. Shape LOOKUP still
+    /// works, and that half is still reflective.</para>
+    /// <para>What the value comparison still proves is sentinel resolution (#162/#182): path A
+    /// binds each optional parameter to its declared default, this path binds the sentinel, and
+    /// they must agree. For the functions with NO optional inputs the two calls are identical,
+    /// so for those this degrades to a determinism check — say so rather than imply otherwise.
+    /// Binder-thunk-versus-typed-wrapper agreement is covered instead by <c>abstract_call</c> in
+    /// the JSON-RPC server, which <c>test_abstract.c</c> compares against C per function.</para>
+    /// </remarks>
     private static OutRange? TypedCall(FunctionInfo f, double[][] realOut, int[][] intOut)
     {
-        var args = new List<object> { 0, N - 1 };
+        // The catalogue's declared shapes must name a real typed overload. This
+        // is a LOOKUP only: a span is a ref struct, so it cannot be boxed into
+        // the object[] that MethodInfo.Invoke takes — reflective invocation of
+        // this API is impossible by construction, not merely awkward. The
+        // values are compared below through the binder instead, which reaches
+        // the same typed overload through its generated thunk.
         var types = new List<Type> { typeof(int), typeof(int) };
 
         for (int i = 0; i < f.Inputs.Length; i++)
@@ -628,24 +652,17 @@ public static class MetadataTest
             {
                 foreach (PriceComponents comp in info.SignatureOrder)
                 {
-                    args.Add(ComponentSeries(comp));
-                    types.Add(typeof(double[]));
+                    _ = comp;
+                    types.Add(typeof(ReadOnlySpan<double>));
                 }
             }
             else if (info.Kind == InputKind.Real)
             {
-                args.Add(i == 0 ? Close : High);
-                types.Add(typeof(double[]));
+                types.Add(typeof(ReadOnlySpan<double>));
             }
             else
             {
-                var ints = new int[N];
-                for (int k = 0; k < N; k++)
-                {
-                    ints[k] = k;
-                }
-                args.Add(ints);
-                types.Add(typeof(int[]));
+                types.Add(typeof(ReadOnlySpan<int>));
             }
         }
 
@@ -654,22 +671,75 @@ public static class MetadataTest
             switch (o.Domain)
             {
                 case OptInputDomain.RealRange or OptInputDomain.RealList:
-                    args.Add(-4e37);            // the real "use the default" sentinel
                     types.Add(typeof(double));
                     break;
                 case OptInputDomain.IntegerRange:
-                    args.Add(int.MinValue);     // the integer sentinel
                     types.Add(typeof(int));
                     break;
                 default:
-                    // A choice list takes the sentinel too, since issue #162.
-                    // The bound path this is compared against passes the value
-                    // explicitly, so this leg is what asserts the typed API maps
-                    // (MAType)int.MinValue back to the declared default — which
-                    // is not the same value for every function (APO/PPO/PVO
-                    // default to EMA, the rest to SMA).
-                    args.Add((MAType)int.MinValue);
                     types.Add(typeof(MAType));
+                    break;
+            }
+        }
+
+        for (int k = 0; k < f.Outputs.Length; k++)
+        {
+            types.Add(f.Outputs[k].Kind == OutputKind.Real
+                          ? typeof(Span<double>)
+                          : typeof(Span<int>));
+        }
+
+        MethodInfo? m = typeof(Core).GetMethod(f.Name, BindingFlags.Public | BindingFlags.Instance,
+                                               binder: null, types.ToArray(), modifiers: null);
+        if (m is null)
+        {
+            return null;
+        }
+
+        // The value path: the SAME typed overload, reached through the binder's
+        // thunk, but with every optional parameter set to its SENTINEL rather
+        // than its declared default. Path A binds the defaults explicitly, so
+        // agreeing here is what proves the sentinel resolves to the documented
+        // default through the typed API — the #162/#182 property. SetOption
+        // checks the domain kind but not the range, so the sentinels pass.
+        FunctionCall call = f.CreateCall();
+        for (int i = 0; i < f.Inputs.Length; i++)
+        {
+            InputInfo info = f.Inputs[i];
+            if (info.Kind == InputKind.Price)
+            {
+                foreach (PriceComponents comp in info.SignatureOrder)
+                {
+                    call.SetPriceInput(i, comp, ComponentSeries(comp));
+                }
+            }
+            else if (info.Kind == InputKind.Real)
+            {
+                call.SetInput(i, i == 0 ? Close : High);
+            }
+            else
+            {
+                var ints = new int[N];
+                for (int k = 0; k < N; k++)
+                {
+                    ints[k] = k;
+                }
+                call.SetInput(i, ints);
+            }
+        }
+
+        for (int i = 0; i < f.OptInputs.Length; i++)
+        {
+            switch (f.OptInputs[i].Domain)
+            {
+                case OptInputDomain.RealRange or OptInputDomain.RealList:
+                    call.SetOption(i, -4e37);
+                    break;
+                case OptInputDomain.IntegerRange:
+                    call.SetOption(i, int.MinValue);
+                    break;
+                default:
+                    call.SetOption(i, (MAType)int.MinValue);
                     break;
             }
         }
@@ -679,20 +749,16 @@ public static class MetadataTest
             if (f.Outputs[k].Kind == OutputKind.Real)
             {
                 realOut[k] = new double[N];
-                args.Add(realOut[k]);
-                types.Add(typeof(double[]));
+                call.SetOutput(k, realOut[k]);
             }
             else
             {
                 intOut[k] = new int[N];
-                args.Add(intOut[k]);
-                types.Add(typeof(int[]));
+                call.SetOutput(k, intOut[k]);
             }
         }
 
-        MethodInfo? m = typeof(Core).GetMethod(f.Name, BindingFlags.Public | BindingFlags.Instance,
-                                               binder: null, types.ToArray(), modifiers: null);
-        return m is null ? null : (OutRange)m.Invoke(new Core(), args.ToArray())!;
+        return call.TryInvoke(0, N - 1, out OutRange r) == RetCode.Success ? r : null;
     }
 
     /* ------------------------------------ the binder's defaults ARE the sentinels */

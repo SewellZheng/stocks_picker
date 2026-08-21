@@ -84,8 +84,9 @@ impl Core {
     /// * `optInVFactor` — Volume factor weighting the coefficients (0 = plain triple EMA, higher
     ///   = more DEMA-like sharpening) (default 0.7, range 0..=1)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept `i32::MIN`,
-    /// and real parameters `-4e37`, to select their default value.
+    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// [`Core::INTEGER_DEFAULT`], and real parameters [`Core::REAL_DEFAULT`], to select their
+    /// default value.
     #[inline]
     pub fn T3_Lookback(&self, mut optInTimePeriod: i32, mut optInVFactor: f64) -> usize {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -93,88 +94,16 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return usize::MAX;
         }
-        if optInVFactor == REAL_DEFAULT {
+        if optInVFactor == Self::REAL_DEFAULT {
             optInVFactor = 7e-1;
-        } else if (optInVFactor < 0e0) || (optInVFactor > 1e0) {
+        } else if !((optInVFactor >= 0e0) && (optInVFactor <= 1e0)) {
             return usize::MAX;
         }
         return (6 * (optInTimePeriod - 1) + self.unstable_period[FuncUnstId::T3 as usize]) as usize;
     }
-    /// Tillson's T3: a low-lag moving average built from six chained EMAs, combined via
-    /// volume-factor-weighted coefficients. Not the same as EMA3, despite both being called "triple
-    /// EMA".
-    ///
-    /// # Formula
-    ///
-    /// ```text
-    /// k = 2/(period+1); e1=EMA(x), e2=EMA(e1), ... e6=EMA(e5) (six chained EMAs).
-    /// v = vFactor: c1 = -v^3; c2 = 3(v^2 - c1); c3 = -6v^2 - 3(v - c1); c4 = 1 + 3v - c1 + 3v^2.
-    /// T3 = c1*e6 + c2*e5 + c3*e4 + c4*e3
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * A period of 1 performs no smoothing: the output is a copy of the input. Allowed since
-    ///   0.6.5 (issues #48/#59).
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Source series to smooth.
-    /// * `optInTimePeriod` — EMA period for each of the six stages (default 5, range 1..=100000)
-    /// * `optInVFactor` — Volume factor weighting the coefficients (0 = plain triple EMA, higher
-    ///   = more DEMA-like sharpening) (default 0.7, range 0..=1)
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — T3 smoothed line.
-    ///
-    /// Integer parameters accept `i32::MIN`, and real parameters `-4e37`, to select their default
-    /// value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`],
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`, and
-    /// [`RetCode::BadParam`] when an optional parameter is outside its documented range.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.T3(0, data.len() - 1, &data, 5, 0.7, &mut out_beg, &mut out_nb, &mut out);
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::EMA`] · [`Core::DEMA`] · [`Core::TEMA`] · [`Core::MA`]
-    ///
-    /// # References
-    ///
-    /// * Tim Tillson, *Smoothing Techniques for More Accurate Signals*, Technical Analysis of
-    ///   Stocks & Commodities, V.16:1 (January 1998)
-    ///
-    /// Further reading: [ta-lib.org/functions/t3](https://ta-lib.org/functions/t3)
-    #[doc(alias = "TillsonT3")]
-    #[doc(alias = "TripleExponentialMovingAverage")]
-    pub fn T3(
+    /// C-shaped body behind [`Core::T3`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn T3_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -186,13 +115,13 @@ impl Core {
         outReal: &mut [f64],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, T3_fma, T3_impl, (startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal));
+        return ta_lib_dispatch::dispatch_fma!(self, T3_Impl_fma, T3_Impl_impl, (startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal));
         #[cfg(not(target_arch = "x86_64"))]
-        self.T3_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
+        self.T3_Impl_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn T3_fma(
+    fn T3_Impl_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -203,10 +132,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        self.T3_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
+        self.T3_Impl_impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal)
     }
     #[inline(always)]
-    fn T3_impl(
+    fn T3_Impl_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -217,10 +146,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -228,9 +157,9 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        if optInVFactor == REAL_DEFAULT {
+        if optInVFactor == Self::REAL_DEFAULT {
             optInVFactor = 7e-1;
-        } else if (optInVFactor < 0e0) || (optInVFactor > 1e0) {
+        } else if !((optInVFactor >= 0e0) && (optInVFactor <= 1e0)) {
             return RetCode::BadParam;
         }
         let _assertLb = self.T3_Lookback(optInTimePeriod, optInVFactor);
@@ -404,6 +333,111 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Tillson's T3: a low-lag moving average built from six chained EMAs, combined via
+    /// volume-factor-weighted coefficients. Not the same as EMA3, despite both being called "triple
+    /// EMA".
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// k = 2/(period+1); e1=EMA(x), e2=EMA(e1), ... e6=EMA(e5) (six chained EMAs).
+    /// v = vFactor: c1 = -v^3; c2 = 3(v^2 - c1); c3 = -6v^2 - 3(v - c1); c4 = 1 + 3v - c1 + 3v^2.
+    /// T3 = c1*e6 + c2*e5 + c3*e4 + c4*e3
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// * A period of 1 performs no smoothing: the output is a copy of the input. Allowed since
+    ///   0.6.5 (issues #48/#59).
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Source series to smooth.
+    /// * `optInTimePeriod` — EMA period for each of the six stages (default 5, range 1..=100000)
+    /// * `optInVFactor` — Volume factor weighting the coefficients (0 = plain triple EMA, higher
+    ///   = more DEMA-like sharpening) (default 0.7, range 0..=1)
+    /// * `outReal` — T3 smoothed line.
+    ///
+    /// Integer parameters accept [`Core::INTEGER_DEFAULT`], and real parameters
+    /// [`Core::REAL_DEFAULT`], to select their default value.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below
+    /// `startIdx`, and [`RetCode::BadParam`] when an optional parameter is outside its documented
+    /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
+    /// [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.T3(0, data.len() - 1, &data, 5, 0.7, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::EMA`] · [`Core::DEMA`] · [`Core::TEMA`] · [`Core::MA`]
+    ///
+    /// # References
+    ///
+    /// * Tim Tillson, *Smoothing Techniques for More Accurate Signals*, Technical Analysis of
+    ///   Stocks & Commodities, V.16:1 (January 1998)
+    ///
+    /// Further reading: [ta-lib.org/functions/t3](https://ta-lib.org/functions/t3)
+    #[doc(alias = "TillsonT3")]
+    #[doc(alias = "TripleExponentialMovingAverage")]
+    pub fn T3(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        optInTimePeriod: i32,
+        optInVFactor: f64,
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.T3_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            optInTimePeriod,
+            optInVFactor,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -492,13 +526,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::T3_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::T3_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn T3_OpenCore(
+    pub(crate) fn T3_OpenPass(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInVFactor: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<T3_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -506,9 +540,9 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return Err(RetCode::BadParam);
         }
-        if optInVFactor == REAL_DEFAULT {
+        if optInVFactor == Self::REAL_DEFAULT {
             optInVFactor = 7e-1;
-        } else if (optInVFactor < 0e0) || (optInVFactor > 1e0) {
+        } else if !((optInVFactor >= 0e0) && (optInVFactor <= 1e0)) {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal.len();
@@ -518,7 +552,7 @@ impl Core {
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
             if historyLen < self.T3_Lookback(optInTimePeriod, optInVFactor) + 1 {
-                return Err(RetCode::BadParam);
+                return Err(RetCode::InsufficientHistory);
             }
             let state = T3_StreamState {
                 optInTimePeriod: optInTimePeriod,
@@ -590,7 +624,7 @@ impl Core {
         if startIdx > endIdx {
             (*outNBElement) = 0;
             (*outBegIdx) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         (*outBegIdx) = startIdx;
         today = startIdx - lookbackTotal;
@@ -725,7 +759,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.T3_OpenCore(inReal, startIdx, optInTimePeriod, optInVFactor, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.T3_OpenPass(inReal, startIdx, optInTimePeriod, optInVFactor, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -734,8 +768,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -743,8 +779,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.T3_Open(&data, 5, 0.7).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_T3_Open")]
@@ -753,13 +789,17 @@ impl Core {
     }
 
     /// [`Core::T3_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::T3`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::T3`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_T3_OpenAndFill")]
     pub fn T3_OpenAndFill(
-        &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInVFactor: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<T3_Stream, RetCode> {
-        self.T3_OpenCore(inReal, 0, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1)
+        &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInVFactor: f64, outReal: &mut [f64],
+    ) -> Result<(T3_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.T3_OpenPass(inReal, 0, optInTimePeriod, optInVFactor, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::T3_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -767,7 +807,7 @@ impl Core {
     pub(crate) fn T3_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInVFactor: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<T3_Stream, RetCode> {
-        self.T3_OpenCore(inReal, startIdx, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1)
+        self.T3_OpenPass(inReal, startIdx, optInTimePeriod, optInVFactor, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -775,12 +815,25 @@ impl Core {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl T3_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_T3_Update")]
-    pub fn update(&mut self, inReal: f64) -> f64 {
+    pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.T3_step_internal(&mut self.state, inReal, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -788,9 +841,16 @@ impl T3_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. This handle holds only scalars, so the copy is a
     /// few machine words and `peek` never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_T3_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> f64 {
+    pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut scratch = self.clone();
         scratch.update(inReal)
     }

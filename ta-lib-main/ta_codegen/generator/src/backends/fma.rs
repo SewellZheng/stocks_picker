@@ -17,6 +17,29 @@
 //! [`FmaCtx`]; C and Java rebuild the same name-sets from the same IR body via
 //! [`build_fma_var_sets`].
 
+/// Every function whose generated body contains at least one fused `a*b + c`
+/// site.
+///
+/// Pinned here, in the detector itself, rather than in either test: two suites
+/// check this inventory from opposite ends and they had already drifted apart.
+/// `fma_suite::fma_fusion_fires_for_known_candidates` runs the IR-level
+/// detector over each name and demands at least one site, which catches the
+/// detector going dark. `backend_suite::rust_fma_dispatch_fires_for_exactly_the_fusing_functions`
+/// derives the set from rendered Rust and compares it to this list, which
+/// additionally catches an UNEXPECTED entry. Only the second is exact-set, so
+/// only it fails when a new function starts fusing -- which is how `efi` came
+/// to sit in one copy of the list and not the other.
+///
+/// Deliberately not accompanied by a count: a number written next to a list
+/// that grows is a comment that goes stale on the next indicator.
+pub const FUSING_INVENTORY: &[&str] = &[
+    "adosc", "bbands", "cdlabandonedbaby", "cdlmorningdojistar", "cdlmorningstar",
+    "cdlpiercing", "cdlthrusting", "dema", "efi", "ema", "ht_dcperiod", "ht_dcphase",
+    "ht_phasor", "ht_sine", "ht_trendline", "ht_trendmode", "kama", "linearreg",
+    "macd", "macdfix", "mama", "sar", "sarext", "smi", "t3", "tema", "trix",
+    "tsf", "wclprice",
+];
+
 use std::collections::HashSet;
 
 use crate::ir::{BinOp, Expr, Output, ParamType, Statement, VarType};
@@ -24,10 +47,13 @@ use crate::ir::{BinOp, Expr, Output, ParamType, Statement, VarType};
 use super::rust_lang::{collect_sentinel_vars, collect_signed_int_vars, collect_var_types};
 
 /// Master FMA emission gate. `true` = the FMA-era numerical contract is in force
-/// and every backend fuses. Set it `false` to regenerate the pre-FMA output that
-/// is bit-reproducible against the frozen v0.6.4 reference — the enumeration
-/// oracle described in `docs/fma-readiness-audit.md` (diff the generated code to
-/// see every fusion site, then revert).
+/// and every backend fuses.
+///
+/// This flag is also the fusion-site enumeration oracle: set it `false`, run
+/// `generate`, and diff the generated code to see every site that fuses (and to
+/// confirm the pre-FMA output is byte-identical to the frozen v0.6.4 reference),
+/// then revert. Because all four backends route through this module, one flip
+/// enumerates them all.
 pub const EMIT_FMA: bool = true;
 
 /// Index-param seeds for the `_private` variant (mirrors the Rust

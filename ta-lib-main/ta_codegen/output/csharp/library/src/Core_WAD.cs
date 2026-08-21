@@ -75,14 +75,14 @@ public partial class Core
       return 0 ;
 
    }
-   internal RetCode WAD( int startIdx,
-                         int endIdx,
-                         double[] inHigh,
-                         double[] inLow,
-                         double[] inClose,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode WAD_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<double> inHigh,
+                              ReadOnlySpan<double> inLow,
+                              ReadOnlySpan<double> inClose,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -97,6 +97,9 @@ public partial class Core
       }
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
+      }
+      if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) || (outReal.Overlaps(inClose) && outReal != inClose) ) {
+         return RetCode.BadParam ;
       }
       /* Williams' Accumulation/Distribution, in the form Steven Achelis
        * published (Technical Analysis from A to Z, 2nd ed., p.368) and the form
@@ -158,14 +161,14 @@ public partial class Core
       outNBElement = outIdx;
       return RetCode.Success ;
    }
-   internal RetCode WAD( int startIdx,
-                         int endIdx,
-                         float[] inHigh,
-                         float[] inLow,
-                         float[] inClose,
-                         out int outBegIdx,
-                         out int outNBElement,
-                         double[] outReal )
+   internal RetCode WAD_Impl( int startIdx,
+                              int endIdx,
+                              ReadOnlySpan<float> inHigh,
+                              ReadOnlySpan<float> inLow,
+                              ReadOnlySpan<float> inClose,
+                              out int outBegIdx,
+                              out int outNBElement,
+                              Span<double> outReal )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -247,16 +250,31 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange WAD( int startIdx,
                         int endIdx,
-                        double[] inHigh,
-                        double[] inLow,
-                        double[] inClose,
-                        double[] outReal )
+                        ReadOnlySpan<double> inHigh,
+                        ReadOnlySpan<double> inLow,
+                        ReadOnlySpan<double> inClose,
+                        Span<double> outReal )
    {
-      RetCode retCode = WAD(startIdx, endIdx, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, WAD_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("WAD", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("WAD", "inLow", inLow.Length, guardInLen);
+      RequireLength("WAD", "inClose", inClose.Length, guardInLen);
+      RequireLength("WAD", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("WAD", retCode);
       }
@@ -308,19 +326,360 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.NullReferenceException">An input or output array is null. (Unlike the C library, the managed tier
-   /// does not pre-validate nulls; the first array access throws.)</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
+   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
+   /// hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. An empty span — which is what
+   /// a null array becomes, since a span cannot be null — fails the same check,
+   /// because any valid range needs at least one element. A few candlestick
+   /// patterns declare an OHLC series they never index; those are not checked at
+   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
+   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange WAD( int startIdx,
                         int endIdx,
-                        float[] inHigh,
-                        float[] inLow,
-                        float[] inClose,
-                        double[] outReal )
+                        ReadOnlySpan<float> inHigh,
+                        ReadOnlySpan<float> inLow,
+                        ReadOnlySpan<float> inClose,
+                        Span<double> outReal )
    {
-      RetCode retCode = WAD(startIdx, endIdx, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      int guardStart = ClampedStart(startIdx, endIdx, WAD_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      RequireLength("WAD", "inHigh", inHigh.Length, guardInLen);
+      RequireLength("WAD", "inLow", inLow.Length, guardInLen);
+      RequireLength("WAD", "inClose", inClose.Length, guardInLen);
+      RequireLength("WAD", "outReal", outReal.Length, guardOutLen);
+      RetCode retCode = WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw Failure("WAD", retCode);
       }
       return new OutRange(outBegIdx, outNBElement);
+   }
+   /**** Streaming API *****/
+
+   /// <summary>A live <c>WAD</c> stream: one value per closed bar, bit-identical to
+   /// <c>WAD</c> over the same series.</summary>
+   /// <remarks>
+   /// <para>Open with <see cref="Core.WAD_Open"/>. There is no close and nothing to
+   /// dispose — the handle is ordinary managed state, and an unreferenced handle
+   /// is simply collected.</para>
+   /// <para>Concurrency: a handle is single-writer — <see cref="Update"/>,
+   /// <see cref="Peek"/>, <see cref="Value"/> and <see cref="Clone"/> must not
+   /// race with an <c>Update</c> on the same handle. With no concurrent
+   /// <c>Update</c>, <c>Peek</c>, <c>Value</c> and <c>Clone</c> never write the
+   /// handle. Independent handles (a <c>Clone</c> result included) are fully
+   /// independent.</para>
+   /// <para>Not serializable by design, and the constructors are internal so no
+   /// partially built handle can be minted: to checkpoint, retain the history
+   /// and re-open — the result is bit-identical by contract.</para>
+   /// </remarks>
+   public sealed class WAD_Stream
+   {
+      internal Core core;
+      internal double sum;
+      internal double prevClose;
+      internal double trueExtreme;
+      internal double cur_outReal;
+      internal OutRange fillRange = OutRange.Empty;
+
+      internal WAD_Stream( Core core ) { this.core = core; }
+
+      /// <summary>The range <c>WAD_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
+      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <remarks>
+      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
+      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// </remarks>
+      public OutRange FillRange => fillRange;
+
+      internal WAD_Stream( WAD_Stream other )
+      {
+         this.core = other.core;
+         this.sum = other.sum;
+         this.prevClose = other.prevClose;
+         this.trueExtreme = other.trueExtreme;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      internal void CopyFrom( WAD_Stream other )
+      {
+         this.core = other.core;
+         this.sum = other.sum;
+         this.prevClose = other.prevClose;
+         this.trueExtreme = other.trueExtreme;
+         this.cur_outReal = other.cur_outReal;
+         this.fillRange = other.fillRange;
+      }
+
+      /// <summary>Commit one closed bar, returning the new current value.</summary>
+      /// <remarks>
+      /// <para>Allocates nothing — neither handle state nor a return value.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
+      /// finite (NaN or an infinity). That check runs before anything is written,
+      /// so the handle is left exactly as it was and the stream stays usable: skip
+      /// the bar, or re-open on a clean history. This is the one place the
+      /// streaming tier is stricter than the batch API, which computes on whatever
+      /// it is given: a handle retains its state, so a single non-finite bar would
+      /// poison every later value it produces.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>The value at the bar just committed.</returns>
+      public double Update( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("WAD", "update", RetCode.BadParam);
+         core.WAD_StreamStep(this, inHigh, inLow, inClose);
+         return cur_outReal;
+      }
+
+      /// <summary>Evaluate a forming bar without committing it.</summary>
+      /// <remarks>
+      /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
+      /// would return — it is the same generated code, run on a copy. Never writes
+      /// this handle, so peeks may run concurrently with each other.</para>
+      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
+      /// to the state this indicator carries. If you peek on every tick and that
+      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// </remarks>
+      /// <param name="inHigh">This bar's high price.</param>
+      /// <param name="inLow">This bar's low price.</param>
+      /// <param name="inClose">This bar's close price.</param>
+      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      public double Peek( double inHigh, double inLow, double inClose )
+      {
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("WAD", "peek", RetCode.BadParam);
+         WAD_Stream scratch = new WAD_Stream(this);
+         core.WAD_StreamStep(scratch, inHigh, inLow, inClose);
+         return scratch.cur_outReal;
+      }
+
+      /// <summary>The value at the most recently committed bar — the last history bar right
+      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <remarks>
+      /// <para><see cref="Peek"/> does not change it.</para>
+      /// </remarks>
+      public double Value => cur_outReal;
+
+      /// <summary>An independent deep copy of this stream: both evolve separately from here
+      /// on.</summary>
+      /// <returns>The new, independent handle.</returns>
+      public WAD_Stream Clone()
+      {
+         return new WAD_Stream(this);
+      }
+   }
+
+   internal void WAD_StreamStep( WAD_Stream sp, double inHigh, double inLow, double inClose )
+   {
+      double close = 0.0;
+      close = inClose;
+      if( close > sp.prevClose ) {
+         sp.trueExtreme = inLow;
+         if( sp.prevClose < sp.trueExtreme ) {
+            sp.trueExtreme = sp.prevClose;
+         }
+         sp.sum += close - sp.trueExtreme;
+      } else if( close < sp.prevClose ) {
+         sp.trueExtreme = inHigh;
+         if( sp.prevClose > sp.trueExtreme ) {
+            sp.trueExtreme = sp.prevClose;
+         }
+         sp.sum += close - sp.trueExtreme;
+      }
+      sp.cur_outReal = sp.sum;
+      sp.prevClose = close;
+   }
+
+   private RetCode WAD_OpenPass( WAD_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      double sum = 0;
+      double prevClose = 0;
+      double close = 0;
+      double trueExtreme = 0;
+      int i = 0;
+      int outIdx = 0;
+      int historyLen = inHigh.Length;
+      int endIdx = historyLen - 1;
+      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
+      }
+      if( historyLen > MAX_INDEX + 1 ) {
+         return RetCode.OutOfRangeEndIndex;
+      }
+      /* Williams' Accumulation/Distribution, in the form Steven Achelis
+       * published (Technical Analysis from A to Z, 2nd ed., p.368) and the form
+       * every modern vendor ships: each bar's close is measured against the TRUE
+       * range extreme -- the previous close when it lies outside today's bar --
+       * and the results accumulate.
+       *
+       *    TRH = max( prevClose, high )      TRL = min( prevClose, low )
+       *    AD  = close - TRL   if close > prevClose
+       *        = close - TRH   if close < prevClose
+       *        = 0             if close == prevClose
+       *    WAD = running sum of AD
+       *
+       * NO VOLUME IS CONSUMED, despite the name and despite the group this is
+       * filed under. Larry Williams' original multiplies the move by volume;
+       * Achelis' modification drops it, the industry attached Williams' name to
+       * the modification anyway, and Tulip, pandas-ta-classic, cTrader, TC2000,
+       * WealthCharts and MultiCharts all ship the no-volume form. Shipping the
+       * volume form under this name would surprise every user, so this is the
+       * one place the usual "the original author wins" rule is set aside. The
+       * volume-weighted series is a different indicator.
+       *
+       * The three-way branch is written with plain > and < rather than any
+       * epsilon: the flat arm must fire on exactly-equal consecutive closes and
+       * on nothing else, which also keeps -0.0 and NaN behaviour identical
+       * across the C, Rust, Java and .NET backends.
+       *
+       * prevClose is carried in a scalar, so outReal may alias any input: every
+       * read of bar i happens before the store at outIdx <= i, and no earlier
+       * bar is ever re-read.
+       */
+      sum = 0.0;
+      outIdx = 0;
+      /* The first bar of the requested range is measured against itself, i.e. it
+       * contributes exactly 0.0. The accumulator therefore restarts wherever the
+       * caller starts, which is why this function is flagged path_dependent.
+       */
+      prevClose = inClose[startIdx];
+      for( i = startIdx; i <= endIdx; i += 1 ) {
+         close = inClose[i];
+         if( close > prevClose ) {
+            trueExtreme = inLow[i];
+            if( prevClose < trueExtreme ) {
+               trueExtreme = prevClose;
+            }
+            sum += close - trueExtreme;
+         } else if( close < prevClose ) {
+            trueExtreme = inHigh[i];
+            if( prevClose > trueExtreme ) {
+               trueExtreme = prevClose;
+            }
+            sum += close - trueExtreme;
+         }
+         outReal[outIdx * outStride] = sum;
+         outIdx = outIdx + 1;
+         prevClose = close;
+      }
+      outBegIdx = startIdx;
+      outNBElement = outIdx;
+      /* Capture the live batch state into the handle. */
+      sp.sum = sum;
+      sp.prevClose = prevClose;
+      sp.trueExtreme = trueExtreme;
+      sp.cur_outReal = outReal[(outNBElement - 1) * outStride];
+      return RetCode.Success;
+   }
+
+   private RetCode WAD_OpenImpl( WAD_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx )
+   {
+      double[] sink_outReal = new double[1];
+      return WAD_OpenPass( sp, inHigh, inLow, inClose, startIdx, out _, out _, sink_outReal, 0 );
+   }
+
+   private RetCode WAD_OpenAndFillImpl( WAD_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      outBegIdx = 0;
+      outNBElement = 0;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
+         return RetCode.BadParam;
+      }
+      return WAD_OpenPass( sp, inHigh, inLow, inClose, 0, out outBegIdx, out outNBElement, outReal, 1 );
+   }
+
+   private RetCode WAD_OpenAndFillInternalImpl( WAD_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      return WAD_OpenPass(sp, inHigh, inLow, inClose, startIdx, out outBegIdx, out outNBElement, outReal, 1);
+   }
+
+   /* WAD_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
+   internal WAD_Stream WAD_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
+   {
+      WAD_Stream sp = new WAD_Stream(this);
+      RetCode retCode = WAD_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, out outBegIdx, out outNBElement, outReal);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("WAD", "openAndFill", retCode);
+   }
+
+   /* Internal startIdx-anchored open behind WAD_Open (composition seam). */
+   internal WAD_Stream WAD_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx )
+   {
+      WAD_Stream sp = new WAD_Stream(this);
+      RetCode retCode = WAD_OpenImpl(sp, inHigh, inLow, inClose, startIdx);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("WAD", "open", retCode);
+   }
+
+   /// <summary>Open a live <c>WAD</c> stream over the warm-up history.</summary>
+   /// <remarks>
+   /// <para>The handle's <see cref="WAD_Stream.Value"/> starts at the last history
+   /// bar's value — bit-identical to what <c>WAD</c> reports for that bar.</para>
+   /// <para>The history must hold at least <c>WAD_Lookback(...) + 1</c> bars
+   /// (unstable-period aware). Nothing is written to any caller array; use
+   /// <c>WAD_OpenAndFill</c> to get the warm-up values as well.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <returns>The open stream handle.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>WAD_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
+   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
+   /// span cannot be null.</exception>
+   public WAD_Stream WAD_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      return WAD_OpenInternal(inHigh, inLow, inClose, 0);
+   }
+
+   /// <summary><c>WAD_Open</c> that also fills the output array(s) over the whole history
+   /// in the same single pass.</summary>
+   /// <remarks>
+   /// <para>The values written are bit-identical to what <c>WAD</c> produces over the
+   /// same series, so no separate batch call is needed for the warm-up plot.</para>
+   /// <para>Output arrays must hold <c>historyLen - WAD_Lookback(...)</c> values and
+   /// must not alias the inputs or each other — this path writes the outputs and
+   /// then reads the input tail to seed its rings, so the batch tier's in-place
+   /// allowance does not carry over here.</para>
+   /// <para>The range written is reported on the returned handle:
+   /// <see cref="WAD_Stream.FillRange"/>.</para>
+   /// </remarks>
+   /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
+   /// <param name="outReal">Cumulative accumulation/distribution. Must hold at least <c>historyLen -
+   /// WAD_Lookback(...)</c> values.</param>
+   /// <returns>The open stream handle, with its fill range set.</returns>
+   /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>WAD_Lookback(...) + 1</c> bars.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
+   /// have different lengths, or an output array aliases an input or another
+   /// output.</exception>
+   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
+   /// output.</exception>
+   public WAD_Stream WAD_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outReal )
+   {
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      WAD_Stream sp = new WAD_Stream(this);
+      RetCode retCode = WAD_OpenAndFillImpl(sp, inHigh, inLow, inClose, out int outBegIdx, out int outNBElement, outReal);
+      sp.fillRange = new OutRange(outBegIdx, outNBElement);
+      if( retCode == RetCode.Success ) {
+         return sp;
+      }
+      throw StreamFailure("WAD", "openAndFill", retCode);
    }
 }

@@ -87,18 +87,23 @@ fn test_rust_sma_ring_stream_section() {
     // Open family: internal seam + thin wrapper + fill in batch param order.
     assert!(s.contains("pub(crate) fn SMA_OpenInternal("));
     assert!(s.contains("self.SMA_OpenInternal(inReal, 0, optInTimePeriod)"));
-    assert!(s.contains("pub fn SMA_OpenAndFill(\n        &self, inReal: &[f64], mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],"));
+    // The public fill takes the batch output tail MINUS the out-meta pair, and
+    // hands the range back as the `OutRange` the batch entry point returns
+    // (#179 C15) — the crate ships one convention for "which slots were filled".
+    assert!(s.contains("pub fn SMA_OpenAndFill(\n        &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],\n    ) -> Result<(SMA_Stream, OutRange), RetCode> {"));
+    assert!(s.contains("Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))"));
     // Capture: numeric ring cap from live locals + tail copy.
     assert!(s.contains("let cap_trailingIdx: i64 = (i as i64) - (trailingIdx as i64);"));
     assert!(s.contains(".copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);"));
-    // Handle impl: infallible update, scratch-peek, auto-trait pin.
-    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> f64 {"));
+    // Handle impl: fallible update (non-finite bars are rejected),
+    // scratch-peek, auto-trait pin.
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
     // Every state gets the buffer-reusing restore (#201) — a state can be some
     // other handle's sub — but SMA's own peek does not use it: one ring, no
     // sub-handle and a loop-free transition is the shape whose stack copy the
     // optimizer deletes outright, which no scratch can beat.
     assert!(s.contains("self.ring_trailingIdx_inReal.clone_from(&src.ring_trailingIdx_inReal);"));
-    assert!(s.contains("pub fn peek(&self, inReal: f64) -> f64 {"));
+    assert!(s.contains("pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {"));
     assert!(s.contains("let mut scratch = self.clone();"));
     assert!(s.contains("scratch.update(inReal)"));
     assert!(!s.contains("PEEK_SCRATCH"));
@@ -118,7 +123,7 @@ fn test_rust_ema_scalar_recurrence_stream_section() {
     // Compatibility is consumed during the transcribed open (read from self).
     assert!(s.contains("self.compatibility"));
     // Update returns the bare value.
-    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> f64 {"));
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
     // No heap in the state, so peek keeps the throwaway copy and no
     // thread-local scratch is emitted at all (#201).
     assert!(s.contains("let mut scratch = self.clone();"));
@@ -132,7 +137,7 @@ fn test_rust_ema_scalar_recurrence_stream_section() {
 fn test_rust_macd_three_output_tuple() {
     let s = rust_stream_section("macd");
     assert!(s.contains("-> Result<(MACD_Stream, (f64, f64, f64)), RetCode>"));
-    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> (f64, f64, f64) {"));
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {"));
     assert!(s.contains(", outMACD: &mut f64, outMACDSignal: &mut f64, outMACDHist: &mut f64)"));
     // Tuple assembled in batch output order.
     assert!(s.contains("(outMACD, outMACDSignal, outMACDHist)"));
@@ -144,20 +149,40 @@ fn test_rust_cdldoji_candle_settings_and_int_output() {
     // Candle settings read through the handle's immutable Core snapshot.
     assert!(s.contains("self.candle_settings"));
     // Integer output end to end.
-    assert!(s.contains("pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> i32 {"));
+    assert!(s.contains("pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {"));
     assert!(s.contains("outInteger: &mut i32"));
-    // OHLC ring over all four price arrays.
-    assert!(s.contains("ring_BodyDojiTrailingIdx_inOpen"));
-    assert!(s.contains("ring_BodyDojiTrailingIdx_inClose"));
-    // Four buffers is several allocations per clone, none of which the
-    // optimizer folds away, so peek reuses a per-thread scratch (#201).
-    assert!(s.contains("static CDLDOJI_PEEK_SCRATCH: std::cell::Cell<Option<Box<CDLDOJI_Stream>>>"));
-    assert!(s.contains("CDLDOJI_PEEK_SCRATCH.with(|cell| {"));
-    assert!(s.contains("scratch.restore_from(self);"));
-    // The scratch is a HANDLE and peek calls `update` on it, so the transition
-    // keeps the single call site it had before #201 — see the emitter's note.
-    assert!(s.contains("let value = scratch.update(inOpen, inHigh, inLow, inClose);"));
-    assert!(s.contains("cell.set(Some(scratch));"));
+    // ONE ring over the computed candle range, not four over the price arrays:
+    // #229 collapsed the per-OHLC rings into a derived ring, which is the whole
+    // point of that work. This assertion named `_inOpen`/`_inClose` until then,
+    // and the collapse left it matching nothing.
+    assert!(s.contains("ring_BodyDojiTrailingIdx_derived"));
+    // #201 gave `peek` a per-thread scratch wherever copying a handle really
+    // allocates — `StateShape::scratch_pays()`, `buffers >= 2 || subs >= 2 ||
+    // banks >= 1`. CDLDOJI used to qualify on four per-OHLC ring buffers.
+    //
+    // #229 then collapsed those four into one derived ring, which drops the
+    // handle to a SINGLE buffer, so the election no longer fires and `peek` is a
+    // plain clone again. That is a behaviour change, not a rename: twelve
+    // functions crossed the threshold (cdl2crows, cdlbreakaway, cdldarkcloudcover,
+    // cdldoji, cdlhikkakemod, cdlladderbottom, cdlmatchinglow, cdlspinningtop,
+    // cdlsticksandwich, cdltasukigap, cdltristar, qstick), consistently in Rust
+    // and Java, and their peek went from zero allocations per call after warm-up
+    // to one — against a clone a quarter the size. That trade is a CONSEQUENCE of
+    // #229 rather than a decision it recorded.
+    //
+    // Measured, so nobody has to re-derive the worry from the mechanism:
+    // CDLDOJI peek is 27.7 ns/call before the collapse and 27.1 ns/call after
+    // (best of 4 alternating passes) — a 2% gap inside a 5–28% run-to-run
+    // spread, i.e. no difference this machine can resolve. The extra
+    // allocation is paid for by the smaller copy. That is evidence it is not
+    // a regression on the shape that prompted the question, not evidence the
+    // trade is free on every shape.
+    //
+    // Asserted in both directions on purpose: the absence check alone would start
+    // passing for free the day the emitter stopped naming the scratch at all.
+    assert!(!s.contains("CDLDOJI_PEEK_SCRATCH"));
+    assert!(s.contains("let mut scratch = self.clone();"));
+    assert!(s.contains("scratch.update(inOpen, inHigh, inLow, inClose)"));
 }
 
 #[test]
@@ -171,7 +196,7 @@ fn test_rust_minmaxindex_extrema_i32_and_rebase() {
     // Capture casts the still-live batch locals at the struct literal.
     assert!(s.contains("today: (today) as i32,"));
     // Index outputs stay batch-exact i32 pairs.
-    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> (i32, i32) {"));
+    assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<(i32, i32), RetCode> {"));
     // One buffer: peek keeps the throwaway copy, the shape whose clone the
     // optimizer folds away (#201).
     assert!(!s.contains("PEEK_SCRATCH"));
@@ -270,7 +295,7 @@ fn every_streamable_func_emits_rust_stream() {
 // Merged Open family (`OpenCore` + stride)
 // ---------------------------------------------------------------------------
 //
-// `OpenInternal` and `OpenAndFill` are one emission: `<sn>_OpenCore(..., outStride:
+// `OpenInternal` and `OpenAndFill` are one emission: `<sn>_OpenPass(..., outStride:
 // usize)`. Fill passes stride 1 and the caller's slice; the scalar path passes
 // stride 0 and a one-element sink, so every write collapses onto slot 0 and that
 // slot ends holding the last history value. `Dispatch` (MA) and `PeriodBank`
@@ -280,7 +305,7 @@ fn every_streamable_func_emits_rust_stream() {
 fn rust_open_family_is_one_core_with_two_wrappers() {
     let s = rust_stream_section("cdlhammer");
     assert_eq!(
-        s.matches("fn CDLHAMMER_OpenCore(").count(),
+        s.matches("fn CDLHAMMER_OpenPass(").count(),
         1,
         "the core is emitted exactly once"
     );
@@ -289,7 +314,7 @@ fn rust_open_family_is_one_core_with_two_wrappers() {
     for w in ["fn CDLHAMMER_OpenInternal(", "pub fn CDLHAMMER_OpenAndFill("] {
         let at = s.find(w).unwrap_or_else(|| panic!("missing {w}"));
         let body = &s[at..at + 900.min(s.len() - at)];
-        assert!(body.contains("CDLHAMMER_OpenCore("), "{w} delegates to the core");
+        assert!(body.contains("CDLHAMMER_OpenPass("), "{w} delegates to the core");
         assert!(
             !body.contains("BodyPeriodTotal"),
             "{w} must not re-transcribe the algorithm"
@@ -353,7 +378,7 @@ fn rust_exempt_tiers_keep_their_own_bodies() {
     for (name, upper) in [("ma", "MA"), ("mavp", "MAVP")] {
         let s = rust_stream_section(name);
         assert!(
-            !s.contains(&format!("fn {upper}_OpenCore(")),
+            !s.contains(&format!("fn {upper}_OpenPass(")),
             "{upper} is an exempt tier and must keep its own bodies"
         );
         assert!(s.contains(&format!("fn {upper}_OpenInternal(")));
@@ -365,8 +390,8 @@ fn rust_exempt_tiers_keep_their_own_bodies() {
 /// issue #204 all three open entry points come out of one emitter over a mode
 /// list, so this is what pins which mode owns which difference. Rust needs no
 /// aliasing rejection — `&mut [f64]` parameters cannot overlap — so the
-/// differences are the out-meta pair, the startIdx anchor, and the callee entry
-/// point each arm delegates to.
+/// differences are how the filled range is reported, the startIdx anchor, and
+/// the callee entry point each arm delegates to.
 #[test]
 fn rust_dispatch_open_modes_differ_only_where_intended() {
     let s = rust_stream_section("ma");
@@ -374,10 +399,19 @@ fn rust_dispatch_open_modes_differ_only_where_intended() {
     let fill = body_of(&s, "fn MA_OpenAndFill(");
     let internal = body_of(&s, "fn MA_OpenAndFillInternal(");
 
+    // Only the internal seam still reports through out-parameters: the public
+    // fill returns an `OutRange` beside the handle, like the batch tier (#179
+    // C15). The exempt tiers hand-roll their fills, so nothing else pins this.
     assert!(!scalar.contains("outBegIdx"), "the scalar open has no out-meta:\n{scalar}");
-    for (what, body) in [("OpenAndFill", &fill), ("OpenAndFillInternal", &internal)] {
-        assert!(body.contains("outBegIdx"), "{what} carries the out-meta pair:\n{body}");
-    }
+    assert!(!fill.contains("outBegIdx"), "the public fill carries no out-meta pair:\n{fill}");
+    assert!(
+        fill.contains("Ok((MA_Stream { core: self.clone(), state }, fillRange))"),
+        "the public fill returns the arm's own range beside the handle:\n{fill}"
+    );
+    assert!(
+        internal.contains("(*outBegIdx) = fillLb;"),
+        "OpenAndFillInternal is a composition seam and keeps the out-meta pair:\n{internal}"
+    );
 
     assert!(
         internal.contains("let fillLb = if startIdx > fillLb"),
@@ -401,12 +435,62 @@ fn rust_dispatch_open_modes_differ_only_where_intended() {
 
 #[test]
 fn rust_composed_copy_out_is_stride_guarded() {
-    // Both modes compute into `sc_*`; only the hand-back differs, and a bulk
-    // copy takes a base pointer rather than a subscript — the one place the
-    // stride cannot express the difference on its own.
+    // Issue #205: at stride 1 the scratch BORROWS the caller's slice, so the
+    // bulk copy-back is gone. The negative would pass on any re-render of the
+    // copy, so it is paired with the positive that must replace it.
+    // BOTH arms are pinned as whole lines, not as a prefix. Asserting only the
+    // `if` arm left two wrong applications passing the whole suite: aliasing the
+    // scalar sink too (`else { &mut *outReal }`, which indexes a 1-element slice
+    // and panics on the first composed Open), and allocating `owned_sc_`
+    // unconditionally, which is value-identical and silently reverts #205 —
+    // invisible to every value gate, since only a timing tool could see it.
     let s = rust_stream_section("adxr");
     assert!(
-        s.contains("if outStride == 1 {") && s.contains("copy_from_slice"),
-        "the composed copy-out is guarded by the stride"
+        s.contains("if outStride == 1 { &mut *outReal } else { &mut owned_sc_outReal };"),
+        "fill mode borrows the caller's slice AND the scalar sink keeps its own buffer:\n{s}"
     );
+    assert!(
+        s.contains("if outStride == 1 { Vec::new() } else { vec![0.0_f64; historyLen] };"),
+        "the owned buffer is allocated ONLY for the scalar sink — an unconditional \
+         vec![] here reverts the optimization with no value change:\n{s}"
+    );
+    assert!(
+        !s.contains("copy_from_slice"),
+        "no bulk copy-back survives: stride 1 wrote through the borrow"
+    );
+    // The scalar arm must read the value out before writing the slice, or the
+    // scratch's borrow would still be live across the write (borrowck).
+    assert!(
+        s.contains("let last_sc_outReal = sc_outReal[*outNBElement - 1];"),
+        "scalar arm lifts the last value out before the borrow ends"
+    );
+}
+
+/// The APO/PPO/PVO period swap is a MEMORY-SAFETY precondition, not a
+/// normalization convenience.
+///
+/// Their `sc_<out>`-writing sub-call passes `optInSlowPeriod`, while the
+/// caller's fill slice is sized by `ma_lookback(max(slow, fast))`. Those agree
+/// only because the body swaps first, so post-swap `slow == max`. Point the
+/// sub-call at the fast period, or drop the swap, and the callee writes
+/// `H - ma_lookback(min)` values into an array holding `H - ma_lookback(max)` —
+/// more than it can take. Since #205 that array is the caller's own, so Rust
+/// and Java would panic and **C would corrupt silently**.
+///
+/// Nothing in the input `.c` says the swap carries this weight, which is why it
+/// is pinned here. Identified by kevinlincg in the issue #205 write-bound proof.
+#[test]
+fn apo_family_period_swap_is_a_write_bound_precondition() {
+    for name in ["apo", "ppo", "pvo"] {
+        let s = rust_stream_section(name);
+        assert!(
+            s.contains("optInSlowPeriod = optInFastPeriod;"),
+            "{name}: the slow/fast swap must survive into the composed Open"
+        );
+        assert!(
+            s.contains("optInSlowPeriod, optInMAType, outBegIdx, outNBElement, &mut sc_"),
+            "{name}: the sub-call filling the caller's array must use the SWAPPED \
+             (larger) period — the fast period would overrun it"
+        );
+    }
 }

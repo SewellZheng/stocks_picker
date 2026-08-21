@@ -64,6 +64,7 @@ touching all three.
 | `backends/rust_doc.rs` | Renders each function's canonical `<name>.md` as rustdoc on the generated Rust methods (summary/formula/notes, `# Arguments` with YAML numbers injected, `# Errors`/`# Panics`, a runnable doctest, `#[doc(alias)]`, intra-doc `# See also` links) |
 | `backends/java.rs` | Generates Java Core class methods |
 | `backends/csharp.rs` | Generates the shipped C# indicators — one `Core_<NAME>.cs` (`public partial class Core`) per function; XML docs via `csharp_doc.rs`, condition folding shared with Java via `compat_fold.rs` |
+| `backends/{c,rust,java,csharp}_stream.rs` | The four streaming emitters — one per backend, each rendering the *same* backend-neutral analysis from `streaming.rs` (`StreamPlan`, `StreamModel`, `build_transition`, the `NameMap` trait) into its own language. Adding a fifth means writing only the new emitter: the neutral layer and the other three stay untouched, which is what keeps them byte-frozen by construction while it lands. **The `NameMap` prefixes are shared on purpose** — `fma::stream_base` strips exactly `sp->`, `sp.` and `cur_` to decide integer-vs-float typing, so a backend that invents its own spelling silently changes which sites fuse `a*b+c`, i.e. ~1 ULP with nothing pointing at the cause |
 | `backends/csharp_metadata.rs` | Generates the shipped C# introspection registry (`TALib.Metadata` under `csharp/library/src/metadata/`): the vocabularies, the model records, `FunctionCall`, and one factory per function carrying its two dispatch thunks. The C# JSON-RPC server answers the `ta_abstract` RPCs out of *this* registry — its csproj compiles the library sources — so `test_abstract.c` proves the shipped artifact, not a test-only copy |
 | `backends/abstract_rows.rs` | **The backend-neutral `ta_abstract` row model.** One derivation of every function's metadata (flags, price bundling, parameter domains, unstable-period id), rendered by `rust_abstract`, `java_abstract` (server table), `java_metadata` (shipped registry) and `csharp_metadata`. Sum-typed `OptDomain` + closed `Group`/`InputKind`/`OutputKind` enums, so a renderer cannot silently mis-tag a domain. **C and `func_api_xml` deliberately do NOT render from it** — see below |
 | `backends/ta_abstract_c.rs` | Generates `ta_abstract` introspection layer (tables, frames, group index, runtime API) |
@@ -80,16 +81,30 @@ touching all three.
 # Runnable from ANY directory: the built binary locates the repo via its own
 # path (the `ta_codegen/input/` marker). Override with `TA_CODEGEN_ROOT=/path/to/ta-lib`.
 # `cargo run` from ta_codegen/generator/ works as before.
-cargo run -- generate                        # Generate indicator code for all backends
+cargo run -- generate                        # Everything: libraries + servers + benches
 cargo run -- generate --func=SMA,RSI         # Generate specific functions
 cargo run -- generate --backend=rust         # Generate for specific backend
 
-cargo run -- generate-servers                # Generate JSON-RPC servers for all languages
-cargo run -- generate-servers --backend=c    # Generate server for specific language
+cargo run -- generate-servers                # Only the JSON-RPC servers, all languages
+cargo run -- generate-servers --backend=c    # Only the server for one language
 
 cargo run -- build                           # Compile generated servers into executables
 cargo run -- build --backend=c,java          # Build specific servers
 ```
+
+`generate` writes **everything committed** — the shipped libraries, the four
+JSON-RPC servers, `ta_bench_cg.c` / `ta_bench_stream.c` — so "regenerate, then
+`git status` must be clean" is a total gate over the tree. `generate-servers`
+and `generate-bench` are narrowings of it, for the callers that rebuild a server
+without a full regeneration (`build.py servers`, `regtest.py`); they own no path
+`generate` does not write. Emitting a `.java` or `.cs` source is text, so none of
+this needs a JDK or the .NET SDK — those belong to `build`, which compiles only
+the backends asked for.
+
+The exception is `--func=`: whole-corpus files (`Core.java`, the servers, the
+benches) are skipped there, because rendering them from a filtered set would drop
+every function the filter excluded. A `--func` iteration loop must therefore end
+with one bare `generate` before committing.
 
 ## Testing
 
@@ -132,12 +147,6 @@ Value gates that need the *generated* library live in the crate itself, as
 5. For each indicator, ta_regtest calls the C reference AND sends the same call to the server
 6. `compare_codegen_output()` validates retCode, outBegIdx, outNbElement, and output values match
 
-### What This Replaced
-
-- **Rust FFI layer** (`rust/ffi/`) — legacy `extern "C"` wrappers letting C call Rust directly. Deleted in favor of server architecture.
-- **Hand-written Rust test files** (`rust/tests/mult_test.rs`, `sma_test.rs`, `rsi_test.rs`) — legacy from manual porting phase. Deleted; all indicator testing goes through ta_regtest.
-- **`ta_regtest_rust` CMake target** — linked ta_regtest against Rust staticlib. Deleted; replaced by server-based approach.
-
 ### Server Protocol
 
 JSON-RPC over stdin/stdout.
@@ -166,16 +175,6 @@ JSON-RPC over stdin/stdout.
 ```json
 {"retCode": 0, "outBegIdx": 14, "outNBElement": 50, "outInteger": [...]}
 ```
-
-**Server protocol is complete:**
-- `list_functions` — servers report available indicators with parameter metadata
-- `set_unstable_period` / `set_compatibility` — global state management implemented
-- `timing_ns` — execution timing returned with every response
-- All 20 unstable-period functions mapped in `func_unst_id()`
-- Real-valued optional params use `json_find_double` (e.g., BBANDS `optInNbDevUp`, SAR `optInAcceleration`)
-- Price input support (OHLCV arrays) for STOCH, BBANDS, ADX, MACD, etc.
-- Multi-output support (BBANDS=3, MACD=3, STOCH=2) with `outReal`, `outReal1`, `outReal2`
-- Integer output support (CDL* patterns, MINMAXINDEX) with `outInteger`
 
 ## Alternate implementations (`PRAGMA TA_ALT`)
 
@@ -276,13 +275,24 @@ is concrete-`f64` only.
 
 | Variant | Purpose |
 |---------|---------|
-| `fn <N>_Lookback(...) -> usize` | Lookback (first valid output index) |
-| `fn <N>(...)` | Guarded public API: validates params, pre-computes optimization values, delegates |
-| `fn <N>_Private(...)` | Only where the definition declares one. Extra pre-computed params, no validation prologue — its only caller is the guarded body above it. No shipped indicator declares one; the construct is carried by the `SYNTH4` gate fixture (`input_synth/README.md`) |
+| `pub fn <N>_Lookback(...) -> usize` | Lookback (first valid output index) |
+| `pub fn <N>(...) -> Result<OutRange, RetCode>` | The batch API. A thin generated wrapper with no out-params: it calls `<N>_Impl` and turns `Success` into `Ok(OutRange { beg_idx, count })`. Same two-tier shape Java (`<N>_Impl` + `OutRange`) and C# (`internal RetCode <N>_Impl` + `public OutRange <N>`) already ship |
+| `pub(crate) fn <N>_Impl(...) -> RetCode` | The body: validates params and the index range, pre-computes optimization values, delegates. Keeps C's shape — a code plus `&mut outBegIdx` / `&mut outNBElement` — because that is what the transcribed bodies are written against, and it is where the FMA dispatch sits |
+| `fn <N>_Private(...)` | Only where the definition declares one. Extra pre-computed params, no validation prologue — its only caller is the `_Impl` body above it. No shipped indicator declares one; the construct is carried by the `SYNTH4` gate fixture (`input_synth/README.md`) |
 
-Cross-indicator calls target the **guarded** entry point, which carries the
-bounds-assert preamble; that preamble takes an empty-range escape so a call
-computing nothing cannot panic.
+Cross-indicator calls target **`<N>_Impl`**, never the public wrapper: 19 of the
+33 call sites hand the callee their own `&mut outBegIdx` / `&mut outNBElement`
+and read them back, and four fold "success with zero output" into the same
+conditional as the error, which `?` cannot express. **Rust alone** — since #236
+step 3 Java and C# route a cross-call to the callee's *public* tier, which is
+what C has always done. `<N>_Impl` carries the bounds-assert preamble; that
+preamble takes an empty-range escape so a call computing nothing cannot panic.
+
+`rust_doc::guarded_docs` is the rustdoc for the **public** wrapper, so its
+`# Arguments` list must match that signature — not the `_Impl` one.
+`rust_public_entry_documents_exactly_its_parameters` pins the two together;
+nothing else can, since rustdoc has no lint for documenting a parameter that does
+not exist.
 
 ### Documentation (rustdoc)
 
@@ -290,7 +300,7 @@ computing nothing cannot panic.
 (parsed into `DocDef` by `parser/doc_md.rs`, attached as `FuncDef.doc`) as rustdoc
 on all three variants, and every guarded function gets a **generated runnable
 doctest** (252 bars of deterministic synthetic data, all params at defaults,
-asserts `Success`). Crate-level docs, Cargo.toml package metadata, and the crate
+propagating with `?` and asserting the returned `OutRange` is non-empty). Crate-level docs, Cargo.toml package metadata, and the crate
 README.md are emitted by `generate_rust_crate_scaffolding` in `main.rs`. Verify
 with `cargo doc --no-deps` (must be warning-free — prose escaping of `[`/`<` is
 load-bearing) and `cargo test --doc` in `ta_codegen/output/rust/`.
@@ -345,10 +355,6 @@ C's `while (i-- > 0)` idiom lets an unsigned counter wrap past zero; the Rust
 backend emits `wrapping_sub(1)` for post/pre-decrement so debug builds (and
 doctests) behave like the regtest-verified release builds instead of panicking
 on `attempt to subtract with overflow`.
-
-### Known Code Quality Issues (non-blocking)
-
-1. **`collect_for_loop_vars`** doesn't recurse into nested structures
 
 ## Linting
 

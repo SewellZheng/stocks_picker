@@ -344,12 +344,14 @@ public sealed class FunctionCall
         };
     }
 
-    /* `(int)value` on a double outside the int range is unspecified in C#, and on
-       x86 it lands on int.MinValue -- which is the "use the default" sentinel. So
-       SetParam(p, 1e18) silently meant "use the default" where the caller plainly
-       meant an error. Reject what the integer domain cannot represent. The
-       sentinel itself stays reachable: asking for the default IS a legal request
-       (issue #162). */
+    /* `(int)value` on a double outside the int range is unspecified in ECMA-334.
+       .NET saturates: a large POSITIVE value lands on int.MaxValue, a large
+       NEGATIVE one on int.MinValue -- and int.MinValue IS the "use the default"
+       sentinel. So SetParam(p, -1e18) silently meant "use the default", and
+       SetParam(p, 1e18) silently meant a period of 2147483647, where the caller
+       plainly meant an error in both cases; NaN lands on 0. Reject what the
+       integer domain cannot represent. The sentinel itself stays reachable:
+       asking for the default IS a legal request (issue #162). */
     private static int ToIntegerOperand(OptInputInfo parameter, double value)
     {
         if (double.IsNaN(value) || value < int.MinValue || value > int.MaxValue)
@@ -516,7 +518,31 @@ public sealed class FunctionCall
             return bound;
         }
 
-        CallOutcome outcome = _info.Invoke(_core, this, startIdx, endIdx);
+        CallOutcome outcome;
+        try
+        {
+            outcome = _info.Invoke(_core, this, startIdx, endIdx);
+        }
+        catch (Exception _e) when (_e is ITaLibFailure)
+        {
+            // Reachable only through a COMPOSED function. The thunk calls the
+            // body, which answers a code and does not throw; but a composed
+            // body cross-calls its callee's PUBLIC tier -- `OutRange _xr0 =
+            // MA(startIdx, endIdx, ...)` in APO -- and that throws. This
+            // method's contract is a code, so it converts here, once, rather
+            // than in every thunk. Only the library's own failure is
+            // converted; anything else is not ours to relabel.
+            //
+            // So this catch is coupled to the #236 step 3 debt: it is live
+            // only while composed bodies call the public callee, which is the
+            // same mechanism that put ten cores in NoPhantomIoTest's
+            // CROSS_CALL_GUARDED list. If that debt is ever paid down by
+            // routing cross-calls to `_Impl`, this goes dead and TryInvoke
+            // silently stops converting anything -- delete it in that change,
+            // do not leave it standing as reassurance.
+            range = new OutRange(0, 0);
+            return ((ITaLibFailure)_e).RetCode;
+        }
         range = new OutRange(outcome.BegIdx, outcome.Count);
         return outcome.Code;
     }

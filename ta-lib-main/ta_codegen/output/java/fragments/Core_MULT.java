@@ -25,13 +25,13 @@
       return 0 ;
 
    }
-   RetCode MULT_Internal( int startIdx,
-                          int endIdx,
-                          double inReal0[],
-                          double inReal1[],
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode MULT_Impl( int startIdx,
+                      int endIdx,
+                      double inReal0[],
+                      double inReal1[],
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -52,13 +52,13 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode MULT_Internal( int startIdx,
-                          int endIdx,
-                          float inReal0[],
-                          float inReal1[],
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode MULT_Impl( int startIdx,
+                      int endIdx,
+                      float inReal0[],
+                      float inReal1[],
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -103,8 +103,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#ADD
     * @see Core#SUB
@@ -116,9 +123,16 @@
                          double inReal1[],
                          double outReal[] )
    {
+      requireIndexRange("MULT", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, MULT_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("MULT", "inReal0", inReal0, guardInLen);
+      requireLength("MULT", "inReal1", inReal1, guardInLen);
+      requireLength("MULT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MULT_Internal(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MULT_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("MULT", retCode);
       }
@@ -151,8 +165,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#ADD
     * @see Core#SUB
@@ -164,9 +185,16 @@
                          float inReal1[],
                          double outReal[] )
    {
+      requireIndexRange("MULT", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, MULT_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("MULT", "inReal0", inReal0, guardInLen);
+      requireLength("MULT", "inReal1", inReal1, guardInLen);
+      requireLength("MULT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MULT_Internal(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MULT_Impl(startIdx, endIdx, inReal0, inReal1, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("MULT", retCode);
       }
@@ -217,10 +245,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal0, double inReal1 ) {
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
+            throw new TaLibArgumentException("MULT update: BadParam", RetCode.BadParam);
          core.MULT_StreamStep(this, inReal0, inReal1);
          return this.cur_outReal;
       }
@@ -233,6 +271,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal0, double inReal1 ) {
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
+            throw new TaLibArgumentException("MULT peek: BadParam", RetCode.BadParam);
          MULT_Stream scratch = new MULT_Stream(this);
          core.MULT_StreamStep(scratch, inReal0, inReal1);
          return scratch.cur_outReal;
@@ -259,7 +299,7 @@
    {
       sp.cur_outReal = inReal0 * inReal1;
    }
-   private RetCode MULT_OpenCore( MULT_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode MULT_OpenPass( MULT_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -284,55 +324,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode MULT_OpenBody( MULT_Stream sp, double inReal0[], double inReal1[], int startIdx )
+   private RetCode MULT_OpenImpl( MULT_Stream sp, double inReal0[], double inReal1[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return MULT_OpenCore( sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return MULT_OpenPass( sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode MULT_OpenAndFillBody( MULT_Stream sp, double inReal0[], double inReal1[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode MULT_OpenAndFillImpl( MULT_Stream sp, double inReal0[], double inReal1[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
          return RetCode.BadParam;
       }
-      return MULT_OpenCore( sp, inReal0, inReal1, 0, outBegIdx, outNBElement, outReal, 1 );
+      return MULT_OpenPass( sp, inReal0, inReal1, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode MULT_OpenAndFillInternalBody( MULT_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode MULT_OpenAndFillInternalImpl( MULT_Stream sp, double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return MULT_OpenCore(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return MULT_OpenPass(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* MULT_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MULT_Stream MULT_OpenAndFillInternal( double inReal0[], double inReal1[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       MULT_Stream sp = new MULT_Stream(this);
-      RetCode retCode = MULT_OpenAndFillInternalBody(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MULT_OpenAndFillInternalImpl(sp, inReal0, inReal1, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MULT openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MULT openAndFill: internal error");
+         throw new TaLibStateException("MULT openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("MULT openAndFill: " + retCode);
+      throw new TaLibArgumentException("MULT openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind MULT_Open (composition seam). */
    MULT_Stream MULT_OpenInternal( double inReal0[], double inReal1[], int startIdx )
    {
       MULT_Stream sp = new MULT_Stream(this);
-      RetCode retCode = MULT_OpenBody(sp, inReal0, inReal1, startIdx);
+      RetCode retCode = MULT_OpenImpl(sp, inReal0, inReal1, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MULT open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MULT open: internal error");
+         throw new TaLibStateException("MULT open: internal error", retCode);
       }
-      throw new IllegalArgumentException("MULT open: " + retCode);
+      throw new TaLibArgumentException("MULT open: " + retCode, retCode);
    }
    /**
     * Open a live MULT stream over the warm-up history; the handle's
@@ -362,16 +402,16 @@
       MULT_Stream sp = new MULT_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MULT_OpenAndFillBody(sp, inReal0, inReal1, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MULT_OpenAndFillImpl(sp, inReal0, inReal1, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MULT openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MULT openAndFill: internal error");
+         throw new TaLibStateException("MULT openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("MULT openAndFill: " + retCode);
+      throw new TaLibArgumentException("MULT openAndFill: " + retCode, retCode);
    }

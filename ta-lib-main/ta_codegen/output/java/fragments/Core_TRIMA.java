@@ -41,13 +41,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode TRIMA_Internal( int startIdx,
-                           int endIdx,
-                           double inReal[],
-                           int optInTimePeriod,
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           double outReal[] )
+   RetCode TRIMA_Impl( int startIdx,
+                       int endIdx,
+                       double inReal[],
+                       int optInTimePeriod,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outReal[] )
    {
       int lookbackTotal = 0;
       double numerator = 0;
@@ -322,13 +322,13 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode TRIMA_Internal( int startIdx,
-                           int endIdx,
-                           float inReal[],
-                           int optInTimePeriod,
-                           MInteger outBegIdx,
-                           MInteger outNBElement,
-                           double outReal[] )
+   RetCode TRIMA_Impl( int startIdx,
+                       int endIdx,
+                       float inReal[],
+                       int optInTimePeriod,
+                       MInteger outBegIdx,
+                       MInteger outNBElement,
+                       double outReal[] )
    {
       int lookbackTotal = 0;
       double numerator = 0;
@@ -475,8 +475,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#WMA
@@ -488,9 +495,15 @@
                           int optInTimePeriod,
                           double outReal[] )
    {
+      requireIndexRange("TRIMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, TRIMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("TRIMA", "inReal", inReal, guardInLen);
+      requireLength("TRIMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRIMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRIMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("TRIMA", retCode);
       }
@@ -531,8 +544,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#SMA
     * @see Core#WMA
@@ -544,9 +564,15 @@
                           int optInTimePeriod,
                           double outReal[] )
    {
+      requireIndexRange("TRIMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, TRIMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("TRIMA", "inReal", inReal, guardInLen);
+      requireLength("TRIMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRIMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRIMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("TRIMA", retCode);
       }
@@ -644,10 +670,20 @@
       private static final ThreadLocal<TRIMA_Stream> PEEK_SCRATCH = new ThreadLocal<>();
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("TRIMA update: BadParam", RetCode.BadParam);
          core.TRIMA_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -662,6 +698,8 @@
        * the thread.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("TRIMA peek: BadParam", RetCode.BadParam);
          TRIMA_Stream scratch = PEEK_SCRATCH.get();
          if( scratch == null ) {
             scratch = new TRIMA_Stream(this);
@@ -758,7 +796,7 @@
          }
       }
    }
-   private RetCode TRIMA_OpenCore( TRIMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode TRIMA_OpenPass( TRIMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
@@ -799,7 +837,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.OutOfRangeEndIndex ;
+            return RetCode.InsufficientHistory ;
          }
          /* TRIMA Description
           * =================
@@ -1026,7 +1064,7 @@
          if( startIdx > endIdx ) {
             outBegIdx.value = 0;
             outNBElement.value = 0;
-            return RetCode.OutOfRangeEndIndex ;
+            return RetCode.InsufficientHistory ;
          }
          /* TRIMA Description
           * =================
@@ -1207,55 +1245,55 @@
          return RetCode.Success;
       }
    }
-   private RetCode TRIMA_OpenBody( TRIMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode TRIMA_OpenImpl( TRIMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return TRIMA_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return TRIMA_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode TRIMA_OpenAndFillBody( TRIMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode TRIMA_OpenAndFillImpl( TRIMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return TRIMA_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return TRIMA_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode TRIMA_OpenAndFillInternalBody( TRIMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode TRIMA_OpenAndFillInternalImpl( TRIMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return TRIMA_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return TRIMA_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* TRIMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    TRIMA_Stream TRIMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       TRIMA_Stream sp = new TRIMA_Stream(this);
-      RetCode retCode = TRIMA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRIMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TRIMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TRIMA openAndFill: internal error");
+         throw new TaLibStateException("TRIMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("TRIMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("TRIMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind TRIMA_Open (composition seam). */
    TRIMA_Stream TRIMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       TRIMA_Stream sp = new TRIMA_Stream(this);
-      RetCode retCode = TRIMA_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = TRIMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TRIMA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TRIMA open: internal error");
+         throw new TaLibStateException("TRIMA open: internal error", retCode);
       }
-      throw new IllegalArgumentException("TRIMA open: " + retCode);
+      throw new TaLibArgumentException("TRIMA open: " + retCode, retCode);
    }
    /**
     * Open a live TRIMA stream over the warm-up history; the handle's
@@ -1285,16 +1323,16 @@
       TRIMA_Stream sp = new TRIMA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TRIMA_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TRIMA_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TRIMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TRIMA openAndFill: internal error");
+         throw new TaLibStateException("TRIMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("TRIMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("TRIMA openAndFill: " + retCode, retCode);
    }

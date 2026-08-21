@@ -29,13 +29,13 @@
       return 0 ;
 
    }
-   RetCode MEDPRICE_Internal( int startIdx,
-                              int endIdx,
-                              double inHigh[],
-                              double inLow[],
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              double outReal[] )
+   RetCode MEDPRICE_Impl( int startIdx,
+                          int endIdx,
+                          double inHigh[],
+                          double inLow[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -59,13 +59,13 @@
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
-   RetCode MEDPRICE_Internal( int startIdx,
-                              int endIdx,
-                              float inHigh[],
-                              float inLow[],
-                              MInteger outBegIdx,
-                              MInteger outNBElement,
-                              double outReal[] )
+   RetCode MEDPRICE_Impl( int startIdx,
+                          int endIdx,
+                          float inHigh[],
+                          float inLow[],
+                          MInteger outBegIdx,
+                          MInteger outNBElement,
+                          double outReal[] )
    {
       int outIdx = 0;
       int i = 0;
@@ -107,8 +107,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MIDPRICE
     * @see Core#AVGPRICE
@@ -121,9 +128,16 @@
                              double inLow[],
                              double outReal[] )
    {
+      requireIndexRange("MEDPRICE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, MEDPRICE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("MEDPRICE", "inHigh", inHigh, guardInLen);
+      requireLength("MEDPRICE", "inLow", inLow, guardInLen);
+      requireLength("MEDPRICE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MEDPRICE_Internal(startIdx, endIdx, inHigh, inLow, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MEDPRICE_Impl(startIdx, endIdx, inHigh, inLow, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("MEDPRICE", retCode);
       }
@@ -156,8 +170,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#MIDPRICE
     * @see Core#AVGPRICE
@@ -170,9 +191,16 @@
                              float inLow[],
                              double outReal[] )
    {
+      requireIndexRange("MEDPRICE", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, MEDPRICE_Lookback());
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("MEDPRICE", "inHigh", inHigh, guardInLen);
+      requireLength("MEDPRICE", "inLow", inLow, guardInLen);
+      requireLength("MEDPRICE", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MEDPRICE_Internal(startIdx, endIdx, inHigh, inLow, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MEDPRICE_Impl(startIdx, endIdx, inHigh, inLow, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("MEDPRICE", retCode);
       }
@@ -223,10 +251,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inHigh, double inLow ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw new TaLibArgumentException("MEDPRICE update: BadParam", RetCode.BadParam);
          core.MEDPRICE_StreamStep(this, inHigh, inLow);
          return this.cur_outReal;
       }
@@ -239,6 +277,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inHigh, double inLow ) {
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
+            throw new TaLibArgumentException("MEDPRICE peek: BadParam", RetCode.BadParam);
          MEDPRICE_Stream scratch = new MEDPRICE_Stream(this);
          core.MEDPRICE_StreamStep(scratch, inHigh, inLow);
          return scratch.cur_outReal;
@@ -265,7 +305,7 @@
    {
       sp.cur_outReal = (inHigh + inLow) / 2.0;
    }
-   private RetCode MEDPRICE_OpenCore( MEDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode MEDPRICE_OpenPass( MEDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -293,55 +333,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode MEDPRICE_OpenBody( MEDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx )
+   private RetCode MEDPRICE_OpenImpl( MEDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return MEDPRICE_OpenCore( sp, inHigh, inLow, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
+      return MEDPRICE_OpenPass( sp, inHigh, inLow, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode MEDPRICE_OpenAndFillBody( MEDPRICE_Stream sp, double inHigh[], double inLow[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode MEDPRICE_OpenAndFillImpl( MEDPRICE_Stream sp, double inHigh[], double inLow[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
          return RetCode.BadParam;
       }
-      return MEDPRICE_OpenCore( sp, inHigh, inLow, 0, outBegIdx, outNBElement, outReal, 1 );
+      return MEDPRICE_OpenPass( sp, inHigh, inLow, 0, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode MEDPRICE_OpenAndFillInternalBody( MEDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode MEDPRICE_OpenAndFillInternalImpl( MEDPRICE_Stream sp, double inHigh[], double inLow[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return MEDPRICE_OpenCore(sp, inHigh, inLow, startIdx, outBegIdx, outNBElement, outReal, 1);
+      return MEDPRICE_OpenPass(sp, inHigh, inLow, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* MEDPRICE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MEDPRICE_Stream MEDPRICE_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       MEDPRICE_Stream sp = new MEDPRICE_Stream(this);
-      RetCode retCode = MEDPRICE_OpenAndFillInternalBody(sp, inHigh, inLow, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MEDPRICE_OpenAndFillInternalImpl(sp, inHigh, inLow, startIdx, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MEDPRICE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MEDPRICE openAndFill: internal error");
+         throw new TaLibStateException("MEDPRICE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("MEDPRICE openAndFill: " + retCode);
+      throw new TaLibArgumentException("MEDPRICE openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind MEDPRICE_Open (composition seam). */
    MEDPRICE_Stream MEDPRICE_OpenInternal( double inHigh[], double inLow[], int startIdx )
    {
       MEDPRICE_Stream sp = new MEDPRICE_Stream(this);
-      RetCode retCode = MEDPRICE_OpenBody(sp, inHigh, inLow, startIdx);
+      RetCode retCode = MEDPRICE_OpenImpl(sp, inHigh, inLow, startIdx);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MEDPRICE open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MEDPRICE open: internal error");
+         throw new TaLibStateException("MEDPRICE open: internal error", retCode);
       }
-      throw new IllegalArgumentException("MEDPRICE open: " + retCode);
+      throw new TaLibArgumentException("MEDPRICE open: " + retCode, retCode);
    }
    /**
     * Open a live MEDPRICE stream over the warm-up history; the handle's
@@ -371,16 +411,16 @@
       MEDPRICE_Stream sp = new MEDPRICE_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MEDPRICE_OpenAndFillBody(sp, inHigh, inLow, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MEDPRICE_OpenAndFillImpl(sp, inHigh, inLow, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("MEDPRICE openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("MEDPRICE openAndFill: internal error");
+         throw new TaLibStateException("MEDPRICE openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("MEDPRICE openAndFill: " + retCode);
+      throw new TaLibArgumentException("MEDPRICE openAndFill: " + retCode, retCode);
    }

@@ -37,13 +37,13 @@
       return optInTimePeriod - 1 ;
 
    }
-   RetCode LINEARREG_INTERCEPT_Internal( int startIdx,
-                                         int endIdx,
-                                         double inReal[],
-                                         int optInTimePeriod,
-                                         MInteger outBegIdx,
-                                         MInteger outNBElement,
-                                         double outReal[] )
+   RetCode LINEARREG_INTERCEPT_Impl( int startIdx,
+                                     int endIdx,
+                                     double inReal[],
+                                     int optInTimePeriod,
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -140,13 +140,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode LINEARREG_INTERCEPT_Internal( int startIdx,
-                                         int endIdx,
-                                         float inReal[],
-                                         int optInTimePeriod,
-                                         MInteger outBegIdx,
-                                         MInteger outNBElement,
-                                         double outReal[] )
+   RetCode LINEARREG_INTERCEPT_Impl( int startIdx,
+                                     int endIdx,
+                                     float inReal[],
+                                     int optInTimePeriod,
+                                     MInteger outBegIdx,
+                                     MInteger outNBElement,
+                                     double outReal[] )
    {
       int outIdx = 0;
       int today = 0;
@@ -238,8 +238,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#LINEARREG
     * @see Core#LINEARREG_SLOPE
@@ -252,9 +259,15 @@
                                         int optInTimePeriod,
                                         double outReal[] )
    {
+      requireIndexRange("LINEARREG_INTERCEPT", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, LINEARREG_INTERCEPT_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("LINEARREG_INTERCEPT", "inReal", inReal, guardInLen);
+      requireLength("LINEARREG_INTERCEPT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = LINEARREG_INTERCEPT_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = LINEARREG_INTERCEPT_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("LINEARREG_INTERCEPT", retCode);
       }
@@ -291,8 +304,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#LINEARREG
     * @see Core#LINEARREG_SLOPE
@@ -305,9 +325,15 @@
                                         int optInTimePeriod,
                                         double outReal[] )
    {
+      requireIndexRange("LINEARREG_INTERCEPT", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, LINEARREG_INTERCEPT_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("LINEARREG_INTERCEPT", "inReal", inReal, guardInLen);
+      requireLength("LINEARREG_INTERCEPT", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = LINEARREG_INTERCEPT_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = LINEARREG_INTERCEPT_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("LINEARREG_INTERCEPT", retCode);
       }
@@ -389,10 +415,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("LINEARREG_INTERCEPT update: BadParam", RetCode.BadParam);
          core.LINEARREG_INTERCEPT_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -405,6 +441,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("LINEARREG_INTERCEPT peek: BadParam", RetCode.BadParam);
          LINEARREG_INTERCEPT_Stream scratch = new LINEARREG_INTERCEPT_Stream(this);
          core.LINEARREG_INTERCEPT_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -444,7 +482,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode LINEARREG_INTERCEPT_OpenCore( LINEARREG_INTERCEPT_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode LINEARREG_INTERCEPT_OpenPass( LINEARREG_INTERCEPT_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int today = 0;
@@ -497,7 +535,7 @@
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       outIdx = 0;
       /* Index into the output. */
@@ -561,55 +599,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode LINEARREG_INTERCEPT_OpenBody( LINEARREG_INTERCEPT_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode LINEARREG_INTERCEPT_OpenImpl( LINEARREG_INTERCEPT_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return LINEARREG_INTERCEPT_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return LINEARREG_INTERCEPT_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode LINEARREG_INTERCEPT_OpenAndFillBody( LINEARREG_INTERCEPT_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode LINEARREG_INTERCEPT_OpenAndFillImpl( LINEARREG_INTERCEPT_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return LINEARREG_INTERCEPT_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return LINEARREG_INTERCEPT_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode LINEARREG_INTERCEPT_OpenAndFillInternalBody( LINEARREG_INTERCEPT_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode LINEARREG_INTERCEPT_OpenAndFillInternalImpl( LINEARREG_INTERCEPT_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return LINEARREG_INTERCEPT_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return LINEARREG_INTERCEPT_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* LINEARREG_INTERCEPT_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    LINEARREG_INTERCEPT_Stream LINEARREG_INTERCEPT_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       LINEARREG_INTERCEPT_Stream sp = new LINEARREG_INTERCEPT_Stream(this);
-      RetCode retCode = LINEARREG_INTERCEPT_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = LINEARREG_INTERCEPT_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("LINEARREG_INTERCEPT openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("LINEARREG_INTERCEPT openAndFill: internal error");
+         throw new TaLibStateException("LINEARREG_INTERCEPT openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("LINEARREG_INTERCEPT openAndFill: " + retCode);
+      throw new TaLibArgumentException("LINEARREG_INTERCEPT openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind LINEARREG_INTERCEPT_Open (composition seam). */
    LINEARREG_INTERCEPT_Stream LINEARREG_INTERCEPT_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       LINEARREG_INTERCEPT_Stream sp = new LINEARREG_INTERCEPT_Stream(this);
-      RetCode retCode = LINEARREG_INTERCEPT_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = LINEARREG_INTERCEPT_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("LINEARREG_INTERCEPT open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("LINEARREG_INTERCEPT open: internal error");
+         throw new TaLibStateException("LINEARREG_INTERCEPT open: internal error", retCode);
       }
-      throw new IllegalArgumentException("LINEARREG_INTERCEPT open: " + retCode);
+      throw new TaLibArgumentException("LINEARREG_INTERCEPT open: " + retCode, retCode);
    }
    /**
     * Open a live LINEARREG_INTERCEPT stream over the warm-up history; the handle's
@@ -639,16 +677,16 @@
       LINEARREG_INTERCEPT_Stream sp = new LINEARREG_INTERCEPT_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = LINEARREG_INTERCEPT_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = LINEARREG_INTERCEPT_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("LINEARREG_INTERCEPT openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("LINEARREG_INTERCEPT openAndFill: internal error");
+         throw new TaLibStateException("LINEARREG_INTERCEPT openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("LINEARREG_INTERCEPT openAndFill: " + retCode);
+      throw new TaLibArgumentException("LINEARREG_INTERCEPT openAndFill: " + retCode, retCode);
    }

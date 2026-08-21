@@ -77,62 +77,9 @@ impl Core {
         // See mama_lookback for an explanation of the "32".
         return (63 + self.unstable_period[FuncUnstId::HT_DCPHASE as usize]) as usize;
     }
-    /// Hilbert Transform Dominant Cycle Phase: the instantaneous phase (in degrees) of the dominant
-    /// market cycle, derived from a homodyne discriminator on a Hilbert-transformed, smoothed
-    /// price. One real output per bar. Output is degrees, wrapped so it never exceeds 315 (can go
-    /// negative).
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Price series to analyze.
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outReal` — Dominant cycle phase in degrees.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`], and
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut out = vec![0.0; 252];
-    ///
-    /// let ret = core.HT_DCPHASE(0, data.len() - 1, &data, &mut out_beg, &mut out_nb, &mut out);
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(out[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::HT_DCPERIOD`] · [`Core::HT_PHASOR`] · [`Core::HT_SINE`] · [`Core::HT_TRENDLINE`]
-    /// · [`Core::HT_TRENDMODE`] · [`Core::MAMA`] · [`Core::WMA`]
-    ///
-    /// # References
-    ///
-    /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
-    ///   Wiley & Sons (ISBN 0471405671)
-    ///
-    /// Further reading: [ta-lib.org/functions/ht_dcphase](https://ta-lib.org/functions/ht_dcphase)
-    #[doc(alias = "HilbertTransformDominantCyclePhase")]
-    pub fn HT_DCPHASE(
+    /// C-shaped body behind [`Core::HT_DCPHASE`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn HT_DCPHASE_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -142,13 +89,13 @@ impl Core {
         outReal: &mut [f64],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, HT_DCPHASE_fma, HT_DCPHASE_impl, (startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal));
+        return ta_lib_dispatch::dispatch_fma!(self, HT_DCPHASE_Impl_fma, HT_DCPHASE_Impl_impl, (startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal));
         #[cfg(not(target_arch = "x86_64"))]
-        self.HT_DCPHASE_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal)
+        self.HT_DCPHASE_Impl_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn HT_DCPHASE_fma(
+    fn HT_DCPHASE_Impl_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -157,10 +104,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        self.HT_DCPHASE_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal)
+        self.HT_DCPHASE_Impl_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outReal)
     }
     #[inline(always)]
-    fn HT_DCPHASE_impl(
+    fn HT_DCPHASE_Impl_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -169,10 +116,10 @@ impl Core {
         outNBElement: &mut usize,
         outReal: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         let _assertLb = self.HT_DCPHASE_Lookback();
@@ -573,6 +520,88 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Hilbert Transform Dominant Cycle Phase: the instantaneous phase (in degrees) of the dominant
+    /// market cycle, derived from a homodyne discriminator on a Hilbert-transformed, smoothed
+    /// price. One real output per bar. Output is degrees, wrapped so it never exceeds 315 (can go
+    /// negative).
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Price series to analyze.
+    /// * `outReal` — Dominant cycle phase in degrees.
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// zero [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut out = vec![0.0; 252];
+    ///
+    /// let out_range = core.HT_DCPHASE(0, data.len() - 1, &data, &mut out)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(out[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::HT_DCPERIOD`] · [`Core::HT_PHASOR`] · [`Core::HT_SINE`] · [`Core::HT_TRENDLINE`]
+    /// · [`Core::HT_TRENDMODE`] · [`Core::MAMA`] · [`Core::WMA`]
+    ///
+    /// # References
+    ///
+    /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
+    ///   Wiley & Sons (ISBN 0471405671)
+    ///
+    /// Further reading: [ta-lib.org/functions/ht_dcphase](https://ta-lib.org/functions/ht_dcphase)
+    #[doc(alias = "HilbertTransformDominantCyclePhase")]
+    pub fn HT_DCPHASE(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        outReal: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.HT_DCPHASE_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outReal,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -947,13 +976,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::HT_DCPHASE_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::HT_DCPHASE_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn HT_DCPHASE_OpenCore(
+    pub(crate) fn HT_DCPHASE_OpenPass(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<HT_DCPHASE_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inReal.len();
@@ -1056,7 +1085,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         (*outBegIdx) = startIdx;
         // Initialize the price smoother, which is simply a weighted
@@ -1443,7 +1472,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.HT_DCPHASE_OpenCore(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.HT_DCPHASE_OpenPass(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -1452,8 +1481,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1461,8 +1492,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.HT_DCPHASE_Open(&data).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_HT_DCPHASE_Open")]
@@ -1471,13 +1502,17 @@ impl Core {
     }
 
     /// [`Core::HT_DCPHASE_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::HT_DCPHASE`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::HT_DCPHASE`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_HT_DCPHASE_OpenAndFill")]
     pub fn HT_DCPHASE_OpenAndFill(
-        &self, inReal: &[f64], outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
-    ) -> Result<HT_DCPHASE_Stream, RetCode> {
-        self.HT_DCPHASE_OpenCore(inReal, 0, outBegIdx, outNBElement, outReal, 1)
+        &self, inReal: &[f64], outReal: &mut [f64],
+    ) -> Result<(HT_DCPHASE_Stream, OutRange), RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.HT_DCPHASE_OpenPass(inReal, 0, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::HT_DCPHASE_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -1485,7 +1520,7 @@ impl Core {
     pub(crate) fn HT_DCPHASE_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<HT_DCPHASE_Stream, RetCode> {
-        self.HT_DCPHASE_OpenCore(inReal, startIdx, outBegIdx, outNBElement, outReal, 1)
+        self.HT_DCPHASE_OpenPass(inReal, startIdx, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -1501,12 +1536,25 @@ thread_local! {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl HT_DCPHASE_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_HT_DCPHASE_Update")]
-    pub fn update(&mut self, inReal: f64) -> f64 {
+    pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outReal: f64 = 0.0_f64;
         self.core.HT_DCPHASE_step_internal(&mut self.state, inReal, &mut outReal);
-        outReal
+        Ok(outReal)
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1514,9 +1562,16 @@ impl HT_DCPHASE_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. The copy it runs on is held per thread and reused,
     /// so only the first peek of this function on a thread allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_HT_DCPHASE_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> f64 {
+    pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         HT_DCPHASE_PEEK_SCRATCH.with(|cell| {
             let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
             scratch.restore_from(self);

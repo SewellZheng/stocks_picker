@@ -44,13 +44,13 @@
       return retValue * 3 ;
 
    }
-   RetCode TEMA_Internal( int startIdx,
-                          int endIdx,
-                          double inReal[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode TEMA_Impl( int startIdx,
+                      int endIdx,
+                      double inReal[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -218,13 +218,13 @@
       outNBElement.value = outIdx;
       return RetCode.Success ;
    }
-   RetCode TEMA_Internal( int startIdx,
-                          int endIdx,
-                          float inReal[],
-                          int optInTimePeriod,
-                          MInteger outBegIdx,
-                          MInteger outNBElement,
-                          double outReal[] )
+   RetCode TEMA_Impl( int startIdx,
+                      int endIdx,
+                      float inReal[],
+                      int optInTimePeriod,
+                      MInteger outBegIdx,
+                      MInteger outNBElement,
+                      double outReal[] )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -345,8 +345,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#EMA
     * @see Core#DEMA
@@ -358,9 +365,15 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("TEMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, TEMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("TEMA", "inReal", inReal, guardInLen);
+      requireLength("TEMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TEMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TEMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("TEMA", retCode);
       }
@@ -399,8 +412,15 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, or two outputs share one array.
-    * @throws NullPointerException if any input or output array is null.
+    *        documented range, two outputs share one array, or an array is too short
+    *        for the range requested — an input this function <i>reads</i> that does
+    *        not reach {@code endIdx}, or an output that cannot hold the values
+    *        produced. Checked before anything is written, so a rejected call leaves
+    *        every buffer untouched.
+    * @throws NullPointerException if an input this function reads, or any
+    *        output, is null. A few candlestick patterns declare an OHLC series they
+    *        never index; those are neither length-checked nor null-checked, because
+    *        rejecting them would refuse a call the algorithm can answer.
     *
     * @see Core#EMA
     * @see Core#DEMA
@@ -412,9 +432,15 @@
                          int optInTimePeriod,
                          double outReal[] )
    {
+      requireIndexRange("TEMA", startIdx, endIdx);
+      int guardStart = clampedStart(startIdx, endIdx, TEMA_Lookback(optInTimePeriod));
+      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
+      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      requireLength("TEMA", "inReal", inReal, guardInLen);
+      requireLength("TEMA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TEMA_Internal(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TEMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode != RetCode.Success ) {
          throw failure("TEMA", retCode);
       }
@@ -480,10 +506,20 @@
       }
 
       /**
-       * Commit one closed bar; always produces the new current value.
-       * Never throws after a successful open; never allocates handle state.
+       * Commit one closed bar, returning the new current value.
+       * Never allocates handle state.
+       * <p>Throws {@link IllegalArgumentException} if any bar value is not
+       * finite (NaN or an infinity). That check runs before anything is
+       * written, so the handle is left exactly as it was —
+       * the stream stays usable, so skip the bar or re-open on a clean
+       * history. This is the one place the streaming tier is stricter than
+       * the batch API, which computes on whatever it is given: a handle
+       * retains its state, so a single non-finite bar would poison every
+       * later value it produces.
        */
       public double update( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("TEMA update: BadParam", RetCode.BadParam);
          core.TEMA_StreamStep(this, inReal);
          return this.cur_outReal;
       }
@@ -496,6 +532,8 @@
        * handle's shape is cheaper than reusing one.
        */
       public double peek( double inReal ) {
+         if( !Double.isFinite(inReal) )
+            throw new TaLibArgumentException("TEMA peek: BadParam", RetCode.BadParam);
          TEMA_Stream scratch = new TEMA_Stream(this);
          core.TEMA_StreamStep(scratch, inReal);
          return scratch.cur_outReal;
@@ -529,7 +567,7 @@
       sp.prevEMA3 = Math.fma(sp.prevEMA2 - sp.prevEMA3, sp.optInK_1, sp.prevEMA3);
       sp.cur_outReal = sp.prevEMA3 + (3.0 * sp.prevEMA1 - 3.0 * sp.prevEMA2);
    }
-   private RetCode TEMA_OpenCore( TEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode TEMA_OpenPass( TEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double prevEMA1 = 0;
       double prevEMA2 = 0;
@@ -556,7 +594,7 @@
       }
       if( optInTimePeriod == 1 ) {
          if( historyLen < TEMA_Lookback(optInTimePeriod) + 1 ) {
-            return RetCode.OutOfRangeEndIndex;
+            return RetCode.InsufficientHistory;
          }
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevEMA1 = 0.0;
@@ -610,7 +648,7 @@
       }
       /* Make sure there is still something to evaluate. */
       if( startIdx > endIdx ) {
-         return RetCode.OutOfRangeEndIndex ;
+         return RetCode.InsufficientHistory ;
       }
       /* The three EMA are computed in a single lockstep pass: each new
        * EMA1 value is immediately fed into EMA2, and each new EMA2 value
@@ -714,55 +752,55 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode TEMA_OpenBody( TEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
+   private RetCode TEMA_OpenImpl( TEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
    {
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       double[] sink_outReal = new double[1];
-      return TEMA_OpenCore( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
+      return TEMA_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
    }
-   private RetCode TEMA_OpenAndFillBody( TEMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode TEMA_OpenAndFillImpl( TEMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       if( (Object)outReal == (Object)inReal ) {
          return RetCode.BadParam;
       }
-      return TEMA_OpenCore( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+      return TEMA_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
    }
-   private RetCode TEMA_OpenAndFillInternalBody( TEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
+   private RetCode TEMA_OpenAndFillInternalImpl( TEMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
-      return TEMA_OpenCore(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      return TEMA_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
    }
    /* TEMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    TEMA_Stream TEMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       TEMA_Stream sp = new TEMA_Stream(this);
-      RetCode retCode = TEMA_OpenAndFillInternalBody(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TEMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TEMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TEMA openAndFill: internal error");
+         throw new TaLibStateException("TEMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("TEMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("TEMA openAndFill: " + retCode, retCode);
    }
    /* Internal startIdx-anchored open behind TEMA_Open (composition seam). */
    TEMA_Stream TEMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       TEMA_Stream sp = new TEMA_Stream(this);
-      RetCode retCode = TEMA_OpenBody(sp, inReal, startIdx, optInTimePeriod);
+      RetCode retCode = TEMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TEMA open: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TEMA open: internal error");
+         throw new TaLibStateException("TEMA open: internal error", retCode);
       }
-      throw new IllegalArgumentException("TEMA open: " + retCode);
+      throw new TaLibArgumentException("TEMA open: " + retCode, retCode);
    }
    /**
     * Open a live TEMA stream over the warm-up history; the handle's
@@ -792,16 +830,16 @@
       TEMA_Stream sp = new TEMA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = TEMA_OpenAndFillBody(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = TEMA_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
       sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
       if( retCode == RetCode.Success ) {
          return sp;
       }
-      if( retCode == RetCode.OutOfRangeEndIndex ) {
+      if( retCode == RetCode.InsufficientHistory ) {
          throw new InsufficientHistoryException("TEMA openAndFill: history shorter than lookback + 1");
       }
       if( retCode == RetCode.InternalError ) {
-         throw new IllegalStateException("TEMA openAndFill: internal error");
+         throw new TaLibStateException("TEMA openAndFill: internal error", retCode);
       }
-      throw new IllegalArgumentException("TEMA openAndFill: " + retCode);
+      throw new TaLibArgumentException("TEMA openAndFill: " + retCode, retCode);
    }

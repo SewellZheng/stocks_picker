@@ -1436,7 +1436,7 @@ static void TA_HT_TRENDMODE_StepInternal( struct TA_HT_TRENDMODE_Stream *sp, dou
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_TRENDMODE_OpenCore( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_RetCode TA_HT_TRENDMODE_OpenPass( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_HT_TRENDMODE_Stream *sp;
    double local_smoothPrice[50];
@@ -1581,7 +1581,7 @@ static TA_RetCode TA_HT_TRENDMODE_OpenCore( struct TA_HT_TRENDMODE_Stream **stre
       {
          *outBegIdx= 0;
          *outNBElement= 0;
-         return TA_BAD_PARAM;
+         return TA_INSUFFICIENT_HISTORY;
       }
       *outBegIdx= startIdx;
       /* Initialize the price smoother, which is simply a weighted
@@ -2076,7 +2076,7 @@ TA_RetCode TA_HT_TRENDMODE_OpenInternal( struct TA_HT_TRENDMODE_Stream **stream,
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    int sink_outInteger = 0;
-   retCode = TA_HT_TRENDMODE_OpenCore( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
+   retCode = TA_HT_TRENDMODE_OpenPass( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outInteger = sink_outInteger;
@@ -2086,6 +2086,11 @@ TA_RetCode TA_HT_TRENDMODE_OpenInternal( struct TA_HT_TRENDMODE_Stream **stream,
 
 TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Open( TA_HT_TRENDMODE_Stream **stream, const double inReal[], int historyLen, int *outInteger )
 {
+   if( !stream ) return TA_BAD_PARAM;
+   *stream = NULL;
+   if( !inReal || !outInteger ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    return TA_HT_TRENDMODE_OpenInternal( stream, inReal, 0, historyLen, outInteger );
 }
 
@@ -2094,19 +2099,23 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE_OpenAndFill( TA_HT_TRENDMODE_Stream **stre
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
    if( !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
+   if( !inReal || !outInteger ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outInteger == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_HT_TRENDMODE_OpenCore( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_HT_TRENDMODE_OpenPass( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDMODE_OpenAndFillInternal( struct TA_HT_TRENDMODE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, int outInteger[] )
 {
-   return TA_HT_TRENDMODE_OpenCore( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_HT_TRENDMODE_OpenPass( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Update( TA_HT_TRENDMODE_Stream *stream, double inReal, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_HT_TRENDMODE_StepInternal( stream, inReal, outInteger );
    return TA_SUCCESS;
 }
@@ -2116,6 +2125,7 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Peek( const TA_HT_TRENDMODE_Stream *stream
    struct TA_HT_TRENDMODE_Stream scratch;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.ring_trailingWMAIdx_inReal = stream->ringMirror_trailingWMAIdx_inReal;
    memcpy( scratch.ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingWMAIdx > 0 ? stream->ringCap_trailingWMAIdx : 1) );

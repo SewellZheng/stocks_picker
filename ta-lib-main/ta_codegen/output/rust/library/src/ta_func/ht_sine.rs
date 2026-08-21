@@ -77,68 +77,9 @@ impl Core {
         // See mama_lookback for an explanation of the "32".
         return (63 + self.unstable_period[FuncUnstId::HT_SINE as usize]) as usize;
     }
-    /// Hilbert Transform SineWave: derives the dominant-cycle phase from price and emits its sine
-    /// plus a 45-degree-lead sine. The two curves cross near cycle turning points. outSine and
-    /// outLeadSine crossing marks cycle turning points.
-    ///
-    /// # Arguments
-    ///
-    /// * `startIdx` — Start index of the requested calculation range.
-    /// * `endIdx` — End index of the requested calculation range (inclusive).
-    /// * `inReal` — Source price series.
-    /// * `outBegIdx` — Set to the input index of the first output value.
-    /// * `outNBElement` — Set to the number of output values written.
-    /// * `outSine` — Sine of the dominant-cycle phase.
-    /// * `outLeadSine` — Sine of the phase advanced 45 degrees (lead)
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds [`MAX_INDEX`], and
-    /// [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is below `startIdx`.
-    ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use ta_lib::{Core, RetCode};
-    ///
-    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
-    ///
-    /// let core = Core::new();
-    /// let mut out_beg = 0;
-    /// let mut out_nb = 0;
-    /// let mut sine = vec![0.0; 252];
-    /// let mut lead_sine = vec![0.0; 252];
-    ///
-    /// let ret = core.HT_SINE(
-    ///     0, data.len() - 1, &data,
-    ///     &mut out_beg, &mut out_nb, &mut sine, &mut lead_sine,
-    /// );
-    /// assert_eq!(ret, RetCode::Success);
-    /// assert!(out_nb > 0);
-    /// assert!(sine[..out_nb].iter().all(|v| v.is_finite()));
-    /// ```
-    ///
-    /// # See also
-    ///
-    /// [`Core::HT_DCPHASE`] · [`Core::HT_DCPERIOD`] · [`Core::HT_PHASOR`] ·
-    /// [`Core::HT_TRENDMODE`] · [`Core::MAMA`]
-    ///
-    /// # References
-    ///
-    /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
-    ///   Wiley & Sons (ISBN 0471405671)
-    ///
-    /// Further reading: [ta-lib.org/functions/ht_sine](https://ta-lib.org/functions/ht_sine)
-    #[doc(alias = "HilbertTransformSineWave")]
-    #[doc(alias = "EhlersSineWave")]
-    #[doc(alias = "SineWaveIndicator")]
-    pub fn HT_SINE(
+    /// C-shaped body behind [`Core::HT_SINE`]: a `RetCode` plus two out-params,
+    /// which is what the transcribed body and its cross-indicator callers expect.
+    pub(crate) fn HT_SINE_Impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -149,13 +90,13 @@ impl Core {
         outLeadSine: &mut [f64],
     ) -> RetCode {
         #[cfg(target_arch = "x86_64")]
-        return ta_lib_dispatch::dispatch_fma!(self, HT_SINE_fma, HT_SINE_impl, (startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine));
+        return ta_lib_dispatch::dispatch_fma!(self, HT_SINE_Impl_fma, HT_SINE_Impl_impl, (startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine));
         #[cfg(not(target_arch = "x86_64"))]
-        self.HT_SINE_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine)
+        self.HT_SINE_Impl_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine)
     }
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "fma")]
-    fn HT_SINE_fma(
+    fn HT_SINE_Impl_fma(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -165,10 +106,10 @@ impl Core {
         outSine: &mut [f64],
         outLeadSine: &mut [f64],
     ) -> RetCode {
-        self.HT_SINE_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine)
+        self.HT_SINE_Impl_impl(startIdx, endIdx, inReal, outBegIdx, outNBElement, outSine, outLeadSine)
     }
     #[inline(always)]
-    fn HT_SINE_impl(
+    fn HT_SINE_Impl_impl(
         &self,
         startIdx: usize,
         endIdx: usize,
@@ -178,10 +119,10 @@ impl Core {
         outSine: &mut [f64],
         outLeadSine: &mut [f64],
     ) -> RetCode {
-        if startIdx > MAX_INDEX {
+        if startIdx > Self::MAX_INDEX {
             return RetCode::OutOfRangeStartIndex;
         }
-        if endIdx > MAX_INDEX || endIdx < startIdx {
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
         if outSine.as_ptr() == outLeadSine.as_ptr() {
@@ -589,6 +530,93 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
+    /// Hilbert Transform SineWave: derives the dominant-cycle phase from price and emits its sine
+    /// plus a 45-degree-lead sine. The two curves cross near cycle turning points. outSine and
+    /// outLeadSine crossing marks cycle turning points.
+    ///
+    /// # Arguments
+    ///
+    /// * `startIdx` — Start index of the requested calculation range.
+    /// * `endIdx` — End index of the requested calculation range (inclusive).
+    /// * `inReal` — Source price series.
+    /// * `outSine` — Sine of the dominant-cycle phase.
+    /// * `outLeadSine` — Sine of the phase advanced 45 degrees (lead)
+    ///
+    /// # Returns
+    ///
+    /// On success, an [`OutRange`]: `beg_idx` is the index of the first value written, in the input
+    /// series' coordinates, and `count` is how many were written. A range shorter than the lookback
+    /// succeeds with `count == 0`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Err`] carrying [`RetCode::OutOfRangeStartIndex`] when `startIdx` exceeds
+    /// [`Core::MAX_INDEX`], and [`RetCode::OutOfRangeEndIndex`] when `endIdx` exceeds it or is
+    /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
+    /// zero [`OutRange::count`].
+    ///
+    /// # Panics
+    ///
+    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
+    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
+    /// length is always sufficient.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ta_lib::Core;
+    ///
+    /// let data: Vec<f64> = (0..252).map(|i| 100.0 + 10.0 * (0.1 * i as f64).sin()).collect();
+    ///
+    /// let core = Core::new();
+    /// let mut sine = vec![0.0; 252];
+    /// let mut lead_sine = vec![0.0; 252];
+    ///
+    /// let out_range = core.HT_SINE(0, data.len() - 1, &data, &mut sine, &mut lead_sine)?;
+    /// assert!(out_range.count > 0);
+    /// assert!(sine[..out_range.count].iter().all(|v| v.is_finite()));
+    /// # Ok::<(), ta_lib::RetCode>(())
+    /// ```
+    ///
+    /// # See also
+    ///
+    /// [`Core::HT_DCPHASE`] · [`Core::HT_DCPERIOD`] · [`Core::HT_PHASOR`] ·
+    /// [`Core::HT_TRENDMODE`] · [`Core::MAMA`]
+    ///
+    /// # References
+    ///
+    /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
+    ///   Wiley & Sons (ISBN 0471405671)
+    ///
+    /// Further reading: [ta-lib.org/functions/ht_sine](https://ta-lib.org/functions/ht_sine)
+    #[doc(alias = "HilbertTransformSineWave")]
+    #[doc(alias = "EhlersSineWave")]
+    #[doc(alias = "SineWaveIndicator")]
+    pub fn HT_SINE(
+        &self,
+        startIdx: usize,
+        endIdx: usize,
+        inReal: &[f64],
+        outSine: &mut [f64],
+        outLeadSine: &mut [f64],
+    ) -> Result<OutRange, RetCode> {
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let retCode = self.HT_SINE_Impl(
+            startIdx,
+            endIdx,
+            inReal,
+            &mut outBegIdx,
+            &mut outNBElement,
+            outSine,
+            outLeadSine,
+        );
+        match retCode {
+            RetCode::Success => Ok(OutRange { beg_idx: outBegIdx, count: outNBElement }),
+            e => Err(e),
+        }
+    }
+
 }
 /**** Streaming API *****/
 
@@ -966,13 +994,13 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::HT_SINE_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::HT_SINE_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn HT_SINE_OpenCore(
+    pub(crate) fn HT_SINE_OpenPass(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outSine: &mut [f64], outLeadSine: &mut [f64], outStride: usize,
     ) -> Result<HT_SINE_Stream, RetCode> {
         if inReal.is_empty() {
             return Err(RetCode::BadParam);
         }
-        if inReal.len() > MAX_INDEX + 1 {
+        if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
         }
         let historyLen: usize = inReal.len();
@@ -1077,7 +1105,7 @@ impl Core {
         if startIdx > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(RetCode::BadParam);
+            return Err(RetCode::InsufficientHistory);
         }
         (*outBegIdx) = startIdx;
         // Initialize the price smoother, which is simply a weighted
@@ -1467,7 +1495,7 @@ impl Core {
         let mut dummyNBElement: usize = 0;
         let mut sink_outSine = [0.0_f64; 1];
         let mut sink_outLeadSine = [0.0_f64; 1];
-        let handle = self.HT_SINE_OpenCore(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outSine, &mut sink_outLeadSine, 0)?;
+        let handle = self.HT_SINE_OpenPass(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outSine, &mut sink_outLeadSine, 0)?;
         Ok((handle, (sink_outSine[0], sink_outLeadSine[0])))
     }
 
@@ -1476,8 +1504,10 @@ impl Core {
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] when a parameter is out of range, an input is empty or
-    /// input lengths differ, or the history is shorter than `lookback + 1` bars.
+    /// [`RetCode::InsufficientHistory`] when the history holds fewer than
+    /// `lookback + 1` bars — the one failure here worth retrying, since another
+    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
+    /// input is empty, or input lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1485,8 +1515,8 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.HT_SINE_Open(&data).expect("enough history");
-    /// let peeked = s.peek(100.9);
-    /// let updated = s.update(100.9);
+    /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// let updated = s.update(100.9).expect("a finite bar");
     /// assert_eq!(peeked.0.to_bits(), updated.0.to_bits());
     /// assert_eq!(peeked.1.to_bits(), updated.1.to_bits());
     /// ```
@@ -1496,16 +1526,20 @@ impl Core {
     }
 
     /// [`Core::HT_SINE_Open`] that also fills the output array(s) bit-identically to
-    /// [`Core::HT_SINE`] over `0..len` in the same single pass. Output slices must hold
+    /// [`Core::HT_SINE`] over `0..len` in the same single pass, and reports the range it
+    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
     /// `len - lookback` values; undersized slices panic (the batch sizing contract).
     #[doc(alias = "TA_HT_SINE_OpenAndFill")]
     pub fn HT_SINE_OpenAndFill(
-        &self, inReal: &[f64], outBegIdx: &mut usize, outNBElement: &mut usize, outSine: &mut [f64], outLeadSine: &mut [f64],
-    ) -> Result<HT_SINE_Stream, RetCode> {
+        &self, inReal: &[f64], outSine: &mut [f64], outLeadSine: &mut [f64],
+    ) -> Result<(HT_SINE_Stream, OutRange), RetCode> {
         if outSine.as_ptr() == outLeadSine.as_ptr() {
             return Err(RetCode::BadParam);
         }
-        self.HT_SINE_OpenCore(inReal, 0, outBegIdx, outNBElement, outSine, outLeadSine, 1)
+        let mut outBegIdx: usize = 0;
+        let mut outNBElement: usize = 0;
+        let handle = self.HT_SINE_OpenPass(inReal, 0, &mut outBegIdx, &mut outNBElement, outSine, outLeadSine, 1)?;
+        Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
     /// [`Core::HT_SINE_OpenAndFill`] anchored at `startIdx` — the composed-open
@@ -1513,7 +1547,7 @@ impl Core {
     pub(crate) fn HT_SINE_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outSine: &mut [f64], outLeadSine: &mut [f64],
     ) -> Result<HT_SINE_Stream, RetCode> {
-        self.HT_SINE_OpenCore(inReal, startIdx, outBegIdx, outNBElement, outSine, outLeadSine, 1)
+        self.HT_SINE_OpenPass(inReal, startIdx, outBegIdx, outNBElement, outSine, outLeadSine, 1)
     }
 
 }
@@ -1529,13 +1563,26 @@ thread_local! {
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
 impl HT_SINE_Stream {
-    /// Commit one closed bar; always produces a value. Never allocates.
+    /// Commit one closed bar. Never allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
+    /// That check runs before anything is written, so the handle is left
+    /// exactly as it was and the stream stays usable:
+    /// skip the bar, or close and re-open on a clean history. This is the
+    /// one place the streaming tier is stricter than the batch API, which
+    /// computes on whatever it is given — a handle retains its state, so a
+    /// single non-finite bar would poison every later value it produces.
     #[doc(alias = "TA_HT_SINE_Update")]
-    pub fn update(&mut self, inReal: f64) -> (f64, f64) {
+    pub fn update(&mut self, inReal: f64) -> Result<(f64, f64), RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         let mut outSine: f64 = 0.0_f64;
         let mut outLeadSine: f64 = 0.0_f64;
         self.core.HT_SINE_step_internal(&mut self.state, inReal, &mut outSine, &mut outLeadSine);
-        (outSine, outLeadSine)
+        Ok((outSine, outLeadSine))
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1543,9 +1590,16 @@ impl HT_SINE_Stream {
     /// on a scratch copy of the state). Never writes the handle, so peeks may
     /// run concurrently with each other. The copy it runs on is held per thread and reused,
     /// so only the first peek of this function on a thread allocates.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
+    /// `update` rejects it.
     #[doc(alias = "TA_HT_SINE_Peek")]
-    #[must_use]
-    pub fn peek(&self, inReal: f64) -> (f64, f64) {
+    pub fn peek(&self, inReal: f64) -> Result<(f64, f64), RetCode> {
+        if !inReal.is_finite() {
+            return Err(RetCode::BadParam);
+        }
         HT_SINE_PEEK_SCRATCH.with(|cell| {
             let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
             scratch.restore_from(self);
