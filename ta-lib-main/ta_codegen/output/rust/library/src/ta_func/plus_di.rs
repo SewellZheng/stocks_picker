@@ -547,12 +547,16 @@ impl Core {
 /// Live PLUS_DI stream: one value per closed bar, bit-identical to [`Core::PLUS_DI`]
 /// over the same series. Open with [`Core::PLUS_DI_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_PLUS_DI_Stream")]
 pub struct PLUS_DI_Stream {
     core: Core,
     state: PLUS_DI_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -562,6 +566,7 @@ impl PLUS_DI_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -572,9 +577,6 @@ struct PLUS_DI_StreamState {
     prevHigh: f64,
     prevLow: f64,
     prevClose: f64,
-    tempReal: f64,
-    diffP: f64,
-    diffM: f64,
     prevPlusDM: f64,
     prevTR: f64,
 }
@@ -588,9 +590,6 @@ impl PLUS_DI_StreamState {
         self.prevHigh = src.prevHigh;
         self.prevLow = src.prevLow;
         self.prevClose = src.prevClose;
-        self.tempReal = src.tempReal;
-        self.diffP = src.diffP;
-        self.diffM = src.diffM;
         self.prevPlusDM = src.prevPlusDM;
         self.prevTR = src.prevTR;
     }
@@ -603,17 +602,20 @@ impl PLUS_DI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn PLUS_DI_step_internal(&self, sp: &mut PLUS_DI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
+    fn PLUS_DI_step_impl(&self, sp: &mut PLUS_DI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
         if sp.optInTimePeriod <= 1 {
-            sp.tempReal = inHigh;
-            sp.diffP = sp.tempReal - sp.prevHigh;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut diffP: f64 = 0.0_f64;
+            let mut diffM: f64 = 0.0_f64;
+            tempReal = inHigh;
+            diffP = tempReal - sp.prevHigh;
             // Plus Delta
-            sp.prevHigh = sp.tempReal;
-            sp.tempReal = inLow;
-            sp.diffM = sp.prevLow - sp.tempReal;
+            sp.prevHigh = tempReal;
+            tempReal = inLow;
+            diffM = sp.prevLow - tempReal;
             // Minus Delta
-            sp.prevLow = sp.tempReal;
-            if sp.diffP > 0_f64 && sp.diffP > sp.diffM {
+            sp.prevLow = tempReal;
+            if diffP > 0_f64 && diffP > diffM {
                 // Case 1 and 3: +DM=diffP,-DM=0
                 let mut _true_range_0: f64;
                 let mut range_0: f64 = sp.prevHigh - sp.prevLow;
@@ -626,29 +628,32 @@ impl Core {
                     range_0 = tmp_0;
                 }
                 _true_range_0 = range_0;
-                sp.tempReal = _true_range_0;
-                if (sp.tempReal).abs() < 1e-14 {
+                tempReal = _true_range_0;
+                if (tempReal).abs() < 1e-14 {
                     (*outReal) = 0.0 as f64;
                 } else {
-                    (*outReal) = sp.diffP / sp.tempReal;
+                    (*outReal) = diffP / tempReal;
                 }
             } else {
                 (*outReal) = 0.0 as f64;
             }
             sp.prevClose = inClose;
         } else {
+            let mut tempReal: f64 = 0.0_f64;
+            let mut diffP: f64 = 0.0_f64;
+            let mut diffM: f64 = 0.0_f64;
             // Calculate the prevPlusDM
-            sp.tempReal = inHigh;
-            sp.diffP = sp.tempReal - sp.prevHigh;
+            tempReal = inHigh;
+            diffP = tempReal - sp.prevHigh;
             // Plus Delta
-            sp.prevHigh = sp.tempReal;
-            sp.tempReal = inLow;
-            sp.diffM = sp.prevLow - sp.tempReal;
+            sp.prevHigh = tempReal;
+            tempReal = inLow;
+            diffM = sp.prevLow - tempReal;
             // Minus Delta
-            sp.prevLow = sp.tempReal;
-            if sp.diffP > 0_f64 && sp.diffP > sp.diffM {
+            sp.prevLow = tempReal;
+            if diffP > 0_f64 && diffP > diffM {
                 // Case 1 and 3: +DM=diffP,-DM=0
-                sp.prevPlusDM = sp.prevPlusDM - sp.prevPlusDM / ((sp.optInTimePeriod) as f64) + sp.diffP;
+                sp.prevPlusDM = sp.prevPlusDM - sp.prevPlusDM / ((sp.optInTimePeriod) as f64) + diffP;
             } else {
                 // Case 2,4,5 and 7
                 sp.prevPlusDM = sp.prevPlusDM - sp.prevPlusDM / ((sp.optInTimePeriod) as f64);
@@ -665,8 +670,8 @@ impl Core {
                 range_1 = tmp_1;
             }
             _true_range_1 = range_1;
-            sp.tempReal = _true_range_1;
-            sp.prevTR = sp.prevTR - sp.prevTR / ((sp.optInTimePeriod) as f64) + sp.tempReal;
+            tempReal = _true_range_1;
+            sp.prevTR = sp.prevTR - sp.prevTR / ((sp.optInTimePeriod) as f64) + tempReal;
             sp.prevClose = inClose;
             // Calculate the DI. The value is rounded (see Wilder book).
             if !((sp.prevTR).abs() < 1e-14) {
@@ -679,7 +684,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::PLUS_DI_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::PLUS_DI_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn PLUS_DI_OpenPass(
+    pub(crate) fn PLUS_DI_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<PLUS_DI_Stream, RetCode> {
         if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
@@ -696,6 +701,11 @@ impl Core {
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod <= 1 {
@@ -873,13 +883,10 @@ impl Core {
                 prevHigh,
                 prevLow,
                 prevClose,
-                tempReal,
-                diffP,
-                diffM,
                 prevPlusDM,
                 prevTR,
             };
-            Ok(PLUS_DI_Stream { core: self.clone(), state })
+            Ok(PLUS_DI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         } else {
             let mut today: usize = 0_usize;
             let mut lookbackTotal: usize = 0_usize;
@@ -1136,13 +1143,10 @@ impl Core {
                 prevHigh,
                 prevLow,
                 prevClose,
-                tempReal,
-                diffP,
-                diffM,
                 prevPlusDM,
                 prevTR,
             };
-            Ok(PLUS_DI_Stream { core: self.clone(), state })
+            Ok(PLUS_DI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         }
     }
 
@@ -1153,7 +1157,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.PLUS_DI_OpenPass(inHigh, inLow, inClose, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.PLUS_DI_OpenImpl(inHigh, inLow, inClose, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -1177,8 +1181,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.PLUS_DI_Open(&high, &low, &close, 14).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(101.4, 99.1, 100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(101.4, 99.1, 100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_PLUS_DI_Open")]
@@ -1196,7 +1204,7 @@ impl Core {
     ) -> Result<(PLUS_DI_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.PLUS_DI_OpenPass(inHigh, inLow, inClose, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.PLUS_DI_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -1205,7 +1213,7 @@ impl Core {
     pub(crate) fn PLUS_DI_OpenAndFillInternal(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<PLUS_DI_Stream, RetCode> {
-        self.PLUS_DI_OpenPass(inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.PLUS_DI_OpenImpl(inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -1230,8 +1238,45 @@ impl PLUS_DI_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.PLUS_DI_step_internal(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        self.core.PLUS_DI_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_PLUS_DI_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inHigh.len();
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.PLUS_DI_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1251,6 +1296,19 @@ impl PLUS_DI_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inHigh, inLow, inClose)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::PLUS_DI`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

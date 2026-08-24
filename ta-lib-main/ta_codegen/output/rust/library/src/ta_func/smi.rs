@@ -264,7 +264,7 @@ impl Core {
         // spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
         // preserved for the functions that already shipped with it and dropped from
         // new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-        // The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+        // The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
         kSlow = 2.0 / ((optInSlowPeriod + 1) as f64);
         kFast = 2.0 / ((optInFastPeriod + 1) as f64);
         kSignal = 2.0 / ((optInSignalPeriod + 1) as f64);
@@ -606,12 +606,16 @@ impl Core {
 /// Live SMI stream: one value per closed bar, bit-identical to [`Core::SMI`]
 /// over the same series. Open with [`Core::SMI_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_SMI_Stream")]
 pub struct SMI_Stream {
     core: Core,
     state: SMI_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -621,6 +625,7 @@ impl SMI_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -640,10 +645,6 @@ struct SMI_StreamState {
     emaSlowDen: f64,
     emaFastNum: f64,
     emaFastDen: f64,
-    num: f64,
-    den: f64,
-    halfDen: f64,
-    smiValue: f64,
     prevSignal: f64,
     trailingIdx: i32,
     highestIdx: i32,
@@ -674,10 +675,6 @@ impl SMI_StreamState {
         self.emaSlowDen = src.emaSlowDen;
         self.emaFastNum = src.emaFastNum;
         self.emaFastDen = src.emaFastDen;
-        self.num = src.num;
-        self.den = src.den;
-        self.halfDen = src.halfDen;
-        self.smiValue = src.smiValue;
         self.prevSignal = src.prevSignal;
         self.trailingIdx = src.trailingIdx;
         self.highestIdx = src.highestIdx;
@@ -698,8 +695,12 @@ impl SMI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn SMI_step_internal(&self, sp: &mut SMI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outSMI: &mut f64, outSMISignal: &mut f64) {
+    fn SMI_step_impl(&self, sp: &mut SMI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outSMI: &mut f64, outSMISignal: &mut f64) {
         let mut tmp: f64 = 0.0_f64;
+        let mut num: f64 = 0.0_f64;
+        let mut den: f64 = 0.0_f64;
+        let mut halfDen: f64 = 0.0_f64;
+        let mut smiValue: f64 = 0.0_f64;
         if sp.today >= 1073741824 {
             let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
             sp.today -= rebaseShift;
@@ -745,10 +746,10 @@ impl Core {
             sp.highestIdx = sp.today;
             sp.highest = tmp;
         }
-        sp.den = sp.highest - sp.lowest;
-        sp.num = sp.x_inClose[(sp.today & sp.xMask) as usize] - (sp.highest + sp.lowest) * 0.5;
-        sp.emaSlowNum = (sp.num - sp.emaSlowNum as f64).mul_add(sp.kSlow, sp.emaSlowNum);
-        sp.emaSlowDen = (sp.den - sp.emaSlowDen as f64).mul_add(sp.kSlow, sp.emaSlowDen);
+        den = sp.highest - sp.lowest;
+        num = sp.x_inClose[(sp.today & sp.xMask) as usize] - (sp.highest + sp.lowest) * 0.5;
+        sp.emaSlowNum = (num - sp.emaSlowNum as f64).mul_add(sp.kSlow, sp.emaSlowNum);
+        sp.emaSlowDen = (den - sp.emaSlowDen as f64).mul_add(sp.kSlow, sp.emaSlowDen);
         sp.emaFastNum = (sp.emaSlowNum - sp.emaFastNum as f64).mul_add(sp.kFast, sp.emaFastNum);
         sp.emaFastDen = (sp.emaSlowDen - sp.emaFastDen as f64).mul_add(sp.kFast, sp.emaFastDen);
         // Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
@@ -756,14 +757,14 @@ impl Core {
         // into noise (issue #107 / STOCHRSI). A window whose bars are all
         // H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
         // CCI (#7) and IMI (#112) convention.
-        sp.halfDen = 0.5 * sp.emaFastDen;
-        if !((sp.halfDen).abs() < 1e-14) {
-            sp.smiValue = 100.0 * sp.emaFastNum / sp.halfDen;
+        halfDen = 0.5 * sp.emaFastDen;
+        if !((halfDen).abs() < 1e-14) {
+            smiValue = 100.0 * sp.emaFastNum / halfDen;
         } else {
-            sp.smiValue = 0.0;
+            smiValue = 0.0;
         }
-        sp.prevSignal = (sp.smiValue - sp.prevSignal as f64).mul_add(sp.kSignal, sp.prevSignal);
-        (*outSMI) = sp.smiValue;
+        sp.prevSignal = (smiValue - sp.prevSignal as f64).mul_add(sp.kSignal, sp.prevSignal);
+        (*outSMI) = smiValue;
         (*outSMISignal) = sp.prevSignal;
         sp.trailingIdx = sp.trailingIdx + 1;
         sp.today = sp.today + 1;
@@ -771,7 +772,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::SMI_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::SMI_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn SMI_OpenPass(
+    pub(crate) fn SMI_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outSMI: &mut [f64], outSMISignal: &mut [f64], outStride: usize,
     ) -> Result<SMI_Stream, RetCode> {
         if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
@@ -803,6 +804,11 @@ impl Core {
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut kSlow: f64 = 0.0_f64;
@@ -865,7 +871,7 @@ impl Core {
         // spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
         // preserved for the functions that already shipped with it and dropped from
         // new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-        // The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+        // The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
         kSlow = 2.0 / ((optInSlowPeriod + 1) as f64);
         kFast = 2.0 / ((optInFastPeriod + 1) as f64);
         kSignal = 2.0 / ((optInSignalPeriod + 1) as f64);
@@ -1088,10 +1094,6 @@ impl Core {
             emaSlowDen,
             emaFastNum,
             emaFastDen,
-            num,
-            den,
-            halfDen,
-            smiValue,
             prevSignal,
             trailingIdx: (trailingIdx) as i32,
             highestIdx: (highestIdx) as i32,
@@ -1103,7 +1105,7 @@ impl Core {
             x_inLow,
             x_inClose,
         };
-        Ok(SMI_Stream { core: self.clone(), state })
+        Ok(SMI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::SMI_Open`] (composition seam).
@@ -1114,7 +1116,7 @@ impl Core {
         let mut dummyNBElement: usize = 0;
         let mut sink_outSMI = [0.0_f64; 1];
         let mut sink_outSMISignal = [0.0_f64; 1];
-        let handle = self.SMI_OpenPass(inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outSMI, &mut sink_outSMISignal, 0)?;
+        let handle = self.SMI_OpenImpl(inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outSMI, &mut sink_outSMISignal, 0)?;
         Ok((handle, (sink_outSMI[0], sink_outSMISignal[0])))
     }
 
@@ -1138,8 +1140,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.SMI_Open(&high, &low, &close, 13, 2, 25, 9).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(101.4, 99.1, 100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(101.4, 99.1, 100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.0.to_bits(), updated.0.to_bits());
     /// assert_eq!(peeked.1.to_bits(), updated.1.to_bits());
     /// ```
@@ -1161,7 +1167,7 @@ impl Core {
         }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.SMI_OpenPass(inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut outBegIdx, &mut outNBElement, outSMI, outSMISignal, 1)?;
+        let handle = self.SMI_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &mut outBegIdx, &mut outNBElement, outSMI, outSMISignal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -1170,7 +1176,7 @@ impl Core {
     pub(crate) fn SMI_OpenAndFillInternal(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outSMI: &mut [f64], outSMISignal: &mut [f64],
     ) -> Result<SMI_Stream, RetCode> {
-        self.SMI_OpenPass(inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1)
+        self.SMI_OpenImpl(inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1)
     }
 
 }
@@ -1204,8 +1210,45 @@ impl SMI_Stream {
         }
         let mut outSMI: f64 = 0.0_f64;
         let mut outSMISignal: f64 = 0.0_f64;
-        self.core.SMI_step_internal(&mut self.state, inHigh, inLow, inClose, &mut outSMI, &mut outSMISignal);
+        self.core.SMI_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outSMI, &mut outSMISignal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok((outSMI, outSMISignal))
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_SMI_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outSMI: &mut [f64], outSMISignal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inHigh.len();
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || outSMI.len() < barCount || outSMISignal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.SMI_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outSMI[i], &mut outSMISignal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1230,6 +1273,19 @@ impl SMI_Stream {
             cell.set(Some(scratch));
             value
         })
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::SMI`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

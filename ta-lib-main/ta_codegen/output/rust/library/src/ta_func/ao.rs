@@ -69,12 +69,10 @@ impl Core {
     ///
     /// # Arguments
     ///
-    /// * `optInFastPeriod` — Number of bars in the short moving average. Default 5, the value
-    ///   Williams uses and every surveyed package ships. (default 5, range 2..=100000)
-    /// * `optInSlowPeriod` — Number of bars in the long moving average. Default 34, likewise
-    ///   universal. MetaTrader, cTrader and Tulip Indicators hardcode the pair; TradingView,
-    ///   pandas-ta-classic and StockSharp expose it, and at the defaults the two agree exactly.
-    ///   (default 34, range 2..=100000)
+    /// * `optInFastPeriod` — Number of bars in the short moving average. (default 5, range
+    ///   2..=100000)
+    /// * `optInSlowPeriod` — Number of bars in the long moving average. (default 34, range
+    ///   2..=100000)
     ///
     /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
@@ -240,14 +238,16 @@ impl Core {
     /// readings that get traded are the zero-line crossings, the twin-peaks divergence, and the run
     /// of consecutive same-side bars — which is why the sign and the bar-to-bar change matter
     /// more than the level. The oscillator is the first leg of Williams' Profitunity system,
-    /// alongside the Alligator and the Accelerator/Decelerator.
+    /// alongside the Alligator and the Accelerator/Decelerator
+    /// ([`AC`](https://ta-lib.org/functions/ac)).
     ///
     /// # Formula
     ///
     /// ```text
-    /// median_t = ( high_t + low_t ) / 2; AO_t = SMA(median, fast)_t − SMA(median, slow)_t
+    /// median_t = ( high_t + low_t ) / 2  
+    /// AO_t = SMA(median, fast)_t − SMA(median, slow)_t
     ///
-    /// Both legs are plain simple moving averages, so there is no seeding convention and none of the cross-library divergence that comes with one. An inverted pair is not swapped: passing a fast period longer than the slow one is well defined and simply yields −AO.
+    /// An inverted pair is not swapped: passing a fast period longer than the slow one is well defined and simply yields −AO.
     /// ```
     ///
     /// # Arguments
@@ -256,12 +256,10 @@ impl Core {
     /// * `endIdx` — End index of the requested calculation range (inclusive).
     /// * `inHigh` — High price of each bar.
     /// * `inLow` — Low price of each bar.
-    /// * `optInFastPeriod` — Number of bars in the short moving average. Default 5, the value
-    ///   Williams uses and every surveyed package ships. (default 5, range 2..=100000)
-    /// * `optInSlowPeriod` — Number of bars in the long moving average. Default 34, likewise
-    ///   universal. MetaTrader, cTrader and Tulip Indicators hardcode the pair; TradingView,
-    ///   pandas-ta-classic and StockSharp expose it, and at the defaults the two agree exactly.
-    ///   (default 34, range 2..=100000)
+    /// * `optInFastPeriod` — Number of bars in the short moving average. (default 5, range
+    ///   2..=100000)
+    /// * `optInSlowPeriod` — Number of bars in the long moving average. (default 34, range
+    ///   2..=100000)
     /// * `outReal` — Spread between the two moving averages, centred on zero.
     ///
     /// Integer parameters accept [`Core::INTEGER_DEFAULT`] to select their default value.
@@ -313,13 +311,9 @@ impl Core {
     ///   Awesome Oscillator as the 5-period less the 34-period simple moving average of the median
     ///   price.
     /// * Tulip Indicators `ti_ao` and pandas-ta-classic `ao` compute the same form on the same
-    ///   inputs, and both report the first value at the same bar. Tulip hardcodes the periods and
-    ///   multiplies by a precomputed reciprocal; this divides, which is what keeps each leg
-    ///   bit-identical to `TA_SMA`.
+    ///   inputs, and both report the first value at the same bar.
     /// * pandas-ta-classic swaps an inverted pair before computing, so it answers AO(slow, fast)
     ///   where this answers its negation.
-    /// * MetaTrader 4 and 5 expose the indicator as `iAO`, cTrader as `AwesomeOscillator`, and
-    ///   TradingView under the short title `AO`; the abbreviation is settled across the industry.
     ///
     /// Further reading: [ta-lib.org/functions/ao](https://ta-lib.org/functions/ao)
     #[doc(alias = "AwesomeOscillator")]
@@ -360,12 +354,16 @@ impl Core {
 /// Live AO stream: one value per closed bar, bit-identical to [`Core::AO`]
 /// over the same series. Open with [`Core::AO_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_AO_Stream")]
 pub struct AO_Stream {
     core: Core,
     state: AO_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -375,6 +373,7 @@ impl AO_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -385,7 +384,6 @@ struct AO_StreamState {
     optInSlowPeriod: i32,
     sumFast: f64,
     sumSlow: f64,
-    tempReal: f64,
     ringPos_trailingFastIdx: usize,
     ringCap_trailingFastIdx: usize,
     ring_trailingFastIdx_derived: Vec<f64>,
@@ -403,7 +401,6 @@ impl AO_StreamState {
         self.optInSlowPeriod = src.optInSlowPeriod;
         self.sumFast = src.sumFast;
         self.sumSlow = src.sumSlow;
-        self.tempReal = src.tempReal;
         self.ringPos_trailingFastIdx = src.ringPos_trailingFastIdx;
         self.ringCap_trailingFastIdx = src.ringCap_trailingFastIdx;
         self.ring_trailingFastIdx_derived.clone_from(&src.ring_trailingFastIdx_derived);
@@ -420,8 +417,9 @@ impl AO_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn AO_step_internal(&self, sp: &mut AO_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
+    fn AO_step_impl(&self, sp: &mut AO_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
         let mut medianPrice: f64 = 0.0_f64;
+        let mut tempReal: f64 = 0.0_f64;
         if sp.ringCap_trailingFastIdx == 0 {
             sp.ring_trailingFastIdx_derived[0] = (inHigh + inLow) / 2.0;
         }
@@ -433,7 +431,7 @@ impl Core {
         sp.sumSlow += medianPrice;
         // Snapshot the oscillator before either total drops its trailing bar,
         // mirroring the add-new / snapshot / subtract-old order of TA_SMA.
-        sp.tempReal = sp.sumFast / (sp.optInFastPeriod as f64) - sp.sumSlow / (sp.optInSlowPeriod as f64);
+        tempReal = sp.sumFast / (sp.optInFastPeriod as f64) - sp.sumSlow / (sp.optInSlowPeriod as f64);
         // Read both trailing bars before writing the output. When startIdx is
         // clamped to the lookback the longer window's trailing index equals
         // outIdx exactly, so a store hoisted above this would read back the
@@ -441,7 +439,7 @@ impl Core {
         // over inHigh or inLow.
         sp.sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx];
         sp.sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx];
-        (*outReal) = sp.tempReal;
+        (*outReal) = tempReal;
         sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
         sp.ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx + 1;
         if sp.ringPos_trailingFastIdx >= sp.ringCap_trailingFastIdx {
@@ -456,7 +454,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::AO_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::AO_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn AO_OpenPass(
+    pub(crate) fn AO_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<AO_Stream, RetCode> {
         if inHigh.is_empty() || inLow.is_empty() || inLow.len() != inHigh.len() {
@@ -478,6 +476,11 @@ impl Core {
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sumFast: f64 = 0.0_f64;
@@ -611,7 +614,6 @@ impl Core {
             optInSlowPeriod,
             sumFast,
             sumSlow,
-            tempReal,
             ringPos_trailingFastIdx: 0_usize,
             ringCap_trailingFastIdx: cap_trailingFastIdx as usize,
             ring_trailingFastIdx_derived,
@@ -619,7 +621,7 @@ impl Core {
             ringCap_trailingSlowIdx: cap_trailingSlowIdx as usize,
             ring_trailingSlowIdx_derived,
         };
-        Ok(AO_Stream { core: self.clone(), state })
+        Ok(AO_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::AO_Open`] (composition seam).
@@ -629,7 +631,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.AO_OpenPass(inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.AO_OpenImpl(inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -650,8 +652,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.AO_Open(&high, &low, 5, 34).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(101.4, 99.1).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(101.4, 99.1).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_AO_Open")]
@@ -669,7 +675,7 @@ impl Core {
     ) -> Result<(AO_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.AO_OpenPass(inHigh, inLow, 0, optInFastPeriod, optInSlowPeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.AO_OpenAndFillInternal(inHigh, inLow, 0, optInFastPeriod, optInSlowPeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -678,7 +684,7 @@ impl Core {
     pub(crate) fn AO_OpenAndFillInternal(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<AO_Stream, RetCode> {
-        self.AO_OpenPass(inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1)
+        self.AO_OpenImpl(inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -711,8 +717,45 @@ impl AO_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.AO_step_internal(&mut self.state, inHigh, inLow, &mut outReal);
+        self.core.AO_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_AO_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inHigh.len();
+        if inLow.len() != inHigh.len() || outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inHigh[i].is_finite() || !inLow[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.AO_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -737,6 +780,19 @@ impl AO_Stream {
             cell.set(Some(scratch));
             value
         })
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::AO`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

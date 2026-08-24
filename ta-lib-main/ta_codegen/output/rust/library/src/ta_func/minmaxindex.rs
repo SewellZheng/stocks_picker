@@ -201,13 +201,14 @@ impl Core {
     /// # Formula
     ///
     /// ```text
-    /// For each t: outMaxIdx[t] = argmax_{i in [t-N+1, t]} inReal[i]; outMinIdx[t] = argmin over the same window (N = optInTimePeriod).
+    /// outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])  
+    /// outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
     /// ```
     ///
     /// # Notes
     ///
-    /// * When several bars in a window share the extreme value, which bar's index is returned is
-    ///   not guaranteed to be a specific one of the tied bars.
+    /// * When several bars in a window share the extreme value, the index of one of them is
+    ///   returned — not necessarily the first or the last.
     ///
     /// # Arguments
     ///
@@ -297,12 +298,16 @@ impl Core {
 /// Live MINMAXINDEX stream: one value per closed bar, bit-identical to [`Core::MINMAXINDEX`]
 /// over the same series. Open with [`Core::MINMAXINDEX_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MINMAXINDEX_Stream")]
 pub struct MINMAXINDEX_Stream {
     core: Core,
     state: MINMAXINDEX_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -312,6 +317,7 @@ impl MINMAXINDEX_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -321,12 +327,10 @@ struct MINMAXINDEX_StreamState {
     optInTimePeriod: i32,
     highest: f64,
     lowest: f64,
-    tmpHigh: f64,
-    tmpLow: f64,
     trailingIdx: i32,
-    i: i32,
     highestIdx: i32,
     lowestIdx: i32,
+    i: i32,
     today: i32,
     xMask: i32,
     x_inReal: Vec<f64>,
@@ -340,12 +344,10 @@ impl MINMAXINDEX_StreamState {
         self.optInTimePeriod = src.optInTimePeriod;
         self.highest = src.highest;
         self.lowest = src.lowest;
-        self.tmpHigh = src.tmpHigh;
-        self.tmpLow = src.tmpLow;
         self.trailingIdx = src.trailingIdx;
-        self.i = src.i;
         self.highestIdx = src.highestIdx;
         self.lowestIdx = src.lowestIdx;
+        self.i = src.i;
         self.today = src.today;
         self.xMask = src.xMask;
         self.x_inReal.clone_from(&src.x_inReal);
@@ -359,7 +361,9 @@ impl MINMAXINDEX_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn MINMAXINDEX_step_internal(&self, sp: &mut MINMAXINDEX_StreamState, inReal: f64, outMinIdx: &mut i32, outMaxIdx: &mut i32) {
+    fn MINMAXINDEX_step_impl(&self, sp: &mut MINMAXINDEX_StreamState, inReal: f64, outMinIdx: &mut i32, outMaxIdx: &mut i32) {
+        let mut tmpHigh: f64 = 0.0_f64;
+        let mut tmpLow: f64 = 0.0_f64;
         if sp.today >= 1073741824 {
             let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
             sp.today -= rebaseShift;
@@ -369,37 +373,37 @@ impl Core {
             sp.lowestIdx -= rebaseShift;
         }
         sp.x_inReal[(sp.today & sp.xMask) as usize] = inReal;
-        sp.tmpHigh = sp.x_inReal[(sp.today & sp.xMask) as usize];
-        sp.tmpLow = sp.tmpHigh;
+        tmpHigh = sp.x_inReal[(sp.today & sp.xMask) as usize];
+        tmpLow = tmpHigh;
         if sp.highestIdx < sp.trailingIdx {
             sp.highestIdx = sp.trailingIdx;
             sp.highest = sp.x_inReal[(sp.highestIdx & sp.xMask) as usize];
             sp.i = sp.highestIdx;
             while (({ sp.i += 1; sp.i }) as i32) <= sp.today {
-                sp.tmpHigh = sp.x_inReal[(sp.i & sp.xMask) as usize];
-                if sp.tmpHigh > sp.highest {
+                tmpHigh = sp.x_inReal[(sp.i & sp.xMask) as usize];
+                if tmpHigh > sp.highest {
                     sp.highestIdx = sp.i;
-                    sp.highest = sp.tmpHigh;
+                    sp.highest = tmpHigh;
                 }
             }
-        } else if sp.tmpHigh >= sp.highest {
+        } else if tmpHigh >= sp.highest {
             sp.highestIdx = sp.today;
-            sp.highest = sp.tmpHigh;
+            sp.highest = tmpHigh;
         }
         if sp.lowestIdx < sp.trailingIdx {
             sp.lowestIdx = sp.trailingIdx;
             sp.lowest = sp.x_inReal[(sp.lowestIdx & sp.xMask) as usize];
             sp.i = sp.lowestIdx;
             while (({ sp.i += 1; sp.i }) as i32) <= sp.today {
-                sp.tmpLow = sp.x_inReal[(sp.i & sp.xMask) as usize];
-                if sp.tmpLow < sp.lowest {
+                tmpLow = sp.x_inReal[(sp.i & sp.xMask) as usize];
+                if tmpLow < sp.lowest {
                     sp.lowestIdx = sp.i;
-                    sp.lowest = sp.tmpLow;
+                    sp.lowest = tmpLow;
                 }
             }
-        } else if sp.tmpLow <= sp.lowest {
+        } else if tmpLow <= sp.lowest {
             sp.lowestIdx = sp.today;
-            sp.lowest = sp.tmpLow;
+            sp.lowest = tmpLow;
         }
         (*outMaxIdx) = (sp.highestIdx) as i32;
         (*outMinIdx) = (sp.lowestIdx) as i32;
@@ -409,7 +413,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::MINMAXINDEX_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::MINMAXINDEX_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn MINMAXINDEX_OpenPass(
+    pub(crate) fn MINMAXINDEX_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMinIdx: &mut [i32], outMaxIdx: &mut [i32], outStride: usize,
     ) -> Result<MINMAXINDEX_Stream, RetCode> {
         if inReal.is_empty() {
@@ -426,6 +430,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut highest: f64 = 0.0_f64;
@@ -529,17 +538,15 @@ impl Core {
             optInTimePeriod,
             highest,
             lowest,
-            tmpHigh,
-            tmpLow,
             trailingIdx: (trailingIdx) as i32,
-            i: (i) as i32,
             highestIdx: (highestIdx) as i32,
             lowestIdx: (lowestIdx) as i32,
+            i: (i) as i32,
             today: (today) as i32,
             xMask: (physX - 1) as i32,
             x_inReal,
         };
-        Ok(MINMAXINDEX_Stream { core: self.clone(), state })
+        Ok(MINMAXINDEX_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::MINMAXINDEX_Open`] (composition seam).
@@ -550,7 +557,7 @@ impl Core {
         let mut dummyNBElement: usize = 0;
         let mut sink_outMinIdx = [0_i32; 1];
         let mut sink_outMaxIdx = [0_i32; 1];
-        let handle = self.MINMAXINDEX_OpenPass(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outMinIdx, &mut sink_outMaxIdx, 0)?;
+        let handle = self.MINMAXINDEX_OpenImpl(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outMinIdx, &mut sink_outMaxIdx, 0)?;
         Ok((handle, (sink_outMinIdx[0], sink_outMaxIdx[0])))
     }
 
@@ -570,8 +577,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MINMAXINDEX_Open(&data, 30).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.0, updated.0);
     /// assert_eq!(peeked.1, updated.1);
     /// ```
@@ -593,7 +604,7 @@ impl Core {
         }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.MINMAXINDEX_OpenPass(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outMinIdx, outMaxIdx, 1)?;
+        let handle = self.MINMAXINDEX_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outMinIdx, outMaxIdx)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -602,7 +613,7 @@ impl Core {
     pub(crate) fn MINMAXINDEX_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMinIdx: &mut [i32], outMaxIdx: &mut [i32],
     ) -> Result<MINMAXINDEX_Stream, RetCode> {
-        self.MINMAXINDEX_OpenPass(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx, 1)
+        self.MINMAXINDEX_OpenImpl(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx, 1)
     }
 
 }
@@ -628,8 +639,45 @@ impl MINMAXINDEX_Stream {
         }
         let mut outMinIdx: i32 = 0_i32;
         let mut outMaxIdx: i32 = 0_i32;
-        self.core.MINMAXINDEX_step_internal(&mut self.state, inReal, &mut outMinIdx, &mut outMaxIdx);
+        self.core.MINMAXINDEX_step_impl(&mut self.state, inReal, &mut outMinIdx, &mut outMaxIdx);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok((outMinIdx, outMaxIdx))
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_MINMAXINDEX_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outMinIdx: &mut [i32], outMaxIdx: &mut [i32]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outMinIdx.len() < barCount || outMaxIdx.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.MINMAXINDEX_step_impl(&mut self.state, inReal[i], &mut outMinIdx[i], &mut outMaxIdx[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -651,6 +699,19 @@ impl MINMAXINDEX_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inReal)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::MINMAXINDEX`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

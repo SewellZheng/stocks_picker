@@ -738,7 +738,6 @@ public partial class Core
       internal double b1Total;
       internal double b2Total;
       internal double b3Total;
-      internal double output;
       internal int trailingPos1;
       internal int trailingPos2;
       internal int term_Idx;
@@ -748,18 +747,22 @@ public partial class Core
       internal double[] cb_term_closeMinusTrueLow = [];
       internal double[] cb_term_trueRange = [];
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal ULTOSC_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>ULTOSC_OpenAndFill</c> filled, or
-      /// <see cref="OutRange.Empty"/> when this handle came from a plain open
-      /// (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.ULTOSC</c> reports over the same bars: the opener sets
+      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
+      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
+      /// last value, a subset of this range, because the caller chose not to take
+      /// the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal ULTOSC_Stream( ULTOSC_Stream other )
       {
@@ -773,7 +776,6 @@ public partial class Core
          this.b1Total = other.b1Total;
          this.b2Total = other.b2Total;
          this.b3Total = other.b3Total;
-         this.output = other.output;
          this.trailingPos1 = other.trailingPos1;
          this.trailingPos2 = other.trailingPos2;
          this.term_Idx = other.term_Idx;
@@ -785,7 +787,8 @@ public partial class Core
          this.cb_term_trueRange = new double[other.cb_term_trueRange.Length];
          Array.Copy( other.cb_term_trueRange, this.cb_term_trueRange, other.cb_term_trueRange.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( ULTOSC_Stream other )
@@ -800,7 +803,6 @@ public partial class Core
          this.b1Total = other.b1Total;
          this.b2Total = other.b2Total;
          this.b3Total = other.b3Total;
-         this.output = other.output;
          this.trailingPos1 = other.trailingPos1;
          this.trailingPos2 = other.trailingPos2;
          this.term_Idx = other.term_Idx;
@@ -816,7 +818,8 @@ public partial class Core
          }
          Array.Copy( other.cb_term_trueRange, this.cb_term_trueRange, other.cb_term_trueRange.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /* Peek's reusable scratch — one per thread, see CopyFrom. */
@@ -840,7 +843,8 @@ public partial class Core
       public double Update( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ULTOSC", "update", RetCode.BadParam);
-         core.ULTOSC_StreamStep(this, inHigh, inLow, inClose);
+         core.ULTOSC_StepImpl(this, inHigh, inLow, inClose);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -867,8 +871,36 @@ public partial class Core
          } else {
             scratch.CopyFrom(this);
          }
-         core.ULTOSC_StreamStep(scratch, inHigh, inLow, inClose);
+         core.ULTOSC_StepImpl(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
+      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
+      /// <param name="inClose">Closed bars for <c>inClose</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outReal )
+      {
+         int barCount = inHigh.Length;
+         if( inLow.Length != barCount || inClose.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) throw Core.StreamFailure("ULTOSC", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) ) throw Core.StreamFailure("ULTOSC", "updateAndFill", RetCode.BadParam);
+            core.ULTOSC_StepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -887,12 +919,13 @@ public partial class Core
       }
    }
 
-   internal void ULTOSC_StreamStep( ULTOSC_Stream sp, double inHigh, double inLow, double inClose )
+   internal void ULTOSC_StepImpl( ULTOSC_Stream sp, double inHigh, double inLow, double inClose )
    {
       double trueLow = 0.0;
       double trueRange = 0.0;
       double closeMinusTrueLow = 0.0;
       double tempDouble = 0.0;
+      double output = 0.0;
       double tempHT = 0.0;
       double tempLT = 0.0;
       double tempCY = 0.0;
@@ -920,15 +953,15 @@ public partial class Core
       sp.b2Total += trueRange;
       sp.b3Total += trueRange;
       /* Calculate the oscillator value for today */
-      sp.output = 0.0;
+      output = 0.0;
       if( !((-0.00000000000001 < sp.b1Total) && (sp.b1Total < 0.00000000000001)) ) {
-         sp.output += 4.0 * (sp.a1Total / sp.b1Total);
+         output += 4.0 * (sp.a1Total / sp.b1Total);
       }
       if( !((-0.00000000000001 < sp.b2Total) && (sp.b2Total < 0.00000000000001)) ) {
-         sp.output += 2.0 * (sp.a2Total / sp.b2Total);
+         output += 2.0 * (sp.a2Total / sp.b2Total);
       }
       if( !((-0.00000000000001 < sp.b3Total) && (sp.b3Total < 0.00000000000001)) ) {
-         sp.output += sp.a3Total / sp.b3Total;
+         output += sp.a3Total / sp.b3Total;
       }
       /* Remove the trailing terms to prepare for next day. Each was evaluated
        * once, when its bar entered the ring.
@@ -957,12 +990,12 @@ public partial class Core
        * to have the input array to be also the output
        * array.
        */
-      sp.cur_outReal = 100.0 * (sp.output / 7.0);
+      sp.cur_outReal = 100.0 * (output / 7.0);
       /* Increment indexes */
       sp.lag1_inClose = inClose;
    }
 
-   private RetCode ULTOSC_OpenPass( ULTOSC_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode ULTOSC_OpenImpl( ULTOSC_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -1018,6 +1051,11 @@ public partial class Core
          optInTimePeriod3 = 28;
       } else if( optInTimePeriod3 < 1 || optInTimePeriod3 > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       /* The two per-bar terms the three moving sums are built from. Both are a
        * pure function of the bar, so each bar is evaluated once on entry and read
@@ -1207,7 +1245,6 @@ public partial class Core
       sp.b1Total = b1Total;
       sp.b2Total = b2Total;
       sp.b3Total = b3Total;
-      sp.output = output;
       sp.trailingPos1 = trailingPos1;
       sp.trailingPos2 = trailingPos2;
       sp.term_Idx = term_Idx;
@@ -1220,32 +1257,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode ULTOSC_OpenImpl( ULTOSC_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )
-   {
-      double[] sink_outReal = new double[1];
-      return ULTOSC_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode ULTOSC_OpenAndFillImpl( ULTOSC_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
-         return RetCode.BadParam;
-      }
-      return ULTOSC_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode ULTOSC_OpenAndFillInternalImpl( ULTOSC_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return ULTOSC_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* ULTOSC_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal ULTOSC_Stream ULTOSC_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       ULTOSC_Stream sp = new ULTOSC_Stream(this);
-      RetCode retCode = ULTOSC_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = ULTOSC_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1256,7 +1274,10 @@ public partial class Core
    internal ULTOSC_Stream ULTOSC_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )
    {
       ULTOSC_Stream sp = new ULTOSC_Stream(this);
-      RetCode retCode = ULTOSC_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = ULTOSC_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1304,7 +1325,7 @@ public partial class Core
    /// and then reads the input tail to seed its rings, so the batch tier's
    /// in-place allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="ULTOSC_Stream.FillRange"/>.</para>
+   /// <see cref="ULTOSC_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
@@ -1329,12 +1350,9 @@ public partial class Core
       if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
       if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
-      ULTOSC_Stream sp = new ULTOSC_Stream(this);
-      RetCode retCode = ULTOSC_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
+         throw StreamFailure("ULTOSC", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("ULTOSC", "openAndFill", retCode);
+      return ULTOSC_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out _, out _, outReal);
    }
 }

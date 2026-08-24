@@ -7556,6 +7556,46 @@ public static class FunctionDescription
 	</FinancialFunction>
 
 
+	<!-- VWAP -->
+	<FinancialFunction>
+		<Abbreviation>VWAP</Abbreviation>
+		<ShortDescription>Volume Weighted Average Price</ShortDescription>
+		<GroupId>Volume Indicators</GroupId>
+		<Flags>
+			<Flag>Overlap</Flag>
+			<Flag>Streaming</Flag>
+			<Flag>Path Dependent</Flag>
+		</Flags>
+		<RequiredInputArguments>
+			<RequiredInputArgument>
+				<Type>High</Type>
+				<Name>High</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Low</Type>
+				<Name>Low</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Close</Type>
+				<Name>Close</Name>
+			</RequiredInputArgument>
+			<RequiredInputArgument>
+				<Type>Volume</Type>
+				<Name>Volume</Name>
+			</RequiredInputArgument>
+		</RequiredInputArguments>
+		<OutputArguments>
+			<OutputArgument>
+				<Type>Double Array</Type>
+				<Name>outReal</Name>
+				<Flags>
+					<Flag>Line</Flag>
+				</Flags>
+			</OutputArgument>
+		</OutputArguments>
+	</FinancialFunction>
+
+
 	<!-- VWMA -->
 	<FinancialFunction>
 		<Abbreviation>VWMA</Abbreviation>
@@ -7607,8 +7647,8 @@ public static class FunctionDescription
 	<!-- WAD -->
 	<FinancialFunction>
 		<Abbreviation>WAD</Abbreviation>
-		<ShortDescription>Williams&apos; Accumulation/Distribution (no volume)</ShortDescription>
-		<GroupId>Volume Indicators</GroupId>
+		<ShortDescription>Williams&apos; Accumulation/Distribution</ShortDescription>
+		<GroupId>Momentum Indicators</GroupId>
 		<Flags>
 			<Flag>Streaming</Flag>
 			<Flag>Path Dependent</Flag>

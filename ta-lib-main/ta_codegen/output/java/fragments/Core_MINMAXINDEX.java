@@ -238,11 +238,12 @@
     * each rolling window of optInTimePeriod bars. Index variant of MINMAX.
     * <p><b>Formula</b>
     * <pre>{@code
-    * For each t: outMaxIdx[t] = argmax_{i in [t-N+1, t]} inReal[i]; outMinIdx[t] = argmin over the same window (N = optInTimePeriod).
+    * outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
+    * outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
     * }</pre>
     * <p><b>Notes</b>
     * <ul>
-    * <li>When several bars in a window share the extreme value, which bar's index is returned is not guaranteed to be a specific one of the tied bars.</li>
+    * <li>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -307,11 +308,12 @@
     * each rolling window of optInTimePeriod bars. Index variant of MINMAX.
     * <p><b>Formula</b>
     * <pre>{@code
-    * For each t: outMaxIdx[t] = argmax_{i in [t-N+1, t]} inReal[i]; outMinIdx[t] = argmin over the same window (N = optInTimePeriod).
+    * outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
+    * outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
     * }</pre>
     * <p><b>Notes</b>
     * <ul>
-    * <li>When several bars in a window share the extreme value, which bar's index is returned is not guaranteed to be a specific one of the tied bars.</li>
+    * <li>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -395,49 +397,50 @@
       int optInTimePeriod;
       double highest;
       double lowest;
-      double tmpHigh;
-      double tmpLow;
       int trailingIdx;
-      int i;
       int highestIdx;
       int lowestIdx;
+      int i;
       int today;
       int xMask;
       double[] x_inReal;
       int cur_outMinIdx;
       int cur_outMaxIdx;
       Value cachedValue;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       MINMAXINDEX_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#MINMAXINDEX_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#MINMAXINDEX} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       MINMAXINDEX_Stream( MINMAXINDEX_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.highest = other.highest;
          this.lowest = other.lowest;
-         this.tmpHigh = other.tmpHigh;
-         this.tmpLow = other.tmpLow;
          this.trailingIdx = other.trailingIdx;
-         this.i = other.i;
          this.highestIdx = other.highestIdx;
          this.lowestIdx = other.lowestIdx;
+         this.i = other.i;
          this.today = other.today;
          this.xMask = other.xMask;
          this.x_inReal = other.x_inReal.clone();
          this.cur_outMinIdx = other.cur_outMinIdx;
          this.cur_outMaxIdx = other.cur_outMaxIdx;
          this.cachedValue = other.cachedValue;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( MINMAXINDEX_Stream other ) {
@@ -445,12 +448,10 @@
          this.optInTimePeriod = other.optInTimePeriod;
          this.highest = other.highest;
          this.lowest = other.lowest;
-         this.tmpHigh = other.tmpHigh;
-         this.tmpLow = other.tmpLow;
          this.trailingIdx = other.trailingIdx;
-         this.i = other.i;
          this.highestIdx = other.highestIdx;
          this.lowestIdx = other.lowestIdx;
+         this.i = other.i;
          this.today = other.today;
          this.xMask = other.xMask;
          if( this.x_inReal != null && this.x_inReal.length == other.x_inReal.length ) {
@@ -461,7 +462,8 @@
          this.cur_outMinIdx = other.cur_outMinIdx;
          this.cur_outMaxIdx = other.cur_outMaxIdx;
          this.cachedValue = other.cachedValue;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -492,9 +494,42 @@
       public Value update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MINMAXINDEX update: BadParam", RetCode.BadParam);
-         core.MINMAXINDEX_StreamStep(this, inReal);
+         core.MINMAXINDEX_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          this.cachedValue = new Value(this.cur_outMinIdx, this.cur_outMaxIdx);
          return this.cachedValue;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], int outMinIdx[], int outMaxIdx[] ) {
+         final int barCount = inReal.length;
+         if( outMinIdx.length < barCount || outMaxIdx.length < barCount || (Object)outMinIdx == (Object)inReal || (Object)outMaxIdx == (Object)inReal || (Object)outMinIdx == (Object)outMaxIdx )
+            throw new TaLibArgumentException("MINMAXINDEX updateAndFill: BadParam", RetCode.BadParam);
+         int done = 0;
+         try {
+            for( int i = 0; i < barCount; i++ ) {
+               if( !Double.isFinite(inReal[i]) )
+                  throw new TaLibArgumentException("MINMAXINDEX updateAndFill: BadParam", RetCode.BadParam);
+               core.MINMAXINDEX_StepImpl(this, inReal[i]);
+               outMinIdx[i] = this.cur_outMinIdx;
+               outMaxIdx[i] = this.cur_outMaxIdx;
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+               done = i + 1;
+            }
+         } finally {
+            if( done > 0 ) this.cachedValue = new Value(this.cur_outMinIdx, this.cur_outMaxIdx);
+         }
       }
 
       /**
@@ -508,7 +543,7 @@
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MINMAXINDEX peek: BadParam", RetCode.BadParam);
          MINMAXINDEX_Stream scratch = new MINMAXINDEX_Stream(this);
-         core.MINMAXINDEX_StreamStep(scratch, inReal);
+         core.MINMAXINDEX_StepImpl(scratch, inReal);
          return new Value(scratch.cur_outMinIdx, scratch.cur_outMaxIdx);
       }
 
@@ -529,8 +564,10 @@
          return new MINMAXINDEX_Stream(this);
       }
    }
-   void MINMAXINDEX_StreamStep( MINMAXINDEX_Stream sp, double inReal )
+   void MINMAXINDEX_StepImpl( MINMAXINDEX_Stream sp, double inReal )
    {
+      double tmpHigh = 0.0;
+      double tmpLow = 0.0;
       if( sp.today >= 1073741824 ) {
          int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
@@ -540,44 +577,44 @@
          sp.lowestIdx -= rebaseShift;
       }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
-      sp.tmpHigh = sp.x_inReal[sp.today & sp.xMask];
-      sp.tmpLow = sp.tmpHigh;
+      tmpHigh = sp.x_inReal[sp.today & sp.xMask];
+      tmpLow = tmpHigh;
       if( sp.highestIdx < sp.trailingIdx ) {
          sp.highestIdx = sp.trailingIdx;
          sp.highest = sp.x_inReal[sp.highestIdx & sp.xMask];
          sp.i = sp.highestIdx;
          while( ++sp.i <= sp.today ) {
-            sp.tmpHigh = sp.x_inReal[sp.i & sp.xMask];
-            if( sp.tmpHigh > sp.highest ) {
+            tmpHigh = sp.x_inReal[sp.i & sp.xMask];
+            if( tmpHigh > sp.highest ) {
                sp.highestIdx = sp.i;
-               sp.highest = sp.tmpHigh;
+               sp.highest = tmpHigh;
             }
          }
-      } else if( sp.tmpHigh >= sp.highest ) {
+      } else if( tmpHigh >= sp.highest ) {
          sp.highestIdx = sp.today;
-         sp.highest = sp.tmpHigh;
+         sp.highest = tmpHigh;
       }
       if( sp.lowestIdx < sp.trailingIdx ) {
          sp.lowestIdx = sp.trailingIdx;
          sp.lowest = sp.x_inReal[sp.lowestIdx & sp.xMask];
          sp.i = sp.lowestIdx;
          while( ++sp.i <= sp.today ) {
-            sp.tmpLow = sp.x_inReal[sp.i & sp.xMask];
-            if( sp.tmpLow < sp.lowest ) {
+            tmpLow = sp.x_inReal[sp.i & sp.xMask];
+            if( tmpLow < sp.lowest ) {
                sp.lowestIdx = sp.i;
-               sp.lowest = sp.tmpLow;
+               sp.lowest = tmpLow;
             }
          }
-      } else if( sp.tmpLow <= sp.lowest ) {
+      } else if( tmpLow <= sp.lowest ) {
          sp.lowestIdx = sp.today;
-         sp.lowest = sp.tmpLow;
+         sp.lowest = tmpLow;
       }
       sp.cur_outMaxIdx = sp.highestIdx;
       sp.cur_outMinIdx = sp.lowestIdx;
       sp.trailingIdx += 1;
       sp.today += 1;
    }
-   private RetCode MINMAXINDEX_OpenPass( MINMAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outMinIdx[], int outMaxIdx[], int outStride )
+   private RetCode MINMAXINDEX_OpenImpl( MINMAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outMinIdx[], int outMaxIdx[], int outStride )
    {
       double highest = 0;
       double lowest = 0;
@@ -602,6 +639,11 @@
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       /* Identify the minimum number of price bar needed
        * to identify at least one output over the specified
@@ -691,12 +733,10 @@
       sp.optInTimePeriod = optInTimePeriod;
       sp.highest = highest;
       sp.lowest = lowest;
-      sp.tmpHigh = tmpHigh;
-      sp.tmpLow = tmpLow;
       sp.trailingIdx = trailingIdx;
-      sp.i = i;
       sp.highestIdx = highestIdx;
       sp.lowestIdx = lowestIdx;
+      sp.i = i;
       sp.today = today;
       sp.xMask = physX - 1;
       sp.x_inReal = capX_inReal;
@@ -705,30 +745,13 @@
       sp.cachedValue = new MINMAXINDEX_Stream.Value(sp.cur_outMinIdx, sp.cur_outMaxIdx);
       return RetCode.Success;
    }
-   private RetCode MINMAXINDEX_OpenImpl( MINMAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      int[] sink_outMinIdx = new int[1];
-      int[] sink_outMaxIdx = new int[1];
-      return MINMAXINDEX_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outMinIdx, sink_outMaxIdx, 0 );
-   }
-   private RetCode MINMAXINDEX_OpenAndFillImpl( MINMAXINDEX_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outMinIdx[], int outMaxIdx[] )
-   {
-      if( (Object)outMinIdx == (Object)inReal || (Object)outMaxIdx == (Object)inReal || (Object)outMinIdx == (Object)outMaxIdx ) {
-         return RetCode.BadParam;
-      }
-      return MINMAXINDEX_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx, 1 );
-   }
-   private RetCode MINMAXINDEX_OpenAndFillInternalImpl( MINMAXINDEX_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outMinIdx[], int outMaxIdx[] )
-   {
-      return MINMAXINDEX_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx, 1);
-   }
    /* MINMAXINDEX_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MINMAXINDEX_Stream MINMAXINDEX_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, int outMinIdx[], int outMaxIdx[] )
    {
       MINMAXINDEX_Stream sp = new MINMAXINDEX_Stream(this);
-      RetCode retCode = MINMAXINDEX_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx);
+      RetCode retCode = MINMAXINDEX_OpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -744,7 +767,13 @@
    MINMAXINDEX_Stream MINMAXINDEX_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       MINMAXINDEX_Stream sp = new MINMAXINDEX_Stream(this);
-      RetCode retCode = MINMAXINDEX_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      int[] sink_outMinIdx = new int[1];
+      int[] sink_outMaxIdx = new int[1];
+      RetCode retCode = MINMAXINDEX_OpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outMinIdx, sink_outMaxIdx, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -777,23 +806,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link MINMAXINDEX_Stream#fillRange()}.
+    * {@link MINMAXINDEX_Stream#outRange()}.
     */
    public MINMAXINDEX_Stream MINMAXINDEX_OpenAndFill( double inReal[], int optInTimePeriod, int outMinIdx[], int outMaxIdx[] )
    {
-      MINMAXINDEX_Stream sp = new MINMAXINDEX_Stream(this);
+      if( (Object)outMinIdx == (Object)inReal || (Object)outMaxIdx == (Object)inReal || (Object)outMinIdx == (Object)outMaxIdx ) {
+         throw new TaLibArgumentException("MINMAXINDEX openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MINMAXINDEX_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("MINMAXINDEX openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MINMAXINDEX openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("MINMAXINDEX openAndFill: " + retCode, retCode);
+      return MINMAXINDEX_OpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outMinIdx, outMaxIdx);
    }

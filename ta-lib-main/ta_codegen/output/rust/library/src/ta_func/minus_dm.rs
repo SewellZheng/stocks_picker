@@ -417,12 +417,16 @@ impl Core {
 /// Live MINUS_DM stream: one value per closed bar, bit-identical to [`Core::MINUS_DM`]
 /// over the same series. Open with [`Core::MINUS_DM_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MINUS_DM_Stream")]
 pub struct MINUS_DM_Stream {
     core: Core,
     state: MINUS_DM_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -432,6 +436,7 @@ impl MINUS_DM_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -441,9 +446,6 @@ struct MINUS_DM_StreamState {
     optInTimePeriod: i32,
     prevHigh: f64,
     prevLow: f64,
-    tempReal: f64,
-    diffP: f64,
-    diffM: f64,
     prevMinusDM: f64,
 }
 
@@ -455,9 +457,6 @@ impl MINUS_DM_StreamState {
         self.optInTimePeriod = src.optInTimePeriod;
         self.prevHigh = src.prevHigh;
         self.prevLow = src.prevLow;
-        self.tempReal = src.tempReal;
-        self.diffP = src.diffP;
-        self.diffM = src.diffM;
         self.prevMinusDM = src.prevMinusDM;
     }
 }
@@ -469,34 +468,40 @@ impl MINUS_DM_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn MINUS_DM_step_internal(&self, sp: &mut MINUS_DM_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
+    fn MINUS_DM_step_impl(&self, sp: &mut MINUS_DM_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
         if sp.optInTimePeriod <= 1 {
-            sp.tempReal = inHigh;
-            sp.diffP = sp.tempReal - sp.prevHigh;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut diffP: f64 = 0.0_f64;
+            let mut diffM: f64 = 0.0_f64;
+            tempReal = inHigh;
+            diffP = tempReal - sp.prevHigh;
             // Plus Delta
-            sp.prevHigh = sp.tempReal;
-            sp.tempReal = inLow;
-            sp.diffM = sp.prevLow - sp.tempReal;
+            sp.prevHigh = tempReal;
+            tempReal = inLow;
+            diffM = sp.prevLow - tempReal;
             // Minus Delta
-            sp.prevLow = sp.tempReal;
-            if sp.diffM > 0_f64 && sp.diffP < sp.diffM {
+            sp.prevLow = tempReal;
+            if diffM > 0_f64 && diffP < diffM {
                 // Case 2 and 4: +DM=0,-DM=diffM
-                (*outReal) = sp.diffM;
+                (*outReal) = diffM;
             } else {
                 (*outReal) = 0.0;
             }
         } else {
-            sp.tempReal = inHigh;
-            sp.diffP = sp.tempReal - sp.prevHigh;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut diffP: f64 = 0.0_f64;
+            let mut diffM: f64 = 0.0_f64;
+            tempReal = inHigh;
+            diffP = tempReal - sp.prevHigh;
             // Plus Delta
-            sp.prevHigh = sp.tempReal;
-            sp.tempReal = inLow;
-            sp.diffM = sp.prevLow - sp.tempReal;
+            sp.prevHigh = tempReal;
+            tempReal = inLow;
+            diffM = sp.prevLow - tempReal;
             // Minus Delta
-            sp.prevLow = sp.tempReal;
-            if sp.diffM > 0_f64 && sp.diffP < sp.diffM {
+            sp.prevLow = tempReal;
+            if diffM > 0_f64 && diffP < diffM {
                 // Case 2 and 4: +DM=0,-DM=diffM
-                sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / ((sp.optInTimePeriod) as f64) + sp.diffM;
+                sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / ((sp.optInTimePeriod) as f64) + diffM;
             } else {
                 // Case 1,3,5 and 7
                 sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / ((sp.optInTimePeriod) as f64);
@@ -507,7 +512,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::MINUS_DM_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::MINUS_DM_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn MINUS_DM_OpenPass(
+    pub(crate) fn MINUS_DM_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<MINUS_DM_Stream, RetCode> {
         if inHigh.is_empty() || inLow.is_empty() || inLow.len() != inHigh.len() {
@@ -524,6 +529,11 @@ impl Core {
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod <= 1 {
@@ -650,12 +660,9 @@ impl Core {
                 optInTimePeriod,
                 prevHigh,
                 prevLow,
-                tempReal,
-                diffP,
-                diffM,
                 prevMinusDM,
             };
-            Ok(MINUS_DM_Stream { core: self.clone(), state })
+            Ok(MINUS_DM_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         } else {
             let mut today: usize = 0_usize;
             let mut lookbackTotal: usize = 0_usize;
@@ -823,12 +830,9 @@ impl Core {
                 optInTimePeriod,
                 prevHigh,
                 prevLow,
-                tempReal,
-                diffP,
-                diffM,
                 prevMinusDM,
             };
-            Ok(MINUS_DM_Stream { core: self.clone(), state })
+            Ok(MINUS_DM_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         }
     }
 
@@ -839,7 +843,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.MINUS_DM_OpenPass(inHigh, inLow, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.MINUS_DM_OpenImpl(inHigh, inLow, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -860,8 +864,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MINUS_DM_Open(&high, &low, 14).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(101.4, 99.1).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(101.4, 99.1).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_MINUS_DM_Open")]
@@ -879,7 +887,7 @@ impl Core {
     ) -> Result<(MINUS_DM_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.MINUS_DM_OpenPass(inHigh, inLow, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.MINUS_DM_OpenAndFillInternal(inHigh, inLow, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -888,7 +896,7 @@ impl Core {
     pub(crate) fn MINUS_DM_OpenAndFillInternal(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<MINUS_DM_Stream, RetCode> {
-        self.MINUS_DM_OpenPass(inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.MINUS_DM_OpenImpl(inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -913,8 +921,45 @@ impl MINUS_DM_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.MINUS_DM_step_internal(&mut self.state, inHigh, inLow, &mut outReal);
+        self.core.MINUS_DM_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_MINUS_DM_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inHigh.len();
+        if inLow.len() != inHigh.len() || outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inHigh[i].is_finite() || !inLow[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.MINUS_DM_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -934,6 +979,19 @@ impl MINUS_DM_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inHigh, inLow)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::MINUS_DM`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

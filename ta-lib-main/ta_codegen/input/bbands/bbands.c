@@ -28,6 +28,9 @@
  *  072426 MF,CC  Lookback is now max(MA, STDDEV) so it is honest for MA types
  *                whose lookback is below the deviation's (MAMA >= 34, and
  *                TA_MAType_DISABLED); required for streaming (issue #93).
+ *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
+ *                by var.c's scale-relative reseed floor; the square root is
+ *                unconditional. Bands no longer collapse on a fine tick.
  *
  */
 
@@ -191,16 +194,33 @@ TA_RetCode bbands(int startIdx, int endIdx,
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               /* The floor from var.c, verbatim: it owns both the sign and the
+                * dead-zone, so the square root below can be unconditional. */
+               if( variance < 0.000000000001 * ( varTotal2 * _invPeriod ) )
+                  variance = 0.0;
                _tempReal = inReal[_windowStart] - shift;
                varTotal1 -= _tempReal;
                _tempReal *= _tempReal;
                varTotal2 -= _tempReal;
             }
 
-            if( !TA_IS_ZERO_OR_NEG(variance) )
-               tempBuffer2[_outIdx] = sqrt(variance);
-            else
-               tempBuffer2[_outIdx] = 0.0;
+            /* The TA_EPSILON test that used to stand here compared a SQUARED
+             * quantity to a fixed 1e-14 and flattened all three bands onto each
+             * other for any finely quoted series (#243). What replaces it skips
+             * the root ONLY where the answer is already known, because the
+             * reseed floor above has made it exactly 0 -- worth doing because
+             * this root, unlike stddev.c's, sits in the fused loop with a
+             * carried dependency and cannot vectorize, so running it on flat
+             * input cost 1.59x.
+             *
+             * `!= 0.0` and not `> 0.0`: the two differ only on NaN, and `> 0.0`
+             * sends it to the false arm, which would emit a zero-width band
+             * where stddev.c, BBANDS' own non-SMA paths and BBANDS_Open all
+             * return NaN. Reaching it needs a squared deviation to overflow
+             * (|x| ~ 1.3e154, far outside TA_REAL_MAX), so nothing in the
+             * declared domain can tell the two apart -- but there is no reason
+             * to buy the disagreement, and `!= 0.0` is what this is for. */
+            tempBuffer2[_outIdx] = ( variance != 0.0 ) ? sqrt(variance) : 0.0;
             _outIdx++;
             _i++;
          } while( _i <= endIdx );

@@ -331,11 +331,11 @@ TA_RetCode TA_S_CCI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CCI_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
-   double tempReal;
-   double tempReal2;
-   double theAverage;
-   int j;
    int circBuffer_Idx;
    int maxIdx_circBuffer;
    int cbSize_circBuffer;
@@ -344,7 +344,7 @@ struct TA_CCI_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_CCI_ReleaseInternal( struct TA_CCI_Stream *sp )
+static void TA_CCI_ReleaseImpl( struct TA_CCI_Stream *sp )
 {
    if( !sp ) return;
    if( sp->cb_circBuffer ) TA_Free( sp->cb_circBuffer );
@@ -353,32 +353,36 @@ static void TA_CCI_ReleaseInternal( struct TA_CCI_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_CCI_StepInternal( struct TA_CCI_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
+static void TA_CCI_StepImpl( struct TA_CCI_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
 {
+   double tempReal;
+   double tempReal2;
+   double theAverage;
    double lastValue;
+   int j;
 
    lastValue = (inHigh + inLow + inClose) / 3;
    sp->cb_circBuffer[sp->circBuffer_Idx] = lastValue;
    /* Calculate the average for the whole period. */
-   sp->theAverage = 0;
-   for( sp->j = 0; sp->j < sp->optInTimePeriod; sp->j += 1 )
+   theAverage = 0;
+   for( j = 0; j < sp->optInTimePeriod; j += 1 )
    {
-      sp->theAverage += sp->cb_circBuffer[sp->j];
+      theAverage += sp->cb_circBuffer[j];
    }
-   sp->theAverage /= sp->optInTimePeriod;
+   theAverage /= sp->optInTimePeriod;
    /* Do the summation of the ABS(TypePrice-average)
     * for the whole period.
     */
-   sp->tempReal2 = 0;
-   for( sp->j = 0; sp->j < sp->optInTimePeriod; sp->j += 1 )
+   tempReal2 = 0;
+   for( j = 0; j < sp->optInTimePeriod; j += 1 )
    {
-      sp->tempReal2 += fabs(sp->cb_circBuffer[sp->j] - sp->theAverage);
+      tempReal2 += fabs(sp->cb_circBuffer[j] - theAverage);
    }
    /* And finally, the CCI... */
-   sp->tempReal = lastValue - sp->theAverage;
-   if( !TA_IS_ZERO(sp->tempReal) && !TA_IS_ZERO(sp->tempReal2) )
+   tempReal = lastValue - theAverage;
+   if( !TA_IS_ZERO(tempReal) && !TA_IS_ZERO(tempReal2) )
    {
-      *outReal= sp->tempReal / (0.015 * (sp->tempReal2 / sp->optInTimePeriod));
+      *outReal= tempReal / (0.015 * (tempReal2 / sp->optInTimePeriod));
    } else 
    {
       *outReal= 0.0;
@@ -391,7 +395,7 @@ static void TA_CCI_StepInternal( struct TA_CCI_Stream *sp, double inHigh, double
    }
 }
 
-static TA_RetCode TA_CCI_OpenPass( struct TA_CCI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_CCI_OpenImpl( struct TA_CCI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_CCI_Stream *sp;
    double local_circBuffer[30];
@@ -411,6 +415,12 @@ static TA_RetCode TA_CCI_OpenPass( struct TA_CCI_Stream **stream, const double i
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -418,12 +428,12 @@ static TA_RetCode TA_CCI_OpenPass( struct TA_CCI_Stream **stream, const double i
    (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
-      double tempReal = 0.0;
-      double tempReal2 = 0.0;
-      double theAverage = 0.0;
+      double tempReal;
+      double tempReal2;
+      double theAverage;
       double lastValue;
       int i;
-      int j = 0;
+      int j;
       int outIdx;
       int lookbackTotal;
       /* This ptr will points on a circular buffer of
@@ -528,20 +538,18 @@ static TA_RetCode TA_CCI_OpenPass( struct TA_CCI_Stream **stream, const double i
       if( !sp ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
-      sp->tempReal = tempReal;
-      sp->tempReal2 = tempReal2;
-      sp->theAverage = theAverage;
-      sp->j = j;
       sp->circBuffer_Idx = circBuffer_Idx;
       sp->maxIdx_circBuffer = maxIdx_circBuffer;
       sp->cbSize_circBuffer = maxIdx_circBuffer + 1;
-      if( sp->cbSize_circBuffer < 1 || sp->cbSize_circBuffer > historyLen + 1 ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); TA_CCI_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_circBuffer < 1 || sp->cbSize_circBuffer > historyLen + 1 ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); TA_CCI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->cb_circBuffer = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_circBuffer );
-      if( !sp->cb_circBuffer ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); TA_CCI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cb_circBuffer ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); TA_CCI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_circBuffer = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_circBuffer );
-      if( !sp->cbMirror_circBuffer ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); TA_CCI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cbMirror_circBuffer ) { if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); TA_CCI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_circBuffer, circBuffer, sizeof(double) * (size_t)sp->cbSize_circBuffer );
       if( circBuffer != &local_circBuffer[0] ) TA_Free( circBuffer ); 
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -554,7 +562,7 @@ TA_RetCode TA_CCI_OpenInternal( struct TA_CCI_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_CCI_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_CCI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -576,25 +584,26 @@ TA_LIB_API TA_RetCode TA_CCI_OpenAndFill( TA_CCI_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_CCI_OpenPass( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CCI_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_CCI_OpenAndFillInternal( struct TA_CCI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_CCI_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CCI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_CCI_Update( TA_CCI_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   TA_CCI_StepInternal( stream, inHigh, inLow, inClose, outReal );
+   TA_CCI_StepImpl( stream, inHigh, inLow, inClose, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -607,13 +616,29 @@ TA_LIB_API TA_RetCode TA_CCI_Peek( const TA_CCI_Stream *stream, double inHigh, d
    scratch = *stream;
    scratch.cb_circBuffer = stream->cbMirror_circBuffer;
    memcpy( scratch.cb_circBuffer, stream->cb_circBuffer, sizeof(double) * (size_t)stream->cbSize_circBuffer );
-   TA_CCI_StepInternal( &scratch, inHigh, inLow, inClose, outReal );
+   TA_CCI_StepImpl( &scratch, inHigh, inLow, inClose, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CCI_UpdateAndFill( TA_CCI_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      TA_CCI_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_CCI_Close( TA_CCI_Stream *stream )
 {
-   TA_CCI_ReleaseInternal( stream );
+   TA_CCI_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

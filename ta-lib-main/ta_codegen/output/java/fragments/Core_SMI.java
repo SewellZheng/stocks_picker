@@ -165,7 +165,7 @@
        * spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
        * preserved for the functions that already shipped with it and dropped from
        * new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-       * The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+       * The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
        */
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
@@ -835,10 +835,6 @@
       double emaSlowDen;
       double emaFastNum;
       double emaFastDen;
-      double num;
-      double den;
-      double halfDen;
-      double smiValue;
       double prevSignal;
       int trailingIdx;
       int highestIdx;
@@ -852,18 +848,22 @@
       double cur_outSMI;
       double cur_outSMISignal;
       Value cachedValue;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       SMI_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#SMI_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#SMI} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       SMI_Stream( SMI_Stream other ) {
          this.core = other.core;
@@ -880,10 +880,6 @@
          this.emaSlowDen = other.emaSlowDen;
          this.emaFastNum = other.emaFastNum;
          this.emaFastDen = other.emaFastDen;
-         this.num = other.num;
-         this.den = other.den;
-         this.halfDen = other.halfDen;
-         this.smiValue = other.smiValue;
          this.prevSignal = other.prevSignal;
          this.trailingIdx = other.trailingIdx;
          this.highestIdx = other.highestIdx;
@@ -897,7 +893,8 @@
          this.cur_outSMI = other.cur_outSMI;
          this.cur_outSMISignal = other.cur_outSMISignal;
          this.cachedValue = other.cachedValue;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( SMI_Stream other ) {
@@ -915,10 +912,6 @@
          this.emaSlowDen = other.emaSlowDen;
          this.emaFastNum = other.emaFastNum;
          this.emaFastDen = other.emaFastDen;
-         this.num = other.num;
-         this.den = other.den;
-         this.halfDen = other.halfDen;
-         this.smiValue = other.smiValue;
          this.prevSignal = other.prevSignal;
          this.trailingIdx = other.trailingIdx;
          this.highestIdx = other.highestIdx;
@@ -944,7 +937,8 @@
          this.cur_outSMI = other.cur_outSMI;
          this.cur_outSMISignal = other.cur_outSMISignal;
          this.cachedValue = other.cachedValue;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
@@ -978,9 +972,42 @@
       public Value update( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("SMI update: BadParam", RetCode.BadParam);
-         core.SMI_StreamStep(this, inHigh, inLow, inClose);
+         core.SMI_StepImpl(this, inHigh, inLow, inClose);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          this.cachedValue = new Value(this.cur_outSMI, this.cur_outSMISignal);
          return this.cachedValue;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inHigh.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outSMI[], double outSMISignal[] ) {
+         final int barCount = inHigh.length;
+         if( inLow.length != barCount || inClose.length != barCount || outSMI.length < barCount || outSMISignal.length < barCount || (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal )
+            throw new TaLibArgumentException("SMI updateAndFill: BadParam", RetCode.BadParam);
+         int done = 0;
+         try {
+            for( int i = 0; i < barCount; i++ ) {
+               if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) )
+                  throw new TaLibArgumentException("SMI updateAndFill: BadParam", RetCode.BadParam);
+               core.SMI_StepImpl(this, inHigh[i], inLow[i], inClose[i]);
+               outSMI[i] = this.cur_outSMI;
+               outSMISignal[i] = this.cur_outSMISignal;
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+               done = i + 1;
+            }
+         } finally {
+            if( done > 0 ) this.cachedValue = new Value(this.cur_outSMI, this.cur_outSMISignal);
+         }
       }
 
       /**
@@ -1002,7 +1029,7 @@
          } else {
             scratch.copyFrom(this);
          }
-         core.SMI_StreamStep(scratch, inHigh, inLow, inClose);
+         core.SMI_StepImpl(scratch, inHigh, inLow, inClose);
          return new Value(scratch.cur_outSMI, scratch.cur_outSMISignal);
       }
 
@@ -1023,9 +1050,13 @@
          return new SMI_Stream(this);
       }
    }
-   void SMI_StreamStep( SMI_Stream sp, double inHigh, double inLow, double inClose )
+   void SMI_StepImpl( SMI_Stream sp, double inHigh, double inLow, double inClose )
    {
       double tmp = 0.0;
+      double num = 0.0;
+      double den = 0.0;
+      double halfDen = 0.0;
+      double smiValue = 0.0;
       if( sp.today >= 1073741824 ) {
          int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
@@ -1071,10 +1102,10 @@
          sp.highestIdx = sp.today;
          sp.highest = tmp;
       }
-      sp.den = sp.highest - sp.lowest;
-      sp.num = sp.x_inClose[sp.today & sp.xMask] - (sp.highest + sp.lowest) * 0.5;
-      sp.emaSlowNum = Math.fma(sp.num - sp.emaSlowNum, sp.kSlow, sp.emaSlowNum);
-      sp.emaSlowDen = Math.fma(sp.den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
+      den = sp.highest - sp.lowest;
+      num = sp.x_inClose[sp.today & sp.xMask] - (sp.highest + sp.lowest) * 0.5;
+      sp.emaSlowNum = Math.fma(num - sp.emaSlowNum, sp.kSlow, sp.emaSlowNum);
+      sp.emaSlowDen = Math.fma(den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
       sp.emaFastNum = Math.fma(sp.emaSlowNum - sp.emaFastNum, sp.kFast, sp.emaFastNum);
       sp.emaFastDen = Math.fma(sp.emaSlowDen - sp.emaFastDen, sp.kFast, sp.emaFastDen);
       /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
@@ -1083,19 +1114,19 @@
        * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
        * CCI (#7) and IMI (#112) convention.
        */
-      sp.halfDen = 0.5 * sp.emaFastDen;
-      if( !((-0.00000000000001 < sp.halfDen) && (sp.halfDen < 0.00000000000001)) ) {
-         sp.smiValue = 100.0 * sp.emaFastNum / sp.halfDen;
+      halfDen = 0.5 * sp.emaFastDen;
+      if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         smiValue = 100.0 * sp.emaFastNum / halfDen;
       } else {
-         sp.smiValue = 0.0;
+         smiValue = 0.0;
       }
-      sp.prevSignal = Math.fma(sp.smiValue - sp.prevSignal, sp.kSignal, sp.prevSignal);
-      sp.cur_outSMI = sp.smiValue;
+      sp.prevSignal = Math.fma(smiValue - sp.prevSignal, sp.kSignal, sp.prevSignal);
+      sp.cur_outSMI = smiValue;
       sp.cur_outSMISignal = sp.prevSignal;
       sp.trailingIdx = sp.trailingIdx + 1;
       sp.today = sp.today + 1;
    }
-   private RetCode SMI_OpenPass( SMI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outSMI[], double outSMISignal[], int outStride )
+   private RetCode SMI_OpenImpl( SMI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outSMI[], double outSMISignal[], int outStride )
    {
       double kSlow = 0;
       double kFast = 0;
@@ -1157,6 +1188,11 @@
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
+      }
       lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -1185,7 +1221,7 @@
        * spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
        * preserved for the functions that already shipped with it and dropped from
        * new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-       * The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+       * The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
        */
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
@@ -1406,10 +1442,6 @@
       sp.emaSlowDen = emaSlowDen;
       sp.emaFastNum = emaFastNum;
       sp.emaFastDen = emaFastDen;
-      sp.num = num;
-      sp.den = den;
-      sp.halfDen = halfDen;
-      sp.smiValue = smiValue;
       sp.prevSignal = prevSignal;
       sp.trailingIdx = trailingIdx;
       sp.highestIdx = highestIdx;
@@ -1425,30 +1457,13 @@
       sp.cachedValue = new SMI_Stream.Value(sp.cur_outSMI, sp.cur_outSMISignal);
       return RetCode.Success;
    }
-   private RetCode SMI_OpenImpl( SMI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outSMI = new double[1];
-      double[] sink_outSMISignal = new double[1];
-      return SMI_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outSMI, sink_outSMISignal, 0 );
-   }
-   private RetCode SMI_OpenAndFillImpl( SMI_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outSMI[], double outSMISignal[] )
-   {
-      if( (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal ) {
-         return RetCode.BadParam;
-      }
-      return SMI_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 );
-   }
-   private RetCode SMI_OpenAndFillInternalImpl( SMI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outSMI[], double outSMISignal[] )
-   {
-      return SMI_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1);
-   }
    /* SMI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    SMI_Stream SMI_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outSMI[], double outSMISignal[] )
    {
       SMI_Stream sp = new SMI_Stream(this);
-      RetCode retCode = SMI_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
+      RetCode retCode = SMI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1464,7 +1479,13 @@
    SMI_Stream SMI_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
       SMI_Stream sp = new SMI_Stream(this);
-      RetCode retCode = SMI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outSMI = new double[1];
+      double[] sink_outSMISignal = new double[1];
+      RetCode retCode = SMI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outSMI, sink_outSMISignal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1497,23 +1518,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link SMI_Stream#fillRange()}.
+    * {@link SMI_Stream#outRange()}.
     */
    public SMI_Stream SMI_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double outSMI[], double outSMISignal[] )
    {
-      SMI_Stream sp = new SMI_Stream(this);
+      if( (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal ) {
+         throw new TaLibArgumentException("SMI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SMI_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("SMI openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("SMI openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("SMI openAndFill: " + retCode, retCode);
+      return SMI_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal);
    }

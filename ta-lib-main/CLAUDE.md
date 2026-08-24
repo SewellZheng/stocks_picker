@@ -58,22 +58,48 @@ transcribed numerics, package-private in Java and `internal` in C#, keeping C's
 `RetCode` + out-param shape. There is no third, catch-and-convert tier; #236
 step 5 deleted it.
 
-**Three suffixes, one meaning each** (#236 settled this; the names were three
-words for two concepts before):
+**Two suffixes, one meaning each:**
 
 | suffix | means |
 |---|---|
 | `_Impl` | the numerics — a transcribed body, nothing else |
-| `_Internal` | a **variant** of an entry point, not a tier: the `startIdx`-anchored composition seams `_OpenInternal` / `_OpenAndFillInternal` |
-| `_OpenPass` | the single whole-history transcription the whole `_Open*` family shares |
+| `_Internal` | a **variant** of an entry point, not a tier: the `startIdx`-anchored seams `_OpenInternal` / `_OpenAndFillInternal` |
 
-The two axes are independent, so they compose: `<N>_OpenAndFillInternalImpl` is
-the numerics *of* the anchored `_OpenAndFill` variant, and both halves are
-load-bearing — `<N>_OpenAndFillInternal` is a real declared function that calls
-it. It is the one name where both axes appear at once, which makes it look like
-a stack of synonyms; it is not, and it has been queried twice. `Core` and
-`Body` were rejected: `Core` is the struct a caller holds and the documented
-contrast with the Streaming API, and `Body` reads as markup.
+`_OpenPass` was a third word for the first meaning, and existed only because
+Java and C# put an adapter above the numerics and wore `_OpenImpl` on *that*.
+With the adapters gone the name is free, so the streaming numerics is
+`<N>_OpenImpl` in all four backends. `Core` and `Body` were rejected: `Core` is
+the struct a caller holds and the documented contrast with the Streaming API,
+and `Body` reads as markup. `Pass` was chosen (`408f7c23d`) for being
+descriptive where `_Impl` is relational — a real preference, retired because one
+word per concept beats it once the collision that forced it is gone.
+
+The step and release tiers were three more words for it — `_StepInternal` (C),
+`_step_internal` (Rust), `_StreamStep` (Java/C#) — and none of them was a variant
+of anything: no backend has a `<N>_Step` entry point. They are `<N>_StepImpl` in
+all four now, plus C-only `TA_<N>_ReleaseImpl` (Rust has `Drop`, the managed
+backends have GC). The tier is private everywhere, so no runtime gate can see the
+spelling — `the_transition_tier_is_step_impl_in_every_backend` is what pins it.
+
+**The `_Open*` family is five methods, symmetric, two hops deep:**
+
+```
+PUB  <N>_Open(in, params)                   -> <N>_OpenInternal(in, 0, params)
+PKG  <N>_OpenInternal(in, startIdx, params) -> one sink per output; <N>_OpenImpl(.., 0)
+PUB  <N>_OpenAndFill(in, params, outs)      -> aliasing guard; <N>_OpenAndFillInternal(in, 0, ..)
+PKG  <N>_OpenAndFillInternal(in, sIdx, ..)  -> <N>_OpenImpl(.., 1)
+PRV  <N>_OpenImpl(sp, in, sIdx, params, outBeg, outNb, outs, outStride)
+```
+
+Both public entries delegate at anchor 0, so **no seam is emitted unreachable** —
+before that symmetry, 159 of 175 `_OpenAndFillInternal` had no caller at all in
+every backend. The guard sits on the public frame because that is the only one
+handed an array it did not vet: the plain open sinks into fresh arrays, and a
+composed call's destination is already proved disjoint by
+`SubCallStep::is_fusable`. `MA` (Dispatch) and `MAVP` (PeriodBank) are exempt and
+hand-roll a body per entry point — theirs differ by which callee tier they call
+and by an anchor clamp, not by a stride — so their `_OpenImpl` takes no
+`outStride`, which is the discriminator the gates key on rather than a name list.
 
 A cross-call inside a body calls the callee's *public* tier and lets its
 rejection throw, so the callers that need a code back convert it themselves:
@@ -104,7 +130,11 @@ scripts/build.py servers        # Generate + compile the JSON-RPC language serve
 scripts/build.py regen-check    # The PR gate: regenerating must change nothing
                                 # (cargo + Python only; the same command CI runs)
 scripts/build.py test           # C reference tests only (quick)
-scripts/build.py regtest        # Full pipeline: servers (cargo) + C tests + cross-language verification
+scripts/build.py regtest        # Servers (cargo) + C tests + cross-language verification.
+                                # Needs bin/ta_ref_serve to already exist; it does NOT build it,
+                                # so in a fresh worktree this aborts at the oracle. Use
+                                # scripts/regtest.py, which builds ta_ref_serve from the
+                                # pinned-tag reference worktree first.
 
 # ta_codegen (run from ta_codegen/generator/)
 cargo run -- generate                            # Generate everything, all backends

@@ -198,11 +198,15 @@ TA_RetCode TA_S_AD( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_AD_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    double ad;
 };
 
 /* Private function, not in public API. */
-static void TA_AD_StepInternal( struct TA_AD_Stream *sp, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
+static void TA_AD_StepImpl( struct TA_AD_Stream *sp, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
    double high;
    double low;
@@ -220,7 +224,7 @@ static void TA_AD_StepInternal( struct TA_AD_Stream *sp, double inHigh, double i
    *outReal= sp->ad;
 }
 
-static TA_RetCode TA_AD_OpenPass( struct TA_AD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_AD_OpenImpl( struct TA_AD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_AD_Stream *sp;
    int endIdx;
@@ -232,6 +236,12 @@ static TA_RetCode TA_AD_OpenPass( struct TA_AD_Stream **stream, const double inH
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -288,6 +298,8 @@ static TA_RetCode TA_AD_OpenPass( struct TA_AD_Stream **stream, const double inH
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->ad = ad;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -300,7 +312,7 @@ TA_RetCode TA_AD_OpenInternal( struct TA_AD_Stream **stream, const double inHigh
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_AD_OpenPass( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_AD_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -322,25 +334,26 @@ TA_LIB_API TA_RetCode TA_AD_OpenAndFill( TA_AD_Stream **stream, const double inH
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   return TA_AD_OpenPass( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AD_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_AD_OpenAndFillInternal( struct TA_AD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_AD_OpenPass( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AD_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_AD_Update( TA_AD_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
-   TA_AD_StepInternal( stream, inHigh, inLow, inClose, inVolume, outReal );
+   TA_AD_StepImpl( stream, inHigh, inLow, inClose, inVolume, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -351,7 +364,23 @@ TA_LIB_API TA_RetCode TA_AD_Peek( const TA_AD_Stream *stream, double inHigh, dou
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_AD_StepInternal( &scratch, inHigh, inLow, inClose, inVolume, outReal );
+   TA_AD_StepImpl( &scratch, inHigh, inLow, inClose, inVolume, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AD_UpdateAndFill( TA_AD_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) || !TA_IS_FINITE( inVolume[i] ) ) return TA_BAD_PARAM;
+      TA_AD_StepImpl( stream, inHigh[i], inLow[i], inClose[i], inVolume[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 

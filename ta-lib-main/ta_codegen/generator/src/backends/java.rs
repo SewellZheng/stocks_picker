@@ -668,11 +668,11 @@ fn render_init_expr(expr: &Expr) -> String {
 
 /// Name of the implementation tier: the transcribed numerics, and nothing else.
 ///
-/// Suffixed `_Impl`, matching the streaming tiers (`_OpenImpl`,
-/// `_OpenAndFillImpl`). `Internal` is deliberately NOT reused: in these two
-/// backends it names a *variant* (`_OpenAndFillInternal` is the composed-open
-/// fusion seam), and until #236 step 5 it named the deleted C-shaped tier, so
-/// one word would carry three meanings across the history.
+/// Suffixed `_Impl`, matching the streaming numerics (`<N>_OpenImpl`).
+/// `Internal` is deliberately NOT reused: it names a *variant* of an entry
+/// point (`_OpenInternal` / `_OpenAndFillInternal` are the `startIdx`-anchored
+/// seams), and until #236 step 5 it named the deleted C-shaped tier, so one
+/// word would carry three meanings across the history.
 ///
 /// Not public API in any backend. It keeps the C-shaped signature because the
 /// body is a literal transcription of C, which writes its indices through
@@ -717,9 +717,9 @@ fn body_name(base: &str) -> String {
 /// contract that an argument exists is not.
 ///
 /// **Order.** `requireIndexRange` comes first, then the presence of any non-buffer
-/// argument, then the buffer checks: the specification evaluates B-1/B-2 before
-/// B-3, and this wrapper used to run the presence check ahead of both, so an
-/// absent buffer pre-empted an out-of-range index (Part 3 item 3). The null enum
+/// argument, then the buffer checks: the specification evaluates B1/B2 before
+/// B3, and this wrapper used to run the presence check ahead of both, so an
+/// absent buffer pre-empted an out-of-range index (open item 3). The null enum
 /// check (item 4) has to sit ahead of the `_Lookback` call below, because that is
 /// where a null one is first dereferenced.
 fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {

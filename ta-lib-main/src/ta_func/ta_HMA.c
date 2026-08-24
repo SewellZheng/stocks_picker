@@ -542,12 +542,15 @@ TA_RetCode TA_S_HMA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HMA_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double dividerFull;
    double periodSubFull;
    double periodSumFull;
    double trailingFull;
-   double fullOut;
    int halfPeriod;
    int sqrtPeriod;
    double dividerHalf;
@@ -558,8 +561,6 @@ struct TA_HMA_Stream {
    double periodSubSqrt;
    double periodSumSqrt;
    double trailingSqrt;
-   double halfOut;
-   double diffReal;
    int dRing_Idx;
    int maxIdx_dRing;
    int ringPos_trailingIdxFull;
@@ -576,7 +577,7 @@ struct TA_HMA_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_HMA_ReleaseInternal( struct TA_HMA_Stream *sp )
+static void TA_HMA_ReleaseImpl( struct TA_HMA_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingIdxFull_inReal ) TA_Free( sp->ring_trailingIdxFull_inReal );
@@ -589,7 +590,7 @@ static void TA_HMA_ReleaseInternal( struct TA_HMA_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_HMA_StepInternal( struct TA_HMA_Stream *sp, double inReal, double *outReal )
+static void TA_HMA_StepImpl( struct TA_HMA_Stream *sp, double inReal, double *outReal )
 {
    if( sp->optInTimePeriod == 1 )
    {
@@ -599,6 +600,7 @@ static void TA_HMA_StepInternal( struct TA_HMA_Stream *sp, double inReal, double
    if( sp->optInTimePeriod == 2 || sp->optInTimePeriod == 3 )
    {
       double tempReal;
+      double fullOut;
 
       if( sp->ringCap_trailingIdxFull == 0 )
       {
@@ -609,9 +611,9 @@ static void TA_HMA_StepInternal( struct TA_HMA_Stream *sp, double inReal, double
       sp->periodSubFull -= sp->trailingFull;
       sp->periodSumFull += tempReal * sp->optInTimePeriod;
       sp->trailingFull = sp->ring_trailingIdxFull_inReal[sp->ringPos_trailingIdxFull];
-      sp->fullOut = sp->periodSumFull / sp->dividerFull;
+      fullOut = sp->periodSumFull / sp->dividerFull;
       sp->periodSumFull -= sp->periodSubFull;
-      *outReal= 2.0 * tempReal - sp->fullOut;
+      *outReal= 2.0 * tempReal - fullOut;
       sp->ring_trailingIdxFull_inReal[sp->ringPos_trailingIdxFull] = inReal;
       sp->ringPos_trailingIdxFull = sp->ringPos_trailingIdxFull + 1;
       if( sp->ringPos_trailingIdxFull >= sp->ringCap_trailingIdxFull )
@@ -622,6 +624,11 @@ static void TA_HMA_StepInternal( struct TA_HMA_Stream *sp, double inReal, double
    else
    {
       double tempReal;
+      double fullOut;
+      double halfOut;
+      double diffReal;
+      double periodSubSqrt = sp->periodSubSqrt;
+      double periodSumSqrt = sp->periodSumSqrt;
 
       if( sp->ringCap_trailingIdxFull == 0 )
       {
@@ -636,27 +643,27 @@ static void TA_HMA_StepInternal( struct TA_HMA_Stream *sp, double inReal, double
       sp->periodSubFull -= sp->trailingFull;
       sp->periodSumFull += tempReal * sp->optInTimePeriod;
       sp->trailingFull = sp->ring_trailingIdxFull_inReal[sp->ringPos_trailingIdxFull];
-      sp->fullOut = sp->periodSumFull / sp->dividerFull;
+      fullOut = sp->periodSumFull / sp->dividerFull;
       sp->periodSumFull -= sp->periodSubFull;
       sp->periodSubHalf += tempReal;
       sp->periodSubHalf -= sp->trailingHalf;
       sp->periodSumHalf += tempReal * sp->halfPeriod;
       sp->trailingHalf = sp->ring_trailingIdxHalf_inReal[sp->ringPos_trailingIdxHalf];
-      sp->halfOut = sp->periodSumHalf / sp->dividerHalf;
+      halfOut = sp->periodSumHalf / sp->dividerHalf;
       sp->periodSumHalf -= sp->periodSubHalf;
-      sp->diffReal = 2.0 * sp->halfOut - sp->fullOut;
-      sp->periodSubSqrt += sp->diffReal;
-      sp->periodSubSqrt -= sp->trailingSqrt;
-      sp->periodSumSqrt += sp->diffReal * sp->sqrtPeriod;
+      diffReal = 2.0 * halfOut - fullOut;
+      periodSubSqrt += diffReal;
+      periodSubSqrt -= sp->trailingSqrt;
+      periodSumSqrt += diffReal * sp->sqrtPeriod;
       sp->trailingSqrt = sp->cb_dRing[sp->dRing_Idx];
-      sp->cb_dRing[sp->dRing_Idx] = sp->diffReal;
+      sp->cb_dRing[sp->dRing_Idx] = diffReal;
       sp->dRing_Idx = sp->dRing_Idx + 1;
       if( sp->dRing_Idx > sp->maxIdx_dRing )
       {
          sp->dRing_Idx = 0;
       }
-      *outReal= sp->periodSumSqrt / sp->dividerSqrt;
-      sp->periodSumSqrt -= sp->periodSubSqrt;
+      *outReal= periodSumSqrt / sp->dividerSqrt;
+      periodSumSqrt -= periodSubSqrt;
       sp->ring_trailingIdxFull_inReal[sp->ringPos_trailingIdxFull] = inReal;
       sp->ringPos_trailingIdxFull = sp->ringPos_trailingIdxFull + 1;
       if( sp->ringPos_trailingIdxFull >= sp->ringCap_trailingIdxFull )
@@ -669,10 +676,12 @@ static void TA_HMA_StepInternal( struct TA_HMA_Stream *sp, double inReal, double
       {
          sp->ringPos_trailingIdxHalf = 0;
       }
+      sp->periodSubSqrt = periodSubSqrt;
+      sp->periodSumSqrt = periodSumSqrt;
    }
 }
 
-static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_HMA_OpenImpl( struct TA_HMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_HMA_Stream *sp;
    double local_dRing[50];
@@ -692,6 +701,12 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -700,7 +715,9 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
 
    if( optInTimePeriod == 1 )
    {
-      if( historyLen < TA_HMA_Lookback( optInTimePeriod ) + 1 ) return TA_INSUFFICIENT_HISTORY;
+      int fillLb = TA_HMA_Lookback( optInTimePeriod );
+      if( startIdx > fillLb ) fillLb = startIdx;
+      if( historyLen < fillLb + 1 ) return TA_INSUFFICIENT_HISTORY;
       sp = (struct TA_HMA_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -708,14 +725,13 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
       sp->ringCap_trailingIdxFull = 0;
       { size_t allocN = (size_t)(sp->ringCap_trailingIdxFull > 0 ? sp->ringCap_trailingIdxFull : 1);
         sp->ring_trailingIdxFull_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdxFull_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingIdxFull_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdxFull_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdxFull_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingIdxFull_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memset( sp->ring_trailingIdxFull_inReal, 0, sizeof(double) * allocN );
       }
       sp->ringPos_trailingIdxFull = 0;
       {
-         int fillLb = TA_HMA_Lookback( optInTimePeriod );
          int fillIdx;
          *outBegIdx = fillLb;
          *outNBElement = historyLen - fillLb;
@@ -731,6 +747,8 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
             outReal[0] = inReal[historyLen - 1];
          }
       }
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -753,7 +771,7 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
       double periodSumFull = 0.0;
       double trailingFull = 0.0;
       double tempReal;
-      double fullOut = 0.0;
+      double fullOut;
       /* The de-lagged series needs only its last sqrt(n) values, so the whole
        * computation runs in one pass over a single window into the input:
        * three interleaved WMA rolling sums plus this small ring. The ring has
@@ -847,17 +865,18 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
       sp->periodSubFull = periodSubFull;
       sp->periodSumFull = periodSumFull;
       sp->trailingFull = trailingFull;
-      sp->fullOut = fullOut;
       sp->ringCap_trailingIdxFull = (int)(today - trailingIdxFull);
-      if( sp->ringCap_trailingIdxFull < 0 || sp->ringCap_trailingIdxFull > historyLen ) { TA_HMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingIdxFull < 0 || sp->ringCap_trailingIdxFull > historyLen ) { TA_HMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdxFull > 0 ? sp->ringCap_trailingIdxFull : 1);
         sp->ring_trailingIdxFull_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdxFull_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingIdxFull_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdxFull_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdxFull_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingIdxFull_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingIdxFull_inReal, inReal + (historyLen - sp->ringCap_trailingIdxFull), sizeof(double) * (size_t)sp->ringCap_trailingIdxFull );
       }
       sp->ringPos_trailingIdxFull = 0;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -891,9 +910,9 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
       double periodSumSqrt = 0.0;
       double trailingSqrt = 0.0;
       double tempReal;
-      double fullOut = 0.0;
-      double halfOut = 0.0;
-      double diffReal = 0.0;
+      double fullOut;
+      double halfOut;
+      double diffReal;
       /* The de-lagged series needs only its last sqrt(n) values, so the whole
        * computation runs in one pass over a single window into the input:
        * three interleaved WMA rolling sums plus this small ring. The ring has
@@ -1079,39 +1098,38 @@ static TA_RetCode TA_HMA_OpenPass( struct TA_HMA_Stream **stream, const double i
       sp->periodSubSqrt = periodSubSqrt;
       sp->periodSumSqrt = periodSumSqrt;
       sp->trailingSqrt = trailingSqrt;
-      sp->fullOut = fullOut;
-      sp->halfOut = halfOut;
-      sp->diffReal = diffReal;
       sp->dRing_Idx = dRing_Idx;
       sp->maxIdx_dRing = maxIdx_dRing;
       sp->ringCap_trailingIdxFull = (int)(today - trailingIdxFull);
-      if( sp->ringCap_trailingIdxFull < 0 || sp->ringCap_trailingIdxFull > historyLen ) { TA_HMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingIdxFull < 0 || sp->ringCap_trailingIdxFull > historyLen ) { TA_HMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdxFull > 0 ? sp->ringCap_trailingIdxFull : 1);
         sp->ring_trailingIdxFull_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdxFull_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingIdxFull_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdxFull_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdxFull_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingIdxFull_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingIdxFull_inReal, inReal + (historyLen - sp->ringCap_trailingIdxFull), sizeof(double) * (size_t)sp->ringCap_trailingIdxFull );
       }
       sp->ringPos_trailingIdxFull = 0;
       sp->ringCap_trailingIdxHalf = (int)(today - trailingIdxHalf);
-      if( sp->ringCap_trailingIdxHalf < 0 || sp->ringCap_trailingIdxHalf > historyLen ) { TA_HMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingIdxHalf < 0 || sp->ringCap_trailingIdxHalf > historyLen ) { TA_HMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdxHalf > 0 ? sp->ringCap_trailingIdxHalf : 1);
         sp->ring_trailingIdxHalf_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdxHalf_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingIdxHalf_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdxHalf_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdxHalf_inReal ) { TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingIdxHalf_inReal ) { TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingIdxHalf_inReal, inReal + (historyLen - sp->ringCap_trailingIdxHalf), sizeof(double) * (size_t)sp->ringCap_trailingIdxHalf );
       }
       sp->ringPos_trailingIdxHalf = 0;
       sp->cbSize_dRing = maxIdx_dRing + 1;
-      if( sp->cbSize_dRing < 1 || sp->cbSize_dRing > historyLen + 1 ) { if( dRing != &local_dRing[0] ) TA_Free( dRing ); TA_HMA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_dRing < 1 || sp->cbSize_dRing > historyLen + 1 ) { if( dRing != &local_dRing[0] ) TA_Free( dRing ); TA_HMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->cb_dRing = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_dRing );
-      if( !sp->cb_dRing ) { if( dRing != &local_dRing[0] ) TA_Free( dRing ); TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cb_dRing ) { if( dRing != &local_dRing[0] ) TA_Free( dRing ); TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_dRing = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_dRing );
-      if( !sp->cbMirror_dRing ) { if( dRing != &local_dRing[0] ) TA_Free( dRing ); TA_HMA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cbMirror_dRing ) { if( dRing != &local_dRing[0] ) TA_Free( dRing ); TA_HMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_dRing, dRing, sizeof(double) * (size_t)sp->cbSize_dRing );
       if( dRing != &local_dRing[0] ) TA_Free( dRing ); 
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1127,7 +1145,7 @@ TA_RetCode TA_HMA_OpenInternal( struct TA_HMA_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_HMA_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_HMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1149,25 +1167,26 @@ TA_LIB_API TA_RetCode TA_HMA_OpenAndFill( TA_HMA_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_HMA_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_HMA_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_HMA_OpenAndFillInternal( struct TA_HMA_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_HMA_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_HMA_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_HMA_Update( TA_HMA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_HMA_StepInternal( stream, inReal, outReal );
+   TA_HMA_StepImpl( stream, inReal, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1190,13 +1209,29 @@ TA_LIB_API TA_RetCode TA_HMA_Peek( const TA_HMA_Stream *stream, double inReal, d
       scratch.cb_dRing = stream->cbMirror_dRing;
       memcpy( scratch.cb_dRing, stream->cb_dRing, sizeof(double) * (size_t)stream->cbSize_dRing );
    }
-   TA_HMA_StepInternal( &scratch, inReal, outReal );
+   TA_HMA_StepImpl( &scratch, inReal, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HMA_UpdateAndFill( TA_HMA_Stream *stream, const double inReal[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_HMA_StepImpl( stream, inReal[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_HMA_Close( TA_HMA_Stream *stream )
 {
-   TA_HMA_ReleaseInternal( stream );
+   TA_HMA_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

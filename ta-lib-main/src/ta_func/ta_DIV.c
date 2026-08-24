@@ -127,17 +127,20 @@ TA_RetCode TA_S_DIV( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_DIV_Stream {
-   int unused; /* T1: stateless map */
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
 };
 
 /* Private function, not in public API. */
-static void TA_DIV_StepInternal( struct TA_DIV_Stream *sp, double inReal0, double inReal1, double *outReal )
+static void TA_DIV_StepImpl( struct TA_DIV_Stream *sp, double inReal0, double inReal1, double *outReal )
 {
    (void)sp;
    *outReal= inReal0 / inReal1;
 }
 
-static TA_RetCode TA_DIV_OpenPass( struct TA_DIV_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_DIV_OpenImpl( struct TA_DIV_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_DIV_Stream *sp;
    int endIdx;
@@ -149,6 +152,12 @@ static TA_RetCode TA_DIV_OpenPass( struct TA_DIV_Stream **stream, const double i
    if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -169,6 +178,8 @@ static TA_RetCode TA_DIV_OpenPass( struct TA_DIV_Stream **stream, const double i
       sp = (struct TA_DIV_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -181,7 +192,7 @@ TA_RetCode TA_DIV_OpenInternal( struct TA_DIV_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_DIV_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_DIV_OpenImpl( stream, inReal0, inReal1, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -203,25 +214,26 @@ TA_LIB_API TA_RetCode TA_DIV_OpenAndFill( TA_DIV_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
-   return TA_DIV_OpenPass( stream, inReal0, inReal1, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_DIV_OpenAndFillInternal( stream, inReal0, inReal1, 0, historyLen, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_DIV_OpenAndFillInternal( struct TA_DIV_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_DIV_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_DIV_OpenImpl( stream, inReal0, inReal1, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_DIV_Update( TA_DIV_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
-   TA_DIV_StepInternal( stream, inReal0, inReal1, outReal );
+   TA_DIV_StepImpl( stream, inReal0, inReal1, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -232,7 +244,23 @@ TA_LIB_API TA_RetCode TA_DIV_Peek( const TA_DIV_Stream *stream, double inReal0, 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_DIV_StepInternal( &scratch, inReal0, inReal1, outReal );
+   TA_DIV_StepImpl( &scratch, inReal0, inReal1, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_DIV_UpdateAndFill( TA_DIV_Stream *stream, const double inReal0[], const double inReal1[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal0[i] ) || !TA_IS_FINITE( inReal1[i] ) ) return TA_BAD_PARAM;
+      TA_DIV_StepImpl( stream, inReal0[i], inReal1[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 

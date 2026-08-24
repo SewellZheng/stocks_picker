@@ -738,24 +738,25 @@
       double prevHigh;
       double prevLow;
       double prevClose;
-      double tempReal;
-      double diffP;
-      double diffM;
       double prevMinusDM;
       double prevTR;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       MINUS_DI_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#MINUS_DI_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#MINUS_DI} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       MINUS_DI_Stream( MINUS_DI_Stream other ) {
          this.core = other.core;
@@ -763,13 +764,11 @@
          this.prevHigh = other.prevHigh;
          this.prevLow = other.prevLow;
          this.prevClose = other.prevClose;
-         this.tempReal = other.tempReal;
-         this.diffP = other.diffP;
-         this.diffM = other.diffM;
          this.prevMinusDM = other.prevMinusDM;
          this.prevTR = other.prevTR;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( MINUS_DI_Stream other ) {
@@ -778,13 +777,11 @@
          this.prevHigh = other.prevHigh;
          this.prevLow = other.prevLow;
          this.prevClose = other.prevClose;
-         this.tempReal = other.tempReal;
-         this.diffP = other.diffP;
-         this.diffM = other.diffM;
          this.prevMinusDM = other.prevMinusDM;
          this.prevTR = other.prevTR;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -802,8 +799,34 @@
       public double update( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("MINUS_DI update: BadParam", RetCode.BadParam);
-         core.MINUS_DI_StreamStep(this, inHigh, inLow, inClose);
+         core.MINUS_DI_StepImpl(this, inHigh, inLow, inClose);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inHigh.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         final int barCount = inHigh.length;
+         if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
+            throw new TaLibArgumentException("MINUS_DI updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) )
+               throw new TaLibArgumentException("MINUS_DI updateAndFill: BadParam", RetCode.BadParam);
+            core.MINUS_DI_StepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -817,7 +840,7 @@
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("MINUS_DI peek: BadParam", RetCode.BadParam);
          MINUS_DI_Stream scratch = new MINUS_DI_Stream(this);
-         core.MINUS_DI_StreamStep(scratch, inHigh, inLow, inClose);
+         core.MINUS_DI_StepImpl(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
 
@@ -838,18 +861,21 @@
          return new MINUS_DI_Stream(this);
       }
    }
-   void MINUS_DI_StreamStep( MINUS_DI_Stream sp, double inHigh, double inLow, double inClose )
+   void MINUS_DI_StepImpl( MINUS_DI_Stream sp, double inHigh, double inLow, double inClose )
    {
       if( sp.optInTimePeriod <= 1 ) {
-         sp.tempReal = inHigh;
-         sp.diffP = sp.tempReal - sp.prevHigh;
+         double tempReal = 0.0;
+         double diffP = 0.0;
+         double diffM = 0.0;
+         tempReal = inHigh;
+         diffP = tempReal - sp.prevHigh;
          /* Plus Delta */
-         sp.prevHigh = sp.tempReal;
-         sp.tempReal = inLow;
-         sp.diffM = sp.prevLow - sp.tempReal;
+         sp.prevHigh = tempReal;
+         tempReal = inLow;
+         diffM = sp.prevLow - tempReal;
          /* Minus Delta */
-         sp.prevLow = sp.tempReal;
-         if( sp.diffM > 0 && sp.diffP < sp.diffM ) {
+         sp.prevLow = tempReal;
+         if( diffM > 0 && diffP < diffM ) {
             /* Case 2 and 4: +DM=0,-DM=diffM */
             double _true_range_0;
             double range_0 = sp.prevHigh - sp.prevLow;
@@ -862,29 +888,32 @@
                range_0 = tmp_0;
             }
             _true_range_0 = range_0;
-            sp.tempReal = _true_range_0;
-            if( ((-0.00000000000001 < sp.tempReal) && (sp.tempReal < 0.00000000000001)) ) {
+            tempReal = _true_range_0;
+            if( ((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
                sp.cur_outReal = (double)0.0;
             } else {
-               sp.cur_outReal = sp.diffM / sp.tempReal;
+               sp.cur_outReal = diffM / tempReal;
             }
          } else {
             sp.cur_outReal = (double)0.0;
          }
          sp.prevClose = inClose;
       } else {
+         double tempReal = 0.0;
+         double diffP = 0.0;
+         double diffM = 0.0;
          /* Calculate the prevMinusDM */
-         sp.tempReal = inHigh;
-         sp.diffP = sp.tempReal - sp.prevHigh;
+         tempReal = inHigh;
+         diffP = tempReal - sp.prevHigh;
          /* Plus Delta */
-         sp.prevHigh = sp.tempReal;
-         sp.tempReal = inLow;
-         sp.diffM = sp.prevLow - sp.tempReal;
+         sp.prevHigh = tempReal;
+         tempReal = inLow;
+         diffM = sp.prevLow - tempReal;
          /* Minus Delta */
-         sp.prevLow = sp.tempReal;
-         if( sp.diffM > 0 && sp.diffP < sp.diffM ) {
+         sp.prevLow = tempReal;
+         if( diffM > 0 && diffP < diffM ) {
             /* Case 2 and 4: +DM=0,-DM=diffM */
-            sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / sp.optInTimePeriod + sp.diffM;
+            sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / sp.optInTimePeriod + diffM;
          } else {
             /* Case 1,3,5 and 7 */
             sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / sp.optInTimePeriod;
@@ -901,8 +930,8 @@
             range_1 = tmp_1;
          }
          _true_range_1 = range_1;
-         sp.tempReal = _true_range_1;
-         sp.prevTR = sp.prevTR - sp.prevTR / sp.optInTimePeriod + sp.tempReal;
+         tempReal = _true_range_1;
+         sp.prevTR = sp.prevTR - sp.prevTR / sp.optInTimePeriod + tempReal;
          sp.prevClose = inClose;
          /* Calculate the DI. The value is rounded (see Wilder book). */
          if( !((-0.00000000000001 < sp.prevTR) && (sp.prevTR < 0.00000000000001)) ) {
@@ -912,7 +941,7 @@
          }
       }
    }
-   private RetCode MINUS_DI_OpenPass( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode MINUS_DI_OpenImpl( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
@@ -1104,9 +1133,6 @@
          sp.prevHigh = prevHigh;
          sp.prevLow = prevLow;
          sp.prevClose = prevClose;
-         sp.tempReal = tempReal;
-         sp.diffP = diffP;
-         sp.diffM = diffM;
          sp.prevMinusDM = prevMinusDM;
          sp.prevTR = prevTR;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
@@ -1370,38 +1396,19 @@
          sp.prevHigh = prevHigh;
          sp.prevLow = prevLow;
          sp.prevClose = prevClose;
-         sp.tempReal = tempReal;
-         sp.diffP = diffP;
-         sp.diffM = diffM;
          sp.prevMinusDM = prevMinusDM;
          sp.prevTR = prevTR;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
          return RetCode.Success;
       }
    }
-   private RetCode MINUS_DI_OpenImpl( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return MINUS_DI_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode MINUS_DI_OpenAndFillImpl( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         return RetCode.BadParam;
-      }
-      return MINUS_DI_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode MINUS_DI_OpenAndFillInternalImpl( MINUS_DI_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return MINUS_DI_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
-   }
    /* MINUS_DI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MINUS_DI_Stream MINUS_DI_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       MINUS_DI_Stream sp = new MINUS_DI_Stream(this);
-      RetCode retCode = MINUS_DI_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MINUS_DI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1417,7 +1424,12 @@
    MINUS_DI_Stream MINUS_DI_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod )
    {
       MINUS_DI_Stream sp = new MINUS_DI_Stream(this);
-      RetCode retCode = MINUS_DI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = MINUS_DI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1450,23 +1462,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link MINUS_DI_Stream#fillRange()}.
+    * {@link MINUS_DI_Stream#outRange()}.
     */
    public MINUS_DI_Stream MINUS_DI_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
-      MINUS_DI_Stream sp = new MINUS_DI_Stream(this);
+      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
+         throw new TaLibArgumentException("MINUS_DI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MINUS_DI_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("MINUS_DI openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MINUS_DI openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("MINUS_DI openAndFill: " + retCode, retCode);
+      return MINUS_DI_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
    }

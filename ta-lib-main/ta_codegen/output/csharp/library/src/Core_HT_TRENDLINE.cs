@@ -922,51 +922,40 @@ public partial class Core
    public sealed class HT_TRENDLINE_Stream
    {
       internal Core core;
-      internal int i;
-      internal double tempReal;
-      internal double tempReal2;
       internal double period;
       internal double periodWMASum;
       internal double periodWMASub;
       internal double trailingWMAValue;
-      internal double smoothedValue;
       internal double iTrend1;
       internal double iTrend2;
       internal double iTrend3;
       internal double a;
       internal double b;
-      internal double hilbertTempReal;
       internal int hilbertIdx;
       internal double[] detrender_Odd = [];
       internal double[] detrender_Even = [];
-      internal double detrender;
       internal double prev_detrender_Odd;
       internal double prev_detrender_Even;
       internal double prev_detrender_input_Odd;
       internal double prev_detrender_input_Even;
       internal double[] Q1_Odd = [];
       internal double[] Q1_Even = [];
-      internal double Q1;
       internal double prev_Q1_Odd;
       internal double prev_Q1_Even;
       internal double prev_Q1_input_Odd;
       internal double prev_Q1_input_Even;
       internal double[] jI_Odd = [];
       internal double[] jI_Even = [];
-      internal double jI;
       internal double prev_jI_Odd;
       internal double prev_jI_Even;
       internal double prev_jI_input_Odd;
       internal double prev_jI_input_Even;
       internal double[] jQ_Odd = [];
       internal double[] jQ_Even = [];
-      internal double jQ;
       internal double prev_jQ_Odd;
       internal double prev_jQ_Even;
       internal double prev_jQ_input_Odd;
       internal double prev_jQ_input_Even;
-      internal double Q2;
-      internal double I2;
       internal double prevQ2;
       internal double prevI2;
       internal double Re;
@@ -977,8 +966,6 @@ public partial class Core
       internal double I1ForEvenPrev3;
       internal double rad2Deg;
       internal double smoothPeriod;
-      internal int DCPeriodInt;
-      internal double DCPeriod;
       internal int streamParity;
       internal int ringPos_trailingWMAIdx;
       internal int ringCap_trailingWMAIdx;
@@ -987,42 +974,40 @@ public partial class Core
       internal int winCap_i;
       internal double[] win_i_inReal = [];
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal HT_TRENDLINE_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>HT_TRENDLINE_OpenAndFill</c> filled, or
-      /// <see cref="OutRange.Empty"/> when this handle came from a plain open
-      /// (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.HT_TRENDLINE</c> reports over the same bars: the opener
+      /// sets it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
+      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
+      /// last value, a subset of this range, because the caller chose not to take
+      /// the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal HT_TRENDLINE_Stream( HT_TRENDLINE_Stream other )
       {
          this.core = other.core;
-         this.i = other.i;
-         this.tempReal = other.tempReal;
-         this.tempReal2 = other.tempReal2;
          this.period = other.period;
          this.periodWMASum = other.periodWMASum;
          this.periodWMASub = other.periodWMASub;
          this.trailingWMAValue = other.trailingWMAValue;
-         this.smoothedValue = other.smoothedValue;
          this.iTrend1 = other.iTrend1;
          this.iTrend2 = other.iTrend2;
          this.iTrend3 = other.iTrend3;
          this.a = other.a;
          this.b = other.b;
-         this.hilbertTempReal = other.hilbertTempReal;
          this.hilbertIdx = other.hilbertIdx;
          this.detrender_Odd = new double[other.detrender_Odd.Length];
          Array.Copy( other.detrender_Odd, this.detrender_Odd, other.detrender_Odd.Length );
          this.detrender_Even = new double[other.detrender_Even.Length];
          Array.Copy( other.detrender_Even, this.detrender_Even, other.detrender_Even.Length );
-         this.detrender = other.detrender;
          this.prev_detrender_Odd = other.prev_detrender_Odd;
          this.prev_detrender_Even = other.prev_detrender_Even;
          this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
@@ -1031,7 +1016,6 @@ public partial class Core
          Array.Copy( other.Q1_Odd, this.Q1_Odd, other.Q1_Odd.Length );
          this.Q1_Even = new double[other.Q1_Even.Length];
          Array.Copy( other.Q1_Even, this.Q1_Even, other.Q1_Even.Length );
-         this.Q1 = other.Q1;
          this.prev_Q1_Odd = other.prev_Q1_Odd;
          this.prev_Q1_Even = other.prev_Q1_Even;
          this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
@@ -1040,7 +1024,6 @@ public partial class Core
          Array.Copy( other.jI_Odd, this.jI_Odd, other.jI_Odd.Length );
          this.jI_Even = new double[other.jI_Even.Length];
          Array.Copy( other.jI_Even, this.jI_Even, other.jI_Even.Length );
-         this.jI = other.jI;
          this.prev_jI_Odd = other.prev_jI_Odd;
          this.prev_jI_Even = other.prev_jI_Even;
          this.prev_jI_input_Odd = other.prev_jI_input_Odd;
@@ -1049,13 +1032,10 @@ public partial class Core
          Array.Copy( other.jQ_Odd, this.jQ_Odd, other.jQ_Odd.Length );
          this.jQ_Even = new double[other.jQ_Even.Length];
          Array.Copy( other.jQ_Even, this.jQ_Even, other.jQ_Even.Length );
-         this.jQ = other.jQ;
          this.prev_jQ_Odd = other.prev_jQ_Odd;
          this.prev_jQ_Even = other.prev_jQ_Even;
          this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
          this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.Q2 = other.Q2;
-         this.I2 = other.I2;
          this.prevQ2 = other.prevQ2;
          this.prevI2 = other.prevI2;
          this.Re = other.Re;
@@ -1066,8 +1046,6 @@ public partial class Core
          this.I1ForEvenPrev3 = other.I1ForEvenPrev3;
          this.rad2Deg = other.rad2Deg;
          this.smoothPeriod = other.smoothPeriod;
-         this.DCPeriodInt = other.DCPeriodInt;
-         this.DCPeriod = other.DCPeriod;
          this.streamParity = other.streamParity;
          this.ringPos_trailingWMAIdx = other.ringPos_trailingWMAIdx;
          this.ringCap_trailingWMAIdx = other.ringCap_trailingWMAIdx;
@@ -1078,26 +1056,22 @@ public partial class Core
          this.win_i_inReal = new double[other.win_i_inReal.Length];
          Array.Copy( other.win_i_inReal, this.win_i_inReal, other.win_i_inReal.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( HT_TRENDLINE_Stream other )
       {
          this.core = other.core;
-         this.i = other.i;
-         this.tempReal = other.tempReal;
-         this.tempReal2 = other.tempReal2;
          this.period = other.period;
          this.periodWMASum = other.periodWMASum;
          this.periodWMASub = other.periodWMASub;
          this.trailingWMAValue = other.trailingWMAValue;
-         this.smoothedValue = other.smoothedValue;
          this.iTrend1 = other.iTrend1;
          this.iTrend2 = other.iTrend2;
          this.iTrend3 = other.iTrend3;
          this.a = other.a;
          this.b = other.b;
-         this.hilbertTempReal = other.hilbertTempReal;
          this.hilbertIdx = other.hilbertIdx;
          if( this.detrender_Odd.Length != other.detrender_Odd.Length ) {
             this.detrender_Odd = new double[other.detrender_Odd.Length];
@@ -1107,7 +1081,6 @@ public partial class Core
             this.detrender_Even = new double[other.detrender_Even.Length];
          }
          Array.Copy( other.detrender_Even, this.detrender_Even, other.detrender_Even.Length );
-         this.detrender = other.detrender;
          this.prev_detrender_Odd = other.prev_detrender_Odd;
          this.prev_detrender_Even = other.prev_detrender_Even;
          this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
@@ -1120,7 +1093,6 @@ public partial class Core
             this.Q1_Even = new double[other.Q1_Even.Length];
          }
          Array.Copy( other.Q1_Even, this.Q1_Even, other.Q1_Even.Length );
-         this.Q1 = other.Q1;
          this.prev_Q1_Odd = other.prev_Q1_Odd;
          this.prev_Q1_Even = other.prev_Q1_Even;
          this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
@@ -1133,7 +1105,6 @@ public partial class Core
             this.jI_Even = new double[other.jI_Even.Length];
          }
          Array.Copy( other.jI_Even, this.jI_Even, other.jI_Even.Length );
-         this.jI = other.jI;
          this.prev_jI_Odd = other.prev_jI_Odd;
          this.prev_jI_Even = other.prev_jI_Even;
          this.prev_jI_input_Odd = other.prev_jI_input_Odd;
@@ -1146,13 +1117,10 @@ public partial class Core
             this.jQ_Even = new double[other.jQ_Even.Length];
          }
          Array.Copy( other.jQ_Even, this.jQ_Even, other.jQ_Even.Length );
-         this.jQ = other.jQ;
          this.prev_jQ_Odd = other.prev_jQ_Odd;
          this.prev_jQ_Even = other.prev_jQ_Even;
          this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
          this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.Q2 = other.Q2;
-         this.I2 = other.I2;
          this.prevQ2 = other.prevQ2;
          this.prevI2 = other.prevI2;
          this.Re = other.Re;
@@ -1163,8 +1131,6 @@ public partial class Core
          this.I1ForEvenPrev3 = other.I1ForEvenPrev3;
          this.rad2Deg = other.rad2Deg;
          this.smoothPeriod = other.smoothPeriod;
-         this.DCPeriodInt = other.DCPeriodInt;
-         this.DCPeriod = other.DCPeriod;
          this.streamParity = other.streamParity;
          this.ringPos_trailingWMAIdx = other.ringPos_trailingWMAIdx;
          this.ringCap_trailingWMAIdx = other.ringCap_trailingWMAIdx;
@@ -1179,7 +1145,8 @@ public partial class Core
          }
          Array.Copy( other.win_i_inReal, this.win_i_inReal, other.win_i_inReal.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /* Peek's reusable scratch — one per thread, see CopyFrom. */
@@ -1201,7 +1168,8 @@ public partial class Core
       public double Update( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("HT_TRENDLINE", "update", RetCode.BadParam);
-         core.HT_TRENDLINE_StreamStep(this, inReal);
+         core.HT_TRENDLINE_StepImpl(this, inReal);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -1226,8 +1194,34 @@ public partial class Core
          } else {
             scratch.CopyFrom(this);
          }
-         core.HT_TRENDLINE_StreamStep(scratch, inReal);
+         core.HT_TRENDLINE_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
+      {
+         int barCount = inReal.Length;
+         if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("HT_TRENDLINE", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("HT_TRENDLINE", "updateAndFill", RetCode.BadParam);
+            core.HT_TRENDLINE_StepImpl(this, inReal[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -1246,10 +1240,23 @@ public partial class Core
       }
    }
 
-   internal void HT_TRENDLINE_StreamStep( HT_TRENDLINE_Stream sp, double inReal )
+   internal void HT_TRENDLINE_StepImpl( HT_TRENDLINE_Stream sp, double inReal )
    {
+      int i = 0;
+      double tempReal = 0.0;
+      double tempReal2 = 0.0;
       double adjustedPrevPeriod = 0.0;
+      double smoothedValue = 0.0;
+      double hilbertTempReal = 0.0;
+      double detrender = 0.0;
+      double Q1 = 0.0;
+      double jI = 0.0;
+      double jQ = 0.0;
+      double Q2 = 0.0;
+      double I2 = 0.0;
       double todayValue = 0.0;
+      int DCPeriodInt = 0;
+      double DCPeriod = 0.0;
       if( sp.ringCap_trailingWMAIdx == 0 ) {
          sp.ring_trailingWMAIdx_inReal[0] = inReal;
       }
@@ -1260,51 +1267,51 @@ public partial class Core
       sp.periodWMASub -= sp.trailingWMAValue;
       sp.periodWMASum += todayValue * 4.0;
       sp.trailingWMAValue = sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx];
-      sp.smoothedValue = sp.periodWMASum * 0.1;
+      smoothedValue = sp.periodWMASum * 0.1;
       sp.periodWMASum -= sp.periodWMASub;
       if( sp.streamParity == 0 ) {
          /* Do the Hilbert Transforms for even price bar */
-         sp.hilbertTempReal = sp.a * sp.smoothedValue;
-         sp.detrender = 0 - sp.detrender_Even[sp.hilbertIdx];
-         sp.detrender_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.detrender += sp.hilbertTempReal;
-         sp.detrender -= sp.prev_detrender_Even;
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = 0 - sp.detrender_Even[sp.hilbertIdx];
+         sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
+         detrender += hilbertTempReal;
+         detrender -= sp.prev_detrender_Even;
          sp.prev_detrender_Even = sp.b * sp.prev_detrender_input_Even;
-         sp.detrender += sp.prev_detrender_Even;
-         sp.prev_detrender_input_Even = sp.smoothedValue;
-         sp.detrender *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.detrender;
-         sp.Q1 = 0 - sp.Q1_Even[sp.hilbertIdx];
-         sp.Q1_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.Q1 += sp.hilbertTempReal;
-         sp.Q1 -= sp.prev_Q1_Even;
+         detrender += sp.prev_detrender_Even;
+         sp.prev_detrender_input_Even = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = 0 - sp.Q1_Even[sp.hilbertIdx];
+         sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
+         Q1 += hilbertTempReal;
+         Q1 -= sp.prev_Q1_Even;
          sp.prev_Q1_Even = sp.b * sp.prev_Q1_input_Even;
-         sp.Q1 += sp.prev_Q1_Even;
-         sp.prev_Q1_input_Even = sp.detrender;
-         sp.Q1 *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
-         sp.jI = 0 - sp.jI_Even[sp.hilbertIdx];
-         sp.jI_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jI += sp.hilbertTempReal;
-         sp.jI -= sp.prev_jI_Even;
+         Q1 += sp.prev_Q1_Even;
+         sp.prev_Q1_input_Even = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
+         jI = 0 - sp.jI_Even[sp.hilbertIdx];
+         sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
+         jI += hilbertTempReal;
+         jI -= sp.prev_jI_Even;
          sp.prev_jI_Even = sp.b * sp.prev_jI_input_Even;
-         sp.jI += sp.prev_jI_Even;
+         jI += sp.prev_jI_Even;
          sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
-         sp.jI *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.Q1;
-         sp.jQ = 0 - sp.jQ_Even[sp.hilbertIdx];
-         sp.jQ_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jQ += sp.hilbertTempReal;
-         sp.jQ -= sp.prev_jQ_Even;
+         jI *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * Q1;
+         jQ = 0 - sp.jQ_Even[sp.hilbertIdx];
+         sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
+         jQ += hilbertTempReal;
+         jQ -= sp.prev_jQ_Even;
          sp.prev_jQ_Even = sp.b * sp.prev_jQ_input_Even;
-         sp.jQ += sp.prev_jQ_Even;
-         sp.prev_jQ_input_Even = sp.Q1;
-         sp.jQ *= adjustedPrevPeriod;
+         jQ += sp.prev_jQ_Even;
+         sp.prev_jQ_input_Even = Q1;
+         jQ *= adjustedPrevPeriod;
          if( ++sp.hilbertIdx == 3 ) {
             sp.hilbertIdx = 0;
          }
-         sp.Q2 = Math.FusedMultiplyAdd(0.2, sp.Q1 + sp.jI, 0.8 * sp.prevQ2);
-         sp.I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForEvenPrev3 - sp.jQ, 0.8 * sp.prevI2);
+         Q2 = Math.FusedMultiplyAdd(0.2, Q1 + jI, 0.8 * sp.prevQ2);
+         I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForEvenPrev3 - jQ, 0.8 * sp.prevI2);
          /* The variable I1 is the detrender delayed for
           * 3 price bars.
           *
@@ -1312,47 +1319,47 @@ public partial class Core
           * used by the "odd" logic later.
           */
          sp.I1ForOddPrev3 = sp.I1ForOddPrev2;
-         sp.I1ForOddPrev2 = sp.detrender;
+         sp.I1ForOddPrev2 = detrender;
       } else {
          /* Do the Hilbert Transforms for odd price bar */
-         sp.hilbertTempReal = sp.a * sp.smoothedValue;
-         sp.detrender = 0 - sp.detrender_Odd[sp.hilbertIdx];
-         sp.detrender_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.detrender += sp.hilbertTempReal;
-         sp.detrender -= sp.prev_detrender_Odd;
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = 0 - sp.detrender_Odd[sp.hilbertIdx];
+         sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
+         detrender += hilbertTempReal;
+         detrender -= sp.prev_detrender_Odd;
          sp.prev_detrender_Odd = sp.b * sp.prev_detrender_input_Odd;
-         sp.detrender += sp.prev_detrender_Odd;
-         sp.prev_detrender_input_Odd = sp.smoothedValue;
-         sp.detrender *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.detrender;
-         sp.Q1 = 0 - sp.Q1_Odd[sp.hilbertIdx];
-         sp.Q1_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.Q1 += sp.hilbertTempReal;
-         sp.Q1 -= sp.prev_Q1_Odd;
+         detrender += sp.prev_detrender_Odd;
+         sp.prev_detrender_input_Odd = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = 0 - sp.Q1_Odd[sp.hilbertIdx];
+         sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
+         Q1 += hilbertTempReal;
+         Q1 -= sp.prev_Q1_Odd;
          sp.prev_Q1_Odd = sp.b * sp.prev_Q1_input_Odd;
-         sp.Q1 += sp.prev_Q1_Odd;
-         sp.prev_Q1_input_Odd = sp.detrender;
-         sp.Q1 *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.I1ForOddPrev3;
-         sp.jI = 0 - sp.jI_Odd[sp.hilbertIdx];
-         sp.jI_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jI += sp.hilbertTempReal;
-         sp.jI -= sp.prev_jI_Odd;
+         Q1 += sp.prev_Q1_Odd;
+         sp.prev_Q1_input_Odd = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * sp.I1ForOddPrev3;
+         jI = 0 - sp.jI_Odd[sp.hilbertIdx];
+         sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
+         jI += hilbertTempReal;
+         jI -= sp.prev_jI_Odd;
          sp.prev_jI_Odd = sp.b * sp.prev_jI_input_Odd;
-         sp.jI += sp.prev_jI_Odd;
+         jI += sp.prev_jI_Odd;
          sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
-         sp.jI *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.Q1;
-         sp.jQ = 0 - sp.jQ_Odd[sp.hilbertIdx];
-         sp.jQ_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jQ += sp.hilbertTempReal;
-         sp.jQ -= sp.prev_jQ_Odd;
+         jI *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * Q1;
+         jQ = 0 - sp.jQ_Odd[sp.hilbertIdx];
+         sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
+         jQ += hilbertTempReal;
+         jQ -= sp.prev_jQ_Odd;
          sp.prev_jQ_Odd = sp.b * sp.prev_jQ_input_Odd;
-         sp.jQ += sp.prev_jQ_Odd;
-         sp.prev_jQ_input_Odd = sp.Q1;
-         sp.jQ *= adjustedPrevPeriod;
-         sp.Q2 = Math.FusedMultiplyAdd(0.2, sp.Q1 + sp.jI, 0.8 * sp.prevQ2);
-         sp.I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForOddPrev3 - sp.jQ, 0.8 * sp.prevI2);
+         jQ += sp.prev_jQ_Odd;
+         sp.prev_jQ_input_Odd = Q1;
+         jQ *= adjustedPrevPeriod;
+         Q2 = Math.FusedMultiplyAdd(0.2, Q1 + jI, 0.8 * sp.prevQ2);
+         I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForOddPrev3 - jQ, 0.8 * sp.prevI2);
          /* The varaiable I1 is the detrender delayed for
           * 3 price bars.
           *
@@ -1360,35 +1367,35 @@ public partial class Core
           * used by the "even" logic later.
           */
          sp.I1ForEvenPrev3 = sp.I1ForEvenPrev2;
-         sp.I1ForEvenPrev2 = sp.detrender;
+         sp.I1ForEvenPrev2 = detrender;
       }
       /* Adjust the period for next price bar */
-      sp.Re = Math.FusedMultiplyAdd(0.8, sp.Re, 0.2 * (Math.FusedMultiplyAdd(sp.I2, sp.prevI2, sp.Q2 * sp.prevQ2)));
-      sp.Im = Math.FusedMultiplyAdd(0.8, sp.Im, 0.2 * (sp.I2 * sp.prevQ2 - sp.Q2 * sp.prevI2));
-      sp.prevQ2 = sp.Q2;
-      sp.prevI2 = sp.I2;
-      sp.tempReal = sp.period;
+      sp.Re = Math.FusedMultiplyAdd(0.8, sp.Re, 0.2 * (Math.FusedMultiplyAdd(I2, sp.prevI2, Q2 * sp.prevQ2)));
+      sp.Im = Math.FusedMultiplyAdd(0.8, sp.Im, 0.2 * (I2 * sp.prevQ2 - Q2 * sp.prevI2));
+      sp.prevQ2 = Q2;
+      sp.prevI2 = I2;
+      tempReal = sp.period;
       if( sp.Im != 0.0 && sp.Re != 0.0 ) {
          sp.period = 360.0 / (Math.Atan(sp.Im / sp.Re) * sp.rad2Deg);
       }
-      sp.tempReal2 = 1.5 * sp.tempReal;
-      if( sp.period > sp.tempReal2 ) {
-         sp.period = sp.tempReal2;
+      tempReal2 = 1.5 * tempReal;
+      if( sp.period > tempReal2 ) {
+         sp.period = tempReal2;
       }
-      sp.tempReal2 = 0.67 * sp.tempReal;
-      if( sp.period < sp.tempReal2 ) {
-         sp.period = sp.tempReal2;
+      tempReal2 = 0.67 * tempReal;
+      if( sp.period < tempReal2 ) {
+         sp.period = tempReal2;
       }
       if( sp.period < 6 ) {
          sp.period = 6;
       } else if( sp.period > 50 ) {
          sp.period = 50;
       }
-      sp.period = Math.FusedMultiplyAdd(0.2, sp.period, 0.8 * sp.tempReal);
+      sp.period = Math.FusedMultiplyAdd(0.2, sp.period, 0.8 * tempReal);
       sp.smoothPeriod = Math.FusedMultiplyAdd(0.67, sp.smoothPeriod, 0.33 * sp.period);
       /* Compute Trendline */
-      sp.DCPeriod = sp.smoothPeriod + 0.5;
-      sp.DCPeriodInt = (int)sp.DCPeriod;
+      DCPeriod = sp.smoothPeriod + 0.5;
+      DCPeriodInt = (int)DCPeriod;
       /* Average the RAW price over the dominant cycle period
        * (Ehlers, "Rocket Science for Traders": the Instantaneous
        * Trendline sums Price — not SmoothPrice, which only feeds
@@ -1401,20 +1408,20 @@ public partial class Core
        * bit-for-bit unchanged, but the constant cap lets the rescan-window
        * machinery bound the window (DCPeriod is clamped to [6.5, 50.5]).
        */
-      sp.tempReal = 0.0;
-      for( sp.i = 0; sp.i < 50; sp.i += 1 ) {
-         if( sp.i < sp.DCPeriodInt ) {
-            sp.tempReal += sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - sp.i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - sp.i - sp.winCap_i : sp.winPos_i + sp.winCap_i - sp.i];
+      tempReal = 0.0;
+      for( i = 0; i < 50; i += 1 ) {
+         if( i < DCPeriodInt ) {
+            tempReal += sp.win_i_inReal[(sp.winPos_i + sp.winCap_i - i >= sp.winCap_i) ? sp.winPos_i + sp.winCap_i - i - sp.winCap_i : sp.winPos_i + sp.winCap_i - i];
          }
       }
-      if( sp.DCPeriodInt > 0 ) {
-         sp.tempReal = sp.tempReal / (double)sp.DCPeriodInt;
+      if( DCPeriodInt > 0 ) {
+         tempReal = tempReal / (double)DCPeriodInt;
       }
-      sp.tempReal2 = (Math.FusedMultiplyAdd(2.0, sp.iTrend2, Math.FusedMultiplyAdd(4.0, sp.tempReal, 3.0 * sp.iTrend1)) + sp.iTrend3) / 10.0;
+      tempReal2 = (Math.FusedMultiplyAdd(2.0, sp.iTrend2, Math.FusedMultiplyAdd(4.0, tempReal, 3.0 * sp.iTrend1)) + sp.iTrend3) / 10.0;
       sp.iTrend3 = sp.iTrend2;
       sp.iTrend2 = sp.iTrend1;
-      sp.iTrend1 = sp.tempReal;
-      sp.cur_outReal = sp.tempReal2;
+      sp.iTrend1 = tempReal;
+      sp.cur_outReal = tempReal2;
       /* Ooof... let's do the next price bar now! */
       sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
       sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
@@ -1428,7 +1435,7 @@ public partial class Core
       sp.streamParity = 1 - sp.streamParity;
    }
 
-   private RetCode HT_TRENDLINE_OpenPass( HT_TRENDLINE_Stream sp, ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode HT_TRENDLINE_OpenImpl( HT_TRENDLINE_Stream sp, ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -1502,6 +1509,11 @@ public partial class Core
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       a = 0.0962;
       b = 0.5769;
@@ -1819,51 +1831,40 @@ public partial class Core
       }
       double[] capWin_i_inReal = new double[cap_i];
       inReal.Slice(historyLen - cap_i, cap_i).CopyTo(capWin_i_inReal);
-      sp.i = i;
-      sp.tempReal = tempReal;
-      sp.tempReal2 = tempReal2;
       sp.period = period;
       sp.periodWMASum = periodWMASum;
       sp.periodWMASub = periodWMASub;
       sp.trailingWMAValue = trailingWMAValue;
-      sp.smoothedValue = smoothedValue;
       sp.iTrend1 = iTrend1;
       sp.iTrend2 = iTrend2;
       sp.iTrend3 = iTrend3;
       sp.a = a;
       sp.b = b;
-      sp.hilbertTempReal = hilbertTempReal;
       sp.hilbertIdx = hilbertIdx;
       sp.detrender_Odd = detrender_Odd;
       sp.detrender_Even = detrender_Even;
-      sp.detrender = detrender;
       sp.prev_detrender_Odd = prev_detrender_Odd;
       sp.prev_detrender_Even = prev_detrender_Even;
       sp.prev_detrender_input_Odd = prev_detrender_input_Odd;
       sp.prev_detrender_input_Even = prev_detrender_input_Even;
       sp.Q1_Odd = Q1_Odd;
       sp.Q1_Even = Q1_Even;
-      sp.Q1 = Q1;
       sp.prev_Q1_Odd = prev_Q1_Odd;
       sp.prev_Q1_Even = prev_Q1_Even;
       sp.prev_Q1_input_Odd = prev_Q1_input_Odd;
       sp.prev_Q1_input_Even = prev_Q1_input_Even;
       sp.jI_Odd = jI_Odd;
       sp.jI_Even = jI_Even;
-      sp.jI = jI;
       sp.prev_jI_Odd = prev_jI_Odd;
       sp.prev_jI_Even = prev_jI_Even;
       sp.prev_jI_input_Odd = prev_jI_input_Odd;
       sp.prev_jI_input_Even = prev_jI_input_Even;
       sp.jQ_Odd = jQ_Odd;
       sp.jQ_Even = jQ_Even;
-      sp.jQ = jQ;
       sp.prev_jQ_Odd = prev_jQ_Odd;
       sp.prev_jQ_Even = prev_jQ_Even;
       sp.prev_jQ_input_Odd = prev_jQ_input_Odd;
       sp.prev_jQ_input_Even = prev_jQ_input_Even;
-      sp.Q2 = Q2;
-      sp.I2 = I2;
       sp.prevQ2 = prevQ2;
       sp.prevI2 = prevI2;
       sp.Re = Re;
@@ -1874,8 +1875,6 @@ public partial class Core
       sp.I1ForEvenPrev3 = I1ForEvenPrev3;
       sp.rad2Deg = rad2Deg;
       sp.smoothPeriod = smoothPeriod;
-      sp.DCPeriodInt = DCPeriodInt;
-      sp.DCPeriod = DCPeriod;
       sp.streamParity = historyLen % 2;
       sp.ringPos_trailingWMAIdx = 0;
       sp.ringCap_trailingWMAIdx = cap_trailingWMAIdx;
@@ -1887,32 +1886,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode HT_TRENDLINE_OpenImpl( HT_TRENDLINE_Stream sp, ReadOnlySpan<double> inReal, int startIdx )
-   {
-      double[] sink_outReal = new double[1];
-      return HT_TRENDLINE_OpenPass( sp, inReal, startIdx, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode HT_TRENDLINE_OpenAndFillImpl( HT_TRENDLINE_Stream sp, ReadOnlySpan<double> inReal, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inReal) ) {
-         return RetCode.BadParam;
-      }
-      return HT_TRENDLINE_OpenPass( sp, inReal, 0, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode HT_TRENDLINE_OpenAndFillInternalImpl( HT_TRENDLINE_Stream sp, ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return HT_TRENDLINE_OpenPass(sp, inReal, startIdx, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* HT_TRENDLINE_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal HT_TRENDLINE_Stream HT_TRENDLINE_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       HT_TRENDLINE_Stream sp = new HT_TRENDLINE_Stream(this);
-      RetCode retCode = HT_TRENDLINE_OpenAndFillInternalImpl(sp, inReal, startIdx, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = HT_TRENDLINE_OpenImpl(sp, inReal, startIdx, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1923,7 +1903,10 @@ public partial class Core
    internal HT_TRENDLINE_Stream HT_TRENDLINE_OpenInternal( ReadOnlySpan<double> inReal, int startIdx )
    {
       HT_TRENDLINE_Stream sp = new HT_TRENDLINE_Stream(this);
-      RetCode retCode = HT_TRENDLINE_OpenImpl(sp, inReal, startIdx);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = HT_TRENDLINE_OpenImpl(sp, inReal, startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1963,7 +1946,7 @@ public partial class Core
    /// outputs and then reads the input tail to seed its rings, so the batch
    /// tier's in-place allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="HT_TRENDLINE_Stream.FillRange"/>.</para>
+   /// <see cref="HT_TRENDLINE_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inReal">Source price series. The warm-up history, oldest bar first.</param>
    /// <param name="outReal">Instantaneous trendline value. Must hold at least <c>historyLen -
@@ -1978,12 +1961,9 @@ public partial class Core
    public HT_TRENDLINE_Stream HT_TRENDLINE_OpenAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
-      HT_TRENDLINE_Stream sp = new HT_TRENDLINE_Stream(this);
-      RetCode retCode = HT_TRENDLINE_OpenAndFillImpl(sp, inReal, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inReal) ) {
+         throw StreamFailure("HT_TRENDLINE", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("HT_TRENDLINE", "openAndFill", retCode);
+      return HT_TRENDLINE_OpenAndFillInternal(inReal, 0, out _, out _, outReal);
    }
 }

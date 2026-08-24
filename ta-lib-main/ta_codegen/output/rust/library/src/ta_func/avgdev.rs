@@ -246,12 +246,16 @@ impl Core {
 /// Live AVGDEV stream: one value per closed bar, bit-identical to [`Core::AVGDEV`]
 /// over the same series. Open with [`Core::AVGDEV_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_AVGDEV_Stream")]
 pub struct AVGDEV_Stream {
     core: Core,
     state: AVGDEV_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -261,6 +265,7 @@ impl AVGDEV_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -292,7 +297,7 @@ impl AVGDEV_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn AVGDEV_step_internal(&self, sp: &mut AVGDEV_StreamState, inReal: f64, outReal: &mut f64) {
+    fn AVGDEV_step_impl(&self, sp: &mut AVGDEV_StreamState, inReal: f64, outReal: &mut f64) {
         let mut todaySum: f64 = 0.0_f64;
         let mut todayDev: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
@@ -320,7 +325,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::AVGDEV_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::AVGDEV_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn AVGDEV_OpenPass(
+    pub(crate) fn AVGDEV_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<AVGDEV_Stream, RetCode> {
         if inReal.is_empty() {
@@ -337,6 +342,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut today: usize = 0_usize;
@@ -393,7 +403,7 @@ impl Core {
             winCap_i: cap_i as usize,
             win_i_inReal,
         };
-        Ok(AVGDEV_Stream { core: self.clone(), state })
+        Ok(AVGDEV_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::AVGDEV_Open`] (composition seam).
@@ -403,7 +413,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.AVGDEV_OpenPass(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.AVGDEV_OpenImpl(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -423,8 +433,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.AVGDEV_Open(&data, 14).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_AVGDEV_Open")]
@@ -442,7 +456,7 @@ impl Core {
     ) -> Result<(AVGDEV_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.AVGDEV_OpenPass(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.AVGDEV_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -451,7 +465,7 @@ impl Core {
     pub(crate) fn AVGDEV_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<AVGDEV_Stream, RetCode> {
-        self.AVGDEV_OpenPass(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.AVGDEV_OpenImpl(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -476,8 +490,45 @@ impl AVGDEV_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.AVGDEV_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.AVGDEV_step_impl(&mut self.state, inReal, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_AVGDEV_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.AVGDEV_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -499,6 +550,19 @@ impl AVGDEV_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inReal)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::AVGDEV`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

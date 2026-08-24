@@ -25,23 +25,9 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - PVO: Percentage Volume Oscillator (#119)
   - QSTICK: Qstick (#226)
   - SMI: Stochastic Momentum Index (#238)
+  - VWAP: Volume Weighted Average Price (#237)
   - VWMA: Volume Weighted Moving Average (#131)
   - WAD: Williams' Accumulation/Distribution (#200)
-- (#236) `TA_INSUFFICIENT_HISTORY` (17), a new `TA_RetCode`: a streaming
-  `Open`/`OpenAndFill` given fewer than `lookback + 1` bars reports it. That is the
-  library's one recoverable failure — accumulate more bars and retry — so it is worth
-  telling apart from `TA_BAD_PARAM`, which always means the call itself is wrong.
-  Appended, so no existing code's value moved. The batch tier is unaffected: a range
-  shorter than the lookback is still `TA_SUCCESS` with a zero count.
-- (#236) Java and C#: every exception the library raises now carries the
-  `TA_RetCode` it corresponds to — `TaLibFailure.retCode()` in Java,
-  `ITaLibFailure.RetCode` in C#. The exception types are unchanged (the new classes
-  subclass the ones already documented, so existing `catch` blocks keep working);
-  what is new is that a caller can tell apart the conditions one exception type
-  covers — `startIdx` from `endIdx`, an allocation failure from an internal error.
-  Java's `RetCode` enum is public for this, with `asCInt()` giving C's number. It
-  covers every indicator call, batch and streaming; the settings builder and the
-  metadata binder are not indicator calls and still raise plain types.
 - New MAType (for MA, BBANDS, STOCH etc...):
   - TA_MAType_HMA (#139)
   - TA_MAType_DISABLED — no smoothing at any period; the output is a copy of the input (#93)
@@ -57,32 +43,12 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - ~40%: ULTOSC (#154). Thanks @dexhunter !
 - ~30%: MAVP (#143). Thanks @dexhunter !
 - ~27% Apple, ~8% GCC: MIN, MAX, MINMAX, MININDEX, MAXINDEX, MINMAXINDEX, MIDPOINT, MIDPRICE, AROON, AROONOSC and WILLR (#128). Thanks @dexhunter !
+- ~2.2x: MFI (#244)
 - ~20%: VAR, STDDEV, BBANDS
+- ~25-30%: STDDEV when `optInNbDev` is not 1.0 — dropping the zero test from the loop lets it vectorize (#243)
 - ~10%: ATR and NATR
 
 ### Changed
-- (#236) The cross-language test harness now drives each language's public API for
-  every correctness comparison, so the surface a caller actually touches — its
-  argument checks, its exception mapping, the range it reports — is compared against
-  the C reference on every case in the cross-language corpus. It was comparing an
-  internal tier before. No behaviour changed: the return code of every case is
-  identical either way, which is how the switch was verified.
-- (#236) Java and C#: the internal `RetCode`-returning tier is gone. `Core` now has
-  one entry point per indicator — the `OutRange`-returning method that throws on a
-  rejection — instead of that beside a second, near-identical method taking two
-  out-parameters. Nothing in the public API changed: the tier was package-private in
-  Java and `internal` in C#, so no caller outside the library could name it.
-- (#236) Java and C#: when one indicator is built from another (APO from MA, BBANDS
-  from MA and STDDEV, …) the inner call now goes through the same public API you
-  would call yourself. One consequence is visible: if the inner call is the one that
-  rejects, the exception names the inner function — `MA: bad parameter` from a call
-  you made to `MACDEXT`. Reaching it needs a fault the outer function does not screen
-  for first, so it is rare; the outer function's own rejections are unchanged.
-- (#236) Java: an out-of-range `startIdx`/`endIdx` is now reported ahead of a null
-  array argument, matching C's order — previously a null buffer pre-empted the index
-  complaint. And a null enum parameter (e.g. `MAType`) is rejected naming the function
-  and the parameter instead of raising a bare `NullPointerException` from inside the
-  lookback.
 - (#133) BBANDS default `optInTimePeriod` changed from 5 to 20, as intended by John Bollinger.
 - (#120) PPO and APO now default `optInMAType` to EMA (was SMA), matching Gerald Appel's original PPO/MACD definition. Pass `TA_MAType_SMA` explicitly to keep the previous behavior.
 - (#96) Fused multiply-add and other floating-point re-ordering produce minor output differences; an intentional modernization.
@@ -103,7 +69,7 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 
 ### Fixed
 - (#130) In-place calls (same buffer as input and output) returned wrong values for STOCH, STOCHF and MAVP. Regular (separate-buffer) calls were always correct.
-- (#118) VAR, STDDEV and BBANDS more precise and faster.
+- (#118,#242) VAR, CORREL, STDDEV and BBANDS more precise and faster.
 - (#33) Float overflow in the single-precision (`TA_S_*`) functions. Thanks @iglesias !
 - (#64) Website docs mixing up CDL3LINESTRIKE with CDL3OUTSIDE's description. Thanks @mw66 !
 - (#7) CCI returned a spurious value when all prices over the period were identical; Thanks @trufanov-nok for identifying and resolving this!
@@ -117,6 +83,19 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#102) Fixed ULTOSC and CDL3INSIDE performance regression (only in 0.7.1)
 - (#112) IMI returned NaN on an all-flat window (every bar `close == open`); now returns 50.0.
 - (#202) VAR no longer returns a tiny negative variance on a flat stretch, where the calculation cancels to either side of zero; it now returns 0.0 instead.
+- (#243) STDDEV and BBANDS returned exactly 0 for a standard deviation that was small but
+  plainly non-zero — all three Bollinger bands landing on the middle band, with no
+  indication anything had been suppressed. The zero test was a fixed 1e-14 applied to the
+  variance, a *squared* quantity, so it triggered on any finely quoted series (a $100.00
+  instrument on a 1e-8 tick reaches it). It is now relative to the window's own scale and
+  lives in VAR, which was already returning the right answer there. VAR additionally
+  returns a bit-exact 0 — rather than a ~1e-44 rounding residue — for a window that sits
+  entirely inside a flat stretch entered mid-series.
+- (#244) MFI returned 0 instead of the index whenever the money flow over the window
+  summed to less than 1.0 — a threshold on a price times a volume, so any instrument
+  quoted small enough reaches it, whether from a low price or from small volumes. The
+  index is a ratio and no longer depends on the size of the money flow at all. MFI also
+  no longer returns a value a few ulp outside 0-100.
 
 ## [0.7.1] 2026-07-03
 ### Added

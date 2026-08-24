@@ -195,7 +195,7 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
     * spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
     * preserved for the functions that already shipped with it and dropped from
     * new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-    * The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+    * The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
     */
    kSlow = 2.0 / (double)(optInSlowPeriod + 1);
    kFast = 2.0 / (double)(optInFastPeriod + 1);
@@ -715,6 +715,10 @@ TA_RetCode TA_S_SMI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_SMI_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    int optInFastPeriod;
    int optInSlowPeriod;
@@ -728,10 +732,6 @@ struct TA_SMI_Stream {
    double emaSlowDen;
    double emaFastNum;
    double emaFastDen;
-   double num;
-   double den;
-   double halfDen;
-   double smiValue;
    double prevSignal;
    int trailingIdx;
    int highestIdx;
@@ -750,7 +750,7 @@ struct TA_SMI_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_SMI_ReleaseInternal( struct TA_SMI_Stream *sp )
+static void TA_SMI_ReleaseImpl( struct TA_SMI_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inHigh ) TA_Free( sp->x_inHigh );
@@ -763,9 +763,14 @@ static void TA_SMI_ReleaseInternal( struct TA_SMI_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_SMI_StepInternal( struct TA_SMI_Stream *sp, double inHigh, double inLow, double inClose, double *outSMI, double *outSMISignal )
+static void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double inHigh, double inLow, double inClose, double *outSMI, double *outSMISignal )
 {
    double tmp;
+   double num;
+   double den;
+   double halfDen;
+   double smiValue;
+   double prevSignal = sp->prevSignal;
 
    if( sp->today >= 1073741824 )
    {
@@ -821,10 +826,10 @@ static void TA_SMI_StepInternal( struct TA_SMI_Stream *sp, double inHigh, double
       sp->highestIdx = sp->today;
       sp->highest = tmp;
    }
-   sp->den = sp->highest - sp->lowest;
-   sp->num = sp->x_inClose[sp->today & sp->xMask] - (sp->highest + sp->lowest) * 0.5;
-   sp->emaSlowNum = fma(sp->num - sp->emaSlowNum, sp->kSlow, sp->emaSlowNum);
-   sp->emaSlowDen = fma(sp->den - sp->emaSlowDen, sp->kSlow, sp->emaSlowDen);
+   den = sp->highest - sp->lowest;
+   num = sp->x_inClose[sp->today & sp->xMask] - (sp->highest + sp->lowest) * 0.5;
+   sp->emaSlowNum = fma(num - sp->emaSlowNum, sp->kSlow, sp->emaSlowNum);
+   sp->emaSlowDen = fma(den - sp->emaSlowDen, sp->kSlow, sp->emaSlowDen);
    sp->emaFastNum = fma(sp->emaSlowNum - sp->emaFastNum, sp->kFast, sp->emaFastNum);
    sp->emaFastDen = fma(sp->emaSlowDen - sp->emaFastDen, sp->kFast, sp->emaFastDen);
    /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
@@ -833,22 +838,23 @@ static void TA_SMI_StepInternal( struct TA_SMI_Stream *sp, double inHigh, double
     * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
     * CCI (#7) and IMI (#112) convention.
     */
-   sp->halfDen = 0.5 * sp->emaFastDen;
-   if( !TA_IS_ZERO(sp->halfDen) )
+   halfDen = 0.5 * sp->emaFastDen;
+   if( !TA_IS_ZERO(halfDen) )
    {
-      sp->smiValue = 100.0 * sp->emaFastNum / sp->halfDen;
+      smiValue = 100.0 * sp->emaFastNum / halfDen;
    } else 
    {
-      sp->smiValue = 0.0;
+      smiValue = 0.0;
    }
-   sp->prevSignal = fma(sp->smiValue - sp->prevSignal, sp->kSignal, sp->prevSignal);
-   *outSMI= sp->smiValue;
-   *outSMISignal= sp->prevSignal;
+   prevSignal = fma(smiValue - prevSignal, sp->kSignal, prevSignal);
+   *outSMI= smiValue;
+   *outSMISignal= prevSignal;
    sp->trailingIdx = sp->trailingIdx + 1;
    sp->today = sp->today + 1;
+   sp->prevSignal = prevSignal;
 }
 
-static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[], int outStride )
+static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[], int outStride )
 {
    struct TA_SMI_Stream *sp;
    int endIdx;
@@ -876,6 +882,12 @@ static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double i
       optInSignalPeriod = 9;
    else if( (int)optInSignalPeriod < 2 || (int)optInSignalPeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -898,10 +910,10 @@ static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double i
       double sumFastNum;
       double sumFastDen;
       double sumSignal;
-      double num = 0.0;
-      double den = 0.0;
-      double halfDen = 0.0;
-      double smiValue = 0.0;
+      double num;
+      double den;
+      double halfDen;
+      double smiValue;
       double prevSignal = 0.0;
       int lookbackTotal;
       int lookbackSlow;
@@ -945,7 +957,7 @@ static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double i
        * spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
        * preserved for the functions that already shipped with it and dropped from
        * new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-       * The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+       * The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
        */
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
@@ -1187,10 +1199,6 @@ static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double i
       sp->emaSlowDen = emaSlowDen;
       sp->emaFastNum = emaFastNum;
       sp->emaFastDen = emaFastDen;
-      sp->num = num;
-      sp->den = den;
-      sp->halfDen = halfDen;
-      sp->smiValue = smiValue;
       sp->prevSignal = prevSignal;
       sp->trailingIdx = trailingIdx;
       sp->highestIdx = highestIdx;
@@ -1198,22 +1206,22 @@ static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double i
       sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_SMI_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_SMI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
       sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inHigh ) { TA_SMI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inHigh ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inHigh ) { TA_SMI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inHigh ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inLow ) { TA_SMI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inLow ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inLow ) { TA_SMI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inLow ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inClose ) { TA_SMI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inClose ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inClose ) { TA_SMI_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inClose ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -1222,6 +1230,8 @@ static TA_RetCode TA_SMI_OpenPass( struct TA_SMI_Stream **stream, const double i
            sp->x_inClose[fillJ & sp->xMask] = inClose[fillJ];
         }
       }
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1235,7 +1245,7 @@ TA_RetCode TA_SMI_OpenInternal( struct TA_SMI_Stream **stream, const double inHi
    int dummyNBElement = 0;
    double sink_outSMI = 0.0;
    double sink_outSMISignal = 0.0;
-   retCode = TA_SMI_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &dummyBegIdx, &dummyNBElement, &sink_outSMI, &sink_outSMISignal, 0 );
+   retCode = TA_SMI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, &dummyBegIdx, &dummyNBElement, &sink_outSMI, &sink_outSMISignal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outSMI = sink_outSMI;
@@ -1258,25 +1268,26 @@ TA_LIB_API TA_RetCode TA_SMI_OpenAndFill( TA_SMI_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outSMI == (const void *)inHigh || (const void *)outSMI == (const void *)inLow || (const void *)outSMI == (const void *)inClose || (const void *)outSMISignal == (const void *)inHigh || (const void *)outSMISignal == (const void *)inLow || (const void *)outSMISignal == (const void *)inClose || (const void *)outSMI == (const void *)outSMISignal ) return TA_BAD_PARAM;
-   return TA_SMI_OpenPass( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 );
+   return TA_SMI_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_SMI_OpenAndFillInternal( struct TA_SMI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, int *outBegIdx, int *outNBElement, double outSMI[], double outSMISignal[] )
 {
-   return TA_SMI_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 );
+   return TA_SMI_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_SMI_Update( TA_SMI_Stream *stream, double inHigh, double inLow, double inClose, double *outSMI, double *outSMISignal )
 {
    if( !stream || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   TA_SMI_StepInternal( stream, inHigh, inLow, inClose, outSMI, outSMISignal );
+   TA_SMI_StepImpl( stream, inHigh, inLow, inClose, outSMI, outSMISignal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1293,13 +1304,29 @@ TA_LIB_API TA_RetCode TA_SMI_Peek( const TA_SMI_Stream *stream, double inHigh, d
    memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xPhys );
    scratch.x_inClose = stream->xMirror_inClose;
    memcpy( scratch.x_inClose, stream->x_inClose, sizeof(double) * (size_t)stream->xPhys );
-   TA_SMI_StepInternal( &scratch, inHigh, inLow, inClose, outSMI, outSMISignal );
+   TA_SMI_StepImpl( &scratch, inHigh, inLow, inClose, outSMI, outSMISignal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SMI_UpdateAndFill( TA_SMI_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outSMI[], double outSMISignal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outSMI == (const void *)inHigh || (const void *)outSMI == (const void *)inLow || (const void *)outSMI == (const void *)inClose || (const void *)outSMISignal == (const void *)inHigh || (const void *)outSMISignal == (const void *)inLow || (const void *)outSMISignal == (const void *)inClose || (const void *)outSMI == (const void *)outSMISignal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      TA_SMI_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outSMI[i], &outSMISignal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_SMI_Close( TA_SMI_Stream *stream )
 {
-   TA_SMI_ReleaseInternal( stream );
+   TA_SMI_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

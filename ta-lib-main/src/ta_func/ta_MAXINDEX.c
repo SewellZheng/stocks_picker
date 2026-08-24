@@ -240,11 +240,15 @@ TA_RetCode TA_S_MAXINDEX( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MAXINDEX_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double highest;
    int trailingIdx;
-   int i;
    int highestIdx;
+   int i;
    int today;
    int xCap;
    int xPhys;
@@ -254,7 +258,7 @@ struct TA_MAXINDEX_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_MAXINDEX_ReleaseInternal( struct TA_MAXINDEX_Stream *sp )
+static void TA_MAXINDEX_ReleaseImpl( struct TA_MAXINDEX_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inReal ) TA_Free( sp->x_inReal );
@@ -263,7 +267,7 @@ static void TA_MAXINDEX_ReleaseInternal( struct TA_MAXINDEX_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_MAXINDEX_StepInternal( struct TA_MAXINDEX_Stream *sp, double inReal, int *outInteger )
+static void TA_MAXINDEX_StepImpl( struct TA_MAXINDEX_Stream *sp, double inReal, int *outInteger )
 {
    double tmp;
 
@@ -302,7 +306,7 @@ static void TA_MAXINDEX_StepInternal( struct TA_MAXINDEX_Stream *sp, double inRe
    sp->today += 1;
 }
 
-static TA_RetCode TA_MAXINDEX_OpenPass( struct TA_MAXINDEX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
+static TA_RetCode TA_MAXINDEX_OpenImpl( struct TA_MAXINDEX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
 {
    struct TA_MAXINDEX_Stream *sp;
    int endIdx;
@@ -318,6 +322,12 @@ static TA_RetCode TA_MAXINDEX_OpenPass( struct TA_MAXINDEX_Stream **stream, cons
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -401,24 +411,26 @@ static TA_RetCode TA_MAXINDEX_OpenPass( struct TA_MAXINDEX_Stream **stream, cons
       sp->optInTimePeriod = optInTimePeriod;
       sp->highest = highest;
       sp->trailingIdx = trailingIdx;
-      sp->i = i;
       sp->highestIdx = highestIdx;
+      sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MAXINDEX_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MAXINDEX_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
       sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inReal ) { TA_MAXINDEX_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inReal ) { TA_MAXINDEX_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inReal ) { TA_MAXINDEX_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inReal ) { TA_MAXINDEX_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
            sp->x_inReal[fillJ & sp->xMask] = inReal[fillJ];
         }
       }
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -431,7 +443,7 @@ TA_RetCode TA_MAXINDEX_OpenInternal( struct TA_MAXINDEX_Stream **stream, const d
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    int sink_outInteger = 0;
-   retCode = TA_MAXINDEX_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
+   retCode = TA_MAXINDEX_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outInteger, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outInteger = sink_outInteger;
@@ -453,25 +465,26 @@ TA_LIB_API TA_RetCode TA_MAXINDEX_OpenAndFill( TA_MAXINDEX_Stream **stream, cons
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outInteger ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outInteger == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_MAXINDEX_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_MAXINDEX_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outInteger );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_MAXINDEX_OpenAndFillInternal( struct TA_MAXINDEX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, int outInteger[] )
 {
-   return TA_MAXINDEX_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1 );
+   return TA_MAXINDEX_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_MAXINDEX_Update( TA_MAXINDEX_Stream *stream, double inReal, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_MAXINDEX_StepInternal( stream, inReal, outInteger );
+   TA_MAXINDEX_StepImpl( stream, inReal, outInteger );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -484,13 +497,29 @@ TA_LIB_API TA_RetCode TA_MAXINDEX_Peek( const TA_MAXINDEX_Stream *stream, double
    scratch = *stream;
    scratch.x_inReal = stream->xMirror_inReal;
    memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
-   TA_MAXINDEX_StepInternal( &scratch, inReal, outInteger );
+   TA_MAXINDEX_StepImpl( &scratch, inReal, outInteger );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MAXINDEX_UpdateAndFill( TA_MAXINDEX_Stream *stream, const double inReal[], int barCount, int outInteger[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outInteger ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outInteger == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_MAXINDEX_StepImpl( stream, inReal[i], &outInteger[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_MAXINDEX_Close( TA_MAXINDEX_Stream *stream )
 {
-   TA_MAXINDEX_ReleaseInternal( stream );
+   TA_MAXINDEX_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

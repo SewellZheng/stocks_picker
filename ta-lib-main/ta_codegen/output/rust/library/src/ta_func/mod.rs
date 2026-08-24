@@ -80,6 +80,8 @@ impl TryFrom<i32> for MAType {
 mod scratch_election;
 #[cfg(test)]
 mod stream_finite;
+#[cfg(test)]
+mod stream_out_range;
 
 // Generated indicator modules:
 mod ac;
@@ -252,6 +254,7 @@ mod tsf;
 mod typprice;
 mod ultosc;
 mod var;
+mod vwap;
 mod vwma;
 mod wad;
 mod wclprice;
@@ -429,6 +432,7 @@ pub use tsf::TSF_Stream;
 pub use typprice::TYPPRICE_Stream;
 pub use ultosc::ULTOSC_Stream;
 pub use var::VAR_Stream;
+pub use vwap::VWAP_Stream;
 pub use vwma::VWMA_Stream;
 pub use wad::WAD_Stream;
 pub use wclprice::WCLPRICE_Stream;

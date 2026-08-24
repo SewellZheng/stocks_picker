@@ -58,6 +58,7 @@
  *  100502 JV     Speed optimization of the algorithm
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  071726 MF,CC  #118 cancellation-free variance (shifted sums + reseed); fixes bug 90.
+ *  082326 MF,CC  #243 reseed floor is scale-relative, not `variance < 0`.
  */
 
 TA_LIB_API int TA_VAR_Lookback( int optInTimePeriod, double optInNbDev )
@@ -205,11 +206,44 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
          }
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-         /* A variance is non-negative by definition, but this one is extracted
-          * as a difference of two nearly equal quantities, so its SIGN is not
-          * guaranteed: on a window sitting entirely inside a flat stretch every
-          * deviation is the same rounding residual and the subtraction is pure
-          * cancellation, landing either side of zero. Enforce the invariant.
+         /* Floor the fresh figure at the same ratio the trigger above uses, now
+          * measured against the RE-ANCHORED sums. With the shift AT the window
+          * mean the deviations sum to ~0, so a real window has variance ~
+          * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+          * only when every deviation is the same value, i.e. when the spread is
+          * at or under the rounding error of the mean itself. There is then no
+          * spread the anchor could resolve, the surviving digits are noise, and
+          * the honest answer is 0.
+          *
+          * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+          * difference is load-bearing. periodTotal2*invPeriod is not the
+          * variance here: it is variance + e^2, where e is the rounding error of
+          * the reseed's own left-to-right sum for the mean -- exactly the term
+          * the two-pass subtraction then cancels out. So the ratio measures how
+          * badly that sum rounded, not how much signal survives, and matching
+          * the trigger's 1e-6 fired ten orders before cancellation eats any
+          * digits. It zeroed a variance the line above had just computed to nine
+          * correct significant figures: 100011 bars at 31498938283.624615 with
+          * two small outliers at period 99991 gives 1.0219900060103338e-09
+          * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+          * survives and every intended bit-zero still zeroes -- the live ratios
+          * on flat data are 0 or ~1e-16, six orders the other side.
+          *
+          * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+          * relative rather than the `variance < 0.0` it replaced because two
+          * things ride on it:
+          *
+          *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+          *    side is >= 0 and any negative variance is clamped unconditionally -
+          *    where `< 0.0` needed the three-case argument below to know that a
+          *    negative one ever reaches this line.
+          *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+          *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+          *    quantity to 1e-14, which is a cliff at a price level and not a
+          *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+          *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+          *    Expressed here in the window's own units, the floor lets both of
+          *    them square-root what they are handed unconditionally.
           *
           * Clamping HERE and not at the output write is what keeps this off the
           * per-bar path, and it is sufficient because a negative variance always
@@ -221,7 +255,7 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
           * THIS - the alternative is an unconditional clamp at the output write,
           * which needs no such argument but does cost ~3%.
           */
-         if( variance < 0.0 )
+         if( variance < 0.000000000001 * (periodTotal2 * invPeriod) )
          {
             variance = 0.0;
          }
@@ -345,7 +379,7 @@ TA_RetCode TA_S_VAR( int    startIdx,
          }
          meanValue1 = periodTotal1 * invPeriod;
          variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-         if( variance < 0.0 )
+         if( variance < 0.000000000001 * (periodTotal2 * invPeriod) )
          {
             variance = 0.0;
          }
@@ -365,19 +399,21 @@ TA_RetCode TA_S_VAR( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_VAR_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double optInNbDev;
    double shift;
    double periodTotal1;
    double periodTotal2;
-   double meanValue1;
-   double variance;
    double invPeriod;
-   int j;
    int trailingIdx;
-   int windowStart;
    int nbInitialElementNeeded;
    int barsSinceReseed;
+   int j;
+   int windowStart;
    int i;
    int xCap;
    int xPhys;
@@ -387,7 +423,7 @@ struct TA_VAR_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_VAR_ReleaseInternal( struct TA_VAR_Stream *sp )
+static void TA_VAR_ReleaseImpl( struct TA_VAR_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inReal ) TA_Free( sp->x_inReal );
@@ -396,9 +432,11 @@ static void TA_VAR_ReleaseInternal( struct TA_VAR_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double *outReal )
+static void TA_VAR_StepImpl( struct TA_VAR_Stream *sp, double inReal, double *outReal )
 {
    double tempReal;
+   double meanValue1;
+   double variance;
 
    if( sp->i >= 1073741824 )
    {
@@ -414,8 +452,8 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
    sp->periodTotal1 += tempReal;
    tempReal *= tempReal;
    sp->periodTotal2 += tempReal;
-   sp->meanValue1 = sp->periodTotal1 * sp->invPeriod;
-   sp->variance = sp->periodTotal2 * sp->invPeriod - sp->meanValue1 * sp->meanValue1;
+   meanValue1 = sp->periodTotal1 * sp->invPeriod;
+   variance = sp->periodTotal2 * sp->invPeriod - meanValue1 * meanValue1;
    /* Remove the trailing value (prepares the next window). */
    tempReal = sp->x_inReal[sp->trailingIdx & sp->xMask] - sp->shift;
    sp->periodTotal1 -= tempReal;
@@ -436,7 +474,7 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
     * reseeding it every bar. Guarantees a non-negative output.
     */
    sp->barsSinceReseed -= 1;
-   if( sp->variance < 0.000001 * (sp->periodTotal2 * sp->invPeriod) || tempReal > 1000000.0 * sp->periodTotal2 || sp->barsSinceReseed <= 0 )
+   if( variance < 0.000001 * (sp->periodTotal2 * sp->invPeriod) || tempReal > 1000000.0 * sp->periodTotal2 || sp->barsSinceReseed <= 0 )
    {
       sp->barsSinceReseed = 32 * sp->optInTimePeriod;
       sp->windowStart = sp->i - sp->nbInitialElementNeeded;
@@ -455,13 +493,46 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
          tempReal *= tempReal;
          sp->periodTotal2 += tempReal;
       }
-      sp->meanValue1 = sp->periodTotal1 * sp->invPeriod;
-      sp->variance = sp->periodTotal2 * sp->invPeriod - sp->meanValue1 * sp->meanValue1;
-      /* A variance is non-negative by definition, but this one is extracted
-       * as a difference of two nearly equal quantities, so its SIGN is not
-       * guaranteed: on a window sitting entirely inside a flat stretch every
-       * deviation is the same rounding residual and the subtraction is pure
-       * cancellation, landing either side of zero. Enforce the invariant.
+      meanValue1 = sp->periodTotal1 * sp->invPeriod;
+      variance = sp->periodTotal2 * sp->invPeriod - meanValue1 * meanValue1;
+      /* Floor the fresh figure at the same ratio the trigger above uses, now
+       * measured against the RE-ANCHORED sums. With the shift AT the window
+       * mean the deviations sum to ~0, so a real window has variance ~
+       * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+       * only when every deviation is the same value, i.e. when the spread is
+       * at or under the rounding error of the mean itself. There is then no
+       * spread the anchor could resolve, the surviving digits are noise, and
+       * the honest answer is 0.
+       *
+       * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+       * difference is load-bearing. periodTotal2*invPeriod is not the
+       * variance here: it is variance + e^2, where e is the rounding error of
+       * the reseed's own left-to-right sum for the mean -- exactly the term
+       * the two-pass subtraction then cancels out. So the ratio measures how
+       * badly that sum rounded, not how much signal survives, and matching
+       * the trigger's 1e-6 fired ten orders before cancellation eats any
+       * digits. It zeroed a variance the line above had just computed to nine
+       * correct significant figures: 100011 bars at 31498938283.624615 with
+       * two small outliers at period 99991 gives 1.0219900060103338e-09
+       * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+       * survives and every intended bit-zero still zeroes -- the live ratios
+       * on flat data are 0 or ~1e-16, six orders the other side.
+       *
+       * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+       * relative rather than the `variance < 0.0` it replaced because two
+       * things ride on it:
+       *
+       *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+       *    side is >= 0 and any negative variance is clamped unconditionally -
+       *    where `< 0.0` needed the three-case argument below to know that a
+       *    negative one ever reaches this line.
+       *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+       *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+       *    quantity to 1e-14, which is a cliff at a price level and not a
+       *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+       *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+       *    Expressed here in the window's own units, the floor lets both of
+       *    them square-root what they are handed unconditionally.
        *
        * Clamping HERE and not at the output write is what keeps this off the
        * per-bar path, and it is sufficient because a negative variance always
@@ -473,9 +544,9 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
        * THIS - the alternative is an unconditional clamp at the output write,
        * which needs no such argument but does cost ~3%.
        */
-      if( sp->variance < 0.0 )
+      if( variance < 0.000000000001 * (sp->periodTotal2 * sp->invPeriod) )
       {
-         sp->variance = 0.0;
+         variance = 0.0;
       }
       /* Re-remove the trailing value under the new shift so the carried state
        * matches the non-reseed path.
@@ -485,11 +556,11 @@ static void TA_VAR_StepInternal( struct TA_VAR_Stream *sp, double inReal, double
       tempReal *= tempReal;
       sp->periodTotal2 -= tempReal;
    }
-   *outReal= sp->variance;
+   *outReal= variance;
    sp->i += 1;
 }
 
-static TA_RetCode TA_VAR_OpenPass( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_VAR_OpenImpl( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_VAR_Stream *sp;
    int endIdx;
@@ -509,6 +580,12 @@ static TA_RetCode TA_VAR_OpenPass( struct TA_VAR_Stream **stream, const double i
       optInNbDev = 1;
    else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -520,8 +597,8 @@ static TA_RetCode TA_VAR_OpenPass( struct TA_VAR_Stream **stream, const double i
       double shift = 0.0;
       double periodTotal1 = 0.0;
       double periodTotal2 = 0.0;
-      double meanValue1 = 0.0;
-      double variance = 0.0;
+      double meanValue1;
+      double variance;
       double invPeriod = 0.0;
       int i = 0;
       int j = 0;
@@ -620,11 +697,44 @@ static TA_RetCode TA_VAR_OpenPass( struct TA_VAR_Stream **stream, const double i
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            /* A variance is non-negative by definition, but this one is extracted
-             * as a difference of two nearly equal quantities, so its SIGN is not
-             * guaranteed: on a window sitting entirely inside a flat stretch every
-             * deviation is the same rounding residual and the subtraction is pure
-             * cancellation, landing either side of zero. Enforce the invariant.
+            /* Floor the fresh figure at the same ratio the trigger above uses, now
+             * measured against the RE-ANCHORED sums. With the shift AT the window
+             * mean the deviations sum to ~0, so a real window has variance ~
+             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+             * only when every deviation is the same value, i.e. when the spread is
+             * at or under the rounding error of the mean itself. There is then no
+             * spread the anchor could resolve, the surviving digits are noise, and
+             * the honest answer is 0.
+             *
+             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+             * difference is load-bearing. periodTotal2*invPeriod is not the
+             * variance here: it is variance + e^2, where e is the rounding error of
+             * the reseed's own left-to-right sum for the mean -- exactly the term
+             * the two-pass subtraction then cancels out. So the ratio measures how
+             * badly that sum rounded, not how much signal survives, and matching
+             * the trigger's 1e-6 fired ten orders before cancellation eats any
+             * digits. It zeroed a variance the line above had just computed to nine
+             * correct significant figures: 100011 bars at 31498938283.624615 with
+             * two small outliers at period 99991 gives 1.0219900060103338e-09
+             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+             * survives and every intended bit-zero still zeroes -- the live ratios
+             * on flat data are 0 or ~1e-16, six orders the other side.
+             *
+             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+             * relative rather than the `variance < 0.0` it replaced because two
+             * things ride on it:
+             *
+             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+             *    side is >= 0 and any negative variance is clamped unconditionally -
+             *    where `< 0.0` needed the three-case argument below to know that a
+             *    negative one ever reaches this line.
+             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+             *    quantity to 1e-14, which is a cliff at a price level and not a
+             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+             *    Expressed here in the window's own units, the floor lets both of
+             *    them square-root what they are handed unconditionally.
              *
              * Clamping HERE and not at the output write is what keeps this off the
              * per-bar path, and it is sufficient because a negative variance always
@@ -636,7 +746,7 @@ static TA_RetCode TA_VAR_OpenPass( struct TA_VAR_Stream **stream, const double i
              * THIS - the alternative is an unconditional clamp at the output write,
              * which needs no such argument but does cost ~3%.
              */
-            if( variance < 0.0 )
+            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) )
             {
                variance = 0.0;
             }
@@ -664,30 +774,30 @@ static TA_RetCode TA_VAR_OpenPass( struct TA_VAR_Stream **stream, const double i
       sp->shift = shift;
       sp->periodTotal1 = periodTotal1;
       sp->periodTotal2 = periodTotal2;
-      sp->meanValue1 = meanValue1;
-      sp->variance = variance;
       sp->invPeriod = invPeriod;
-      sp->j = j;
       sp->trailingIdx = trailingIdx;
-      sp->windowStart = windowStart;
       sp->nbInitialElementNeeded = nbInitialElementNeeded;
       sp->barsSinceReseed = barsSinceReseed;
+      sp->j = j;
+      sp->windowStart = windowStart;
       sp->i = i;
       sp->xCap = (int)(i - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_VAR_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_VAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
       sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inReal ) { TA_VAR_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inReal ) { TA_VAR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inReal ) { TA_VAR_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inReal ) { TA_VAR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
            sp->x_inReal[fillJ & sp->xMask] = inReal[fillJ];
         }
       }
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -700,7 +810,7 @@ TA_RetCode TA_VAR_OpenInternal( struct TA_VAR_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_VAR_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_VAR_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -722,25 +832,26 @@ TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_VAR_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+   return TA_VAR_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_VAR_OpenAndFillInternal( struct TA_VAR_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_VAR_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
+   return TA_VAR_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_VAR_Update( TA_VAR_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_VAR_StepInternal( stream, inReal, outReal );
+   TA_VAR_StepImpl( stream, inReal, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -753,13 +864,29 @@ TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, d
    scratch = *stream;
    scratch.x_inReal = stream->xMirror_inReal;
    memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
-   TA_VAR_StepInternal( &scratch, inReal, outReal );
+   TA_VAR_StepImpl( &scratch, inReal, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_VAR_UpdateAndFill( TA_VAR_Stream *stream, const double inReal[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_VAR_StepImpl( stream, inReal[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_VAR_Close( TA_VAR_Stream *stream )
 {
-   TA_VAR_ReleaseInternal( stream );
+   TA_VAR_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

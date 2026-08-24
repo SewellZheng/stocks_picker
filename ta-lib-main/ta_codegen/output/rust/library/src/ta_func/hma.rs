@@ -460,12 +460,16 @@ impl Core {
 /// Live HMA stream: one value per closed bar, bit-identical to [`Core::HMA`]
 /// over the same series. Open with [`Core::HMA_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_HMA_Stream")]
 pub struct HMA_Stream {
     core: Core,
     state: HMA_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -475,6 +479,7 @@ impl HMA_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -486,7 +491,6 @@ struct HMA_StreamState {
     periodSubFull: f64,
     periodSumFull: f64,
     trailingFull: f64,
-    fullOut: f64,
     halfPeriod: usize,
     sqrtPeriod: usize,
     dividerHalf: f64,
@@ -497,8 +501,6 @@ struct HMA_StreamState {
     periodSubSqrt: f64,
     periodSumSqrt: f64,
     trailingSqrt: f64,
-    halfOut: f64,
-    diffReal: f64,
     dRing_Idx: usize,
     maxIdx_dRing: usize,
     ringPos_trailingIdxFull: usize,
@@ -521,7 +523,6 @@ impl HMA_StreamState {
         self.periodSubFull = src.periodSubFull;
         self.periodSumFull = src.periodSumFull;
         self.trailingFull = src.trailingFull;
-        self.fullOut = src.fullOut;
         self.halfPeriod = src.halfPeriod;
         self.sqrtPeriod = src.sqrtPeriod;
         self.dividerHalf = src.dividerHalf;
@@ -532,8 +533,6 @@ impl HMA_StreamState {
         self.periodSubSqrt = src.periodSubSqrt;
         self.periodSumSqrt = src.periodSumSqrt;
         self.trailingSqrt = src.trailingSqrt;
-        self.halfOut = src.halfOut;
-        self.diffReal = src.diffReal;
         self.dRing_Idx = src.dRing_Idx;
         self.maxIdx_dRing = src.maxIdx_dRing;
         self.ringPos_trailingIdxFull = src.ringPos_trailingIdxFull;
@@ -554,13 +553,14 @@ impl HMA_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn HMA_step_internal(&self, sp: &mut HMA_StreamState, inReal: f64, outReal: &mut f64) {
+    fn HMA_step_impl(&self, sp: &mut HMA_StreamState, inReal: f64, outReal: &mut f64) {
         if sp.optInTimePeriod == 1 {
             (*outReal) = inReal;
             return;
         }
         if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
             let mut tempReal: f64 = 0.0_f64;
+            let mut fullOut: f64 = 0.0_f64;
             if sp.ringCap_trailingIdxFull == 0 {
                 sp.ring_trailingIdxFull_inReal[0] = inReal;
             }
@@ -569,9 +569,9 @@ impl Core {
             sp.periodSubFull -= sp.trailingFull;
             sp.periodSumFull += tempReal * ((sp.optInTimePeriod) as f64);
             sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
-            sp.fullOut = sp.periodSumFull / sp.dividerFull;
+            fullOut = sp.periodSumFull / sp.dividerFull;
             sp.periodSumFull -= sp.periodSubFull;
-            (*outReal) = 2.0 * tempReal - sp.fullOut;
+            (*outReal) = 2.0 * tempReal - fullOut;
             sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
             sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
             if sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull {
@@ -579,6 +579,9 @@ impl Core {
             }
         } else {
             let mut tempReal: f64 = 0.0_f64;
+            let mut fullOut: f64 = 0.0_f64;
+            let mut halfOut: f64 = 0.0_f64;
+            let mut diffReal: f64 = 0.0_f64;
             if sp.ringCap_trailingIdxFull == 0 {
                 sp.ring_trailingIdxFull_inReal[0] = inReal;
             }
@@ -590,20 +593,20 @@ impl Core {
             sp.periodSubFull -= sp.trailingFull;
             sp.periodSumFull += tempReal * ((sp.optInTimePeriod) as f64);
             sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
-            sp.fullOut = sp.periodSumFull / sp.dividerFull;
+            fullOut = sp.periodSumFull / sp.dividerFull;
             sp.periodSumFull -= sp.periodSubFull;
             sp.periodSubHalf += tempReal;
             sp.periodSubHalf -= sp.trailingHalf;
             sp.periodSumHalf += tempReal * ((sp.halfPeriod) as f64);
             sp.trailingHalf = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf];
-            sp.halfOut = sp.periodSumHalf / sp.dividerHalf;
+            halfOut = sp.periodSumHalf / sp.dividerHalf;
             sp.periodSumHalf -= sp.periodSubHalf;
-            sp.diffReal = 2.0 * sp.halfOut - sp.fullOut;
-            sp.periodSubSqrt += sp.diffReal;
+            diffReal = 2.0 * halfOut - fullOut;
+            sp.periodSubSqrt += diffReal;
             sp.periodSubSqrt -= sp.trailingSqrt;
-            sp.periodSumSqrt += sp.diffReal * ((sp.sqrtPeriod) as f64);
+            sp.periodSumSqrt += diffReal * ((sp.sqrtPeriod) as f64);
             sp.trailingSqrt = sp.cb_dRing[sp.dRing_Idx];
-            sp.cb_dRing[sp.dRing_Idx] = sp.diffReal;
+            sp.cb_dRing[sp.dRing_Idx] = diffReal;
             sp.dRing_Idx = sp.dRing_Idx + 1;
             if sp.dRing_Idx > sp.maxIdx_dRing {
                 sp.dRing_Idx = 0;
@@ -625,7 +628,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::HMA_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::HMA_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn HMA_OpenPass(
+    pub(crate) fn HMA_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<HMA_Stream, RetCode> {
         if inReal.is_empty() {
@@ -642,10 +645,17 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
-            if historyLen < self.HMA_Lookback(optInTimePeriod) + 1 {
+            let fillLb: usize = self.HMA_Lookback(optInTimePeriod);
+            let fillLb = if startIdx > fillLb { startIdx } else { fillLb };
+            if historyLen < fillLb + 1 {
                 return Err(RetCode::InsufficientHistory);
             }
             let state = HMA_StreamState {
@@ -654,7 +664,6 @@ impl Core {
                 periodSubFull: 0.0_f64,
                 periodSumFull: 0.0_f64,
                 trailingFull: 0.0_f64,
-                fullOut: 0.0_f64,
                 halfPeriod: 0_usize,
                 sqrtPeriod: 0_usize,
                 dividerHalf: 0.0_f64,
@@ -665,8 +674,6 @@ impl Core {
                 periodSubSqrt: 0.0_f64,
                 periodSumSqrt: 0.0_f64,
                 trailingSqrt: 0.0_f64,
-                halfOut: 0.0_f64,
-                diffReal: 0.0_f64,
                 dRing_Idx: 0_usize,
                 maxIdx_dRing: 0_usize,
                 ringPos_trailingIdxFull: 0_usize,
@@ -678,7 +685,6 @@ impl Core {
                 cbSize_dRing: 0_usize,
                 cb_dRing: Vec::new(),
             };
-            let fillLb: usize = self.HMA_Lookback(optInTimePeriod);
             (*outBegIdx) = fillLb;
             (*outNBElement) = historyLen - fillLb;
             if outStride == 0 {
@@ -690,7 +696,7 @@ impl Core {
                     fillIdx += 1;
                 }
             }
-            return Ok(HMA_Stream { core: self.clone(), state });
+            return Ok(HMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
         }
         if optInTimePeriod == 2 || optInTimePeriod == 3 {
             let mut lookbackTotal: usize = 0_usize;
@@ -814,7 +820,6 @@ impl Core {
                 periodSubFull,
                 periodSumFull,
                 trailingFull,
-                fullOut,
                 halfPeriod,
                 sqrtPeriod,
                 dividerHalf,
@@ -825,8 +830,6 @@ impl Core {
                 periodSubSqrt,
                 periodSumSqrt,
                 trailingSqrt,
-                halfOut,
-                diffReal,
                 dRing_Idx,
                 maxIdx_dRing,
                 ringPos_trailingIdxFull: 0_usize,
@@ -838,7 +841,7 @@ impl Core {
                 cbSize_dRing: 0_usize,
                 cb_dRing: Vec::new(),
             };
-            Ok(HMA_Stream { core: self.clone(), state })
+            Ok(HMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         } else {
             let mut lookbackTotal: usize = 0_usize;
             let mut lookbackSqrt: usize = 0_usize;
@@ -1041,7 +1044,6 @@ impl Core {
                 periodSubFull,
                 periodSumFull,
                 trailingFull,
-                fullOut,
                 halfPeriod,
                 sqrtPeriod,
                 dividerHalf,
@@ -1052,8 +1054,6 @@ impl Core {
                 periodSubSqrt,
                 periodSumSqrt,
                 trailingSqrt,
-                halfOut,
-                diffReal,
                 dRing_Idx,
                 maxIdx_dRing,
                 ringPos_trailingIdxFull: 0_usize,
@@ -1065,7 +1065,7 @@ impl Core {
                 cbSize_dRing: cbSize_dRing,
                 cb_dRing: dRing,
             };
-            Ok(HMA_Stream { core: self.clone(), state })
+            Ok(HMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         }
     }
 
@@ -1076,7 +1076,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.HMA_OpenPass(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.HMA_OpenImpl(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -1096,8 +1096,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.HMA_Open(&data, 20).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_HMA_Open")]
@@ -1115,7 +1119,7 @@ impl Core {
     ) -> Result<(HMA_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.HMA_OpenPass(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.HMA_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -1124,7 +1128,7 @@ impl Core {
     pub(crate) fn HMA_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<HMA_Stream, RetCode> {
-        self.HMA_OpenPass(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
+        self.HMA_OpenImpl(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -1157,8 +1161,45 @@ impl HMA_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.HMA_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.HMA_step_impl(&mut self.state, inReal, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_HMA_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.HMA_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1183,6 +1224,19 @@ impl HMA_Stream {
             cell.set(Some(scratch));
             value
         })
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::HMA`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

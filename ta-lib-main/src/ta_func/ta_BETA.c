@@ -58,6 +58,10 @@
  *  071626 MF,CC Fix reversed inReal0/inReal1 roles in the algorithm
  *               description: inReal0 holds the index prices and inReal1
  *               the stock prices (SourceForge bug 98).
+ *  082326 MF    Fix #242. Cancellation-free regression sums (shifted returns
+ *               + reseed) and a scale-relative denominator test.
+ *  082326 MF,CC #242 follow-up: restore TA_VAR's outlier trigger, at 1e3,
+ *               on BOTH axes -- the output reads S_xy and S_y too.
  */
 
 TA_LIB_API int TA_BETA_Lookback( int optInTimePeriod )
@@ -87,6 +91,18 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
    double trailing_last_price_x;
    double trailing_last_price_y;
    double tmp_real;
+   double shift_x;
+   double shift_y;
+   double denom;
+   double denom_scale;
+   double prev_x;
+   double leaving_xx;
+   double leaving_yy;
+   double S_yy;
+   double prev_y;
+   int j;
+   int windowStart;
+   int barsSinceReseed;
    double x;
    double y;
    double n;
@@ -120,6 +136,15 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
    trailing_last_price_x = 0.0;
    trailing_last_price_y = 0.0;
    tmp_real = 0.0;
+   shift_x = 0.0;
+   shift_y = 0.0;
+   denom = 0.0;
+   denom_scale = 0.0;
+   prev_x = 0.0;
+   leaving_xx = 0.0;
+   leaving_yy = 0.0;
+   S_yy = 0.0;
+   prev_y = 0.0;
    n = 0.0;
    /* sum of x * x */
    /* sum of x * y */
@@ -130,6 +155,14 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
    /* same as last_price_x except used to remove elements from the trailing summation */
    /* same as last_price_y except used to remove elements from the trailing summation */
    /* temporary variable */
+   /* origin the x returns are measured against */
+   /* origin the y returns are measured against */
+   /* n*S_xx - S_x*S_x, the regression denominator */
+   /* n*S_xx, the scale denom is extracted from */
+   /* price walked forward when rebuilding the window */
+   /* squared x deviation the previous bar removed */
+   /* squared y deviation the previous bar removed */
+   /* sum of y * y, carried ONLY for the outlier trigger */
    /* the 'x' value, which is the last change between values in inReal0 */
    /* the 'y' value, which is the last change between values in inReal1 */
    /* DESCRIPTION OF ALGORITHM:
@@ -168,29 +201,52 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
    last_price_x = trailing_last_price_x;
    trailing_last_price_y = inReal1[trailingIdx];
    last_price_y = trailing_last_price_y;
-   /* Process remaining of lookback until ready to output the first value. */
+   /* Measure the returns against a shift near the window, as TA_VAR does for
+    * its values (#118) and TA_CORREL for its prices (#242).
+    *
+    * Returns are near-zero-mean, so on a series that jitters this changes
+    * little. It is decisive on a series that DRIFTS: a steadily rising price
+    * gives near-identical returns, S_x*S_x then equals n*S_xx to every digit,
+    * and the denominator n*S_xx - S_x*S_x is left as pure rounding noise --
+    * measured at +/-2e-16 of its own scale, sign included. Wilkinson's BIG and
+    * LITTLE are exactly that shape, and beta of such a series against itself
+    * came back 0 instead of 1.
+    *
+    * Anchor on the window's first return here; every later re-anchor uses the
+    * window mean, which is better centred but costs a pass this one cannot
+    * afford before the sums exist.
+    */
    i = ++trailingIdx;
+   if( !TA_IS_ZERO(last_price_x) )
+   {
+      shift_x = (inReal0[i] - last_price_x) / last_price_x;
+   }
+   if( !TA_IS_ZERO(last_price_y) )
+   {
+      shift_y = (inReal1[i] - last_price_y) / last_price_y;
+   }
    while( i < startIdx )
    {
       tmp_real = inReal0[i];
       if( !TA_IS_ZERO(last_price_x) )
       {
-         x = (tmp_real - last_price_x) / last_price_x;
+         x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0.0;
+         x = 0 - shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = inReal1[i++];
       if( !TA_IS_ZERO(last_price_y) )
       {
-         y = (tmp_real - last_price_y) / last_price_y;
+         y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0.0;
+         y = 0 - shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
+      S_yy += y * y;
       S_xy += x * y;
       S_x += x;
       S_y += y;
@@ -198,62 +254,198 @@ TA_LIB_API TA_RetCode TA_BETA( int    startIdx,
    outIdx = 0;
    /* First output always start at index zero */
    n = (double)optInTimePeriod;
+   barsSinceReseed = 32 * optInTimePeriod;
    do
    {
       tmp_real = inReal0[i];
       if( !TA_IS_ZERO(last_price_x) )
       {
-         x = (tmp_real - last_price_x) / last_price_x;
+         x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0.0;
+         x = 0 - shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = inReal1[i++];
       if( !TA_IS_ZERO(last_price_y) )
       {
-         y = (tmp_real - last_price_y) / last_price_y;
+         y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0.0;
+         y = 0 - shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
+      S_yy += y * y;
       S_xy += x * y;
       S_x += x;
       S_y += y;
+      denom_scale = n * S_xx;
+      denom = denom_scale - S_x * S_x;
+      /* Re-anchor and rebuild when the shift has gone stale. The same three
+       * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+       * it is extracted from; OR the return that just left sat so far from the
+       * shift that its squared term dwarfs what remains; OR at least every 32
+       * windows.
+       *
+       * The outlier trigger earns its multiply and compare here, contrary to
+       * what "returns are stationary" suggests: a bad tick makes one return
+       * enormous, the ordinary ones fall below its ulp and are never really
+       * added, and when it leaves the subtraction takes back a term they were
+       * never part of. The residue is a consistent OFFSET, so the cancellation
+       * trigger above cannot see it -- denom/denom_scale stays ~1 -- and only
+       * the periodic re-anchor recovers, up to 32*period bars later. Measured
+       * without it: a 1e8 tick left 286 of 386 bars wrong, the worst by 0.36
+       * ABSOLUTE. Cost is ~3% and mostly unmeasurable on the bench corpus
+       * (randwalk/GBM/trend-chop), where it fires on 0.00% of bars -- but that
+       * is a corpus figure, not a bound. Isolated against the same body without
+       * the disjunct it is +16-20% on a stale-quote/illiquid series (1.5% fire
+       * rate) and +54-64% on constructed near-flat or gapped shapes (5.1%).
+       * The cost is the reseed it triggers, so it tracks the fire rate; on data
+       * that never triggers it, the compare is free.
+       *
+       * BOTH axes are watched, and the y one is not redundant. The denominator
+       * is x-only, so it is tempting to conclude -- as an earlier draft of this
+       * did -- that a y trigger catches nothing. It catches plenty: the OUTPUT
+       * also reads S_xy and S_y, which a y-side outlier corrupts with nothing on
+       * the x side able to see it. Measured on test_beta_outlier_transit's own
+       * ladder with the spike moved from px to py: 12 of 24 rungs fail without
+       * the second disjunct, worst 156x relative; 0 of 24 with it. The earlier
+       * experiment that found it inert was run on an x-only corpus, where it is
+       * inert by construction. TA_CORREL, fixed by the same #242 work, watches
+       * both from the start; this brings BETA level. S_yy exists only to scale
+       * this test -- nothing else reads it.
+       *
+       * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
+       * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
+       * into S_xx, so the ratio when that term leaves lands an order or two
+       * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+       * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
+       * Pinned by test_beta_outlier_transit.
+       *
+       * Reading the window here is safe when outReal aliases an input: the
+       * outputs written so far occupy [0, outIdx-1] while windowStart-1 is
+       * startIdx-optInTimePeriod+outIdx, which is >= outIdx.
+       */
+      barsSinceReseed -= 1;
+      if( denom < 0.000001 * denom_scale || leaving_xx > 1000.0 * S_xx || leaving_yy > 1000.0 * S_yy || barsSinceReseed <= 0 )
+      {
+         barsSinceReseed = 32 * optInTimePeriod;
+         windowStart = trailingIdx;
+         /* Walk the window forward from the price the trailing cursor already
+          * carries. A return needs its predecessor, and reading inReal[j-1]
+          * would reach one slot BEFORE the window -- which the batch can do and
+          * a streaming ring sized for the window cannot. trailing_last_price_*
+          * IS that predecessor, so carrying it forward keeps every read inside
+          * [trailingIdx, i-1] and the two paths stay identical.
+          */
+         prev_x = trailing_last_price_x;
+         prev_y = trailing_last_price_y;
+         tmp_real = 0.0;
+         shift_y = 0.0;
+         for( j = windowStart; j < i; j += 1 )
+         {
+            if( !TA_IS_ZERO(prev_x) )
+            {
+               tmp_real += (inReal0[j] - prev_x) / prev_x;
+            }
+            prev_x = inReal0[j];
+            if( !TA_IS_ZERO(prev_y) )
+            {
+               shift_y += (inReal1[j] - prev_y) / prev_y;
+            }
+            prev_y = inReal1[j];
+         }
+         shift_x = tmp_real / n;
+         shift_y = shift_y / n;
+         prev_x = trailing_last_price_x;
+         prev_y = trailing_last_price_y;
+         S_xx = 0.0;
+         S_yy = 0.0;
+         S_xy = 0.0;
+         S_x = 0.0;
+         S_y = 0.0;
+         for( j = windowStart; j < i; j += 1 )
+         {
+            if( !TA_IS_ZERO(prev_x) )
+            {
+               x = (inReal0[j] - prev_x) / prev_x - shift_x;
+            } else 
+            {
+               x = 0 - shift_x;
+            }
+            prev_x = inReal0[j];
+            if( !TA_IS_ZERO(prev_y) )
+            {
+               y = (inReal1[j] - prev_y) / prev_y - shift_y;
+            } else 
+            {
+               y = 0 - shift_y;
+            }
+            prev_y = inReal1[j];
+            S_xx += x * x;
+            S_yy += y * y;
+            S_xy += x * y;
+            S_x += x;
+            S_y += y;
+         }
+         denom_scale = n * S_xx;
+         denom = denom_scale - S_x * S_x;
+         /* n*S_xx - S_x*S_x is non-negative by Cauchy-Schwarz, but it is
+          * extracted as a difference, so its SIGN is not guaranteed on a window
+          * whose returns are all the same value. Enforce the invariant HERE and
+          * not at the divide: a negative denom always reseeds on the same bar
+          * (it makes the first trigger true whenever denom_scale is positive,
+          * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
+          * divide below can rely on it being >= 0.
+          */
+         if( denom < 0.0 )
+         {
+            denom = 0.0;
+         }
+      }
       /* Always read the trailing before writing the output because the input and output
        * buffer can be the same.
        */
       tmp_real = inReal0[trailingIdx];
       if( !TA_IS_ZERO(trailing_last_price_x) )
       {
-         x = (tmp_real - trailing_last_price_x) / trailing_last_price_x;
+         x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
       } else 
       {
-         x = 0.0;
+         x = 0 - shift_x;
       }
       trailing_last_price_x = tmp_real;
-      tmp_real = inReal1[trailingIdx++];
+      tmp_real = inReal1[trailingIdx];
+      trailingIdx += 1;
       if( !TA_IS_ZERO(trailing_last_price_y) )
       {
-         y = (tmp_real - trailing_last_price_y) / trailing_last_price_y;
+         y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
       } else 
       {
-         y = 0.0;
+         y = 0 - shift_y;
       }
       trailing_last_price_y = tmp_real;
-      /* Write the output */
-      tmp_real = n * S_xx - S_x * S_x;
-      if( !TA_IS_ZERO(tmp_real) )
+      /* Write the output.
+       *
+       * The denominator is tested against ITS OWN scale, not a fixed band: it
+       * is quadratic in the return volatility, so an absolute 1e-14 threshold
+       * stops meaning "the regressor does not vary" and starts meaning "the
+       * returns are small". The literal is TA_EPSILON, and the plain `>` also
+       * rejects a negative denominator rather than dividing by it.
+       */
+      if( denom > 0.00000000000001 * denom_scale )
       {
-         outReal[outIdx++] = (n * S_xy - S_x * S_y) / tmp_real;
+         outReal[outIdx++] = (n * S_xy - S_x * S_y) / denom;
       } else 
       {
          outReal[outIdx++] = 0.0;
       }
       /* Remove the calculation starting with the trailingIdx. */
+      leaving_xx = x * x;
+      leaving_yy = y * y;
       S_xx -= x * x;
+      S_yy -= y * y;
       S_xy -= x * y;
       S_x -= x;
       S_y -= y;
@@ -282,6 +474,18 @@ TA_RetCode TA_S_BETA( int    startIdx,
    double trailing_last_price_x;
    double trailing_last_price_y;
    double tmp_real;
+   double shift_x;
+   double shift_y;
+   double denom;
+   double denom_scale;
+   double prev_x;
+   double leaving_xx;
+   double leaving_yy;
+   double S_yy;
+   double prev_y;
+   int j;
+   int windowStart;
+   int barsSinceReseed;
    double x;
    double y;
    double n;
@@ -315,6 +519,15 @@ TA_RetCode TA_S_BETA( int    startIdx,
    trailing_last_price_x = 0.0;
    trailing_last_price_y = 0.0;
    tmp_real = 0.0;
+   shift_x = 0.0;
+   shift_y = 0.0;
+   denom = 0.0;
+   denom_scale = 0.0;
+   prev_x = 0.0;
+   leaving_xx = 0.0;
+   leaving_yy = 0.0;
+   S_yy = 0.0;
+   prev_y = 0.0;
    n = 0.0;
    nbInitialElementNeeded = optInTimePeriod;
    if( startIdx < nbInitialElementNeeded )
@@ -333,84 +546,162 @@ TA_RetCode TA_S_BETA( int    startIdx,
    trailing_last_price_y = (double)inReal1[trailingIdx];
    last_price_y = trailing_last_price_y;
    i = ++trailingIdx;
+   if( !TA_IS_ZERO(last_price_x) )
+   {
+      shift_x = ((double)inReal0[i] - last_price_x) / last_price_x;
+   }
+   if( !TA_IS_ZERO(last_price_y) )
+   {
+      shift_y = ((double)inReal1[i] - last_price_y) / last_price_y;
+   }
    while( i < startIdx )
    {
       tmp_real = (double)inReal0[i];
       if( !TA_IS_ZERO(last_price_x) )
       {
-         x = (tmp_real - last_price_x) / last_price_x;
+         x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0.0;
+         x = 0 - shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = (double)inReal1[i++];
       if( !TA_IS_ZERO(last_price_y) )
       {
-         y = (tmp_real - last_price_y) / last_price_y;
+         y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0.0;
+         y = 0 - shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
+      S_yy += y * y;
       S_xy += x * y;
       S_x += x;
       S_y += y;
    }
    outIdx = 0;
    n = (double)optInTimePeriod;
+   barsSinceReseed = 32 * optInTimePeriod;
    do
    {
       tmp_real = (double)inReal0[i];
       if( !TA_IS_ZERO(last_price_x) )
       {
-         x = (tmp_real - last_price_x) / last_price_x;
+         x = (tmp_real - last_price_x) / last_price_x - shift_x;
       } else 
       {
-         x = 0.0;
+         x = 0 - shift_x;
       }
       last_price_x = tmp_real;
       tmp_real = (double)inReal1[i++];
       if( !TA_IS_ZERO(last_price_y) )
       {
-         y = (tmp_real - last_price_y) / last_price_y;
+         y = (tmp_real - last_price_y) / last_price_y - shift_y;
       } else 
       {
-         y = 0.0;
+         y = 0 - shift_y;
       }
       last_price_y = tmp_real;
       S_xx += x * x;
+      S_yy += y * y;
       S_xy += x * y;
       S_x += x;
       S_y += y;
+      denom_scale = n * S_xx;
+      denom = denom_scale - S_x * S_x;
+      barsSinceReseed -= 1;
+      if( denom < 0.000001 * denom_scale || leaving_xx > 1000.0 * S_xx || leaving_yy > 1000.0 * S_yy || barsSinceReseed <= 0 )
+      {
+         barsSinceReseed = 32 * optInTimePeriod;
+         windowStart = trailingIdx;
+         prev_x = trailing_last_price_x;
+         prev_y = trailing_last_price_y;
+         tmp_real = 0.0;
+         shift_y = 0.0;
+         for( j = windowStart; j < i; j += 1 )
+         {
+            if( !TA_IS_ZERO(prev_x) )
+            {
+               tmp_real += ((double)inReal0[j] - prev_x) / prev_x;
+            }
+            prev_x = (double)inReal0[j];
+            if( !TA_IS_ZERO(prev_y) )
+            {
+               shift_y += ((double)inReal1[j] - prev_y) / prev_y;
+            }
+            prev_y = (double)inReal1[j];
+         }
+         shift_x = tmp_real / n;
+         shift_y = shift_y / n;
+         prev_x = trailing_last_price_x;
+         prev_y = trailing_last_price_y;
+         S_xx = 0.0;
+         S_yy = 0.0;
+         S_xy = 0.0;
+         S_x = 0.0;
+         S_y = 0.0;
+         for( j = windowStart; j < i; j += 1 )
+         {
+            if( !TA_IS_ZERO(prev_x) )
+            {
+               x = ((double)inReal0[j] - prev_x) / prev_x - shift_x;
+            } else 
+            {
+               x = 0 - shift_x;
+            }
+            prev_x = (double)inReal0[j];
+            if( !TA_IS_ZERO(prev_y) )
+            {
+               y = ((double)inReal1[j] - prev_y) / prev_y - shift_y;
+            } else 
+            {
+               y = 0 - shift_y;
+            }
+            prev_y = (double)inReal1[j];
+            S_xx += x * x;
+            S_yy += y * y;
+            S_xy += x * y;
+            S_x += x;
+            S_y += y;
+         }
+         denom_scale = n * S_xx;
+         denom = denom_scale - S_x * S_x;
+         if( denom < 0.0 )
+         {
+            denom = 0.0;
+         }
+      }
       tmp_real = (double)inReal0[trailingIdx];
       if( !TA_IS_ZERO(trailing_last_price_x) )
       {
-         x = (tmp_real - trailing_last_price_x) / trailing_last_price_x;
+         x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
       } else 
       {
-         x = 0.0;
+         x = 0 - shift_x;
       }
       trailing_last_price_x = tmp_real;
-      tmp_real = (double)inReal1[trailingIdx++];
+      tmp_real = (double)inReal1[trailingIdx];
+      trailingIdx += 1;
       if( !TA_IS_ZERO(trailing_last_price_y) )
       {
-         y = (tmp_real - trailing_last_price_y) / trailing_last_price_y;
+         y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
       } else 
       {
-         y = 0.0;
+         y = 0 - shift_y;
       }
       trailing_last_price_y = tmp_real;
-      tmp_real = n * S_xx - S_x * S_x;
-      if( !TA_IS_ZERO(tmp_real) )
+      if( denom > 0.00000000000001 * denom_scale )
       {
-         outReal[outIdx++] = (n * S_xy - S_x * S_y) / tmp_real;
+         outReal[outIdx++] = (n * S_xy - S_x * S_y) / denom;
       } else 
       {
          outReal[outIdx++] = 0.0;
       }
+      leaving_xx = x * x;
+      leaving_yy = y * y;
       S_xx -= x * x;
+      S_yy -= y * y;
       S_xy -= x * y;
       S_x -= x;
       S_y -= y;
@@ -423,6 +714,10 @@ TA_RetCode TA_S_BETA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_BETA_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double S_xx;
    double S_xy;
@@ -432,105 +727,262 @@ struct TA_BETA_Stream {
    double last_price_y;
    double trailing_last_price_x;
    double trailing_last_price_y;
-   double x;
-   double y;
+   double shift_x;
+   double shift_y;
+   double leaving_xx;
+   double leaving_yy;
+   double S_yy;
+   int barsSinceReseed;
    double n;
-   int ringPos_trailingIdx;
-   int ringCap_trailingIdx;
-   double *ring_trailingIdx_inReal0;
-   double *ringMirror_trailingIdx_inReal0;
-   double *ring_trailingIdx_inReal1;
-   double *ringMirror_trailingIdx_inReal1;
+   int trailingIdx;
+   int j;
+   int i;
+   int xCap;
+   int xPhys;
+   int xMask;
+   double *x_inReal0;
+   double *xMirror_inReal0;
+   double *x_inReal1;
+   double *xMirror_inReal1;
 };
 
 /* Private function, not in public API. */
-static void TA_BETA_ReleaseInternal( struct TA_BETA_Stream *sp )
+static void TA_BETA_ReleaseImpl( struct TA_BETA_Stream *sp )
 {
    if( !sp ) return;
-   if( sp->ring_trailingIdx_inReal0 ) TA_Free( sp->ring_trailingIdx_inReal0 );
-   if( sp->ringMirror_trailingIdx_inReal0 ) TA_Free( sp->ringMirror_trailingIdx_inReal0 );
-   if( sp->ring_trailingIdx_inReal1 ) TA_Free( sp->ring_trailingIdx_inReal1 );
-   if( sp->ringMirror_trailingIdx_inReal1 ) TA_Free( sp->ringMirror_trailingIdx_inReal1 );
+   if( sp->x_inReal0 ) TA_Free( sp->x_inReal0 );
+   if( sp->xMirror_inReal0 ) TA_Free( sp->xMirror_inReal0 );
+   if( sp->x_inReal1 ) TA_Free( sp->x_inReal1 );
+   if( sp->xMirror_inReal1 ) TA_Free( sp->xMirror_inReal1 );
    TA_Free( sp );
 }
 
 /* Private function, not in public API. */
-static void TA_BETA_StepInternal( struct TA_BETA_Stream *sp, double inReal0, double inReal1, double *outReal )
+static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double inReal1, double *outReal )
 {
    double tmp_real;
+   double denom;
+   double denom_scale;
+   double prev_x;
+   double prev_y;
+   int windowStart;
+   double x;
+   double y;
+   double S_xx = sp->S_xx;
+   double S_xy = sp->S_xy;
+   double S_x = sp->S_x;
+   double S_y = sp->S_y;
+   double S_yy = sp->S_yy;
 
-   if( sp->ringCap_trailingIdx == 0 )
+   if( sp->i >= 1073741824 )
    {
-      sp->ring_trailingIdx_inReal0[0] = inReal0;
-      sp->ring_trailingIdx_inReal1[0] = inReal1;
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
+      sp->i -= rebaseShift;
+      sp->trailingIdx -= rebaseShift;
+      sp->j -= rebaseShift;
    }
-   tmp_real = inReal0;
+   sp->x_inReal0[sp->i & sp->xMask] = inReal0;
+   sp->x_inReal1[sp->i & sp->xMask] = inReal1;
+   tmp_real = sp->x_inReal0[sp->i & sp->xMask];
    if( !TA_IS_ZERO(sp->last_price_x) )
    {
-      sp->x = (tmp_real - sp->last_price_x) / sp->last_price_x;
+      x = (tmp_real - sp->last_price_x) / sp->last_price_x - sp->shift_x;
    } else 
    {
-      sp->x = 0.0;
+      x = 0 - sp->shift_x;
    }
    sp->last_price_x = tmp_real;
-   tmp_real = inReal1;
+   tmp_real = sp->x_inReal1[sp->i++ & sp->xMask];
    if( !TA_IS_ZERO(sp->last_price_y) )
    {
-      sp->y = (tmp_real - sp->last_price_y) / sp->last_price_y;
+      y = (tmp_real - sp->last_price_y) / sp->last_price_y - sp->shift_y;
    } else 
    {
-      sp->y = 0.0;
+      y = 0 - sp->shift_y;
    }
    sp->last_price_y = tmp_real;
-   sp->S_xx += sp->x * sp->x;
-   sp->S_xy += sp->x * sp->y;
-   sp->S_x += sp->x;
-   sp->S_y += sp->y;
+   S_xx += x * x;
+   S_yy += y * y;
+   S_xy += x * y;
+   S_x += x;
+   S_y += y;
+   denom_scale = sp->n * S_xx;
+   denom = denom_scale - S_x * S_x;
+   /* Re-anchor and rebuild when the shift has gone stale. The same three
+    * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+    * it is extracted from; OR the return that just left sat so far from the
+    * shift that its squared term dwarfs what remains; OR at least every 32
+    * windows.
+    *
+    * The outlier trigger earns its multiply and compare here, contrary to
+    * what "returns are stationary" suggests: a bad tick makes one return
+    * enormous, the ordinary ones fall below its ulp and are never really
+    * added, and when it leaves the subtraction takes back a term they were
+    * never part of. The residue is a consistent OFFSET, so the cancellation
+    * trigger above cannot see it -- denom/denom_scale stays ~1 -- and only
+    * the periodic re-anchor recovers, up to 32*period bars later. Measured
+    * without it: a 1e8 tick left 286 of 386 bars wrong, the worst by 0.36
+    * ABSOLUTE. Cost is ~3% and mostly unmeasurable on the bench corpus
+    * (randwalk/GBM/trend-chop), where it fires on 0.00% of bars -- but that
+    * is a corpus figure, not a bound. Isolated against the same body without
+    * the disjunct it is +16-20% on a stale-quote/illiquid series (1.5% fire
+    * rate) and +54-64% on constructed near-flat or gapped shapes (5.1%).
+    * The cost is the reseed it triggers, so it tracks the fire rate; on data
+    * that never triggers it, the compare is free.
+    *
+    * BOTH axes are watched, and the y one is not redundant. The denominator
+    * is x-only, so it is tempting to conclude -- as an earlier draft of this
+    * did -- that a y trigger catches nothing. It catches plenty: the OUTPUT
+    * also reads S_xy and S_y, which a y-side outlier corrupts with nothing on
+    * the x side able to see it. Measured on test_beta_outlier_transit's own
+    * ladder with the spike moved from px to py: 12 of 24 rungs fail without
+    * the second disjunct, worst 156x relative; 0 of 24 with it. The earlier
+    * experiment that found it inert was run on an x-only corpus, where it is
+    * inert by construction. TA_CORREL, fixed by the same #242 work, watches
+    * both from the start; this brings BETA level. S_yy exists only to scale
+    * this test -- nothing else reads it.
+    *
+    * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
+    * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
+    * into S_xx, so the ratio when that term leaves lands an order or two
+    * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+    * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
+    * Pinned by test_beta_outlier_transit.
+    *
+    * Reading the window here is safe when outReal aliases an input: the
+    * outputs written so far occupy [0, outIdx-1] while windowStart-1 is
+    * startIdx-optInTimePeriod+outIdx, which is >= outIdx.
+    */
+   sp->barsSinceReseed -= 1;
+   if( denom < 0.000001 * denom_scale || sp->leaving_xx > 1000.0 * S_xx || sp->leaving_yy > 1000.0 * S_yy || sp->barsSinceReseed <= 0 )
+   {
+      sp->barsSinceReseed = 32 * sp->optInTimePeriod;
+      windowStart = sp->trailingIdx;
+      /* Walk the window forward from the price the trailing cursor already
+       * carries. A return needs its predecessor, and reading inReal[j-1]
+       * would reach one slot BEFORE the window -- which the batch can do and
+       * a streaming ring sized for the window cannot. trailing_last_price_*
+       * IS that predecessor, so carrying it forward keeps every read inside
+       * [trailingIdx, i-1] and the two paths stay identical.
+       */
+      prev_x = sp->trailing_last_price_x;
+      prev_y = sp->trailing_last_price_y;
+      tmp_real = 0.0;
+      sp->shift_y = 0.0;
+      for( sp->j = windowStart; sp->j < sp->i; sp->j += 1 )
+      {
+         if( !TA_IS_ZERO(prev_x) )
+         {
+            tmp_real += (sp->x_inReal0[sp->j & sp->xMask] - prev_x) / prev_x;
+         }
+         prev_x = sp->x_inReal0[sp->j & sp->xMask];
+         if( !TA_IS_ZERO(prev_y) )
+         {
+            sp->shift_y += (sp->x_inReal1[sp->j & sp->xMask] - prev_y) / prev_y;
+         }
+         prev_y = sp->x_inReal1[sp->j & sp->xMask];
+      }
+      sp->shift_x = tmp_real / sp->n;
+      sp->shift_y = sp->shift_y / sp->n;
+      prev_x = sp->trailing_last_price_x;
+      prev_y = sp->trailing_last_price_y;
+      S_xx = 0.0;
+      S_yy = 0.0;
+      S_xy = 0.0;
+      S_x = 0.0;
+      S_y = 0.0;
+      for( sp->j = windowStart; sp->j < sp->i; sp->j += 1 )
+      {
+         if( !TA_IS_ZERO(prev_x) )
+         {
+            x = (sp->x_inReal0[sp->j & sp->xMask] - prev_x) / prev_x - sp->shift_x;
+         } else 
+         {
+            x = 0 - sp->shift_x;
+         }
+         prev_x = sp->x_inReal0[sp->j & sp->xMask];
+         if( !TA_IS_ZERO(prev_y) )
+         {
+            y = (sp->x_inReal1[sp->j & sp->xMask] - prev_y) / prev_y - sp->shift_y;
+         } else 
+         {
+            y = 0 - sp->shift_y;
+         }
+         prev_y = sp->x_inReal1[sp->j & sp->xMask];
+         S_xx += x * x;
+         S_yy += y * y;
+         S_xy += x * y;
+         S_x += x;
+         S_y += y;
+      }
+      denom_scale = sp->n * S_xx;
+      denom = denom_scale - S_x * S_x;
+      /* n*S_xx - S_x*S_x is non-negative by Cauchy-Schwarz, but it is
+       * extracted as a difference, so its SIGN is not guaranteed on a window
+       * whose returns are all the same value. Enforce the invariant HERE and
+       * not at the divide: a negative denom always reseeds on the same bar
+       * (it makes the first trigger true whenever denom_scale is positive,
+       * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
+       * divide below can rely on it being >= 0.
+       */
+      if( denom < 0.0 )
+      {
+         denom = 0.0;
+      }
+   }
    /* Always read the trailing before writing the output because the input and output
     * buffer can be the same.
     */
-   tmp_real = sp->ring_trailingIdx_inReal0[sp->ringPos_trailingIdx];
+   tmp_real = sp->x_inReal0[sp->trailingIdx & sp->xMask];
    if( !TA_IS_ZERO(sp->trailing_last_price_x) )
    {
-      sp->x = (tmp_real - sp->trailing_last_price_x) / sp->trailing_last_price_x;
+      x = (tmp_real - sp->trailing_last_price_x) / sp->trailing_last_price_x - sp->shift_x;
    } else 
    {
-      sp->x = 0.0;
+      x = 0 - sp->shift_x;
    }
    sp->trailing_last_price_x = tmp_real;
-   tmp_real = sp->ring_trailingIdx_inReal1[sp->ringPos_trailingIdx];
+   tmp_real = sp->x_inReal1[sp->trailingIdx & sp->xMask];
+   sp->trailingIdx += 1;
    if( !TA_IS_ZERO(sp->trailing_last_price_y) )
    {
-      sp->y = (tmp_real - sp->trailing_last_price_y) / sp->trailing_last_price_y;
+      y = (tmp_real - sp->trailing_last_price_y) / sp->trailing_last_price_y - sp->shift_y;
    } else 
    {
-      sp->y = 0.0;
+      y = 0 - sp->shift_y;
    }
    sp->trailing_last_price_y = tmp_real;
-   /* Write the output */
-   tmp_real = sp->n * sp->S_xx - sp->S_x * sp->S_x;
-   if( !TA_IS_ZERO(tmp_real) )
+   /* Write the output.
+    *
+    * The denominator is tested against ITS OWN scale, not a fixed band: it
+    * is quadratic in the return volatility, so an absolute 1e-14 threshold
+    * stops meaning "the regressor does not vary" and starts meaning "the
+    * returns are small". The literal is TA_EPSILON, and the plain `>` also
+    * rejects a negative denominator rather than dividing by it.
+    */
+   if( denom > 0.00000000000001 * denom_scale )
    {
-      *outReal= (sp->n * sp->S_xy - sp->S_x * sp->S_y) / tmp_real;
+      *outReal= (sp->n * S_xy - S_x * S_y) / denom;
    } else 
    {
       *outReal= 0.0;
    }
    /* Remove the calculation starting with the trailingIdx. */
-   sp->S_xx -= sp->x * sp->x;
-   sp->S_xy -= sp->x * sp->y;
-   sp->S_x -= sp->x;
-   sp->S_y -= sp->y;
-   sp->ring_trailingIdx_inReal0[sp->ringPos_trailingIdx] = inReal0;
-   sp->ring_trailingIdx_inReal1[sp->ringPos_trailingIdx] = inReal1;
-   sp->ringPos_trailingIdx = sp->ringPos_trailingIdx + 1;
-   if( sp->ringPos_trailingIdx >= sp->ringCap_trailingIdx )
-   {
-      sp->ringPos_trailingIdx = 0;
-   }
+   sp->leaving_xx = x * x;
+   sp->leaving_yy = y * y;
+   S_xx -= x * x;
+   S_yy -= y * y;
+   S_xy -= x * y;
+   S_x -= x;
+   S_y -= y;
+   sp->S_xx = S_xx;
+   sp->S_xy = S_xy;
+   sp->S_x = S_x;
+   sp->S_y = S_y;
+   sp->S_yy = S_yy;
 }
 
-static TA_RetCode TA_BETA_OpenPass( struct TA_BETA_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_BETA_OpenImpl( struct TA_BETA_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_BETA_Stream *sp;
    int endIdx;
@@ -546,6 +998,12 @@ static TA_RetCode TA_BETA_OpenPass( struct TA_BETA_Stream **stream, const double
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -571,14 +1029,34 @@ static TA_RetCode TA_BETA_OpenPass( struct TA_BETA_Stream **stream, const double
       /* same as last_price_y except used to remove elements from the trailing summation */
       double tmp_real = 0.0;
       /* temporary variable */
-      double x = 0.0;
+      double shift_x = 0.0;
+      /* origin the x returns are measured against */
+      double shift_y = 0.0;
+      /* origin the y returns are measured against */
+      double denom = 0.0;
+      /* n*S_xx - S_x*S_x, the regression denominator */
+      double denom_scale = 0.0;
+      /* n*S_xx, the scale denom is extracted from */
+      double prev_x = 0.0;
+      /* price walked forward when rebuilding the window */
+      double leaving_xx = 0.0;
+      /* squared x deviation the previous bar removed */
+      double leaving_yy = 0.0;
+      /* squared y deviation the previous bar removed */
+      double S_yy = 0.0;
+      /* sum of y * y, carried ONLY for the outlier trigger */
+      double prev_y = 0.0;
+      int j = 0;
+      int windowStart;
+      int barsSinceReseed = 0;
+      double x;
       /* the 'x' value, which is the last change between values in inReal0 */
-      double y = 0.0;
+      double y;
       /* the 'y' value, which is the last change between values in inReal1 */
       double n = 0.0;
-      int i;
+      int i = 0;
       int outIdx;
-      int trailingIdx;
+      int trailingIdx = 0;
       int nbInitialElementNeeded;
       /* DESCRIPTION OF ALGORITHM:
        *   The Beta 'algorithm' is a measure of a stocks volatility vs from index. The index prices
@@ -616,29 +1094,52 @@ static TA_RetCode TA_BETA_OpenPass( struct TA_BETA_Stream **stream, const double
       last_price_x = trailing_last_price_x;
       trailing_last_price_y = inReal1[trailingIdx];
       last_price_y = trailing_last_price_y;
-      /* Process remaining of lookback until ready to output the first value. */
+      /* Measure the returns against a shift near the window, as TA_VAR does for
+       * its values (#118) and TA_CORREL for its prices (#242).
+       *
+       * Returns are near-zero-mean, so on a series that jitters this changes
+       * little. It is decisive on a series that DRIFTS: a steadily rising price
+       * gives near-identical returns, S_x*S_x then equals n*S_xx to every digit,
+       * and the denominator n*S_xx - S_x*S_x is left as pure rounding noise --
+       * measured at +/-2e-16 of its own scale, sign included. Wilkinson's BIG and
+       * LITTLE are exactly that shape, and beta of such a series against itself
+       * came back 0 instead of 1.
+       *
+       * Anchor on the window's first return here; every later re-anchor uses the
+       * window mean, which is better centred but costs a pass this one cannot
+       * afford before the sums exist.
+       */
       i = ++trailingIdx;
+      if( !TA_IS_ZERO(last_price_x) )
+      {
+         shift_x = (inReal0[i] - last_price_x) / last_price_x;
+      }
+      if( !TA_IS_ZERO(last_price_y) )
+      {
+         shift_y = (inReal1[i] - last_price_y) / last_price_y;
+      }
       while( i < startIdx )
       {
          tmp_real = inReal0[i];
          if( !TA_IS_ZERO(last_price_x) )
          {
-            x = (tmp_real - last_price_x) / last_price_x;
+            x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else 
          {
-            x = 0.0;
+            x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( !TA_IS_ZERO(last_price_y) )
          {
-            y = (tmp_real - last_price_y) / last_price_y;
+            y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else 
          {
-            y = 0.0;
+            y = 0 - shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
+         S_yy += y * y;
          S_xy += x * y;
          S_x += x;
          S_y += y;
@@ -646,62 +1147,198 @@ static TA_RetCode TA_BETA_OpenPass( struct TA_BETA_Stream **stream, const double
       outIdx = 0;
       /* First output always start at index zero */
       n = (double)optInTimePeriod;
+      barsSinceReseed = 32 * optInTimePeriod;
       do
       {
          tmp_real = inReal0[i];
          if( !TA_IS_ZERO(last_price_x) )
          {
-            x = (tmp_real - last_price_x) / last_price_x;
+            x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else 
          {
-            x = 0.0;
+            x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
          if( !TA_IS_ZERO(last_price_y) )
          {
-            y = (tmp_real - last_price_y) / last_price_y;
+            y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else 
          {
-            y = 0.0;
+            y = 0 - shift_y;
          }
          last_price_y = tmp_real;
          S_xx += x * x;
+         S_yy += y * y;
          S_xy += x * y;
          S_x += x;
          S_y += y;
+         denom_scale = n * S_xx;
+         denom = denom_scale - S_x * S_x;
+         /* Re-anchor and rebuild when the shift has gone stale. The same three
+          * triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+          * it is extracted from; OR the return that just left sat so far from the
+          * shift that its squared term dwarfs what remains; OR at least every 32
+          * windows.
+          *
+          * The outlier trigger earns its multiply and compare here, contrary to
+          * what "returns are stationary" suggests: a bad tick makes one return
+          * enormous, the ordinary ones fall below its ulp and are never really
+          * added, and when it leaves the subtraction takes back a term they were
+          * never part of. The residue is a consistent OFFSET, so the cancellation
+          * trigger above cannot see it -- denom/denom_scale stays ~1 -- and only
+          * the periodic re-anchor recovers, up to 32*period bars later. Measured
+          * without it: a 1e8 tick left 286 of 386 bars wrong, the worst by 0.36
+          * ABSOLUTE. Cost is ~3% and mostly unmeasurable on the bench corpus
+          * (randwalk/GBM/trend-chop), where it fires on 0.00% of bars -- but that
+          * is a corpus figure, not a bound. Isolated against the same body without
+          * the disjunct it is +16-20% on a stale-quote/illiquid series (1.5% fire
+          * rate) and +54-64% on constructed near-flat or gapped shapes (5.1%).
+          * The cost is the reseed it triggers, so it tracks the fire rate; on data
+          * that never triggers it, the compare is free.
+          *
+          * BOTH axes are watched, and the y one is not redundant. The denominator
+          * is x-only, so it is tempting to conclude -- as an earlier draft of this
+          * did -- that a y trigger catches nothing. It catches plenty: the OUTPUT
+          * also reads S_xy and S_y, which a y-side outlier corrupts with nothing on
+          * the x side able to see it. Measured on test_beta_outlier_transit's own
+          * ladder with the spike moved from px to py: 12 of 24 rungs fail without
+          * the second disjunct, worst 156x relative; 0 of 24 with it. The earlier
+          * experiment that found it inert was run on an x-only corpus, where it is
+          * inert by construction. TA_CORREL, fixed by the same #242 work, watches
+          * both from the start; this brings BETA level. S_yy exists only to scale
+          * this test -- nothing else reads it.
+          *
+          * The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
+          * a tick multiplying the price by k puts k-1 into the return and (k-1)^2
+          * into S_xx, so the ratio when that term leaves lands an order or two
+          * below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+          * through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
+          * Pinned by test_beta_outlier_transit.
+          *
+          * Reading the window here is safe when outReal aliases an input: the
+          * outputs written so far occupy [0, outIdx-1] while windowStart-1 is
+          * startIdx-optInTimePeriod+outIdx, which is >= outIdx.
+          */
+         barsSinceReseed -= 1;
+         if( denom < 0.000001 * denom_scale || leaving_xx > 1000.0 * S_xx || leaving_yy > 1000.0 * S_yy || barsSinceReseed <= 0 )
+         {
+            barsSinceReseed = 32 * optInTimePeriod;
+            windowStart = trailingIdx;
+            /* Walk the window forward from the price the trailing cursor already
+             * carries. A return needs its predecessor, and reading inReal[j-1]
+             * would reach one slot BEFORE the window -- which the batch can do and
+             * a streaming ring sized for the window cannot. trailing_last_price_*
+             * IS that predecessor, so carrying it forward keeps every read inside
+             * [trailingIdx, i-1] and the two paths stay identical.
+             */
+            prev_x = trailing_last_price_x;
+            prev_y = trailing_last_price_y;
+            tmp_real = 0.0;
+            shift_y = 0.0;
+            for( j = windowStart; j < i; j += 1 )
+            {
+               if( !TA_IS_ZERO(prev_x) )
+               {
+                  tmp_real += (inReal0[j] - prev_x) / prev_x;
+               }
+               prev_x = inReal0[j];
+               if( !TA_IS_ZERO(prev_y) )
+               {
+                  shift_y += (inReal1[j] - prev_y) / prev_y;
+               }
+               prev_y = inReal1[j];
+            }
+            shift_x = tmp_real / n;
+            shift_y = shift_y / n;
+            prev_x = trailing_last_price_x;
+            prev_y = trailing_last_price_y;
+            S_xx = 0.0;
+            S_yy = 0.0;
+            S_xy = 0.0;
+            S_x = 0.0;
+            S_y = 0.0;
+            for( j = windowStart; j < i; j += 1 )
+            {
+               if( !TA_IS_ZERO(prev_x) )
+               {
+                  x = (inReal0[j] - prev_x) / prev_x - shift_x;
+               } else 
+               {
+                  x = 0 - shift_x;
+               }
+               prev_x = inReal0[j];
+               if( !TA_IS_ZERO(prev_y) )
+               {
+                  y = (inReal1[j] - prev_y) / prev_y - shift_y;
+               } else 
+               {
+                  y = 0 - shift_y;
+               }
+               prev_y = inReal1[j];
+               S_xx += x * x;
+               S_yy += y * y;
+               S_xy += x * y;
+               S_x += x;
+               S_y += y;
+            }
+            denom_scale = n * S_xx;
+            denom = denom_scale - S_x * S_x;
+            /* n*S_xx - S_x*S_x is non-negative by Cauchy-Schwarz, but it is
+             * extracted as a difference, so its SIGN is not guaranteed on a window
+             * whose returns are all the same value. Enforce the invariant HERE and
+             * not at the divide: a negative denom always reseeds on the same bar
+             * (it makes the first trigger true whenever denom_scale is positive,
+             * and denom_scale == 0 reduces that trigger to `denom < 0`), so the
+             * divide below can rely on it being >= 0.
+             */
+            if( denom < 0.0 )
+            {
+               denom = 0.0;
+            }
+         }
          /* Always read the trailing before writing the output because the input and output
           * buffer can be the same.
           */
          tmp_real = inReal0[trailingIdx];
          if( !TA_IS_ZERO(trailing_last_price_x) )
          {
-            x = (tmp_real - trailing_last_price_x) / trailing_last_price_x;
+            x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else 
          {
-            x = 0.0;
+            x = 0 - shift_x;
          }
          trailing_last_price_x = tmp_real;
-         tmp_real = inReal1[trailingIdx++];
+         tmp_real = inReal1[trailingIdx];
+         trailingIdx += 1;
          if( !TA_IS_ZERO(trailing_last_price_y) )
          {
-            y = (tmp_real - trailing_last_price_y) / trailing_last_price_y;
+            y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else 
          {
-            y = 0.0;
+            y = 0 - shift_y;
          }
          trailing_last_price_y = tmp_real;
-         /* Write the output */
-         tmp_real = n * S_xx - S_x * S_x;
-         if( !TA_IS_ZERO(tmp_real) )
+         /* Write the output.
+          *
+          * The denominator is tested against ITS OWN scale, not a fixed band: it
+          * is quadratic in the return volatility, so an absolute 1e-14 threshold
+          * stops meaning "the regressor does not vary" and starts meaning "the
+          * returns are small". The literal is TA_EPSILON, and the plain `>` also
+          * rejects a negative denominator rather than dividing by it.
+          */
+         if( denom > 0.00000000000001 * denom_scale )
          {
-            outReal[outIdx++ * outStride] = (n * S_xy - S_x * S_y) / tmp_real;
+            outReal[outIdx++ * outStride] = (n * S_xy - S_x * S_y) / denom;
          } else 
          {
             outReal[outIdx++ * outStride] = 0.0;
          }
          /* Remove the calculation starting with the trailingIdx. */
+         leaving_xx = x * x;
+         leaving_yy = y * y;
          S_xx -= x * x;
+         S_yy -= y * y;
          S_xy -= x * y;
          S_x -= x;
          S_y -= y;
@@ -723,24 +1360,38 @@ static TA_RetCode TA_BETA_OpenPass( struct TA_BETA_Stream **stream, const double
       sp->last_price_y = last_price_y;
       sp->trailing_last_price_x = trailing_last_price_x;
       sp->trailing_last_price_y = trailing_last_price_y;
-      sp->x = x;
-      sp->y = y;
+      sp->shift_x = shift_x;
+      sp->shift_y = shift_y;
+      sp->leaving_xx = leaving_xx;
+      sp->leaving_yy = leaving_yy;
+      sp->S_yy = S_yy;
+      sp->barsSinceReseed = barsSinceReseed;
       sp->n = n;
-      sp->ringCap_trailingIdx = (int)(i - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_BETA_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
-      { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
-        sp->ring_trailingIdx_inReal0 = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdx_inReal0 ) { TA_BETA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_trailingIdx_inReal0 = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdx_inReal0 ) { TA_BETA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        memcpy( sp->ring_trailingIdx_inReal0, inReal0 + (historyLen - sp->ringCap_trailingIdx), sizeof(double) * (size_t)sp->ringCap_trailingIdx );
-        sp->ring_trailingIdx_inReal1 = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdx_inReal1 ) { TA_BETA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_trailingIdx_inReal1 = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdx_inReal1 ) { TA_BETA_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
-        memcpy( sp->ring_trailingIdx_inReal1, inReal1 + (historyLen - sp->ringCap_trailingIdx), sizeof(double) * (size_t)sp->ringCap_trailingIdx );
+      sp->trailingIdx = trailingIdx;
+      sp->j = j;
+      sp->i = i;
+      sp->xCap = (int)(i - trailingIdx) + 1;
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_BETA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      sp->xPhys = 1;
+      while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
+      sp->xMask = sp->xPhys - 1;
+      sp->x_inReal0 = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
+      if( !sp->x_inReal0 ) { TA_BETA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+      sp->xMirror_inReal0 = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
+      if( !sp->xMirror_inReal0 ) { TA_BETA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+      sp->x_inReal1 = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
+      if( !sp->x_inReal1 ) { TA_BETA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+      sp->xMirror_inReal1 = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
+      if( !sp->xMirror_inReal1 ) { TA_BETA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+      { int fillJ;
+        for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
+        {
+           sp->x_inReal0[fillJ & sp->xMask] = inReal0[fillJ];
+           sp->x_inReal1[fillJ & sp->xMask] = inReal1[fillJ];
+        }
       }
-      sp->ringPos_trailingIdx = 0;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -753,7 +1404,7 @@ TA_RetCode TA_BETA_OpenInternal( struct TA_BETA_Stream **stream, const double in
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_BETA_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_BETA_OpenImpl( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -775,25 +1426,26 @@ TA_LIB_API TA_RetCode TA_BETA_OpenAndFill( TA_BETA_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
-   return TA_BETA_OpenPass( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_BETA_OpenAndFillInternal( stream, inReal0, inReal1, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_BETA_OpenAndFillInternal( struct TA_BETA_Stream **stream, const double inReal0[], const double inReal1[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_BETA_OpenPass( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_BETA_OpenImpl( stream, inReal0, inReal1, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_BETA_Update( TA_BETA_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
-   TA_BETA_StepInternal( stream, inReal0, inReal1, outReal );
+   TA_BETA_StepImpl( stream, inReal0, inReal1, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -804,17 +1456,33 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_trailingIdx_inReal0 = stream->ringMirror_trailingIdx_inReal0;
-   memcpy( scratch.ring_trailingIdx_inReal0, stream->ring_trailingIdx_inReal0, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );
-   scratch.ring_trailingIdx_inReal1 = stream->ringMirror_trailingIdx_inReal1;
-   memcpy( scratch.ring_trailingIdx_inReal1, stream->ring_trailingIdx_inReal1, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );
-   TA_BETA_StepInternal( &scratch, inReal0, inReal1, outReal );
+   scratch.x_inReal0 = stream->xMirror_inReal0;
+   memcpy( scratch.x_inReal0, stream->x_inReal0, sizeof(double) * (size_t)stream->xPhys );
+   scratch.x_inReal1 = stream->xMirror_inReal1;
+   memcpy( scratch.x_inReal1, stream->x_inReal1, sizeof(double) * (size_t)stream->xPhys );
+   TA_BETA_StepImpl( &scratch, inReal0, inReal1, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_BETA_UpdateAndFill( TA_BETA_Stream *stream, const double inReal0[], const double inReal1[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal0 || !inReal1 || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal0 || (const void *)outReal == (const void *)inReal1 ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal0[i] ) || !TA_IS_FINITE( inReal1[i] ) ) return TA_BAD_PARAM;
+      TA_BETA_StepImpl( stream, inReal0[i], inReal1[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_BETA_Close( TA_BETA_Stream *stream )
 {
-   TA_BETA_ReleaseInternal( stream );
+   TA_BETA_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

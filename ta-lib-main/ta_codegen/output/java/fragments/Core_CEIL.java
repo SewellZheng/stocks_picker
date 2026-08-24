@@ -70,8 +70,8 @@
       return RetCode.Success ;
    }
    /**
-    * Vector ceiling: element-wise ceiling of each input value (smallest integer
-    * &gt;= input).
+    * Element-wise ceiling (round up to the nearest integer) of the input
+    * series.
     * <p><b>Formula</b>
     * <pre>{@code
     * outReal[i] = ceil(inReal[i])
@@ -124,8 +124,8 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
    /**
-    * Vector ceiling: element-wise ceiling of each input value (smallest integer
-    * &gt;= input).
+    * Element-wise ceiling (round up to the nearest integer) of the input
+    * series.
     * <p><b>Formula</b>
     * <pre>{@code
     * outReal[i] = ceil(inReal[i])
@@ -199,29 +199,35 @@
    public static final class CEIL_Stream {
       Core core;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       CEIL_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#CEIL_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#CEIL} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       CEIL_Stream( CEIL_Stream other ) {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( CEIL_Stream other ) {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -239,8 +245,34 @@
       public double update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("CEIL update: BadParam", RetCode.BadParam);
-         core.CEIL_StreamStep(this, inReal);
+         core.CEIL_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double outReal[] ) {
+         final int barCount = inReal.length;
+         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
+            throw new TaLibArgumentException("CEIL updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) )
+               throw new TaLibArgumentException("CEIL updateAndFill: BadParam", RetCode.BadParam);
+            core.CEIL_StepImpl(this, inReal[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -254,7 +286,7 @@
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("CEIL peek: BadParam", RetCode.BadParam);
          CEIL_Stream scratch = new CEIL_Stream(this);
-         core.CEIL_StreamStep(scratch, inReal);
+         core.CEIL_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -275,11 +307,11 @@
          return new CEIL_Stream(this);
       }
    }
-   void CEIL_StreamStep( CEIL_Stream sp, double inReal )
+   void CEIL_StepImpl( CEIL_Stream sp, double inReal )
    {
       sp.cur_outReal = Math.ceil(inReal);
    }
-   private RetCode CEIL_OpenPass( CEIL_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode CEIL_OpenImpl( CEIL_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int i = 0;
@@ -291,6 +323,11 @@
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
+      }
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          outReal[outIdx * outStride] = Math.ceil(inReal[i]);
       }
@@ -300,29 +337,13 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode CEIL_OpenImpl( CEIL_Stream sp, double inReal[], int startIdx )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return CEIL_OpenPass( sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode CEIL_OpenAndFillImpl( CEIL_Stream sp, double inReal[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inReal ) {
-         return RetCode.BadParam;
-      }
-      return CEIL_OpenPass( sp, inReal, 0, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode CEIL_OpenAndFillInternalImpl( CEIL_Stream sp, double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return CEIL_OpenPass(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
-   }
    /* CEIL_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CEIL_Stream CEIL_OpenAndFillInternal( double inReal[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       CEIL_Stream sp = new CEIL_Stream(this);
-      RetCode retCode = CEIL_OpenAndFillInternalImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CEIL_OpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -338,7 +359,12 @@
    CEIL_Stream CEIL_OpenInternal( double inReal[], int startIdx )
    {
       CEIL_Stream sp = new CEIL_Stream(this);
-      RetCode retCode = CEIL_OpenImpl(sp, inReal, startIdx);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = CEIL_OpenImpl(sp, inReal, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -371,23 +397,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CEIL_Stream#fillRange()}.
+    * {@link CEIL_Stream#outRange()}.
     */
    public CEIL_Stream CEIL_OpenAndFill( double inReal[], double outReal[] )
    {
-      CEIL_Stream sp = new CEIL_Stream(this);
+      if( (Object)outReal == (Object)inReal ) {
+         throw new TaLibArgumentException("CEIL openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CEIL_OpenAndFillImpl(sp, inReal, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("CEIL openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CEIL openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("CEIL openAndFill: " + retCode, retCode);
+      return CEIL_OpenAndFillInternal(inReal, 0, outBegIdx, outNBElement, outReal);
    }

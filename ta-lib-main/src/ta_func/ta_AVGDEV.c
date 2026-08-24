@@ -195,6 +195,10 @@ TA_RetCode TA_S_AVGDEV( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_AVGDEV_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    int winPos_i;
    int winCap_i;
@@ -203,7 +207,7 @@ struct TA_AVGDEV_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_AVGDEV_ReleaseInternal( struct TA_AVGDEV_Stream *sp )
+static void TA_AVGDEV_ReleaseImpl( struct TA_AVGDEV_Stream *sp )
 {
    if( !sp ) return;
    if( sp->win_i_inReal ) TA_Free( sp->win_i_inReal );
@@ -212,7 +216,7 @@ static void TA_AVGDEV_ReleaseInternal( struct TA_AVGDEV_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_AVGDEV_StepInternal( struct TA_AVGDEV_Stream *sp, double inReal, double *outReal )
+static void TA_AVGDEV_StepImpl( struct TA_AVGDEV_Stream *sp, double inReal, double *outReal )
 {
    double todaySum;
    double todayDev;
@@ -237,7 +241,7 @@ static void TA_AVGDEV_StepInternal( struct TA_AVGDEV_Stream *sp, double inReal, 
    }
 }
 
-static TA_RetCode TA_AVGDEV_OpenPass( struct TA_AVGDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_AVGDEV_OpenImpl( struct TA_AVGDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_AVGDEV_Stream *sp;
    int endIdx;
@@ -253,6 +257,12 @@ static TA_RetCode TA_AVGDEV_OpenPass( struct TA_AVGDEV_Stream **stream, const do
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -306,13 +316,15 @@ static TA_RetCode TA_AVGDEV_OpenPass( struct TA_AVGDEV_Stream **stream, const do
       memset( sp, 0, sizeof(*sp) );
       sp->optInTimePeriod = optInTimePeriod;
       sp->winCap_i = (int)(optInTimePeriod);
-      if( sp->winCap_i < 1 || sp->winCap_i > historyLen ) { TA_AVGDEV_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->winCap_i < 1 || sp->winCap_i > historyLen ) { TA_AVGDEV_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->win_i_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_i );
-      if( !sp->win_i_inReal ) { TA_AVGDEV_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->win_i_inReal ) { TA_AVGDEV_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->winMirror_i_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_i );
-      if( !sp->winMirror_i_inReal ) { TA_AVGDEV_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->winMirror_i_inReal ) { TA_AVGDEV_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->win_i_inReal, inReal + (historyLen - sp->winCap_i), sizeof(double) * (size_t)sp->winCap_i );
       sp->winPos_i = 0;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -325,7 +337,7 @@ TA_RetCode TA_AVGDEV_OpenInternal( struct TA_AVGDEV_Stream **stream, const doubl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_AVGDEV_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_AVGDEV_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -347,25 +359,26 @@ TA_LIB_API TA_RetCode TA_AVGDEV_OpenAndFill( TA_AVGDEV_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_AVGDEV_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AVGDEV_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_AVGDEV_OpenAndFillInternal( struct TA_AVGDEV_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_AVGDEV_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AVGDEV_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_AVGDEV_Update( TA_AVGDEV_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_AVGDEV_StepInternal( stream, inReal, outReal );
+   TA_AVGDEV_StepImpl( stream, inReal, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -378,13 +391,29 @@ TA_LIB_API TA_RetCode TA_AVGDEV_Peek( const TA_AVGDEV_Stream *stream, double inR
    scratch = *stream;
    scratch.win_i_inReal = stream->winMirror_i_inReal;
    memcpy( scratch.win_i_inReal, stream->win_i_inReal, sizeof(double) * (size_t)stream->winCap_i );
-   TA_AVGDEV_StepInternal( &scratch, inReal, outReal );
+   TA_AVGDEV_StepImpl( &scratch, inReal, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AVGDEV_UpdateAndFill( TA_AVGDEV_Stream *stream, const double inReal[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_AVGDEV_StepImpl( stream, inReal[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_AVGDEV_Close( TA_AVGDEV_Stream *stream )
 {
-   TA_AVGDEV_ReleaseInternal( stream );
+   TA_AVGDEV_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

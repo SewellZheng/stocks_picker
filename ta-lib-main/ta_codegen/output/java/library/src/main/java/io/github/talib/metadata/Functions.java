@@ -258,6 +258,7 @@ public final class Functions {
       put(m, f_TYPPRICE());
       put(m, f_ULTOSC());
       put(m, f_VAR());
+      put(m, f_VWAP());
       put(m, f_VWMA());
       put(m, f_WAD());
       put(m, f_WCLPRICE());
@@ -3069,6 +3070,18 @@ public final class Functions {
          ));
    }
 
+   private static FunctionInfo f_VWAP() {
+      return new FunctionInfo(
+         "VWAP", "Volume Indicators", "Volume Weighted Average Price", 0x23000000,
+         List.of(
+            new InputInfo(InputType.PRICE, "inPriceHLCV", 0x0000001E)
+         ),
+         List.of(),
+         List.of(
+            new OutputInfo(OutputType.REAL, "outReal", 0x00000001)
+         ));
+   }
+
    private static FunctionInfo f_VWMA() {
       return new FunctionInfo(
          "VWMA", "Overlap Studies", "Volume Weighted Moving Average", 0x43000001,
@@ -3090,7 +3103,7 @@ public final class Functions {
 
    private static FunctionInfo f_WAD() {
       return new FunctionInfo(
-         "WAD", "Volume Indicators", "Williams' Accumulation/Distribution (no volume)", 0x22000000,
+         "WAD", "Momentum Indicators", "Williams' Accumulation/Distribution", 0x22000000,
          List.of(
             new InputInfo(InputType.PRICE, "inPriceHLC", 0x0000000E)
          ),

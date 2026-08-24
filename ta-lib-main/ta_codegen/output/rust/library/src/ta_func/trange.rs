@@ -260,12 +260,16 @@ impl Core {
 /// Live TRANGE stream: one value per closed bar, bit-identical to [`Core::TRANGE`]
 /// over the same series. Open with [`Core::TRANGE_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_TRANGE_Stream")]
 pub struct TRANGE_Stream {
     core: Core,
     state: TRANGE_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -275,13 +279,13 @@ impl TRANGE_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
 struct TRANGE_StreamState {
-    val3: f64,
     lag1_inClose: f64,
 }
 
@@ -290,7 +294,6 @@ impl TRANGE_StreamState {
     /// Overwrite every field from `src`, reusing this value's buffers
     /// instead of allocating new ones — `peek`'s scratch restore.
     fn restore_from(&mut self, src: &Self) {
-        self.val3 = src.val3;
         self.lag1_inClose = src.lag1_inClose;
     }
 }
@@ -302,8 +305,9 @@ impl TRANGE_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn TRANGE_step_internal(&self, sp: &mut TRANGE_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
+    fn TRANGE_step_impl(&self, sp: &mut TRANGE_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
         let mut val2: f64 = 0.0_f64;
+        let mut val3: f64 = 0.0_f64;
         let mut greatest: f64 = 0.0_f64;
         let mut tempCY: f64 = 0.0_f64;
         let mut tempLT: f64 = 0.0_f64;
@@ -318,9 +322,9 @@ impl Core {
         if val2 > greatest {
             greatest = val2;
         }
-        sp.val3 = (tempCY - tempLT).abs();
-        if sp.val3 > greatest {
-            greatest = sp.val3;
+        val3 = (tempCY - tempLT).abs();
+        if val3 > greatest {
+            greatest = val3;
         }
         (*outReal) = greatest;
         sp.lag1_inClose = inClose;
@@ -328,7 +332,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::TRANGE_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::TRANGE_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn TRANGE_OpenPass(
+    pub(crate) fn TRANGE_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<TRANGE_Stream, RetCode> {
         if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
@@ -340,6 +344,11 @@ impl Core {
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut today: usize = 0_usize;
@@ -398,10 +407,9 @@ impl Core {
 
         // Capture the live batch state into the handle.
         let state = TRANGE_StreamState {
-            val3,
             lag1_inClose: inClose[historyLen - 1],
         };
-        Ok(TRANGE_Stream { core: self.clone(), state })
+        Ok(TRANGE_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::TRANGE_Open`] (composition seam).
@@ -411,7 +419,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.TRANGE_OpenPass(inHigh, inLow, inClose, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.TRANGE_OpenImpl(inHigh, inLow, inClose, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -435,8 +443,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.TRANGE_Open(&high, &low, &close).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(101.4, 99.1, 100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(101.4, 99.1, 100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_TRANGE_Open")]
@@ -454,7 +466,7 @@ impl Core {
     ) -> Result<(TRANGE_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.TRANGE_OpenPass(inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.TRANGE_OpenAndFillInternal(inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -463,7 +475,7 @@ impl Core {
     pub(crate) fn TRANGE_OpenAndFillInternal(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<TRANGE_Stream, RetCode> {
-        self.TRANGE_OpenPass(inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1)
+        self.TRANGE_OpenImpl(inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -488,8 +500,45 @@ impl TRANGE_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.TRANGE_step_internal(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        self.core.TRANGE_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_TRANGE_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inHigh.len();
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.TRANGE_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -509,6 +558,19 @@ impl TRANGE_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inHigh, inLow, inClose)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::TRANGE`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

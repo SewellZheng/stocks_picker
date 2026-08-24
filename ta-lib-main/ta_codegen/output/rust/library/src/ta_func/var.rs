@@ -56,6 +56,7 @@
  *  100502 JV     Speed optimization of the algorithm
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  071726 MF,CC  #118 cancellation-free variance (shifted sums + reseed); fixes bug 90.
+ *  082326 MF,CC  #243 reseed floor is scale-relative, not `variance < 0`.
  */
 
 // Import types from parent module
@@ -226,11 +227,44 @@ impl Core {
                 j = (i as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-                // A variance is non-negative by definition, but this one is extracted
-                // as a difference of two nearly equal quantities, so its SIGN is not
-                // guaranteed: on a window sitting entirely inside a flat stretch every
-                // deviation is the same rounding residual and the subtraction is pure
-                // cancellation, landing either side of zero. Enforce the invariant.
+                // Floor the fresh figure at the same ratio the trigger above uses, now
+                // measured against the RE-ANCHORED sums. With the shift AT the window
+                // mean the deviations sum to ~0, so a real window has variance ~
+                // periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+                // only when every deviation is the same value, i.e. when the spread is
+                // at or under the rounding error of the mean itself. There is then no
+                // spread the anchor could resolve, the surviving digits are noise, and
+                // the honest answer is 0.
+                //
+                // The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+                // difference is load-bearing. periodTotal2*invPeriod is not the
+                // variance here: it is variance + e^2, where e is the rounding error of
+                // the reseed's own left-to-right sum for the mean -- exactly the term
+                // the two-pass subtraction then cancels out. So the ratio measures how
+                // badly that sum rounded, not how much signal survives, and matching
+                // the trigger's 1e-6 fired ten orders before cancellation eats any
+                // digits. It zeroed a variance the line above had just computed to nine
+                // correct significant figures: 100011 bars at 31498938283.624615 with
+                // two small outliers at period 99991 gives 1.0219900060103338e-09
+                // (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+                // survives and every intended bit-zero still zeroes -- the live ratios
+                // on flat data are 0 or ~1e-16, six orders the other side.
+                //
+                // This is the ONE dead-zone in the var/stddev/bbands family, and it is
+                // relative rather than the `variance < 0.0` it replaced because two
+                // things ride on it:
+                //
+                //  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+                //    side is >= 0 and any negative variance is clamped unconditionally -
+                //    where `< 0.0` needed the three-case argument below to know that a
+                //    negative one ever reaches this line.
+                //  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+                //    anything under a fixed TA_EPSILON first. That compares a SQUARED
+                //    quantity to 1e-14, which is a cliff at a price level and not a
+                //    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+                //    variance around 1e-16 and came back exactly 0 on every bar (#243).
+                //    Expressed here in the window's own units, the floor lets both of
+                //    them square-root what they are handed unconditionally.
                 //
                 // Clamping HERE and not at the output write is what keeps this off the
                 // per-bar path, and it is sufficient because a negative variance always
@@ -241,7 +275,7 @@ impl Core {
                 // the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
                 // THIS - the alternative is an unconditional clamp at the output write,
                 // which needs no such argument but does cost ~3%.
-                if variance < 0.0 {
+                if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
                 // Re-remove the trailing value under the new shift so the carried state
@@ -364,12 +398,16 @@ impl Core {
 /// Live VAR stream: one value per closed bar, bit-identical to [`Core::VAR`]
 /// over the same series. Open with [`Core::VAR_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_VAR_Stream")]
 pub struct VAR_Stream {
     core: Core,
     state: VAR_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -379,6 +417,7 @@ impl VAR_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -390,14 +429,12 @@ struct VAR_StreamState {
     shift: f64,
     periodTotal1: f64,
     periodTotal2: f64,
-    meanValue1: f64,
-    variance: f64,
     invPeriod: f64,
-    j: i32,
     trailingIdx: i32,
-    windowStart: i32,
     nbInitialElementNeeded: usize,
     barsSinceReseed: usize,
+    j: i32,
+    windowStart: i32,
     i: i32,
     xMask: i32,
     x_inReal: Vec<f64>,
@@ -413,14 +450,12 @@ impl VAR_StreamState {
         self.shift = src.shift;
         self.periodTotal1 = src.periodTotal1;
         self.periodTotal2 = src.periodTotal2;
-        self.meanValue1 = src.meanValue1;
-        self.variance = src.variance;
         self.invPeriod = src.invPeriod;
-        self.j = src.j;
         self.trailingIdx = src.trailingIdx;
-        self.windowStart = src.windowStart;
         self.nbInitialElementNeeded = src.nbInitialElementNeeded;
         self.barsSinceReseed = src.barsSinceReseed;
+        self.j = src.j;
+        self.windowStart = src.windowStart;
         self.i = src.i;
         self.xMask = src.xMask;
         self.x_inReal.clone_from(&src.x_inReal);
@@ -434,8 +469,10 @@ impl VAR_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn VAR_step_internal(&self, sp: &mut VAR_StreamState, inReal: f64, outReal: &mut f64) {
+    fn VAR_step_impl(&self, sp: &mut VAR_StreamState, inReal: f64, outReal: &mut f64) {
         let mut tempReal: f64 = 0.0_f64;
+        let mut meanValue1: f64 = 0.0_f64;
+        let mut variance: f64 = 0.0_f64;
         if sp.i >= 1073741824 {
             let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
             sp.i -= rebaseShift;
@@ -449,8 +486,8 @@ impl Core {
         sp.periodTotal1 += tempReal;
         tempReal *= tempReal;
         sp.periodTotal2 += tempReal;
-        sp.meanValue1 = sp.periodTotal1 * sp.invPeriod;
-        sp.variance = sp.periodTotal2 * sp.invPeriod - sp.meanValue1 * sp.meanValue1;
+        meanValue1 = sp.periodTotal1 * sp.invPeriod;
+        variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
         // Remove the trailing value (prepares the next window).
         tempReal = sp.x_inReal[(sp.trailingIdx & sp.xMask) as usize] - sp.shift;
         sp.periodTotal1 -= tempReal;
@@ -470,7 +507,7 @@ impl Core {
         // leaves an exactly-constant window (variance 0, scale 0) alone instead of
         // reseeding it every bar. Guarantees a non-negative output.
         sp.barsSinceReseed -= 1;
-        if sp.variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 {
+        if variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 {
             sp.barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
             sp.windowStart = sp.i - ((sp.nbInitialElementNeeded) as i32);
             tempReal = 0.0;
@@ -492,13 +529,46 @@ impl Core {
                 sp.periodTotal2 += tempReal;
                 sp.j += 1;
             }
-            sp.meanValue1 = sp.periodTotal1 * sp.invPeriod;
-            sp.variance = sp.periodTotal2 * sp.invPeriod - sp.meanValue1 * sp.meanValue1;
-            // A variance is non-negative by definition, but this one is extracted
-            // as a difference of two nearly equal quantities, so its SIGN is not
-            // guaranteed: on a window sitting entirely inside a flat stretch every
-            // deviation is the same rounding residual and the subtraction is pure
-            // cancellation, landing either side of zero. Enforce the invariant.
+            meanValue1 = sp.periodTotal1 * sp.invPeriod;
+            variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            // Floor the fresh figure at the same ratio the trigger above uses, now
+            // measured against the RE-ANCHORED sums. With the shift AT the window
+            // mean the deviations sum to ~0, so a real window has variance ~
+            // periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+            // only when every deviation is the same value, i.e. when the spread is
+            // at or under the rounding error of the mean itself. There is then no
+            // spread the anchor could resolve, the surviving digits are noise, and
+            // the honest answer is 0.
+            //
+            // The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+            // difference is load-bearing. periodTotal2*invPeriod is not the
+            // variance here: it is variance + e^2, where e is the rounding error of
+            // the reseed's own left-to-right sum for the mean -- exactly the term
+            // the two-pass subtraction then cancels out. So the ratio measures how
+            // badly that sum rounded, not how much signal survives, and matching
+            // the trigger's 1e-6 fired ten orders before cancellation eats any
+            // digits. It zeroed a variance the line above had just computed to nine
+            // correct significant figures: 100011 bars at 31498938283.624615 with
+            // two small outliers at period 99991 gives 1.0219900060103338e-09
+            // (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+            // survives and every intended bit-zero still zeroes -- the live ratios
+            // on flat data are 0 or ~1e-16, six orders the other side.
+            //
+            // This is the ONE dead-zone in the var/stddev/bbands family, and it is
+            // relative rather than the `variance < 0.0` it replaced because two
+            // things ride on it:
+            //
+            //  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+            //    side is >= 0 and any negative variance is clamped unconditionally -
+            //    where `< 0.0` needed the three-case argument below to know that a
+            //    negative one ever reaches this line.
+            //  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+            //    anything under a fixed TA_EPSILON first. That compares a SQUARED
+            //    quantity to 1e-14, which is a cliff at a price level and not a
+            //    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+            //    variance around 1e-16 and came back exactly 0 on every bar (#243).
+            //    Expressed here in the window's own units, the floor lets both of
+            //    them square-root what they are handed unconditionally.
             //
             // Clamping HERE and not at the output write is what keeps this off the
             // per-bar path, and it is sufficient because a negative variance always
@@ -509,8 +579,8 @@ impl Core {
             // the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
             // THIS - the alternative is an unconditional clamp at the output write,
             // which needs no such argument but does cost ~3%.
-            if sp.variance < 0.0 {
-                sp.variance = 0.0;
+            if variance < 0.000000000001 * (sp.periodTotal2 * sp.invPeriod) {
+                variance = 0.0;
             }
             // Re-remove the trailing value under the new shift so the carried state
             // matches the non-reseed path.
@@ -519,13 +589,13 @@ impl Core {
             tempReal *= tempReal;
             sp.periodTotal2 -= tempReal;
         }
-        (*outReal) = sp.variance;
+        (*outReal) = variance;
         sp.i += 1;
     }
 
     /// The single whole-history transcription behind [`Core::VAR_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::VAR_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn VAR_OpenPass(
+    pub(crate) fn VAR_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDev: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<VAR_Stream, RetCode> {
         if inReal.is_empty() {
@@ -547,6 +617,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut tempReal: f64 = 0.0_f64;
@@ -647,11 +722,44 @@ impl Core {
                 j = (i as usize) + 1;
                 meanValue1 = periodTotal1 * invPeriod;
                 variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-                // A variance is non-negative by definition, but this one is extracted
-                // as a difference of two nearly equal quantities, so its SIGN is not
-                // guaranteed: on a window sitting entirely inside a flat stretch every
-                // deviation is the same rounding residual and the subtraction is pure
-                // cancellation, landing either side of zero. Enforce the invariant.
+                // Floor the fresh figure at the same ratio the trigger above uses, now
+                // measured against the RE-ANCHORED sums. With the shift AT the window
+                // mean the deviations sum to ~0, so a real window has variance ~
+                // periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+                // only when every deviation is the same value, i.e. when the spread is
+                // at or under the rounding error of the mean itself. There is then no
+                // spread the anchor could resolve, the surviving digits are noise, and
+                // the honest answer is 0.
+                //
+                // The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+                // difference is load-bearing. periodTotal2*invPeriod is not the
+                // variance here: it is variance + e^2, where e is the rounding error of
+                // the reseed's own left-to-right sum for the mean -- exactly the term
+                // the two-pass subtraction then cancels out. So the ratio measures how
+                // badly that sum rounded, not how much signal survives, and matching
+                // the trigger's 1e-6 fired ten orders before cancellation eats any
+                // digits. It zeroed a variance the line above had just computed to nine
+                // correct significant figures: 100011 bars at 31498938283.624615 with
+                // two small outliers at period 99991 gives 1.0219900060103338e-09
+                // (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+                // survives and every intended bit-zero still zeroes -- the live ratios
+                // on flat data are 0 or ~1e-16, six orders the other side.
+                //
+                // This is the ONE dead-zone in the var/stddev/bbands family, and it is
+                // relative rather than the `variance < 0.0` it replaced because two
+                // things ride on it:
+                //
+                //  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+                //    side is >= 0 and any negative variance is clamped unconditionally -
+                //    where `< 0.0` needed the three-case argument below to know that a
+                //    negative one ever reaches this line.
+                //  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+                //    anything under a fixed TA_EPSILON first. That compares a SQUARED
+                //    quantity to 1e-14, which is a cliff at a price level and not a
+                //    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+                //    variance around 1e-16 and came back exactly 0 on every bar (#243).
+                //    Expressed here in the window's own units, the floor lets both of
+                //    them square-root what they are handed unconditionally.
                 //
                 // Clamping HERE and not at the output write is what keeps this off the
                 // per-bar path, and it is sufficient because a negative variance always
@@ -662,7 +770,7 @@ impl Core {
                 // the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
                 // THIS - the alternative is an unconditional clamp at the output write,
                 // which needs no such argument but does cost ~3%.
-                if variance < 0.0 {
+                if variance < 0.000000000001 * (periodTotal2 * invPeriod) {
                     variance = 0.0;
                 }
                 // Re-remove the trailing value under the new shift so the carried state
@@ -703,19 +811,17 @@ impl Core {
             shift,
             periodTotal1,
             periodTotal2,
-            meanValue1,
-            variance,
             invPeriod,
-            j: (j) as i32,
             trailingIdx: (trailingIdx) as i32,
-            windowStart: (windowStart) as i32,
             nbInitialElementNeeded,
             barsSinceReseed,
+            j: (j) as i32,
+            windowStart: (windowStart) as i32,
             i: (i) as i32,
             xMask: (physX - 1) as i32,
             x_inReal,
         };
-        Ok(VAR_Stream { core: self.clone(), state })
+        Ok(VAR_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::VAR_Open`] (composition seam).
@@ -725,7 +831,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.VAR_OpenPass(inReal, startIdx, optInTimePeriod, optInNbDev, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.VAR_OpenImpl(inReal, startIdx, optInTimePeriod, optInNbDev, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -745,8 +851,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.VAR_Open(&data, 5, 1.0).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_VAR_Open")]
@@ -764,7 +874,7 @@ impl Core {
     ) -> Result<(VAR_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.VAR_OpenPass(inReal, 0, optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.VAR_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -773,7 +883,7 @@ impl Core {
     pub(crate) fn VAR_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDev: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<VAR_Stream, RetCode> {
-        self.VAR_OpenPass(inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1)
+        self.VAR_OpenImpl(inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -798,8 +908,45 @@ impl VAR_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.VAR_step_internal(&mut self.state, inReal, &mut outReal);
+        self.core.VAR_step_impl(&mut self.state, inReal, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_VAR_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.VAR_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -821,6 +968,19 @@ impl VAR_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inReal)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::VAR`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

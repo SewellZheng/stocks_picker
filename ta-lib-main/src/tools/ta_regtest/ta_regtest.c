@@ -196,6 +196,23 @@ int main( int argc, char **argv )
       }
    }
 
+   /* --fuzz-064 and --xlang-hash each run their gate and RETURN, below, before
+    * the normal suite. So pairing either with the other or with --codegen runs
+    * whichever comes first and silently drops the rest -- `--codegen
+    * --xlang-hash` produced the parity gate and ZERO stream_verify legs while
+    * reading like it had run both. Reject the combination rather than pick a
+    * winner: making them additive would put the whole C suite inside the
+    * nightly's xlang-hash job, which is not what that job is for.
+    */
+   if( (doFuzz064 + doXlangHash + doCodegenTest) > 1 )
+   {
+      printf( "Error: --codegen, --fuzz-064 and --xlang-hash are separate runs.\n" );
+      printf( "       --fuzz-064 and --xlang-hash each return before anything\n" );
+      printf( "       else can run, so combining them silently skips the rest.\n" );
+      printf( "       Use one per invocation.\n" );
+      return TA_REGTEST_BAD_USER_PARAM;
+   }
+
    /* Some tests are using randomness: the range sweeps pick their startIdx and
     * sizes with rand(), so each run covers a different subset. Printed so a
     * failure can be replayed with --seed=N. */
@@ -744,7 +761,27 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_macd,     "MACD,MACDFIX,MACDEXT" );
    DO_TEST( test_func_mom_roc,  "MOM,ROC,ROCP,ROCR,ROCR100" );
    DO_TEST( test_func_trange,   "TRANGE,ATR" );
+   /* Not a TA function: the shared reference battery checking itself (#251).
+    * FIRST, deliberately. DO_TEST returns on the first failure, so registering
+    * this after the suites that consume its goldens meant a corrupted or stale
+    * table took test_func_stddev down first and the one diagnostic that would
+    * name the real cause never ran -- the leg would have been silent in exactly
+    * the case it exists for. */
+   DO_TEST( test_func_reference, "REFERENCE,GOLDEN,ORACLE,NUMERICS" );
    DO_TEST( test_func_stddev,   "STDDEV,VAR" );
+   /* CORREL numerical robustness (#242). Separate from the per_hl group so the
+    * probes can be reached on their own; --function=CORREL matches both. */
+   DO_TEST( test_func_correl,   "CORREL/NUMERICS" );
+   DO_TEST( test_func_beta,     "BETA/NUMERICS" );
+   /* The TA_LINEARREG family and TA_TSF had no DEDICATED reference file before
+    * #251. They were not uncovered: test_period_boundary.c's
+    * testLinearRegRampOverflowProbe (#142) checks all five against a closed form
+    * at period 1025, and the --codegen leg range-tests them via
+    * stability_class(). This file adds the reference datasets and the
+    * arbitrary-value goldens, and does NOT subsume either -- no leg here exceeds
+    * period 60. */
+   DO_TEST( test_func_linearreg,
+            "LINEARREG,LINEARREG_SLOPE,LINEARREG_ANGLE,LINEARREG_INTERCEPT,TSF" );
    DO_TEST( test_func_avgdev,   "AVGDEV" );
    DO_TEST( test_func_bbands,   "BBANDS" );
    DO_TEST( test_func_period_boundary, "PERIOD1/BOUNDARY" );
@@ -765,6 +802,8 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_composite2, "SMI" );
    DO_TEST( test_func_marketfi, "MARKETFI" );
    DO_TEST( test_func_cmf,       "CMF" );
+   DO_TEST( test_func_mfi,       "MFI" );
+   DO_TEST( test_func_vwap,      "VWAP" );
    DO_TEST( test_func_cmou,      "CMOU" );
    DO_TEST( test_func_variants,  "TA_S_,VARIANT" );
    DO_TEST( test_candle_precision, "CDLDOJI,CANDLE,VARIANT,PRECISION" );
@@ -791,7 +830,7 @@ static ErrorNumber testTAFunction_ALL( void )
       printf( "        The filter is a substring match against the GROUP TAG in\n" );
       printf( "        ta_regtest.c's DO_TEST list, not against the function name.\n" );
       printf( "        Some functions have no hand-written group at all (the plain\n" );
-      printf( "        vector math, LINEARREG*, TSF, OBV, TYPPRICE, WCLPRICE); they\n" );
+      printf( "        vector math, OBV, TYPPRICE, WCLPRICE); they\n" );
       printf( "        are covered by the systematic sweeps, which enumerate every\n" );
       printf( "        function through ta_abstract -- reach those with --codegen or\n" );
       printf( "        --xlang-hash. Otherwise add the name to its group's tag.\n" );
@@ -842,6 +881,15 @@ static void printUsage(void)
       printf( "       seed-generated inputs, comparing full-precision output hashes\n" );
       printf( "       with no tolerance. Honors --function and --language (rust today).\n" );
       printf( "       Run from the bin directory (needs the language servers).\n" );
+      printf( "\n" );
+      printf( "    --fuzz-064\n" );
+      printf( "       Bit-exact differential fuzz against the released v0.6.4\n" );
+      printf( "       oracle (bin/ta_064_serve). Honors --function.\n" );
+      printf( "       Run from the bin directory.\n" );
+      printf( "\n" );
+      printf( "    --codegen, --fuzz-064 and --xlang-hash are SEPARATE runs and\n" );
+      printf( "    cannot be combined: the last two return before anything else,\n" );
+      printf( "    so a combination would silently skip what it did not reach.\n" );
       printf( "\n" );
       printf( "    --seed=N\n" );
       printf( "       Seed the range sweeps, replaying a previous run. Each run\n" );

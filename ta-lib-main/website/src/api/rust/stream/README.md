@@ -17,7 +17,9 @@ Each streamable function adds two constructors on `Core` and a handful of method
 | `core.<NAME>_Open(history, params)` | once | validate params, consume warm-up history, return `(stream, value)` |
 | `core.<NAME>_OpenAndFill(..)` | once, instead of `Open` | like `Open`, but also fills the output for **every** history bar, returning `(stream, OutRange)` — see [below](#full-history-output-openandfill) |
 | `stream.update(bar)` | once per **closed** bar | commit one bar, return the new value |
+| `stream.update_and_fill(bars, outs)` | instead of a loop of `update` | commit `n` closed bars and write the `n` values — see [below](#catch-up-n-bars-at-once-update_and_fill) |
 | `stream.peek(bar)` | any time on the **forming** bar | evaluate a provisional bar **without** committing |
+| `stream.out_range()` | any time | the bars this stream has a value for — the batch range over the same bars |
 
 There is no `Close` — dropping the stream closes it (RAII).
 
@@ -45,15 +47,6 @@ let provisional = s.peek(forming_close)?;            // state left unchanged
 
 One narrow exception to "the handle is unchanged": a *composed* indicator drives its sub-stages through their own public update, so a value the library computed internally is re-checked there. If such an intermediate overflowed to an infinity, the rejection would surface after earlier sub-stages had advanced, and would name the sub-stage. It needs input magnitudes around 1e306 and up — the overflow class TA-Lib already treats as out of scope — but the guarantee is stated for the caller-supplied case, which is the one you can provoke. `update` never allocates.
 
-**Non-finite input is rejected.** NaN and ±Inf are not supported as inputs anywhere in TA-Lib, but the streaming tier is the one that *enforces* it: every public streaming entry point checks, and rejects without touching the handle. The batch API does not filter — it computes on whatever it is given.
-
-The difference is the retained state. Batch computes and forgets, so a NaN reaches the outputs depending on that bar and no others; a stream handle carries state forward, so a single non-finite bar would poison every value it produces afterwards, long after the feed recovers. Rejecting the bar and leaving the handle usable is more useful than accepting it and going permanently NaN.
-
-This covers every bar value at update/peek, and a real optional parameter that is NaN — which a plain range check lets through, since `x < min` and `x > max` are both false for NaN.
-
-It does **not** cover the warm-up history, or any other input **array**. Arrays are never scanned: keeping one free of NaN and infinities is the caller's responsibility. Passing a non-finite one is **undefined behaviour** — nothing is promised.
-
-
 ## Rules
 
 - **Warm-up.** `Open` succeeds only if `history.len() >= <NAME>_Lookback(params) + 1` — with fewer bars there is no defined value yet. After `Open`, the history can be dropped — the stream keeps everything it needs.
@@ -76,6 +69,29 @@ let v = s.update(new_close)?;
 ```
 
 `OpenAndFill` takes the [batch method](/api/rust/)'s optional parameters and one slice per output, and returns the range it wrote as the same `OutRange` the batch method returns, beside the live stream. The output slices must not alias the input or each other.
+
+## Catch up n bars at once (`update_and_fill`)
+
+Feeding a gap one `update` at a time works; `update_and_fill` does the same
+thing in one call, writing one value per bar into your slice:
+
+```rust
+let mut out = vec![0.0; gap.len()];
+
+s.update_and_fill(&gap, &mut out)?;    // out[i] is the SMA at gap[i]
+```
+
+It is exactly `gap.len()` back-to-back `update` calls — same values, same state —
+with one set of argument checks instead of `n`. `s.out_range()` reports the bars
+the handle has a value for, before and after; there is no second return value
+for it.
+
+That includes a call that fails partway. A non-finite bar returns
+`Err(RetCode::BadParam)` exactly as `update` does, which means the bars
+**before** it are already committed and their values already written; the range
+tells you how many. `Err(RetCode::BadParam)` before anything is committed if the
+input slices differ in length or an output is shorter than the bar count; a zero
+bar count is a successful no-op.
 
 ## Multi-input / multi-output
 

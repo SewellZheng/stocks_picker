@@ -416,39 +416,42 @@
       int optInTimePeriod;
       double upSum;
       double downSum;
-      double sum;
       double prevValue;
       double trailingValue;
       int ringPos_trailingIdx;
       int ringCap_trailingIdx;
       double[] ring_trailingIdx_inReal;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       CMOU_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#CMOU_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#CMOU} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       CMOU_Stream( CMOU_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.upSum = other.upSum;
          this.downSum = other.downSum;
-         this.sum = other.sum;
          this.prevValue = other.prevValue;
          this.trailingValue = other.trailingValue;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( CMOU_Stream other ) {
@@ -456,7 +459,6 @@
          this.optInTimePeriod = other.optInTimePeriod;
          this.upSum = other.upSum;
          this.downSum = other.downSum;
-         this.sum = other.sum;
          this.prevValue = other.prevValue;
          this.trailingValue = other.trailingValue;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
@@ -467,7 +469,8 @@
             this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();
          }
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -485,8 +488,34 @@
       public double update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("CMOU update: BadParam", RetCode.BadParam);
-         core.CMOU_StreamStep(this, inReal);
+         core.CMOU_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double outReal[] ) {
+         final int barCount = inReal.length;
+         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
+            throw new TaLibArgumentException("CMOU updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) )
+               throw new TaLibArgumentException("CMOU updateAndFill: BadParam", RetCode.BadParam);
+            core.CMOU_StepImpl(this, inReal[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -500,7 +529,7 @@
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("CMOU peek: BadParam", RetCode.BadParam);
          CMOU_Stream scratch = new CMOU_Stream(this);
-         core.CMOU_StreamStep(scratch, inReal);
+         core.CMOU_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -521,8 +550,9 @@
          return new CMOU_Stream(this);
       }
    }
-   void CMOU_StreamStep( CMOU_Stream sp, double inReal )
+   void CMOU_StepImpl( CMOU_Stream sp, double inReal )
    {
+      double sum = 0.0;
       double diff = 0.0;
       double tempReal = 0.0;
       if( sp.ringCap_trailingIdx == 0 ) {
@@ -550,9 +580,9 @@
       } else if( diff < 0.0 ) {
          sp.downSum -= diff;
       }
-      sp.sum = sp.upSum + sp.downSum;
-      if( !((-0.00000000000001 < sp.sum) && (sp.sum < 0.00000000000001)) ) {
-         sp.cur_outReal = 100.0 * (sp.upSum - sp.downSum) / sp.sum;
+      sum = sp.upSum + sp.downSum;
+      if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+         sp.cur_outReal = 100.0 * (sp.upSum - sp.downSum) / sum;
       } else {
          sp.cur_outReal = 0.0;
       }
@@ -562,7 +592,7 @@
          sp.ringPos_trailingIdx = 0;
       }
    }
-   private RetCode CMOU_OpenPass( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode CMOU_OpenImpl( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int outIdx = 0;
       int today = 0;
@@ -588,6 +618,11 @@
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       /* CMOU -- unsmoothed Chande Momentum Oscillator (as in TradingView ta.cmo,
        * QuantConnect, pandas-ta default). Over the trailing optInTimePeriod changes
@@ -696,7 +731,6 @@
       sp.optInTimePeriod = optInTimePeriod;
       sp.upSum = upSum;
       sp.downSum = downSum;
-      sp.sum = sum;
       sp.prevValue = prevValue;
       sp.trailingValue = trailingValue;
       sp.ringPos_trailingIdx = 0;
@@ -705,29 +739,13 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode CMOU_OpenImpl( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return CMOU_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode CMOU_OpenAndFillImpl( CMOU_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inReal ) {
-         return RetCode.BadParam;
-      }
-      return CMOU_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode CMOU_OpenAndFillInternalImpl( CMOU_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return CMOU_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
-   }
    /* CMOU_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    CMOU_Stream CMOU_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       CMOU_Stream sp = new CMOU_Stream(this);
-      RetCode retCode = CMOU_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = CMOU_OpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -743,7 +761,12 @@
    CMOU_Stream CMOU_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       CMOU_Stream sp = new CMOU_Stream(this);
-      RetCode retCode = CMOU_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = CMOU_OpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -776,23 +799,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link CMOU_Stream#fillRange()}.
+    * {@link CMOU_Stream#outRange()}.
     */
    public CMOU_Stream CMOU_OpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
-      CMOU_Stream sp = new CMOU_Stream(this);
+      if( (Object)outReal == (Object)inReal ) {
+         throw new TaLibArgumentException("CMOU openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = CMOU_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("CMOU openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("CMOU openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("CMOU openAndFill: " + retCode, retCode);
+      return CMOU_OpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
    }

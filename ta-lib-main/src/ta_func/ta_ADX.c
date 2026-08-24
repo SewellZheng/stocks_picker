@@ -728,6 +728,10 @@ TA_RetCode TA_S_ADX( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_ADX_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double prevHigh;
    double prevLow;
@@ -735,36 +739,37 @@ struct TA_ADX_Stream {
    double prevMinusDM;
    double prevPlusDM;
    double prevTR;
+   double prevADX;
+};
+
+/* Private function, not in public API. */
+static void TA_ADX_StepImpl( struct TA_ADX_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
+{
    double tempReal;
    double diffP;
    double diffM;
    double minusDI;
    double plusDI;
-   double prevADX;
-};
 
-/* Private function, not in public API. */
-static void TA_ADX_StepInternal( struct TA_ADX_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
-{
    /* Calculate the prevMinusDM and prevPlusDM */
-   sp->tempReal = inHigh;
-   sp->diffP = sp->tempReal - sp->prevHigh;
+   tempReal = inHigh;
+   diffP = tempReal - sp->prevHigh;
    /* Plus Delta */
-   sp->prevHigh = sp->tempReal;
-   sp->tempReal = inLow;
-   sp->diffM = sp->prevLow - sp->tempReal;
+   sp->prevHigh = tempReal;
+   tempReal = inLow;
+   diffM = sp->prevLow - tempReal;
    /* Minus Delta */
-   sp->prevLow = sp->tempReal;
+   sp->prevLow = tempReal;
    sp->prevMinusDM -= sp->prevMinusDM / sp->optInTimePeriod;
    sp->prevPlusDM -= sp->prevPlusDM / sp->optInTimePeriod;
-   if( sp->diffM > 0 && sp->diffP < sp->diffM )
+   if( diffM > 0 && diffP < diffM )
    {
       /* Case 2 and 4: +DM=0,-DM=diffM */
-      sp->prevMinusDM += sp->diffM;
-   } else if( sp->diffP > 0 && sp->diffP > sp->diffM )
+      sp->prevMinusDM += diffM;
+   } else if( diffP > 0 && diffP > diffM )
    {
       /* Case 1 and 3: +DM=diffP,-DM=0 */
-      sp->prevPlusDM += sp->diffP;
+      sp->prevPlusDM += diffP;
    }
    /* Calculate the prevTR */
    double _true_range_0;
@@ -780,27 +785,27 @@ static void TA_ADX_StepInternal( struct TA_ADX_Stream *sp, double inHigh, double
       range_0 = tmp_0;
    }
    _true_range_0 = range_0;
-   sp->tempReal = _true_range_0;
-   sp->prevTR = sp->prevTR - sp->prevTR / sp->optInTimePeriod + sp->tempReal;
+   tempReal = _true_range_0;
+   sp->prevTR = sp->prevTR - sp->prevTR / sp->optInTimePeriod + tempReal;
    sp->prevClose = inClose;
    if( !TA_IS_ZERO(sp->prevTR) )
    {
       /* Calculate the DX. The value is rounded (see Wilder book). */
-      sp->minusDI = (100.0 * (sp->prevMinusDM / sp->prevTR));
-      sp->plusDI = (100.0 * (sp->prevPlusDM / sp->prevTR));
-      sp->tempReal = sp->minusDI + sp->plusDI;
-      if( !TA_IS_ZERO(sp->tempReal) )
+      minusDI = (100.0 * (sp->prevMinusDM / sp->prevTR));
+      plusDI = (100.0 * (sp->prevPlusDM / sp->prevTR));
+      tempReal = minusDI + plusDI;
+      if( !TA_IS_ZERO(tempReal) )
       {
-         sp->tempReal = (100.0 * (fabs(sp->minusDI - sp->plusDI) / sp->tempReal));
+         tempReal = (100.0 * (fabs(minusDI - plusDI) / tempReal));
          /* Calculate the ADX */
-         sp->prevADX = ((sp->prevADX * (sp->optInTimePeriod - 1) + sp->tempReal) / sp->optInTimePeriod);
+         sp->prevADX = ((sp->prevADX * (sp->optInTimePeriod - 1) + tempReal) / sp->optInTimePeriod);
       }
    }
    /* Output the ADX */
    *outReal= sp->prevADX;
 }
 
-static TA_RetCode TA_ADX_OpenPass( struct TA_ADX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_ADX_OpenImpl( struct TA_ADX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_ADX_Stream *sp;
    int endIdx;
@@ -816,6 +821,12 @@ static TA_RetCode TA_ADX_OpenPass( struct TA_ADX_Stream **stream, const double i
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -832,12 +843,12 @@ static TA_RetCode TA_ADX_OpenPass( struct TA_ADX_Stream **stream, const double i
       double prevMinusDM = 0.0;
       double prevPlusDM = 0.0;
       double prevTR = 0.0;
-      double tempReal = 0.0;
+      double tempReal;
       double tempReal2;
-      double diffP = 0.0;
-      double diffM = 0.0;
-      double minusDI = 0.0;
-      double plusDI = 0.0;
+      double diffP;
+      double diffM;
+      double minusDI;
+      double plusDI;
       double sumDX;
       double prevADX = 0.0;
       int i;
@@ -1207,12 +1218,9 @@ static TA_RetCode TA_ADX_OpenPass( struct TA_ADX_Stream **stream, const double i
       sp->prevMinusDM = prevMinusDM;
       sp->prevPlusDM = prevPlusDM;
       sp->prevTR = prevTR;
-      sp->tempReal = tempReal;
-      sp->diffP = diffP;
-      sp->diffM = diffM;
-      sp->minusDI = minusDI;
-      sp->plusDI = plusDI;
       sp->prevADX = prevADX;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1225,7 +1233,7 @@ TA_RetCode TA_ADX_OpenInternal( struct TA_ADX_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_ADX_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_ADX_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1247,25 +1255,26 @@ TA_LIB_API TA_RetCode TA_ADX_OpenAndFill( TA_ADX_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_ADX_OpenPass( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_ADX_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_ADX_OpenAndFillInternal( struct TA_ADX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_ADX_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_ADX_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_ADX_Update( TA_ADX_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   TA_ADX_StepInternal( stream, inHigh, inLow, inClose, outReal );
+   TA_ADX_StepImpl( stream, inHigh, inLow, inClose, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1276,7 +1285,23 @@ TA_LIB_API TA_RetCode TA_ADX_Peek( const TA_ADX_Stream *stream, double inHigh, d
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_ADX_StepInternal( &scratch, inHigh, inLow, inClose, outReal );
+   TA_ADX_StepImpl( &scratch, inHigh, inLow, inClose, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_ADX_UpdateAndFill( TA_ADX_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      TA_ADX_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 

@@ -214,12 +214,16 @@ impl Core {
 /// Live OBV stream: one value per closed bar, bit-identical to [`Core::OBV`]
 /// over the same series. Open with [`Core::OBV_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_OBV_Stream")]
 pub struct OBV_Stream {
     core: Core,
     state: OBV_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -229,6 +233,7 @@ impl OBV_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -256,7 +261,7 @@ impl OBV_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn OBV_step_internal(&self, sp: &mut OBV_StreamState, inReal: f64, inVolume: f64, outReal: &mut f64) {
+    fn OBV_step_impl(&self, sp: &mut OBV_StreamState, inReal: f64, inVolume: f64, outReal: &mut f64) {
         let mut tempReal: f64 = 0.0_f64;
         tempReal = inReal;
         if tempReal > sp.prevReal {
@@ -270,7 +275,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::OBV_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::OBV_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn OBV_OpenPass(
+    pub(crate) fn OBV_OpenImpl(
         &self, inReal: &[f64], inVolume: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<OBV_Stream, RetCode> {
         if inReal.is_empty() || inVolume.is_empty() || inVolume.len() != inReal.len() {
@@ -282,6 +287,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut i: usize = 0_usize;
@@ -311,7 +321,7 @@ impl Core {
             prevReal,
             prevOBV,
         };
-        Ok(OBV_Stream { core: self.clone(), state })
+        Ok(OBV_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::OBV_Open`] (composition seam).
@@ -321,7 +331,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.OBV_OpenPass(inReal, inVolume, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.OBV_OpenImpl(inReal, inVolume, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -344,8 +354,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.OBV_Open(&data, &volume).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9, 12_345.0).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9, 12_345.0).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_OBV_Open")]
@@ -363,7 +377,7 @@ impl Core {
     ) -> Result<(OBV_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.OBV_OpenPass(inReal, inVolume, 0, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.OBV_OpenAndFillInternal(inReal, inVolume, 0, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -372,7 +386,7 @@ impl Core {
     pub(crate) fn OBV_OpenAndFillInternal(
         &self, inReal: &[f64], inVolume: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<OBV_Stream, RetCode> {
-        self.OBV_OpenPass(inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1)
+        self.OBV_OpenImpl(inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -397,8 +411,45 @@ impl OBV_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.OBV_step_internal(&mut self.state, inReal, inVolume, &mut outReal);
+        self.core.OBV_step_impl(&mut self.state, inReal, inVolume, &mut outReal);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_OBV_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], inVolume: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if inVolume.len() != inReal.len() || outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() || !inVolume[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.OBV_step_impl(&mut self.state, inReal[i], inVolume[i], &mut outReal[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -418,6 +469,19 @@ impl OBV_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inReal, inVolume)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::OBV`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

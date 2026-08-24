@@ -513,9 +513,6 @@ public partial class Core
       internal double periodTotalUpper;
       internal double periodTotalMiddle;
       internal double periodTotalLower;
-      internal double tempUpper;
-      internal double tempMiddle;
-      internal double tempLower;
       internal int ringPos_trailingIdx;
       internal int ringCap_trailingIdx;
       internal double[] ring_trailingIdx_inHigh = [];
@@ -524,18 +521,22 @@ public partial class Core
       internal double cur_outRealUpperBand;
       internal double cur_outRealMiddleBand;
       internal double cur_outRealLowerBand;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal ACCBANDS_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>ACCBANDS_OpenAndFill</c> filled, or
-      /// <see cref="OutRange.Empty"/> when this handle came from a plain open
-      /// (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.ACCBANDS</c> reports over the same bars: the opener
+      /// sets it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
+      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
+      /// last value, a subset of this range, because the caller chose not to take
+      /// the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal ACCBANDS_Stream( ACCBANDS_Stream other )
       {
@@ -544,9 +545,6 @@ public partial class Core
          this.periodTotalUpper = other.periodTotalUpper;
          this.periodTotalMiddle = other.periodTotalMiddle;
          this.periodTotalLower = other.periodTotalLower;
-         this.tempUpper = other.tempUpper;
-         this.tempMiddle = other.tempMiddle;
-         this.tempLower = other.tempLower;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          this.ring_trailingIdx_inHigh = new double[other.ring_trailingIdx_inHigh.Length];
@@ -558,7 +556,8 @@ public partial class Core
          this.cur_outRealUpperBand = other.cur_outRealUpperBand;
          this.cur_outRealMiddleBand = other.cur_outRealMiddleBand;
          this.cur_outRealLowerBand = other.cur_outRealLowerBand;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( ACCBANDS_Stream other )
@@ -568,9 +567,6 @@ public partial class Core
          this.periodTotalUpper = other.periodTotalUpper;
          this.periodTotalMiddle = other.periodTotalMiddle;
          this.periodTotalLower = other.periodTotalLower;
-         this.tempUpper = other.tempUpper;
-         this.tempMiddle = other.tempMiddle;
-         this.tempLower = other.tempLower;
          this.ringPos_trailingIdx = other.ringPos_trailingIdx;
          this.ringCap_trailingIdx = other.ringCap_trailingIdx;
          if( this.ring_trailingIdx_inHigh.Length != other.ring_trailingIdx_inHigh.Length ) {
@@ -588,7 +584,8 @@ public partial class Core
          this.cur_outRealUpperBand = other.cur_outRealUpperBand;
          this.cur_outRealMiddleBand = other.cur_outRealMiddleBand;
          this.cur_outRealLowerBand = other.cur_outRealLowerBand;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /* Peek's reusable scratch — one per thread, see CopyFrom. */
@@ -612,7 +609,8 @@ public partial class Core
       public ACCBANDS_Value Update( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ACCBANDS", "update", RetCode.BadParam);
-         core.ACCBANDS_StreamStep(this, inHigh, inLow, inClose);
+         core.ACCBANDS_StepImpl(this, inHigh, inLow, inClose);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new ACCBANDS_Value(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
       }
 
@@ -639,8 +637,40 @@ public partial class Core
          } else {
             scratch.CopyFrom(this);
          }
-         core.ACCBANDS_StreamStep(scratch, inHigh, inLow, inClose);
+         core.ACCBANDS_StepImpl(scratch, inHigh, inLow, inClose);
          return new ACCBANDS_Value(scratch.cur_outRealUpperBand, scratch.cur_outRealMiddleBand, scratch.cur_outRealLowerBand);
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
+      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
+      /// <param name="inClose">Closed bars for <c>inClose</c>, oldest first.</param>
+      /// <param name="outRealUpperBand">Receives one <c>outRealUpperBand</c> value per bar committed.</param>
+      /// <param name="outRealMiddleBand">Receives one <c>outRealMiddleBand</c> value per bar committed.</param>
+      /// <param name="outRealLowerBand">Receives one <c>outRealLowerBand</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand )
+      {
+         int barCount = inHigh.Length;
+         if( inLow.Length != barCount || inClose.Length != barCount || outRealUpperBand.Length < barCount || outRealMiddleBand.Length < barCount || outRealLowerBand.Length < barCount || outRealUpperBand.Overlaps(inHigh) || outRealUpperBand.Overlaps(inLow) || outRealUpperBand.Overlaps(inClose) || outRealMiddleBand.Overlaps(inHigh) || outRealMiddleBand.Overlaps(inLow) || outRealMiddleBand.Overlaps(inClose) || outRealLowerBand.Overlaps(inHigh) || outRealLowerBand.Overlaps(inLow) || outRealLowerBand.Overlaps(inClose) || outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) throw Core.StreamFailure("ACCBANDS", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) ) throw Core.StreamFailure("ACCBANDS", "updateAndFill", RetCode.BadParam);
+            core.ACCBANDS_StepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outRealUpperBand[i] = cur_outRealUpperBand;
+            outRealMiddleBand[i] = cur_outRealMiddleBand;
+            outRealLowerBand[i] = cur_outRealLowerBand;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -659,8 +689,11 @@ public partial class Core
       }
    }
 
-   internal void ACCBANDS_StreamStep( ACCBANDS_Stream sp, double inHigh, double inLow, double inClose )
+   internal void ACCBANDS_StepImpl( ACCBANDS_Stream sp, double inHigh, double inLow, double inClose )
    {
+      double tempUpper = 0.0;
+      double tempMiddle = 0.0;
+      double tempLower = 0.0;
       double tempReal = 0.0;
       if( sp.ringCap_trailingIdx == 0 ) {
          sp.ring_trailingIdx_inHigh[0] = inHigh;
@@ -679,9 +712,9 @@ public partial class Core
       }
       sp.periodTotalMiddle += inClose;
       /* Record the current window sums. */
-      sp.tempUpper = sp.periodTotalUpper;
-      sp.tempMiddle = sp.periodTotalMiddle;
-      sp.tempLower = sp.periodTotalLower;
+      tempUpper = sp.periodTotalUpper;
+      tempMiddle = sp.periodTotalMiddle;
+      tempLower = sp.periodTotalLower;
       /* Remove the trailing bar from each running sum. */
       tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
       if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
@@ -694,9 +727,9 @@ public partial class Core
       }
       sp.periodTotalMiddle -= sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx];
       /* Write the three bands. */
-      sp.cur_outRealUpperBand = sp.tempUpper / (double)sp.optInTimePeriod;
-      sp.cur_outRealMiddleBand = sp.tempMiddle / (double)sp.optInTimePeriod;
-      sp.cur_outRealLowerBand = sp.tempLower / (double)sp.optInTimePeriod;
+      sp.cur_outRealUpperBand = tempUpper / (double)sp.optInTimePeriod;
+      sp.cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
+      sp.cur_outRealLowerBand = tempLower / (double)sp.optInTimePeriod;
       sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh;
       sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow;
       sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
@@ -706,7 +739,7 @@ public partial class Core
       }
    }
 
-   private RetCode ACCBANDS_OpenPass( ACCBANDS_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand, int outStride )
+   private RetCode ACCBANDS_OpenImpl( ACCBANDS_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -733,6 +766,11 @@ public partial class Core
          optInTimePeriod = 20;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       /* Identify the minimum number of price bar needed
        * to calculate at least one output.
@@ -841,9 +879,6 @@ public partial class Core
       sp.periodTotalUpper = periodTotalUpper;
       sp.periodTotalMiddle = periodTotalMiddle;
       sp.periodTotalLower = periodTotalLower;
-      sp.tempUpper = tempUpper;
-      sp.tempMiddle = tempMiddle;
-      sp.tempLower = tempLower;
       sp.ringPos_trailingIdx = 0;
       sp.ringCap_trailingIdx = cap_trailingIdx;
       sp.ring_trailingIdx_inHigh = capRing_trailingIdx_inHigh;
@@ -855,34 +890,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode ACCBANDS_OpenImpl( ACCBANDS_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
-   {
-      double[] sink_outRealUpperBand = new double[1];
-      double[] sink_outRealMiddleBand = new double[1];
-      double[] sink_outRealLowerBand = new double[1];
-      return ACCBANDS_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out _, out _, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0 );
-   }
-
-   private RetCode ACCBANDS_OpenAndFillImpl( ACCBANDS_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outRealUpperBand.Overlaps(inHigh) || outRealUpperBand.Overlaps(inLow) || outRealUpperBand.Overlaps(inClose) || outRealMiddleBand.Overlaps(inHigh) || outRealMiddleBand.Overlaps(inLow) || outRealMiddleBand.Overlaps(inClose) || outRealLowerBand.Overlaps(inHigh) || outRealLowerBand.Overlaps(inLow) || outRealLowerBand.Overlaps(inClose) || outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
-         return RetCode.BadParam;
-      }
-      return ACCBANDS_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, out outBegIdx, out outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
-   }
-
-   private RetCode ACCBANDS_OpenAndFillInternalImpl( ACCBANDS_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand )
-   {
-      return ACCBANDS_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
-   }
-
    /* ACCBANDS_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal ACCBANDS_Stream ACCBANDS_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand )
    {
       ACCBANDS_Stream sp = new ACCBANDS_Stream(this);
-      RetCode retCode = ACCBANDS_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = ACCBANDS_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -893,7 +907,12 @@ public partial class Core
    internal ACCBANDS_Stream ACCBANDS_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod )
    {
       ACCBANDS_Stream sp = new ACCBANDS_Stream(this);
-      RetCode retCode = ACCBANDS_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod);
+      double[] sink_outRealUpperBand = new double[1];
+      double[] sink_outRealMiddleBand = new double[1];
+      double[] sink_outRealLowerBand = new double[1];
+      RetCode retCode = ACCBANDS_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, out int outBegIdx, out int outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -938,7 +957,7 @@ public partial class Core
    /// and then reads the input tail to seed its rings, so the batch tier's
    /// in-place allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="ACCBANDS_Stream.FillRange"/>.</para>
+   /// <see cref="ACCBANDS_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
@@ -963,12 +982,9 @@ public partial class Core
       if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
       if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
-      ACCBANDS_Stream sp = new ACCBANDS_Stream(this);
-      RetCode retCode = ACCBANDS_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, out int outBegIdx, out int outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outRealUpperBand.Overlaps(inHigh) || outRealUpperBand.Overlaps(inLow) || outRealUpperBand.Overlaps(inClose) || outRealMiddleBand.Overlaps(inHigh) || outRealMiddleBand.Overlaps(inLow) || outRealMiddleBand.Overlaps(inClose) || outRealLowerBand.Overlaps(inHigh) || outRealLowerBand.Overlaps(inLow) || outRealLowerBand.Overlaps(inClose) || outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
+         throw StreamFailure("ACCBANDS", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("ACCBANDS", "openAndFill", retCode);
+      return ACCBANDS_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, out _, out _, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
    }
 }

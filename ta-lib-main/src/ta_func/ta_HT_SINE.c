@@ -905,48 +905,41 @@ TA_RetCode TA_S_HT_SINE( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HT_SINE_Stream {
-   int i;
-   double tempReal;
-   double tempReal2;
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    double period;
    double periodWMASum;
    double periodWMASub;
    double trailingWMAValue;
-   double smoothedValue;
    double a;
    double b;
-   double hilbertTempReal;
    int hilbertIdx;
    double detrender_Odd[3];
    double detrender_Even[3];
-   double detrender;
    double prev_detrender_Odd;
    double prev_detrender_Even;
    double prev_detrender_input_Odd;
    double prev_detrender_input_Even;
    double Q1_Odd[3];
    double Q1_Even[3];
-   double Q1;
    double prev_Q1_Odd;
    double prev_Q1_Even;
    double prev_Q1_input_Odd;
    double prev_Q1_input_Even;
    double jI_Odd[3];
    double jI_Even[3];
-   double jI;
    double prev_jI_Odd;
    double prev_jI_Even;
    double prev_jI_input_Odd;
    double prev_jI_input_Even;
    double jQ_Odd[3];
    double jQ_Even[3];
-   double jQ;
    double prev_jQ_Odd;
    double prev_jQ_Even;
    double prev_jQ_input_Odd;
    double prev_jQ_input_Even;
-   double Q2;
-   double I2;
    double prevQ2;
    double prevI2;
    double Re;
@@ -959,12 +952,7 @@ struct TA_HT_SINE_Stream {
    double deg2Rad;
    double constDeg2RadBy360;
    double smoothPeriod;
-   int idx;
-   int DCPeriodInt;
    double DCPhase;
-   double DCPeriod;
-   double imagPart;
-   double realPart;
    int smoothPrice_Idx;
    int maxIdx_smoothPrice;
    int streamParity;
@@ -978,7 +966,7 @@ struct TA_HT_SINE_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_HT_SINE_ReleaseInternal( struct TA_HT_SINE_Stream *sp )
+static void TA_HT_SINE_ReleaseImpl( struct TA_HT_SINE_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingWMAIdx_inReal ) TA_Free( sp->ring_trailingWMAIdx_inReal );
@@ -989,10 +977,27 @@ static void TA_HT_SINE_ReleaseInternal( struct TA_HT_SINE_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal, double *outSine, double *outLeadSine )
+static void TA_HT_SINE_StepImpl( struct TA_HT_SINE_Stream *sp, double inReal, double *outSine, double *outLeadSine )
 {
+   int i;
+   double tempReal;
+   double tempReal2;
    double adjustedPrevPeriod;
+   double smoothedValue;
+   double hilbertTempReal;
+   double detrender;
+   double Q1;
+   double jI;
+   double jQ;
+   double Q2;
+   double I2;
    double todayValue;
+   int idx;
+   int DCPeriodInt;
+   double DCPeriod;
+   double imagPart;
+   double realPart;
+   double DCPhase = sp->DCPhase;
 
    if( sp->ringCap_trailingWMAIdx == 0 )
    {
@@ -1004,57 +1009,57 @@ static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal
    sp->periodWMASub -= sp->trailingWMAValue;
    sp->periodWMASum += todayValue * 4.0;
    sp->trailingWMAValue = sp->ring_trailingWMAIdx_inReal[sp->ringPos_trailingWMAIdx];
-   sp->smoothedValue = sp->periodWMASum * 0.1;
+   smoothedValue = sp->periodWMASum * 0.1;
    sp->periodWMASum -= sp->periodWMASub;
    /* Remember the smoothedValue into the smoothPrice
     * circular buffer.
     */
-   sp->cb_smoothPrice[sp->smoothPrice_Idx] = sp->smoothedValue;
+   sp->cb_smoothPrice[sp->smoothPrice_Idx] = smoothedValue;
    if( sp->streamParity == 0 )
    {
       /* Do the Hilbert Transforms for even price bar */
-      sp->hilbertTempReal = sp->a * sp->smoothedValue;
-      sp->detrender = 0 - sp->detrender_Even[sp->hilbertIdx];
-      sp->detrender_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->detrender += sp->hilbertTempReal;
-      sp->detrender -= sp->prev_detrender_Even;
+      hilbertTempReal = sp->a * smoothedValue;
+      detrender = 0 - sp->detrender_Even[sp->hilbertIdx];
+      sp->detrender_Even[sp->hilbertIdx] = hilbertTempReal;
+      detrender += hilbertTempReal;
+      detrender -= sp->prev_detrender_Even;
       sp->prev_detrender_Even = sp->b * sp->prev_detrender_input_Even;
-      sp->detrender += sp->prev_detrender_Even;
-      sp->prev_detrender_input_Even = sp->smoothedValue;
-      sp->detrender *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->detrender;
-      sp->Q1 = 0 - sp->Q1_Even[sp->hilbertIdx];
-      sp->Q1_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->Q1 += sp->hilbertTempReal;
-      sp->Q1 -= sp->prev_Q1_Even;
+      detrender += sp->prev_detrender_Even;
+      sp->prev_detrender_input_Even = smoothedValue;
+      detrender *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * detrender;
+      Q1 = 0 - sp->Q1_Even[sp->hilbertIdx];
+      sp->Q1_Even[sp->hilbertIdx] = hilbertTempReal;
+      Q1 += hilbertTempReal;
+      Q1 -= sp->prev_Q1_Even;
       sp->prev_Q1_Even = sp->b * sp->prev_Q1_input_Even;
-      sp->Q1 += sp->prev_Q1_Even;
-      sp->prev_Q1_input_Even = sp->detrender;
-      sp->Q1 *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->I1ForEvenPrev3;
-      sp->jI = 0 - sp->jI_Even[sp->hilbertIdx];
-      sp->jI_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jI += sp->hilbertTempReal;
-      sp->jI -= sp->prev_jI_Even;
+      Q1 += sp->prev_Q1_Even;
+      sp->prev_Q1_input_Even = detrender;
+      Q1 *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * sp->I1ForEvenPrev3;
+      jI = 0 - sp->jI_Even[sp->hilbertIdx];
+      sp->jI_Even[sp->hilbertIdx] = hilbertTempReal;
+      jI += hilbertTempReal;
+      jI -= sp->prev_jI_Even;
       sp->prev_jI_Even = sp->b * sp->prev_jI_input_Even;
-      sp->jI += sp->prev_jI_Even;
+      jI += sp->prev_jI_Even;
       sp->prev_jI_input_Even = sp->I1ForEvenPrev3;
-      sp->jI *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->Q1;
-      sp->jQ = 0 - sp->jQ_Even[sp->hilbertIdx];
-      sp->jQ_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jQ += sp->hilbertTempReal;
-      sp->jQ -= sp->prev_jQ_Even;
+      jI *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * Q1;
+      jQ = 0 - sp->jQ_Even[sp->hilbertIdx];
+      sp->jQ_Even[sp->hilbertIdx] = hilbertTempReal;
+      jQ += hilbertTempReal;
+      jQ -= sp->prev_jQ_Even;
       sp->prev_jQ_Even = sp->b * sp->prev_jQ_input_Even;
-      sp->jQ += sp->prev_jQ_Even;
-      sp->prev_jQ_input_Even = sp->Q1;
-      sp->jQ *= adjustedPrevPeriod;
+      jQ += sp->prev_jQ_Even;
+      sp->prev_jQ_input_Even = Q1;
+      jQ *= adjustedPrevPeriod;
       if( ++sp->hilbertIdx == 3 )
       {
          sp->hilbertIdx = 0;
       }
-      sp->Q2 = fma(0.2, sp->Q1 + sp->jI, 0.8 * sp->prevQ2);
-      sp->I2 = fma(0.2, sp->I1ForEvenPrev3 - sp->jQ, 0.8 * sp->prevI2);
+      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
+      I2 = fma(0.2, sp->I1ForEvenPrev3 - jQ, 0.8 * sp->prevI2);
       /* The variable I1 is the detrender delayed for
        * 3 price bars.
        *
@@ -1062,48 +1067,48 @@ static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal
        * used by the "odd" logic later.
        */
       sp->I1ForOddPrev3 = sp->I1ForOddPrev2;
-      sp->I1ForOddPrev2 = sp->detrender;
+      sp->I1ForOddPrev2 = detrender;
    } else 
    {
       /* Do the Hilbert Transforms for odd price bar */
-      sp->hilbertTempReal = sp->a * sp->smoothedValue;
-      sp->detrender = 0 - sp->detrender_Odd[sp->hilbertIdx];
-      sp->detrender_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->detrender += sp->hilbertTempReal;
-      sp->detrender -= sp->prev_detrender_Odd;
+      hilbertTempReal = sp->a * smoothedValue;
+      detrender = 0 - sp->detrender_Odd[sp->hilbertIdx];
+      sp->detrender_Odd[sp->hilbertIdx] = hilbertTempReal;
+      detrender += hilbertTempReal;
+      detrender -= sp->prev_detrender_Odd;
       sp->prev_detrender_Odd = sp->b * sp->prev_detrender_input_Odd;
-      sp->detrender += sp->prev_detrender_Odd;
-      sp->prev_detrender_input_Odd = sp->smoothedValue;
-      sp->detrender *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->detrender;
-      sp->Q1 = 0 - sp->Q1_Odd[sp->hilbertIdx];
-      sp->Q1_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->Q1 += sp->hilbertTempReal;
-      sp->Q1 -= sp->prev_Q1_Odd;
+      detrender += sp->prev_detrender_Odd;
+      sp->prev_detrender_input_Odd = smoothedValue;
+      detrender *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * detrender;
+      Q1 = 0 - sp->Q1_Odd[sp->hilbertIdx];
+      sp->Q1_Odd[sp->hilbertIdx] = hilbertTempReal;
+      Q1 += hilbertTempReal;
+      Q1 -= sp->prev_Q1_Odd;
       sp->prev_Q1_Odd = sp->b * sp->prev_Q1_input_Odd;
-      sp->Q1 += sp->prev_Q1_Odd;
-      sp->prev_Q1_input_Odd = sp->detrender;
-      sp->Q1 *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->I1ForOddPrev3;
-      sp->jI = 0 - sp->jI_Odd[sp->hilbertIdx];
-      sp->jI_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jI += sp->hilbertTempReal;
-      sp->jI -= sp->prev_jI_Odd;
+      Q1 += sp->prev_Q1_Odd;
+      sp->prev_Q1_input_Odd = detrender;
+      Q1 *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * sp->I1ForOddPrev3;
+      jI = 0 - sp->jI_Odd[sp->hilbertIdx];
+      sp->jI_Odd[sp->hilbertIdx] = hilbertTempReal;
+      jI += hilbertTempReal;
+      jI -= sp->prev_jI_Odd;
       sp->prev_jI_Odd = sp->b * sp->prev_jI_input_Odd;
-      sp->jI += sp->prev_jI_Odd;
+      jI += sp->prev_jI_Odd;
       sp->prev_jI_input_Odd = sp->I1ForOddPrev3;
-      sp->jI *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->Q1;
-      sp->jQ = 0 - sp->jQ_Odd[sp->hilbertIdx];
-      sp->jQ_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jQ += sp->hilbertTempReal;
-      sp->jQ -= sp->prev_jQ_Odd;
+      jI *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * Q1;
+      jQ = 0 - sp->jQ_Odd[sp->hilbertIdx];
+      sp->jQ_Odd[sp->hilbertIdx] = hilbertTempReal;
+      jQ += hilbertTempReal;
+      jQ -= sp->prev_jQ_Odd;
       sp->prev_jQ_Odd = sp->b * sp->prev_jQ_input_Odd;
-      sp->jQ += sp->prev_jQ_Odd;
-      sp->prev_jQ_input_Odd = sp->Q1;
-      sp->jQ *= adjustedPrevPeriod;
-      sp->Q2 = fma(0.2, sp->Q1 + sp->jI, 0.8 * sp->prevQ2);
-      sp->I2 = fma(0.2, sp->I1ForOddPrev3 - sp->jQ, 0.8 * sp->prevI2);
+      jQ += sp->prev_jQ_Odd;
+      sp->prev_jQ_input_Odd = Q1;
+      jQ *= adjustedPrevPeriod;
+      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
+      I2 = fma(0.2, sp->I1ForOddPrev3 - jQ, 0.8 * sp->prevI2);
       /* The varaiable I1 is the detrender delayed for
        * 3 price bars.
        *
@@ -1111,27 +1116,27 @@ static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal
        * used by the "even" logic later.
        */
       sp->I1ForEvenPrev3 = sp->I1ForEvenPrev2;
-      sp->I1ForEvenPrev2 = sp->detrender;
+      sp->I1ForEvenPrev2 = detrender;
    }
    /* Adjust the period for next price bar */
-   sp->Re = fma(0.8, sp->Re, 0.2 * (fma(sp->I2, sp->prevI2, sp->Q2 * sp->prevQ2)));
-   sp->Im = fma(0.8, sp->Im, 0.2 * (sp->I2 * sp->prevQ2 - sp->Q2 * sp->prevI2));
-   sp->prevQ2 = sp->Q2;
-   sp->prevI2 = sp->I2;
-   sp->tempReal = sp->period;
+   sp->Re = fma(0.8, sp->Re, 0.2 * (fma(I2, sp->prevI2, Q2 * sp->prevQ2)));
+   sp->Im = fma(0.8, sp->Im, 0.2 * (I2 * sp->prevQ2 - Q2 * sp->prevI2));
+   sp->prevQ2 = Q2;
+   sp->prevI2 = I2;
+   tempReal = sp->period;
    if( sp->Im != 0.0 && sp->Re != 0.0 )
    {
       sp->period = 360.0 / (atan(sp->Im / sp->Re) * sp->rad2Deg);
    }
-   sp->tempReal2 = 1.5 * sp->tempReal;
-   if( sp->period > sp->tempReal2 )
+   tempReal2 = 1.5 * tempReal;
+   if( sp->period > tempReal2 )
    {
-      sp->period = sp->tempReal2;
+      sp->period = tempReal2;
    }
-   sp->tempReal2 = 0.67 * sp->tempReal;
-   if( sp->period < sp->tempReal2 )
+   tempReal2 = 0.67 * tempReal;
+   if( sp->period < tempReal2 )
    {
-      sp->period = sp->tempReal2;
+      sp->period = tempReal2;
    }
    if( sp->period < 6 )
    {
@@ -1140,58 +1145,58 @@ static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal
    {
       sp->period = 50;
    }
-   sp->period = fma(0.2, sp->period, 0.8 * sp->tempReal);
+   sp->period = fma(0.2, sp->period, 0.8 * tempReal);
    sp->smoothPeriod = fma(0.67, sp->smoothPeriod, 0.33 * sp->period);
    /* Compute Dominant Cycle Phase */
-   sp->DCPeriod = sp->smoothPeriod + 0.5;
-   sp->DCPeriodInt = (int)sp->DCPeriod;
-   sp->realPart = 0.0;
-   sp->imagPart = 0.0;
+   DCPeriod = sp->smoothPeriod + 0.5;
+   DCPeriodInt = (int)DCPeriod;
+   realPart = 0.0;
+   imagPart = 0.0;
    /* idx is used to iterate for up to 50 of the last
     * value of smoothPrice.
     */
-   sp->idx = sp->smoothPrice_Idx;
-   for( sp->i = 0; sp->i < sp->DCPeriodInt; sp->i += 1 )
+   idx = sp->smoothPrice_Idx;
+   for( i = 0; i < DCPeriodInt; i += 1 )
    {
-      sp->tempReal = (double)sp->i * sp->constDeg2RadBy360 / (double)sp->DCPeriodInt;
-      sp->tempReal2 = sp->cb_smoothPrice[sp->idx];
-      sp->realPart += sin(sp->tempReal) * sp->tempReal2;
-      sp->imagPart += cos(sp->tempReal) * sp->tempReal2;
-      if( sp->idx == 0 )
+      tempReal = (double)i * sp->constDeg2RadBy360 / (double)DCPeriodInt;
+      tempReal2 = sp->cb_smoothPrice[idx];
+      realPart += sin(tempReal) * tempReal2;
+      imagPart += cos(tempReal) * tempReal2;
+      if( idx == 0 )
       {
-         sp->idx = 50 - 1;
+         idx = 50 - 1;
       } else 
       {
-         sp->idx -= 1;
+         idx -= 1;
       }
    }
-   sp->tempReal = fabs(sp->imagPart);
-   if( sp->tempReal > 0.0 )
+   tempReal = fabs(imagPart);
+   if( tempReal > 0.0 )
    {
-      sp->DCPhase = atan(sp->realPart / sp->imagPart) * sp->rad2Deg;
-   } else if( sp->tempReal <= 0.01 )
+      DCPhase = atan(realPart / imagPart) * sp->rad2Deg;
+   } else if( tempReal <= 0.01 )
    {
-      if( sp->realPart < 0.0 )
+      if( realPart < 0.0 )
       {
-         sp->DCPhase -= 90.0;
-      } else if( sp->realPart > 0.0 )
+         DCPhase -= 90.0;
+      } else if( realPart > 0.0 )
       {
-         sp->DCPhase += 90.0;
+         DCPhase += 90.0;
       }
    }
-   sp->DCPhase += 90.0;
+   DCPhase += 90.0;
    /* Compensate for one bar lag of the weighted moving average */
-   sp->DCPhase += 360.0 / sp->smoothPeriod;
-   if( sp->imagPart < 0.0 )
+   DCPhase += 360.0 / sp->smoothPeriod;
+   if( imagPart < 0.0 )
    {
-      sp->DCPhase += 180.0;
+      DCPhase += 180.0;
    }
-   if( sp->DCPhase > 315.0 )
+   if( DCPhase > 315.0 )
    {
-      sp->DCPhase -= 360.0;
+      DCPhase -= 360.0;
    }
-   *outSine= sin(sp->DCPhase * sp->deg2Rad);
-   *outLeadSine= sin((sp->DCPhase + 45) * sp->deg2Rad);
+   *outSine= sin(DCPhase * sp->deg2Rad);
+   *outLeadSine= sin((DCPhase + 45) * sp->deg2Rad);
    /* Ooof... let's do the next price bar now! */
    sp->smoothPrice_Idx = sp->smoothPrice_Idx + 1;
    if( sp->smoothPrice_Idx > sp->maxIdx_smoothPrice )
@@ -1205,9 +1210,10 @@ static void TA_HT_SINE_StepInternal( struct TA_HT_SINE_Stream *sp, double inReal
       sp->ringPos_trailingWMAIdx = 0;
    }
    sp->streamParity = 1 - sp->streamParity;
+   sp->DCPhase = DCPhase;
 }
 
-static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
+static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[], int outStride )
 {
    struct TA_HT_SINE_Stream *sp;
    double local_smoothPrice[50];
@@ -1223,6 +1229,12 @@ static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const 
    if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -1231,11 +1243,11 @@ static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const 
 
    {
       int outIdx;
-      int i = 0;
+      int i;
       int lookbackTotal;
       int today;
-      double tempReal = 0.0;
-      double tempReal2 = 0.0;
+      double tempReal;
+      double tempReal2;
       double adjustedPrevPeriod;
       double period = 0.0;
       /* Variable used for the price smoother (a weighted moving average). */
@@ -1243,42 +1255,42 @@ static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const 
       double periodWMASum = 0.0;
       double periodWMASub = 0.0;
       double trailingWMAValue = 0.0;
-      double smoothedValue = 0.0;
+      double smoothedValue;
       /* Variables used for the Hilbert Transormation */
       double a = 0.0962;
       double b = 0.5769;
-      double hilbertTempReal = 0.0;
+      double hilbertTempReal;
       int hilbertIdx = 0;
       double detrender_Odd[3] = {0};
       double detrender_Even[3] = {0};
-      double detrender = 0.0;
+      double detrender;
       double prev_detrender_Odd = 0.0;
       double prev_detrender_Even = 0.0;
       double prev_detrender_input_Odd = 0.0;
       double prev_detrender_input_Even = 0.0;
       double Q1_Odd[3] = {0};
       double Q1_Even[3] = {0};
-      double Q1 = 0.0;
+      double Q1;
       double prev_Q1_Odd = 0.0;
       double prev_Q1_Even = 0.0;
       double prev_Q1_input_Odd = 0.0;
       double prev_Q1_input_Even = 0.0;
       double jI_Odd[3] = {0};
       double jI_Even[3] = {0};
-      double jI = 0.0;
+      double jI;
       double prev_jI_Odd = 0.0;
       double prev_jI_Even = 0.0;
       double prev_jI_input_Odd = 0.0;
       double prev_jI_input_Even = 0.0;
       double jQ_Odd[3] = {0};
       double jQ_Even[3] = {0};
-      double jQ = 0.0;
+      double jQ;
       double prev_jQ_Odd = 0.0;
       double prev_jQ_Even = 0.0;
       double prev_jQ_input_Odd = 0.0;
       double prev_jQ_input_Even = 0.0;
-      double Q2 = 0.0;
-      double I2 = 0.0;
+      double Q2;
+      double I2;
       double prevQ2 = 0.0;
       double prevI2 = 0.0;
       double Re = 0.0;
@@ -1299,13 +1311,13 @@ static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const 
       smoothPrice = &local_smoothPrice[0];
       maxIdx_smoothPrice = (int)(sizeof(local_smoothPrice)/sizeof(double))-1;
       smoothPrice_Idx = 0;
-      int idx = 0;
+      int idx;
       /* Variable used to calculate the dominant cycle phase */
-      int DCPeriodInt = 0;
+      int DCPeriodInt;
       double DCPhase = 0.0;
-      double DCPeriod = 0.0;
-      double imagPart = 0.0;
-      double realPart = 0.0;
+      double DCPeriod;
+      double imagPart;
+      double realPart;
       /* circular buffer already declared */
       /* The following could be replaced by constant eventually. */
       tempReal = atan(1);
@@ -1651,48 +1663,37 @@ static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const 
       sp = (struct TA_HT_SINE_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
-      sp->i = i;
-      sp->tempReal = tempReal;
-      sp->tempReal2 = tempReal2;
       sp->period = period;
       sp->periodWMASum = periodWMASum;
       sp->periodWMASub = periodWMASub;
       sp->trailingWMAValue = trailingWMAValue;
-      sp->smoothedValue = smoothedValue;
       sp->a = a;
       sp->b = b;
-      sp->hilbertTempReal = hilbertTempReal;
       sp->hilbertIdx = hilbertIdx;
       memcpy( sp->detrender_Odd, detrender_Odd, sizeof( sp->detrender_Odd ) );
       memcpy( sp->detrender_Even, detrender_Even, sizeof( sp->detrender_Even ) );
-      sp->detrender = detrender;
       sp->prev_detrender_Odd = prev_detrender_Odd;
       sp->prev_detrender_Even = prev_detrender_Even;
       sp->prev_detrender_input_Odd = prev_detrender_input_Odd;
       sp->prev_detrender_input_Even = prev_detrender_input_Even;
       memcpy( sp->Q1_Odd, Q1_Odd, sizeof( sp->Q1_Odd ) );
       memcpy( sp->Q1_Even, Q1_Even, sizeof( sp->Q1_Even ) );
-      sp->Q1 = Q1;
       sp->prev_Q1_Odd = prev_Q1_Odd;
       sp->prev_Q1_Even = prev_Q1_Even;
       sp->prev_Q1_input_Odd = prev_Q1_input_Odd;
       sp->prev_Q1_input_Even = prev_Q1_input_Even;
       memcpy( sp->jI_Odd, jI_Odd, sizeof( sp->jI_Odd ) );
       memcpy( sp->jI_Even, jI_Even, sizeof( sp->jI_Even ) );
-      sp->jI = jI;
       sp->prev_jI_Odd = prev_jI_Odd;
       sp->prev_jI_Even = prev_jI_Even;
       sp->prev_jI_input_Odd = prev_jI_input_Odd;
       sp->prev_jI_input_Even = prev_jI_input_Even;
       memcpy( sp->jQ_Odd, jQ_Odd, sizeof( sp->jQ_Odd ) );
       memcpy( sp->jQ_Even, jQ_Even, sizeof( sp->jQ_Even ) );
-      sp->jQ = jQ;
       sp->prev_jQ_Odd = prev_jQ_Odd;
       sp->prev_jQ_Even = prev_jQ_Even;
       sp->prev_jQ_input_Odd = prev_jQ_input_Odd;
       sp->prev_jQ_input_Even = prev_jQ_input_Even;
-      sp->Q2 = Q2;
-      sp->I2 = I2;
       sp->prevQ2 = prevQ2;
       sp->prevI2 = prevI2;
       sp->Re = Re;
@@ -1705,33 +1706,30 @@ static TA_RetCode TA_HT_SINE_OpenPass( struct TA_HT_SINE_Stream **stream, const 
       sp->deg2Rad = deg2Rad;
       sp->constDeg2RadBy360 = constDeg2RadBy360;
       sp->smoothPeriod = smoothPeriod;
-      sp->idx = idx;
-      sp->DCPeriodInt = DCPeriodInt;
       sp->DCPhase = DCPhase;
-      sp->DCPeriod = DCPeriod;
-      sp->imagPart = imagPart;
-      sp->realPart = realPart;
       sp->smoothPrice_Idx = smoothPrice_Idx;
       sp->maxIdx_smoothPrice = maxIdx_smoothPrice;
       sp->streamParity = historyLen % 2;
       sp->ringCap_trailingWMAIdx = (int)(today - trailingWMAIdx);
-      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_SINE_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingWMAIdx > 0 ? sp->ringCap_trailingWMAIdx : 1);
         sp->ring_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_SINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingWMAIdx_inReal ) { TA_HT_SINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingWMAIdx_inReal ) { TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingWMAIdx_inReal, inReal + (historyLen - sp->ringCap_trailingWMAIdx), sizeof(double) * (size_t)sp->ringCap_trailingWMAIdx );
       }
       sp->ringPos_trailingWMAIdx = 0;
       sp->cbSize_smoothPrice = maxIdx_smoothPrice + 1;
-      if( sp->cbSize_smoothPrice < 1 || sp->cbSize_smoothPrice > historyLen + 1 ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_smoothPrice < 1 || sp->cbSize_smoothPrice > historyLen + 1 ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->cb_smoothPrice = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_smoothPrice );
-      if( !sp->cb_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cb_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_smoothPrice = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_smoothPrice );
-      if( !sp->cbMirror_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cbMirror_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_smoothPrice, smoothPrice, sizeof(double) * (size_t)sp->cbSize_smoothPrice );
       if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); 
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1745,7 +1743,7 @@ TA_RetCode TA_HT_SINE_OpenInternal( struct TA_HT_SINE_Stream **stream, const dou
    int dummyNBElement = 0;
    double sink_outSine = 0.0;
    double sink_outLeadSine = 0.0;
-   retCode = TA_HT_SINE_OpenPass( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outSine, &sink_outLeadSine, 0 );
+   retCode = TA_HT_SINE_OpenImpl( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outSine, &sink_outLeadSine, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outSine = sink_outSine;
@@ -1768,25 +1766,26 @@ TA_LIB_API TA_RetCode TA_HT_SINE_OpenAndFill( TA_HT_SINE_Stream **stream, const 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outSine == (const void *)inReal || (const void *)outLeadSine == (const void *)inReal || (const void *)outSine == (const void *)outLeadSine ) return TA_BAD_PARAM;
-   return TA_HT_SINE_OpenPass( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
+   return TA_HT_SINE_OpenAndFillInternal( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outSine, outLeadSine );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_HT_SINE_OpenAndFillInternal( struct TA_HT_SINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outSine[], double outLeadSine[] )
 {
-   return TA_HT_SINE_OpenPass( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
+   return TA_HT_SINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outSine, outLeadSine, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_HT_SINE_Update( TA_HT_SINE_Stream *stream, double inReal, double *outSine, double *outLeadSine )
 {
    if( !stream || !outSine || !outLeadSine ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_HT_SINE_StepInternal( stream, inReal, outSine, outLeadSine );
+   TA_HT_SINE_StepImpl( stream, inReal, outSine, outLeadSine );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1801,13 +1800,29 @@ TA_LIB_API TA_RetCode TA_HT_SINE_Peek( const TA_HT_SINE_Stream *stream, double i
    memcpy( scratch.ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingWMAIdx > 0 ? stream->ringCap_trailingWMAIdx : 1) );
    scratch.cb_smoothPrice = stream->cbMirror_smoothPrice;
    memcpy( scratch.cb_smoothPrice, stream->cb_smoothPrice, sizeof(double) * (size_t)stream->cbSize_smoothPrice );
-   TA_HT_SINE_StepInternal( &scratch, inReal, outSine, outLeadSine );
+   TA_HT_SINE_StepImpl( &scratch, inReal, outSine, outLeadSine );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_SINE_UpdateAndFill( TA_HT_SINE_Stream *stream, const double inReal[], int barCount, double outSine[], double outLeadSine[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outSine == (const void *)inReal || (const void *)outLeadSine == (const void *)inReal || (const void *)outSine == (const void *)outLeadSine ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_HT_SINE_StepImpl( stream, inReal[i], &outSine[i], &outLeadSine[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_HT_SINE_Close( TA_HT_SINE_Stream *stream )
 {
-   TA_HT_SINE_ReleaseInternal( stream );
+   TA_HT_SINE_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

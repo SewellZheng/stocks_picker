@@ -1,6 +1,6 @@
 name: WAD
-group: Volume Indicators
-hint: Williams' Accumulation/Distribution (no volume)
+group: Momentum Indicators
+hint: Williams' Accumulation/Distribution
 flags: [stream, path_dependent]
 inputs:
   - name: inPriceHLC

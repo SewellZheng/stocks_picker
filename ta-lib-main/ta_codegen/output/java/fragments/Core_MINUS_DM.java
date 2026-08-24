@@ -537,35 +537,34 @@
       int optInTimePeriod;
       double prevHigh;
       double prevLow;
-      double tempReal;
-      double diffP;
-      double diffM;
       double prevMinusDM;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       MINUS_DM_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#MINUS_DM_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#MINUS_DM} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       MINUS_DM_Stream( MINUS_DM_Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevHigh = other.prevHigh;
          this.prevLow = other.prevLow;
-         this.tempReal = other.tempReal;
-         this.diffP = other.diffP;
-         this.diffM = other.diffM;
          this.prevMinusDM = other.prevMinusDM;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( MINUS_DM_Stream other ) {
@@ -573,12 +572,10 @@
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevHigh = other.prevHigh;
          this.prevLow = other.prevLow;
-         this.tempReal = other.tempReal;
-         this.diffP = other.diffP;
-         this.diffM = other.diffM;
          this.prevMinusDM = other.prevMinusDM;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -596,8 +593,34 @@
       public double update( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("MINUS_DM update: BadParam", RetCode.BadParam);
-         core.MINUS_DM_StreamStep(this, inHigh, inLow);
+         core.MINUS_DM_StepImpl(this, inHigh, inLow);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inHigh.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inHigh[], double inLow[], double outReal[] ) {
+         final int barCount = inHigh.length;
+         if( inLow.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow )
+            throw new TaLibArgumentException("MINUS_DM updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) )
+               throw new TaLibArgumentException("MINUS_DM updateAndFill: BadParam", RetCode.BadParam);
+            core.MINUS_DM_StepImpl(this, inHigh[i], inLow[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -611,7 +634,7 @@
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("MINUS_DM peek: BadParam", RetCode.BadParam);
          MINUS_DM_Stream scratch = new MINUS_DM_Stream(this);
-         core.MINUS_DM_StreamStep(scratch, inHigh, inLow);
+         core.MINUS_DM_StepImpl(scratch, inHigh, inLow);
          return scratch.cur_outReal;
       }
 
@@ -632,35 +655,41 @@
          return new MINUS_DM_Stream(this);
       }
    }
-   void MINUS_DM_StreamStep( MINUS_DM_Stream sp, double inHigh, double inLow )
+   void MINUS_DM_StepImpl( MINUS_DM_Stream sp, double inHigh, double inLow )
    {
       if( sp.optInTimePeriod <= 1 ) {
-         sp.tempReal = inHigh;
-         sp.diffP = sp.tempReal - sp.prevHigh;
+         double tempReal = 0.0;
+         double diffP = 0.0;
+         double diffM = 0.0;
+         tempReal = inHigh;
+         diffP = tempReal - sp.prevHigh;
          /* Plus Delta */
-         sp.prevHigh = sp.tempReal;
-         sp.tempReal = inLow;
-         sp.diffM = sp.prevLow - sp.tempReal;
+         sp.prevHigh = tempReal;
+         tempReal = inLow;
+         diffM = sp.prevLow - tempReal;
          /* Minus Delta */
-         sp.prevLow = sp.tempReal;
-         if( sp.diffM > 0 && sp.diffP < sp.diffM ) {
+         sp.prevLow = tempReal;
+         if( diffM > 0 && diffP < diffM ) {
             /* Case 2 and 4: +DM=0,-DM=diffM */
-            sp.cur_outReal = sp.diffM;
+            sp.cur_outReal = diffM;
          } else {
             sp.cur_outReal = 0;
          }
       } else {
-         sp.tempReal = inHigh;
-         sp.diffP = sp.tempReal - sp.prevHigh;
+         double tempReal = 0.0;
+         double diffP = 0.0;
+         double diffM = 0.0;
+         tempReal = inHigh;
+         diffP = tempReal - sp.prevHigh;
          /* Plus Delta */
-         sp.prevHigh = sp.tempReal;
-         sp.tempReal = inLow;
-         sp.diffM = sp.prevLow - sp.tempReal;
+         sp.prevHigh = tempReal;
+         tempReal = inLow;
+         diffM = sp.prevLow - tempReal;
          /* Minus Delta */
-         sp.prevLow = sp.tempReal;
-         if( sp.diffM > 0 && sp.diffP < sp.diffM ) {
+         sp.prevLow = tempReal;
+         if( diffM > 0 && diffP < diffM ) {
             /* Case 2 and 4: +DM=0,-DM=diffM */
-            sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / sp.optInTimePeriod + sp.diffM;
+            sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / sp.optInTimePeriod + diffM;
          } else {
             /* Case 1,3,5 and 7 */
             sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / sp.optInTimePeriod;
@@ -668,7 +697,7 @@
          sp.cur_outReal = sp.prevMinusDM;
       }
    }
-   private RetCode MINUS_DM_OpenPass( MINUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode MINUS_DM_OpenImpl( MINUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
@@ -808,9 +837,6 @@
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevHigh = prevHigh;
          sp.prevLow = prevLow;
-         sp.tempReal = tempReal;
-         sp.diffP = diffP;
-         sp.diffM = diffM;
          sp.prevMinusDM = prevMinusDM;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
          return RetCode.Success;
@@ -982,37 +1008,18 @@
          sp.optInTimePeriod = optInTimePeriod;
          sp.prevHigh = prevHigh;
          sp.prevLow = prevLow;
-         sp.tempReal = tempReal;
-         sp.diffP = diffP;
-         sp.diffM = diffM;
          sp.prevMinusDM = prevMinusDM;
          sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
          return RetCode.Success;
       }
    }
-   private RetCode MINUS_DM_OpenImpl( MINUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return MINUS_DM_OpenPass( sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode MINUS_DM_OpenAndFillImpl( MINUS_DM_Stream sp, double inHigh[], double inLow[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
-         return RetCode.BadParam;
-      }
-      return MINUS_DM_OpenPass( sp, inHigh, inLow, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode MINUS_DM_OpenAndFillInternalImpl( MINUS_DM_Stream sp, double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return MINUS_DM_OpenPass(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
-   }
    /* MINUS_DM_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    MINUS_DM_Stream MINUS_DM_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       MINUS_DM_Stream sp = new MINUS_DM_Stream(this);
-      RetCode retCode = MINUS_DM_OpenAndFillInternalImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = MINUS_DM_OpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1028,7 +1035,12 @@
    MINUS_DM_Stream MINUS_DM_OpenInternal( double inHigh[], double inLow[], int startIdx, int optInTimePeriod )
    {
       MINUS_DM_Stream sp = new MINUS_DM_Stream(this);
-      RetCode retCode = MINUS_DM_OpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = MINUS_DM_OpenImpl(sp, inHigh, inLow, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1061,23 +1073,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link MINUS_DM_Stream#fillRange()}.
+    * {@link MINUS_DM_Stream#outRange()}.
     */
    public MINUS_DM_Stream MINUS_DM_OpenAndFill( double inHigh[], double inLow[], int optInTimePeriod, double outReal[] )
    {
-      MINUS_DM_Stream sp = new MINUS_DM_Stream(this);
+      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
+         throw new TaLibArgumentException("MINUS_DM openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = MINUS_DM_OpenAndFillImpl(sp, inHigh, inLow, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("MINUS_DM openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("MINUS_DM openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("MINUS_DM openAndFill: " + retCode, retCode);
+      return MINUS_DM_OpenAndFillInternal(inHigh, inLow, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
    }

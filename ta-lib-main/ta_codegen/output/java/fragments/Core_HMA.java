@@ -632,7 +632,6 @@
       double periodSubFull;
       double periodSumFull;
       double trailingFull;
-      double fullOut;
       int halfPeriod;
       int sqrtPeriod;
       double dividerHalf;
@@ -643,8 +642,6 @@
       double periodSubSqrt;
       double periodSumSqrt;
       double trailingSqrt;
-      double halfOut;
-      double diffReal;
       int dRing_Idx;
       int maxIdx_dRing;
       int ringPos_trailingIdxFull;
@@ -656,18 +653,22 @@
       double[] ring_trailingIdxHalf_inReal;
       int cbSize_dRing;
       double[] cb_dRing;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       HMA_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#HMA_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#HMA} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       HMA_Stream( HMA_Stream other ) {
          this.core = other.core;
@@ -676,7 +677,6 @@
          this.periodSubFull = other.periodSubFull;
          this.periodSumFull = other.periodSumFull;
          this.trailingFull = other.trailingFull;
-         this.fullOut = other.fullOut;
          this.halfPeriod = other.halfPeriod;
          this.sqrtPeriod = other.sqrtPeriod;
          this.dividerHalf = other.dividerHalf;
@@ -687,8 +687,6 @@
          this.periodSubSqrt = other.periodSubSqrt;
          this.periodSumSqrt = other.periodSumSqrt;
          this.trailingSqrt = other.trailingSqrt;
-         this.halfOut = other.halfOut;
-         this.diffReal = other.diffReal;
          this.dRing_Idx = other.dRing_Idx;
          this.maxIdx_dRing = other.maxIdx_dRing;
          this.ringPos_trailingIdxFull = other.ringPos_trailingIdxFull;
@@ -700,7 +698,8 @@
          this.ring_trailingIdxHalf_inReal = other.ring_trailingIdxHalf_inReal.clone();
          this.cbSize_dRing = other.cbSize_dRing;
          this.cb_dRing = other.cb_dRing.clone();
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( HMA_Stream other ) {
@@ -710,7 +709,6 @@
          this.periodSubFull = other.periodSubFull;
          this.periodSumFull = other.periodSumFull;
          this.trailingFull = other.trailingFull;
-         this.fullOut = other.fullOut;
          this.halfPeriod = other.halfPeriod;
          this.sqrtPeriod = other.sqrtPeriod;
          this.dividerHalf = other.dividerHalf;
@@ -721,8 +719,6 @@
          this.periodSubSqrt = other.periodSubSqrt;
          this.periodSumSqrt = other.periodSumSqrt;
          this.trailingSqrt = other.trailingSqrt;
-         this.halfOut = other.halfOut;
-         this.diffReal = other.diffReal;
          this.dRing_Idx = other.dRing_Idx;
          this.maxIdx_dRing = other.maxIdx_dRing;
          this.ringPos_trailingIdxFull = other.ringPos_trailingIdxFull;
@@ -746,7 +742,8 @@
          } else {
             this.cb_dRing = other.cb_dRing.clone();
          }
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
@@ -767,8 +764,34 @@
       public double update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("HMA update: BadParam", RetCode.BadParam);
-         core.HMA_StreamStep(this, inReal);
+         core.HMA_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double outReal[] ) {
+         final int barCount = inReal.length;
+         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
+            throw new TaLibArgumentException("HMA updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) )
+               throw new TaLibArgumentException("HMA updateAndFill: BadParam", RetCode.BadParam);
+            core.HMA_StepImpl(this, inReal[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -790,7 +813,7 @@
          } else {
             scratch.copyFrom(this);
          }
-         core.HMA_StreamStep(scratch, inReal);
+         core.HMA_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -811,7 +834,7 @@
          return new HMA_Stream(this);
       }
    }
-   void HMA_StreamStep( HMA_Stream sp, double inReal )
+   void HMA_StepImpl( HMA_Stream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -819,6 +842,7 @@
       }
       if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
          double tempReal = 0.0;
+         double fullOut = 0.0;
          if( sp.ringCap_trailingIdxFull == 0 ) {
             sp.ring_trailingIdxFull_inReal[0] = inReal;
          }
@@ -827,9 +851,9 @@
          sp.periodSubFull -= sp.trailingFull;
          sp.periodSumFull += tempReal * sp.optInTimePeriod;
          sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
-         sp.fullOut = sp.periodSumFull / sp.dividerFull;
+         fullOut = sp.periodSumFull / sp.dividerFull;
          sp.periodSumFull -= sp.periodSubFull;
-         sp.cur_outReal = 2.0 * tempReal - sp.fullOut;
+         sp.cur_outReal = 2.0 * tempReal - fullOut;
          sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
          sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
          if( sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
@@ -837,6 +861,9 @@
          }
       } else {
          double tempReal = 0.0;
+         double fullOut = 0.0;
+         double halfOut = 0.0;
+         double diffReal = 0.0;
          if( sp.ringCap_trailingIdxFull == 0 ) {
             sp.ring_trailingIdxFull_inReal[0] = inReal;
          }
@@ -848,20 +875,20 @@
          sp.periodSubFull -= sp.trailingFull;
          sp.periodSumFull += tempReal * sp.optInTimePeriod;
          sp.trailingFull = sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull];
-         sp.fullOut = sp.periodSumFull / sp.dividerFull;
+         fullOut = sp.periodSumFull / sp.dividerFull;
          sp.periodSumFull -= sp.periodSubFull;
          sp.periodSubHalf += tempReal;
          sp.periodSubHalf -= sp.trailingHalf;
          sp.periodSumHalf += tempReal * sp.halfPeriod;
          sp.trailingHalf = sp.ring_trailingIdxHalf_inReal[sp.ringPos_trailingIdxHalf];
-         sp.halfOut = sp.periodSumHalf / sp.dividerHalf;
+         halfOut = sp.periodSumHalf / sp.dividerHalf;
          sp.periodSumHalf -= sp.periodSubHalf;
-         sp.diffReal = 2.0 * sp.halfOut - sp.fullOut;
-         sp.periodSubSqrt += sp.diffReal;
+         diffReal = 2.0 * halfOut - fullOut;
+         sp.periodSubSqrt += diffReal;
          sp.periodSubSqrt -= sp.trailingSqrt;
-         sp.periodSumSqrt += sp.diffReal * sp.sqrtPeriod;
+         sp.periodSumSqrt += diffReal * sp.sqrtPeriod;
          sp.trailingSqrt = sp.cb_dRing[sp.dRing_Idx];
-         sp.cb_dRing[sp.dRing_Idx] = sp.diffReal;
+         sp.cb_dRing[sp.dRing_Idx] = diffReal;
          sp.dRing_Idx = sp.dRing_Idx + 1;
          if( sp.dRing_Idx > sp.maxIdx_dRing ) {
             sp.dRing_Idx = 0;
@@ -880,7 +907,7 @@
          }
       }
    }
-   private RetCode HMA_OpenPass( HMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode HMA_OpenImpl( HMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
@@ -896,7 +923,9 @@
          return RetCode.BadParam;
       }
       if( optInTimePeriod == 1 ) {
-         if( historyLen < HMA_Lookback(optInTimePeriod) + 1 ) {
+         int fillLb = HMA_Lookback(optInTimePeriod);
+         if( startIdx > fillLb ) fillLb = startIdx;
+         if( historyLen < fillLb + 1 ) {
             return RetCode.InsufficientHistory;
          }
          sp.optInTimePeriod = optInTimePeriod;
@@ -904,7 +933,6 @@
          sp.periodSubFull = 0.0;
          sp.periodSumFull = 0.0;
          sp.trailingFull = 0.0;
-         sp.fullOut = 0.0;
          sp.halfPeriod = 0;
          sp.sqrtPeriod = 0;
          sp.dividerHalf = 0.0;
@@ -915,8 +943,6 @@
          sp.periodSubSqrt = 0.0;
          sp.periodSumSqrt = 0.0;
          sp.trailingSqrt = 0.0;
-         sp.halfOut = 0.0;
-         sp.diffReal = 0.0;
          sp.dRing_Idx = 0;
          sp.maxIdx_dRing = 0;
          sp.ringPos_trailingIdxFull = 0;
@@ -927,7 +953,6 @@
          sp.ring_trailingIdxHalf_inReal = new double[1];
          sp.cbSize_dRing = 0;
          sp.cb_dRing = new double[1];
-         int fillLb = HMA_Lookback(optInTimePeriod);
          outBegIdx.value = fillLb;
          outNBElement.value = historyLen - fillLb;
          if( outStride == 0 ) {
@@ -1065,7 +1090,6 @@
          sp.periodSubFull = periodSubFull;
          sp.periodSumFull = periodSumFull;
          sp.trailingFull = trailingFull;
-         sp.fullOut = fullOut;
          sp.halfPeriod = halfPeriod;
          sp.sqrtPeriod = sqrtPeriod;
          sp.dividerHalf = dividerHalf;
@@ -1076,8 +1100,6 @@
          sp.periodSubSqrt = periodSubSqrt;
          sp.periodSumSqrt = periodSumSqrt;
          sp.trailingSqrt = trailingSqrt;
-         sp.halfOut = halfOut;
-         sp.diffReal = diffReal;
          sp.dRing_Idx = dRing_Idx;
          sp.maxIdx_dRing = maxIdx_dRing;
          sp.ringPos_trailingIdxFull = 0;
@@ -1291,7 +1313,6 @@
          sp.periodSubFull = periodSubFull;
          sp.periodSumFull = periodSumFull;
          sp.trailingFull = trailingFull;
-         sp.fullOut = fullOut;
          sp.halfPeriod = halfPeriod;
          sp.sqrtPeriod = sqrtPeriod;
          sp.dividerHalf = dividerHalf;
@@ -1302,8 +1323,6 @@
          sp.periodSubSqrt = periodSubSqrt;
          sp.periodSumSqrt = periodSumSqrt;
          sp.trailingSqrt = trailingSqrt;
-         sp.halfOut = halfOut;
-         sp.diffReal = diffReal;
          sp.dRing_Idx = dRing_Idx;
          sp.maxIdx_dRing = maxIdx_dRing;
          sp.ringPos_trailingIdxFull = 0;
@@ -1318,29 +1337,13 @@
          return RetCode.Success;
       }
    }
-   private RetCode HMA_OpenImpl( HMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return HMA_OpenPass( sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode HMA_OpenAndFillImpl( HMA_Stream sp, double inReal[], int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inReal ) {
-         return RetCode.BadParam;
-      }
-      return HMA_OpenPass( sp, inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode HMA_OpenAndFillInternalImpl( HMA_Stream sp, double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return HMA_OpenPass(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
-   }
    /* HMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    HMA_Stream HMA_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       HMA_Stream sp = new HMA_Stream(this);
-      RetCode retCode = HMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = HMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1356,7 +1359,12 @@
    HMA_Stream HMA_OpenInternal( double inReal[], int startIdx, int optInTimePeriod )
    {
       HMA_Stream sp = new HMA_Stream(this);
-      RetCode retCode = HMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = HMA_OpenImpl(sp, inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1389,23 +1397,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link HMA_Stream#fillRange()}.
+    * {@link HMA_Stream#outRange()}.
     */
    public HMA_Stream HMA_OpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
-      HMA_Stream sp = new HMA_Stream(this);
+      if( (Object)outReal == (Object)inReal ) {
+         throw new TaLibArgumentException("HMA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = HMA_OpenAndFillImpl(sp, inReal, optInTimePeriod, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("HMA openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("HMA openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("HMA openAndFill: " + retCode, retCode);
+      return HMA_OpenAndFillInternal(inReal, 0, optInTimePeriod, outBegIdx, outNBElement, outReal);
    }

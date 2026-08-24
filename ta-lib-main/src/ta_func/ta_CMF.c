@@ -396,14 +396,13 @@ TA_RetCode TA_S_CMF( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CMF_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double sumMFV;
    double sumVol;
-   double high;
-   double low;
-   double close;
-   double tmp;
-   double mfv;
    int mfv_Idx;
    int maxIdx_mfv;
    int cbSize_mfv;
@@ -414,7 +413,7 @@ struct TA_CMF_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_CMF_ReleaseInternal( struct TA_CMF_Stream *sp )
+static void TA_CMF_ReleaseImpl( struct TA_CMF_Stream *sp )
 {
    if( !sp ) return;
    if( sp->cb_mfv_flow ) TA_Free( sp->cb_mfv_flow );
@@ -425,28 +424,36 @@ static void TA_CMF_ReleaseInternal( struct TA_CMF_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_CMF_StepInternal( struct TA_CMF_Stream *sp, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
+static void TA_CMF_StepImpl( struct TA_CMF_Stream *sp, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
-   sp->sumMFV -= sp->cb_mfv_flow[sp->mfv_Idx];
-   sp->sumVol -= sp->cb_mfv_volume[sp->mfv_Idx];
-   sp->high = inHigh;
-   sp->low = inLow;
-   sp->close = inClose;
-   sp->tmp = sp->high - sp->low;
-   if( sp->tmp > 0.0 )
+   double high;
+   double low;
+   double close;
+   double tmp;
+   double mfv;
+   double sumMFV = sp->sumMFV;
+   double sumVol = sp->sumVol;
+
+   sumMFV -= sp->cb_mfv_flow[sp->mfv_Idx];
+   sumVol -= sp->cb_mfv_volume[sp->mfv_Idx];
+   high = inHigh;
+   low = inLow;
+   close = inClose;
+   tmp = high - low;
+   if( tmp > 0.0 )
    {
-      sp->mfv = (sp->close - sp->low - (sp->high - sp->close)) / sp->tmp * inVolume;
+      mfv = (close - low - (high - close)) / tmp * inVolume;
    } else 
    {
-      sp->mfv = 0.0;
+      mfv = 0.0;
    }
-   sp->cb_mfv_flow[sp->mfv_Idx] = sp->mfv;
+   sp->cb_mfv_flow[sp->mfv_Idx] = mfv;
    sp->cb_mfv_volume[sp->mfv_Idx] = inVolume;
-   sp->sumMFV += sp->mfv;
-   sp->sumVol += inVolume;
-   if( sp->sumVol > 0.0 )
+   sumMFV += mfv;
+   sumVol += inVolume;
+   if( sumVol > 0.0 )
    {
-      *outReal= sp->sumMFV / sp->sumVol;
+      *outReal= sumMFV / sumVol;
    } else 
    {
       *outReal= 0.0;
@@ -456,9 +463,11 @@ static void TA_CMF_StepInternal( struct TA_CMF_Stream *sp, double inHigh, double
    {
       sp->mfv_Idx = 0;
    }
+   sp->sumMFV = sumMFV;
+   sp->sumVol = sumVol;
 }
 
-static TA_RetCode TA_CMF_OpenPass( struct TA_CMF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_CMF_Stream *sp;
    double local_mfv_flow[50];
@@ -480,6 +489,12 @@ static TA_RetCode TA_CMF_OpenPass( struct TA_CMF_Stream **stream, const double i
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -489,11 +504,11 @@ static TA_RetCode TA_CMF_OpenPass( struct TA_CMF_Stream **stream, const double i
    {
       double sumMFV = 0.0;
       double sumVol = 0.0;
-      double high = 0.0;
-      double low = 0.0;
-      double close = 0.0;
-      double tmp = 0.0;
-      double mfv = 0.0;
+      double high;
+      double low;
+      double close;
+      double tmp;
+      double mfv;
       int lookbackTotal;
       int outIdx;
       int i;
@@ -629,26 +644,23 @@ static TA_RetCode TA_CMF_OpenPass( struct TA_CMF_Stream **stream, const double i
       sp->optInTimePeriod = optInTimePeriod;
       sp->sumMFV = sumMFV;
       sp->sumVol = sumVol;
-      sp->high = high;
-      sp->low = low;
-      sp->close = close;
-      sp->tmp = tmp;
-      sp->mfv = mfv;
       sp->mfv_Idx = mfv_Idx;
       sp->maxIdx_mfv = maxIdx_mfv;
       sp->cbSize_mfv = maxIdx_mfv + 1;
-      if( sp->cbSize_mfv < 1 || sp->cbSize_mfv > historyLen + 1 ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_mfv < 1 || sp->cbSize_mfv > historyLen + 1 ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->cb_mfv_flow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mfv );
-      if( !sp->cb_mfv_flow ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cb_mfv_flow ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_mfv_flow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mfv );
-      if( !sp->cbMirror_mfv_flow ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cbMirror_mfv_flow ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_mfv_flow, mfv_flow, sizeof(double) * (size_t)sp->cbSize_mfv );
       sp->cb_mfv_volume = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mfv );
-      if( !sp->cb_mfv_volume ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cb_mfv_volume ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_mfv_volume = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mfv );
-      if( !sp->cbMirror_mfv_volume ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cbMirror_mfv_volume ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_mfv_volume, mfv_volume, sizeof(double) * (size_t)sp->cbSize_mfv );
       if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); 
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -661,7 +673,7 @@ TA_RetCode TA_CMF_OpenInternal( struct TA_CMF_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_CMF_OpenPass( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_CMF_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -683,25 +695,26 @@ TA_LIB_API TA_RetCode TA_CMF_OpenAndFill( TA_CMF_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   return TA_CMF_OpenPass( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CMF_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_CMF_OpenAndFillInternal( struct TA_CMF_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_CMF_OpenPass( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CMF_OpenImpl( stream, inHigh, inLow, inClose, inVolume, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_CMF_Update( TA_CMF_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
-   TA_CMF_StepInternal( stream, inHigh, inLow, inClose, inVolume, outReal );
+   TA_CMF_StepImpl( stream, inHigh, inLow, inClose, inVolume, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -716,13 +729,29 @@ TA_LIB_API TA_RetCode TA_CMF_Peek( const TA_CMF_Stream *stream, double inHigh, d
    memcpy( scratch.cb_mfv_flow, stream->cb_mfv_flow, sizeof(double) * (size_t)stream->cbSize_mfv );
    scratch.cb_mfv_volume = stream->cbMirror_mfv_volume;
    memcpy( scratch.cb_mfv_volume, stream->cb_mfv_volume, sizeof(double) * (size_t)stream->cbSize_mfv );
-   TA_CMF_StepInternal( &scratch, inHigh, inLow, inClose, inVolume, outReal );
+   TA_CMF_StepImpl( &scratch, inHigh, inLow, inClose, inVolume, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CMF_UpdateAndFill( TA_CMF_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], const double inVolume[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) || !TA_IS_FINITE( inVolume[i] ) ) return TA_BAD_PARAM;
+      TA_CMF_StepImpl( stream, inHigh[i], inLow[i], inClose[i], inVolume[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_CMF_Close( TA_CMF_Stream *stream )
 {
-   TA_CMF_ReleaseInternal( stream );
+   TA_CMF_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

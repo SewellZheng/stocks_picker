@@ -194,17 +194,21 @@ TA_RetCode TA_S_PVI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_PVI_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    double prevPVI;
    double prevClose;
    double prevVolume;
-   double tempPVI;
 };
 
 /* Private function, not in public API. */
-static void TA_PVI_StepInternal( struct TA_PVI_Stream *sp, double inClose, double inVolume, double *outReal )
+static void TA_PVI_StepImpl( struct TA_PVI_Stream *sp, double inClose, double inVolume, double *outReal )
 {
    double tempClose;
    double tempVolume;
+   double tempPVI;
 
    tempClose = inClose;
    tempVolume = inVolume;
@@ -225,11 +229,11 @@ static void TA_PVI_StepInternal( struct TA_PVI_Stream *sp, double inClose, doubl
        * fusion detector and silently re-round every bar, not just the
        * overflowing one.
        */
-      sp->tempPVI = sp->prevPVI;
-      sp->tempPVI += (tempClose - sp->prevClose) / sp->prevClose * sp->tempPVI;
-      if( TA_IS_FINITE(sp->tempPVI) )
+      tempPVI = sp->prevPVI;
+      tempPVI += (tempClose - sp->prevClose) / sp->prevClose * tempPVI;
+      if( TA_IS_FINITE(tempPVI) )
       {
-         sp->prevPVI = sp->tempPVI;
+         sp->prevPVI = tempPVI;
       }
    }
    *outReal= sp->prevPVI;
@@ -237,7 +241,7 @@ static void TA_PVI_StepInternal( struct TA_PVI_Stream *sp, double inClose, doubl
    sp->prevVolume = tempVolume;
 }
 
-static TA_RetCode TA_PVI_OpenPass( struct TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_PVI_OpenImpl( struct TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_PVI_Stream *sp;
    int endIdx;
@@ -249,6 +253,12 @@ static TA_RetCode TA_PVI_OpenPass( struct TA_PVI_Stream **stream, const double i
    if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -263,7 +273,7 @@ static TA_RetCode TA_PVI_OpenPass( struct TA_PVI_Stream **stream, const double i
       double prevVolume = 0.0;
       double tempClose;
       double tempVolume;
-      double tempPVI = 0.0;
+      double tempPVI;
       /* The index is a running cumulative value seeded at 1000, updated only on
        * bars whose volume increased versus the prior bar (Positive Volume).
        */
@@ -313,7 +323,8 @@ static TA_RetCode TA_PVI_OpenPass( struct TA_PVI_Stream **stream, const double i
       sp->prevPVI = prevPVI;
       sp->prevClose = prevClose;
       sp->prevVolume = prevVolume;
-      sp->tempPVI = tempPVI;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -326,7 +337,7 @@ TA_RetCode TA_PVI_OpenInternal( struct TA_PVI_Stream **stream, const double inCl
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_PVI_OpenPass( stream, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_PVI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -348,25 +359,26 @@ TA_LIB_API TA_RetCode TA_PVI_OpenAndFill( TA_PVI_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   return TA_PVI_OpenPass( stream, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_PVI_OpenAndFillInternal( stream, inClose, inVolume, 0, historyLen, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_PVI_OpenAndFillInternal( struct TA_PVI_Stream **stream, const double inClose[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_PVI_OpenPass( stream, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_PVI_OpenImpl( stream, inClose, inVolume, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_PVI_Update( TA_PVI_Stream *stream, double inClose, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
-   TA_PVI_StepInternal( stream, inClose, inVolume, outReal );
+   TA_PVI_StepImpl( stream, inClose, inVolume, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -377,7 +389,23 @@ TA_LIB_API TA_RetCode TA_PVI_Peek( const TA_PVI_Stream *stream, double inClose, 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_PVI_StepInternal( &scratch, inClose, inVolume, outReal );
+   TA_PVI_StepImpl( &scratch, inClose, inVolume, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PVI_UpdateAndFill( TA_PVI_Stream *stream, const double inClose[], const double inVolume[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inClose[i] ) || !TA_IS_FINITE( inVolume[i] ) ) return TA_BAD_PARAM;
+      TA_PVI_StepImpl( stream, inClose[i], inVolume[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 

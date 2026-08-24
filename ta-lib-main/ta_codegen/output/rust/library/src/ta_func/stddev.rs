@@ -55,6 +55,7 @@
  *  100502 JV   Speed optimization of the algorithm
  *  052603 MF   Adapt code to compile with .NET Managed C++
  *  090404 MF   Fix #978056. Trap sqrt with negative zero values.
+ *  082326 MF,CC #243 the sqrt trap moves to var's scale-relative floor.
  */
 
 // Import types from parent module
@@ -129,7 +130,6 @@ impl Core {
         let mut startIdx = startIdx;
         let mut i: usize = 0_usize;
         let mut retCode: RetCode = RetCode::Success;
-        let mut tempReal: f64 = 0.0_f64;
         // Nothing to produce: the range is shorter than the lookback. Return before
         // touching anything.
         //
@@ -152,28 +152,28 @@ impl Core {
         // is the standard deviation.
         //
         // Multiply also by the ratio specified.
+        //
+        // Unconditional. var owns the dead-zone and owns the sign: it returns a
+        // non-negative variance, already floored to exactly 0 on any window whose
+        // re-anchored spread sat under its own rounding noise (var.c). What used to
+        // stand here instead - zero the output wherever the variance fell under
+        // TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
+        // at a price level rather than a noise floor: a $100.00 instrument quoted in
+        // 1e-8 ticks has a variance around 1e-16 and came back as exactly 0 on every
+        // bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
+        // Dropping it also leaves a pure map, which the branch had kept sqrt out of.
         if optInNbDev != 1.0 {
             // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
             while i < ((((*outNBElement) as usize)) as usize) {
-                tempReal = outReal[i];
-                if !((tempReal) < 1e-14) {
-                    outReal[i] = (tempReal).sqrt() * optInNbDev;
-                } else {
-                    outReal[i] = 0.0 as f64;
-                }
+                outReal[i] = (((outReal[i]).sqrt() * optInNbDev) as f64);
                 i += 1;
             }
         } else {
             // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
             while i < ((((*outNBElement) as usize)) as usize) {
-                tempReal = outReal[i];
-                if !((tempReal) < 1e-14) {
-                    outReal[i] = (tempReal).sqrt();
-                } else {
-                    outReal[i] = 0.0 as f64;
-                }
+                outReal[i] = (((outReal[i]).sqrt()) as f64);
                 i += 1;
             }
         }
@@ -282,12 +282,16 @@ impl Core {
 /// Live STDDEV stream: one value per closed bar, bit-identical to [`Core::STDDEV`]
 /// over the same series. Open with [`Core::STDDEV_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_STDDEV_Stream")]
 pub struct STDDEV_Stream {
     core: Core,
     state: STDDEV_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -297,6 +301,7 @@ impl STDDEV_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -326,27 +331,16 @@ impl STDDEV_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn STDDEV_step_internal(&self, sp: &mut STDDEV_StreamState, inReal: f64, outReal: &mut f64) -> Result<(), RetCode> {
-        let mut tempReal: f64 = 0.0_f64;
+    fn STDDEV_step_impl(&self, sp: &mut STDDEV_StreamState, inReal: f64, outReal: &mut f64) -> Result<(), RetCode> {
         let mut cur_outReal: f64 = 0.0_f64;
 
         // Pipeline the new bar through the sub-streams (batch tail order).
         cur_outReal = sp.sub0.update(inReal)?;
         // Combine map (batch tail, per bar).
         if sp.optInNbDev != 1.0 {
-            tempReal = cur_outReal;
-            if !((tempReal) < 1e-14) {
-                cur_outReal = (tempReal).sqrt() * sp.optInNbDev;
-            } else {
-                cur_outReal = 0.0 as f64;
-            }
+            cur_outReal = (cur_outReal).sqrt() * sp.optInNbDev;
         } else {
-            tempReal = cur_outReal;
-            if !((tempReal) < 1e-14) {
-                cur_outReal = (tempReal).sqrt();
-            } else {
-                cur_outReal = 0.0 as f64;
-            }
+            cur_outReal = (cur_outReal).sqrt();
         }
         (*outReal) = cur_outReal;
         Ok(())
@@ -354,7 +348,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::STDDEV_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::STDDEV_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn STDDEV_OpenPass(
+    pub(crate) fn STDDEV_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDev: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<STDDEV_Stream, RetCode> {
         if inReal.is_empty() {
@@ -376,6 +370,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut owned_sc_outReal: Vec<f64> =
@@ -384,7 +383,6 @@ impl Core {
             if outStride == 1 { &mut *outReal } else { &mut owned_sc_outReal };
         let mut i: usize = 0_usize;
         let mut retCode: RetCode = RetCode::Success;
-        let mut tempReal: f64 = 0.0_f64;
         // Nothing to produce: the range is shorter than the lookback. Return before
         // touching anything.
         //
@@ -410,28 +408,28 @@ impl Core {
         // is the standard deviation.
         //
         // Multiply also by the ratio specified.
+        //
+        // Unconditional. var owns the dead-zone and owns the sign: it returns a
+        // non-negative variance, already floored to exactly 0 on any window whose
+        // re-anchored spread sat under its own rounding noise (var.c). What used to
+        // stand here instead - zero the output wherever the variance fell under
+        // TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
+        // at a price level rather than a noise floor: a $100.00 instrument quoted in
+        // 1e-8 ticks has a variance around 1e-16 and came back as exactly 0 on every
+        // bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
+        // Dropping it also leaves a pure map, which the branch had kept sqrt out of.
         if optInNbDev != 1.0 {
             // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
             while i < ((((*outNBElement) as usize)) as usize) {
-                tempReal = sc_outReal[i];
-                if !((tempReal) < 1e-14) {
-                    sc_outReal[i] = (tempReal).sqrt() * optInNbDev;
-                } else {
-                    sc_outReal[i] = 0.0 as f64;
-                }
+                sc_outReal[i] = (sc_outReal[i]).sqrt() * optInNbDev;
                 i += 1;
             }
         } else {
             // for( i = 0; i < ((((*outNBElement) as usize)) as usize); i += 1 )
             i = 0;
             while i < ((((*outNBElement) as usize)) as usize) {
-                tempReal = sc_outReal[i];
-                if !((tempReal) < 1e-14) {
-                    sc_outReal[i] = (tempReal).sqrt();
-                } else {
-                    sc_outReal[i] = 0.0 as f64;
-                }
+                sc_outReal[i] = (sc_outReal[i]).sqrt();
                 i += 1;
             }
         }
@@ -449,7 +447,7 @@ impl Core {
             let last_sc_outReal = sc_outReal[*outNBElement - 1];
             outReal[0] = last_sc_outReal;
         }
-        Ok(STDDEV_Stream { core: self.clone(), state })
+        Ok(STDDEV_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::STDDEV_Open`] (composition seam).
@@ -459,7 +457,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outReal = [0.0_f64; 1];
-        let handle = self.STDDEV_OpenPass(inReal, startIdx, optInTimePeriod, optInNbDev, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
+        let handle = self.STDDEV_OpenImpl(inReal, startIdx, optInTimePeriod, optInNbDev, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outReal, 0)?;
         Ok((handle, sink_outReal[0]))
     }
 
@@ -479,8 +477,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.STDDEV_Open(&data, 5, 1.0).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked.to_bits(), updated.to_bits());
     /// ```
     #[doc(alias = "TA_STDDEV_Open")]
@@ -498,7 +500,7 @@ impl Core {
     ) -> Result<(STDDEV_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.STDDEV_OpenPass(inReal, 0, optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, outReal, 1)?;
+        let handle = self.STDDEV_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, outReal)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -507,7 +509,7 @@ impl Core {
     pub(crate) fn STDDEV_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDev: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64],
     ) -> Result<STDDEV_Stream, RetCode> {
-        self.STDDEV_OpenPass(inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1)
+        self.STDDEV_OpenImpl(inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1)
     }
 
 }
@@ -532,8 +534,45 @@ impl STDDEV_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.STDDEV_step_internal(&mut self.state, inReal, &mut outReal)?;
+        self.core.STDDEV_step_impl(&mut self.state, inReal, &mut outReal)?;
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outReal)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_STDDEV_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outReal.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.STDDEV_step_impl(&mut self.state, inReal[i], &mut outReal[i])?;
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -555,6 +594,19 @@ impl STDDEV_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inReal)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::STDDEV`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

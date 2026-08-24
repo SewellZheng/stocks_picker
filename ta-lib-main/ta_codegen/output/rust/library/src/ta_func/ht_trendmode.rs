@@ -608,9 +608,9 @@ impl Core {
         (*outNBElement) = outIdx;
         return RetCode::Success;
     }
-    /// Hilbert Transform classifier that labels each bar as trending (1) or cycling (0). Reuses the
-    /// MAMA dominant-cycle/phase DSP plus a SineWave/trendline test to decide the market mode. 1 =
-    /// trending market (favor trend-following); 0 = cycle/mean-reverting mode.
+    /// Hilbert Transform classifier that labels each bar 1 (trending — favor trend-following) or
+    /// 0 (cycling — favor mean-reversion). Built from the same MAMA dominant-cycle/phase DSP plus
+    /// a SineWave/trendline test used across the other HT_* functions.
     ///
     /// # Arguments
     ///
@@ -696,12 +696,16 @@ impl Core {
 /// Live HT_TRENDMODE stream: one value per closed bar, bit-identical to [`Core::HT_TRENDMODE`]
 /// over the same series. Open with [`Core::HT_TRENDMODE_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_HT_TRENDMODE_Stream")]
 pub struct HT_TRENDMODE_Stream {
     core: Core,
     state: HT_TRENDMODE_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -711,58 +715,47 @@ impl HT_TRENDMODE_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
 #[derive(Debug, Clone)]
 #[allow(non_snake_case, dead_code)]
 struct HT_TRENDMODE_StreamState {
-    i: usize,
-    j: usize,
-    tempReal: f64,
-    tempReal2: f64,
     period: f64,
     periodWMASum: f64,
     periodWMASub: f64,
     trailingWMAValue: f64,
-    smoothedValue: f64,
     iTrend1: f64,
     iTrend2: f64,
     iTrend3: f64,
     a: f64,
     b: f64,
-    hilbertTempReal: f64,
     hilbertIdx: usize,
     detrender_Odd: [f64; 3 as usize],
     detrender_Even: [f64; 3 as usize],
-    detrender: f64,
     prev_detrender_Odd: f64,
     prev_detrender_Even: f64,
     prev_detrender_input_Odd: f64,
     prev_detrender_input_Even: f64,
     Q1_Odd: [f64; 3 as usize],
     Q1_Even: [f64; 3 as usize],
-    Q1: f64,
     prev_Q1_Odd: f64,
     prev_Q1_Even: f64,
     prev_Q1_input_Odd: f64,
     prev_Q1_input_Even: f64,
     jI_Odd: [f64; 3 as usize],
     jI_Even: [f64; 3 as usize],
-    jI: f64,
     prev_jI_Odd: f64,
     prev_jI_Even: f64,
     prev_jI_input_Odd: f64,
     prev_jI_input_Even: f64,
     jQ_Odd: [f64; 3 as usize],
     jQ_Even: [f64; 3 as usize],
-    jQ: f64,
     prev_jQ_Odd: f64,
     prev_jQ_Even: f64,
     prev_jQ_input_Odd: f64,
     prev_jQ_input_Even: f64,
-    Q2: f64,
-    I2: f64,
     prevQ2: f64,
     prevI2: f64,
     Re: f64,
@@ -775,18 +768,8 @@ struct HT_TRENDMODE_StreamState {
     deg2Rad: f64,
     constDeg2RadBy360: f64,
     smoothPeriod: f64,
-    idx: usize,
-    DCPeriodInt: i32,
     DCPhase: f64,
-    DCPeriod: f64,
-    imagPart: f64,
-    realPart: f64,
     daysInTrend: usize,
-    trend: usize,
-    prevDCPhase: f64,
-    trendline: f64,
-    prevSine: f64,
-    prevLeadSine: f64,
     sine: f64,
     leadSine: f64,
     smoothPrice_Idx: usize,
@@ -807,52 +790,40 @@ impl HT_TRENDMODE_StreamState {
     /// Overwrite every field from `src`, reusing this value's buffers
     /// instead of allocating new ones — `peek`'s scratch restore.
     fn restore_from(&mut self, src: &Self) {
-        self.i = src.i;
-        self.j = src.j;
-        self.tempReal = src.tempReal;
-        self.tempReal2 = src.tempReal2;
         self.period = src.period;
         self.periodWMASum = src.periodWMASum;
         self.periodWMASub = src.periodWMASub;
         self.trailingWMAValue = src.trailingWMAValue;
-        self.smoothedValue = src.smoothedValue;
         self.iTrend1 = src.iTrend1;
         self.iTrend2 = src.iTrend2;
         self.iTrend3 = src.iTrend3;
         self.a = src.a;
         self.b = src.b;
-        self.hilbertTempReal = src.hilbertTempReal;
         self.hilbertIdx = src.hilbertIdx;
         self.detrender_Odd = src.detrender_Odd;
         self.detrender_Even = src.detrender_Even;
-        self.detrender = src.detrender;
         self.prev_detrender_Odd = src.prev_detrender_Odd;
         self.prev_detrender_Even = src.prev_detrender_Even;
         self.prev_detrender_input_Odd = src.prev_detrender_input_Odd;
         self.prev_detrender_input_Even = src.prev_detrender_input_Even;
         self.Q1_Odd = src.Q1_Odd;
         self.Q1_Even = src.Q1_Even;
-        self.Q1 = src.Q1;
         self.prev_Q1_Odd = src.prev_Q1_Odd;
         self.prev_Q1_Even = src.prev_Q1_Even;
         self.prev_Q1_input_Odd = src.prev_Q1_input_Odd;
         self.prev_Q1_input_Even = src.prev_Q1_input_Even;
         self.jI_Odd = src.jI_Odd;
         self.jI_Even = src.jI_Even;
-        self.jI = src.jI;
         self.prev_jI_Odd = src.prev_jI_Odd;
         self.prev_jI_Even = src.prev_jI_Even;
         self.prev_jI_input_Odd = src.prev_jI_input_Odd;
         self.prev_jI_input_Even = src.prev_jI_input_Even;
         self.jQ_Odd = src.jQ_Odd;
         self.jQ_Even = src.jQ_Even;
-        self.jQ = src.jQ;
         self.prev_jQ_Odd = src.prev_jQ_Odd;
         self.prev_jQ_Even = src.prev_jQ_Even;
         self.prev_jQ_input_Odd = src.prev_jQ_input_Odd;
         self.prev_jQ_input_Even = src.prev_jQ_input_Even;
-        self.Q2 = src.Q2;
-        self.I2 = src.I2;
         self.prevQ2 = src.prevQ2;
         self.prevI2 = src.prevI2;
         self.Re = src.Re;
@@ -865,18 +836,8 @@ impl HT_TRENDMODE_StreamState {
         self.deg2Rad = src.deg2Rad;
         self.constDeg2RadBy360 = src.constDeg2RadBy360;
         self.smoothPeriod = src.smoothPeriod;
-        self.idx = src.idx;
-        self.DCPeriodInt = src.DCPeriodInt;
         self.DCPhase = src.DCPhase;
-        self.DCPeriod = src.DCPeriod;
-        self.imagPart = src.imagPart;
-        self.realPart = src.realPart;
         self.daysInTrend = src.daysInTrend;
-        self.trend = src.trend;
-        self.prevDCPhase = src.prevDCPhase;
-        self.trendline = src.trendline;
-        self.prevSine = src.prevSine;
-        self.prevLeadSine = src.prevLeadSine;
         self.sine = src.sine;
         self.leadSine = src.leadSine;
         self.smoothPrice_Idx = src.smoothPrice_Idx;
@@ -900,9 +861,31 @@ impl HT_TRENDMODE_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn HT_TRENDMODE_step_internal(&self, sp: &mut HT_TRENDMODE_StreamState, inReal: f64, outInteger: &mut i32) {
+    fn HT_TRENDMODE_step_impl(&self, sp: &mut HT_TRENDMODE_StreamState, inReal: f64, outInteger: &mut i32) {
+        let mut i: usize = 0_usize;
+        let mut j: usize = 0_usize;
+        let mut tempReal: f64 = 0.0_f64;
+        let mut tempReal2: f64 = 0.0_f64;
         let mut adjustedPrevPeriod: f64 = 0.0_f64;
+        let mut smoothedValue: f64 = 0.0_f64;
+        let mut hilbertTempReal: f64 = 0.0_f64;
+        let mut detrender: f64 = 0.0_f64;
+        let mut Q1: f64 = 0.0_f64;
+        let mut jI: f64 = 0.0_f64;
+        let mut jQ: f64 = 0.0_f64;
+        let mut Q2: f64 = 0.0_f64;
+        let mut I2: f64 = 0.0_f64;
         let mut todayValue: f64 = 0.0_f64;
+        let mut idx: usize = 0_usize;
+        let mut DCPeriodInt: i32 = 0_i32;
+        let mut DCPeriod: f64 = 0.0_f64;
+        let mut imagPart: f64 = 0.0_f64;
+        let mut realPart: f64 = 0.0_f64;
+        let mut trend: usize = 0_usize;
+        let mut prevDCPhase: f64 = 0.0_f64;
+        let mut trendline: f64 = 0.0_f64;
+        let mut prevSine: f64 = 0.0_f64;
+        let mut prevLeadSine: f64 = 0.0_f64;
         if sp.ringCap_trailingWMAIdx == 0 {
             sp.ring_trailingWMAIdx_inReal[0] = inReal;
         }
@@ -913,182 +896,182 @@ impl Core {
         sp.periodWMASub -= sp.trailingWMAValue;
         sp.periodWMASum += todayValue * 4.0;
         sp.trailingWMAValue = sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx];
-        sp.smoothedValue = sp.periodWMASum * 0.1;
+        smoothedValue = sp.periodWMASum * 0.1;
         sp.periodWMASum -= sp.periodWMASub;
         // Remember the smoothedValue into the smoothPrice
         // circular buffer.
-        sp.cb_smoothPrice[sp.smoothPrice_Idx] = sp.smoothedValue;
+        sp.cb_smoothPrice[sp.smoothPrice_Idx] = smoothedValue;
         if sp.streamParity == 0 {
             // Do the Hilbert Transforms for even price bar
-            sp.hilbertTempReal = sp.a * sp.smoothedValue;
-            sp.detrender = 0_f64 - sp.detrender_Even[sp.hilbertIdx];
-            sp.detrender_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.detrender += sp.hilbertTempReal;
-            sp.detrender -= sp.prev_detrender_Even;
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0_f64 - sp.detrender_Even[sp.hilbertIdx];
+            sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
+            detrender += hilbertTempReal;
+            detrender -= sp.prev_detrender_Even;
             sp.prev_detrender_Even = sp.b * sp.prev_detrender_input_Even;
-            sp.detrender += sp.prev_detrender_Even;
-            sp.prev_detrender_input_Even = sp.smoothedValue;
-            sp.detrender *= adjustedPrevPeriod;
-            sp.hilbertTempReal = sp.a * sp.detrender;
-            sp.Q1 = 0_f64 - sp.Q1_Even[sp.hilbertIdx];
-            sp.Q1_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.Q1 += sp.hilbertTempReal;
-            sp.Q1 -= sp.prev_Q1_Even;
+            detrender += sp.prev_detrender_Even;
+            sp.prev_detrender_input_Even = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0_f64 - sp.Q1_Even[sp.hilbertIdx];
+            sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
+            Q1 += hilbertTempReal;
+            Q1 -= sp.prev_Q1_Even;
             sp.prev_Q1_Even = sp.b * sp.prev_Q1_input_Even;
-            sp.Q1 += sp.prev_Q1_Even;
-            sp.prev_Q1_input_Even = sp.detrender;
-            sp.Q1 *= adjustedPrevPeriod;
-            sp.hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
-            sp.jI = 0_f64 - sp.jI_Even[sp.hilbertIdx];
-            sp.jI_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.jI += sp.hilbertTempReal;
-            sp.jI -= sp.prev_jI_Even;
+            Q1 += sp.prev_Q1_Even;
+            sp.prev_Q1_input_Even = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
+            jI = 0_f64 - sp.jI_Even[sp.hilbertIdx];
+            sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
+            jI += hilbertTempReal;
+            jI -= sp.prev_jI_Even;
             sp.prev_jI_Even = sp.b * sp.prev_jI_input_Even;
-            sp.jI += sp.prev_jI_Even;
+            jI += sp.prev_jI_Even;
             sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
-            sp.jI *= adjustedPrevPeriod;
-            sp.hilbertTempReal = sp.a * sp.Q1;
-            sp.jQ = 0_f64 - sp.jQ_Even[sp.hilbertIdx];
-            sp.jQ_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.jQ += sp.hilbertTempReal;
-            sp.jQ -= sp.prev_jQ_Even;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0_f64 - sp.jQ_Even[sp.hilbertIdx];
+            sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
+            jQ += hilbertTempReal;
+            jQ -= sp.prev_jQ_Even;
             sp.prev_jQ_Even = sp.b * sp.prev_jQ_input_Even;
-            sp.jQ += sp.prev_jQ_Even;
-            sp.prev_jQ_input_Even = sp.Q1;
-            sp.jQ *= adjustedPrevPeriod;
+            jQ += sp.prev_jQ_Even;
+            sp.prev_jQ_input_Even = Q1;
+            jQ *= adjustedPrevPeriod;
             if { sp.hilbertIdx += 1; sp.hilbertIdx } == 3 {
                 sp.hilbertIdx = 0;
             }
-            sp.Q2 = (0.2 as f64).mul_add(sp.Q1 + sp.jI, 0.8 * sp.prevQ2);
-            sp.I2 = (0.2 as f64).mul_add(sp.I1ForEvenPrev3 - sp.jQ, 0.8 * sp.prevI2);
+            Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * sp.prevQ2);
+            I2 = (0.2 as f64).mul_add(sp.I1ForEvenPrev3 - jQ, 0.8 * sp.prevI2);
             // The variable I1 is the detrender delayed for
             // 3 price bars.
             //
             // Save the current detrender value for being
             // used by the "odd" logic later.
             sp.I1ForOddPrev3 = sp.I1ForOddPrev2;
-            sp.I1ForOddPrev2 = sp.detrender;
+            sp.I1ForOddPrev2 = detrender;
         } else {
             // Do the Hilbert Transforms for odd price bar
-            sp.hilbertTempReal = sp.a * sp.smoothedValue;
-            sp.detrender = 0_f64 - sp.detrender_Odd[sp.hilbertIdx];
-            sp.detrender_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.detrender += sp.hilbertTempReal;
-            sp.detrender -= sp.prev_detrender_Odd;
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0_f64 - sp.detrender_Odd[sp.hilbertIdx];
+            sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
+            detrender += hilbertTempReal;
+            detrender -= sp.prev_detrender_Odd;
             sp.prev_detrender_Odd = sp.b * sp.prev_detrender_input_Odd;
-            sp.detrender += sp.prev_detrender_Odd;
-            sp.prev_detrender_input_Odd = sp.smoothedValue;
-            sp.detrender *= adjustedPrevPeriod;
-            sp.hilbertTempReal = sp.a * sp.detrender;
-            sp.Q1 = 0_f64 - sp.Q1_Odd[sp.hilbertIdx];
-            sp.Q1_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.Q1 += sp.hilbertTempReal;
-            sp.Q1 -= sp.prev_Q1_Odd;
+            detrender += sp.prev_detrender_Odd;
+            sp.prev_detrender_input_Odd = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0_f64 - sp.Q1_Odd[sp.hilbertIdx];
+            sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
+            Q1 += hilbertTempReal;
+            Q1 -= sp.prev_Q1_Odd;
             sp.prev_Q1_Odd = sp.b * sp.prev_Q1_input_Odd;
-            sp.Q1 += sp.prev_Q1_Odd;
-            sp.prev_Q1_input_Odd = sp.detrender;
-            sp.Q1 *= adjustedPrevPeriod;
-            sp.hilbertTempReal = sp.a * sp.I1ForOddPrev3;
-            sp.jI = 0_f64 - sp.jI_Odd[sp.hilbertIdx];
-            sp.jI_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.jI += sp.hilbertTempReal;
-            sp.jI -= sp.prev_jI_Odd;
+            Q1 += sp.prev_Q1_Odd;
+            sp.prev_Q1_input_Odd = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * sp.I1ForOddPrev3;
+            jI = 0_f64 - sp.jI_Odd[sp.hilbertIdx];
+            sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
+            jI += hilbertTempReal;
+            jI -= sp.prev_jI_Odd;
             sp.prev_jI_Odd = sp.b * sp.prev_jI_input_Odd;
-            sp.jI += sp.prev_jI_Odd;
+            jI += sp.prev_jI_Odd;
             sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
-            sp.jI *= adjustedPrevPeriod;
-            sp.hilbertTempReal = sp.a * sp.Q1;
-            sp.jQ = 0_f64 - sp.jQ_Odd[sp.hilbertIdx];
-            sp.jQ_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-            sp.jQ += sp.hilbertTempReal;
-            sp.jQ -= sp.prev_jQ_Odd;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0_f64 - sp.jQ_Odd[sp.hilbertIdx];
+            sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
+            jQ += hilbertTempReal;
+            jQ -= sp.prev_jQ_Odd;
             sp.prev_jQ_Odd = sp.b * sp.prev_jQ_input_Odd;
-            sp.jQ += sp.prev_jQ_Odd;
-            sp.prev_jQ_input_Odd = sp.Q1;
-            sp.jQ *= adjustedPrevPeriod;
-            sp.Q2 = (0.2 as f64).mul_add(sp.Q1 + sp.jI, 0.8 * sp.prevQ2);
-            sp.I2 = (0.2 as f64).mul_add(sp.I1ForOddPrev3 - sp.jQ, 0.8 * sp.prevI2);
+            jQ += sp.prev_jQ_Odd;
+            sp.prev_jQ_input_Odd = Q1;
+            jQ *= adjustedPrevPeriod;
+            Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * sp.prevQ2);
+            I2 = (0.2 as f64).mul_add(sp.I1ForOddPrev3 - jQ, 0.8 * sp.prevI2);
             // The varaiable I1 is the detrender delayed for
             // 3 price bars.
             //
             // Save the current detrender value for being
             // used by the "even" logic later.
             sp.I1ForEvenPrev3 = sp.I1ForEvenPrev2;
-            sp.I1ForEvenPrev2 = sp.detrender;
+            sp.I1ForEvenPrev2 = detrender;
         }
         // Adjust the period for next price bar
-        sp.Re = (0.8 as f64).mul_add(sp.Re, 0.2 * ((sp.I2 as f64).mul_add(sp.prevI2, sp.Q2 * sp.prevQ2)));
-        sp.Im = (0.8 as f64).mul_add(sp.Im, 0.2 * (sp.I2 * sp.prevQ2 - sp.Q2 * sp.prevI2));
-        sp.prevQ2 = sp.Q2;
-        sp.prevI2 = sp.I2;
-        sp.tempReal = sp.period;
+        sp.Re = (0.8 as f64).mul_add(sp.Re, 0.2 * ((I2 as f64).mul_add(sp.prevI2, Q2 * sp.prevQ2)));
+        sp.Im = (0.8 as f64).mul_add(sp.Im, 0.2 * (I2 * sp.prevQ2 - Q2 * sp.prevI2));
+        sp.prevQ2 = Q2;
+        sp.prevI2 = I2;
+        tempReal = sp.period;
         if sp.Im != 0.0 && sp.Re != 0.0 {
             sp.period = 360.0 / ((sp.Im / sp.Re).atan() * sp.rad2Deg);
         }
-        sp.tempReal2 = 1.5 * sp.tempReal;
-        if sp.period > sp.tempReal2 {
-            sp.period = sp.tempReal2;
+        tempReal2 = 1.5 * tempReal;
+        if sp.period > tempReal2 {
+            sp.period = tempReal2;
         }
-        sp.tempReal2 = 0.67 * sp.tempReal;
-        if sp.period < sp.tempReal2 {
-            sp.period = sp.tempReal2;
+        tempReal2 = 0.67 * tempReal;
+        if sp.period < tempReal2 {
+            sp.period = tempReal2;
         }
         if sp.period < 6_f64 {
             sp.period = 6.0;
         } else if sp.period > 50_f64 {
             sp.period = 50.0;
         }
-        sp.period = (0.2 as f64).mul_add(sp.period, 0.8 * sp.tempReal);
+        sp.period = (0.2 as f64).mul_add(sp.period, 0.8 * tempReal);
         sp.smoothPeriod = (0.67 as f64).mul_add(sp.smoothPeriod, 0.33 * sp.period);
         // Compute Dominant Cycle Phase
-        sp.prevDCPhase = sp.DCPhase;
-        sp.DCPeriod = sp.smoothPeriod + 0.5;
-        sp.DCPeriodInt = (sp.DCPeriod) as i32;
-        sp.realPart = 0.0;
-        sp.imagPart = 0.0;
+        prevDCPhase = sp.DCPhase;
+        DCPeriod = sp.smoothPeriod + 0.5;
+        DCPeriodInt = (DCPeriod) as i32;
+        realPart = 0.0;
+        imagPart = 0.0;
         // idx is used to iterate for up to 50 of the last
         // value of smoothPrice.
-        sp.idx = sp.smoothPrice_Idx;
-        // for( sp.i = 0; ((sp.i) as i32) < sp.DCPeriodInt; sp.i += 1 )
-        sp.i = 0;
-        while ((sp.i) as i32) < sp.DCPeriodInt {
-            sp.tempReal = (sp.i as f64) * sp.constDeg2RadBy360 / (sp.DCPeriodInt as f64);
-            sp.tempReal2 = sp.cb_smoothPrice[sp.idx];
-            sp.realPart += (sp.tempReal).sin() * sp.tempReal2;
-            sp.imagPart += (sp.tempReal).cos() * sp.tempReal2;
-            if sp.idx == 0 {
-                sp.idx = (50 - 1) as usize;
+        idx = sp.smoothPrice_Idx;
+        // for( i = 0; ((i) as i32) < DCPeriodInt; i += 1 )
+        i = 0;
+        while ((i) as i32) < DCPeriodInt {
+            tempReal = (i as f64) * sp.constDeg2RadBy360 / (DCPeriodInt as f64);
+            tempReal2 = sp.cb_smoothPrice[idx];
+            realPart += (tempReal).sin() * tempReal2;
+            imagPart += (tempReal).cos() * tempReal2;
+            if idx == 0 {
+                idx = (50 - 1) as usize;
             } else {
-                sp.idx -= 1;
+                idx -= 1;
             }
-            sp.i += 1;
+            i += 1;
         }
-        sp.tempReal = (sp.imagPart).abs();
-        if sp.tempReal > 0.0 {
-            sp.DCPhase = (sp.realPart / sp.imagPart).atan() * sp.rad2Deg;
-        } else if sp.tempReal <= 0.01 {
-            if sp.realPart < 0.0 {
+        tempReal = (imagPart).abs();
+        if tempReal > 0.0 {
+            sp.DCPhase = (realPart / imagPart).atan() * sp.rad2Deg;
+        } else if tempReal <= 0.01 {
+            if realPart < 0.0 {
                 sp.DCPhase -= 90.0;
-            } else if sp.realPart > 0.0 {
+            } else if realPart > 0.0 {
                 sp.DCPhase += 90.0;
             }
         }
         sp.DCPhase += 90.0;
         // Compensate for one bar lag of the weighted moving average
         sp.DCPhase += 360.0 / sp.smoothPeriod;
-        if sp.imagPart < 0.0 {
+        if imagPart < 0.0 {
             sp.DCPhase += 180.0;
         }
         if sp.DCPhase > 315.0 {
             sp.DCPhase -= 360.0;
         }
-        sp.prevSine = sp.sine;
-        sp.prevLeadSine = sp.leadSine;
+        prevSine = sp.sine;
+        prevLeadSine = sp.leadSine;
         sp.sine = (sp.DCPhase * sp.deg2Rad).sin();
         sp.leadSine = ((sp.DCPhase + 45_f64) * sp.deg2Rad).sin();
         // Compute Trendline
-        sp.DCPeriod = sp.smoothPeriod + 0.5;
-        sp.DCPeriodInt = (sp.DCPeriod) as i32;
+        DCPeriod = sp.smoothPeriod + 0.5;
+        DCPeriodInt = (DCPeriod) as i32;
         // Average the RAW price over the dominant cycle period.
         // Unlike the DC-phase loop above (which reads the smoothPrice
         // circular buffer), the iTrend average reads the raw price,
@@ -1100,42 +1083,42 @@ impl Core {
         // (idx starting at today): identical terms in identical order, so
         // bit-for-bit unchanged, but the constant cap lets the rescan-window
         // machinery bound the window (DCPeriod is clamped to [6.5, 50.5]).
-        sp.tempReal = 0.0;
-        // for( sp.j = 0; sp.j < 50; sp.j += 1 )
-        sp.j = 0;
-        while sp.j < 50 {
-            if ((sp.j) as i32) < sp.DCPeriodInt {
-                sp.tempReal += sp.win_j_inReal[((if sp.winPos_j + sp.winCap_j - sp.j >= sp.winCap_j { sp.winPos_j + sp.winCap_j - sp.j - sp.winCap_j } else { sp.winPos_j + sp.winCap_j - sp.j })) as usize];
+        tempReal = 0.0;
+        // for( j = 0; j < 50; j += 1 )
+        j = 0;
+        while j < 50 {
+            if ((j) as i32) < DCPeriodInt {
+                tempReal += sp.win_j_inReal[((if sp.winPos_j + sp.winCap_j - j >= sp.winCap_j { sp.winPos_j + sp.winCap_j - j - sp.winCap_j } else { sp.winPos_j + sp.winCap_j - j })) as usize];
             }
-            sp.j += 1;
+            j += 1;
         }
-        if sp.DCPeriodInt > 0 {
-            sp.tempReal = sp.tempReal / (sp.DCPeriodInt as f64);
+        if DCPeriodInt > 0 {
+            tempReal = tempReal / (DCPeriodInt as f64);
         }
-        sp.trendline = ((2.0 as f64).mul_add(sp.iTrend2, (4.0 as f64).mul_add(sp.tempReal, 3.0 * sp.iTrend1)) + sp.iTrend3) / 10.0;
+        trendline = ((2.0 as f64).mul_add(sp.iTrend2, (4.0 as f64).mul_add(tempReal, 3.0 * sp.iTrend1)) + sp.iTrend3) / 10.0;
         sp.iTrend3 = sp.iTrend2;
         sp.iTrend2 = sp.iTrend1;
-        sp.iTrend1 = sp.tempReal;
+        sp.iTrend1 = tempReal;
         // Compute the trend Mode , and assume trend by default
-        sp.trend = 1;
+        trend = 1;
         // Measure days in trend from last crossing of the SineWave Indicator lines
-        if sp.sine > sp.leadSine && sp.prevSine <= sp.prevLeadSine || sp.sine < sp.leadSine && sp.prevSine >= sp.prevLeadSine {
+        if sp.sine > sp.leadSine && prevSine <= prevLeadSine || sp.sine < sp.leadSine && prevSine >= prevLeadSine {
             sp.daysInTrend = 0;
-            sp.trend = 0;
+            trend = 0;
         }
         sp.daysInTrend += 1;
         if ((sp.daysInTrend) as f64) < 0.5 * sp.smoothPeriod {
-            sp.trend = 0;
+            trend = 0;
         }
-        sp.tempReal = sp.DCPhase - sp.prevDCPhase;
-        if sp.smoothPeriod != 0.0 && (sp.tempReal > 0.67 * 360.0 / sp.smoothPeriod && sp.tempReal < 1.5 * 360.0 / sp.smoothPeriod) {
-            sp.trend = 0;
+        tempReal = sp.DCPhase - prevDCPhase;
+        if sp.smoothPeriod != 0.0 && (tempReal > 0.67 * 360.0 / sp.smoothPeriod && tempReal < 1.5 * 360.0 / sp.smoothPeriod) {
+            trend = 0;
         }
-        sp.tempReal = sp.cb_smoothPrice[sp.smoothPrice_Idx];
-        if sp.trendline != 0.0 && ((sp.tempReal - sp.trendline) / sp.trendline).abs() >= 0.015 {
-            sp.trend = 1;
+        tempReal = sp.cb_smoothPrice[sp.smoothPrice_Idx];
+        if trendline != 0.0 && ((tempReal - trendline) / trendline).abs() >= 0.015 {
+            trend = 1;
         }
-        (*outInteger) = (sp.trend) as i32;
+        (*outInteger) = (trend) as i32;
         // Ooof... let's do the next price bar now!
         sp.smoothPrice_Idx = sp.smoothPrice_Idx + 1;
         if sp.smoothPrice_Idx > sp.maxIdx_smoothPrice {
@@ -1155,7 +1138,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::HT_TRENDMODE_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::HT_TRENDMODE_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn HT_TRENDMODE_OpenPass(
+    pub(crate) fn HT_TRENDMODE_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<HT_TRENDMODE_Stream, RetCode> {
         if inReal.is_empty() {
@@ -1167,6 +1150,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut outIdx: usize = 0_usize;
@@ -1659,52 +1647,40 @@ impl Core {
             return Err(RetCode::InternalError);
         }
         let state = HT_TRENDMODE_StreamState {
-            i,
-            j,
-            tempReal,
-            tempReal2,
             period,
             periodWMASum,
             periodWMASub,
             trailingWMAValue,
-            smoothedValue,
             iTrend1,
             iTrend2,
             iTrend3,
             a,
             b,
-            hilbertTempReal,
             hilbertIdx,
             detrender_Odd,
             detrender_Even,
-            detrender,
             prev_detrender_Odd,
             prev_detrender_Even,
             prev_detrender_input_Odd,
             prev_detrender_input_Even,
             Q1_Odd,
             Q1_Even,
-            Q1,
             prev_Q1_Odd,
             prev_Q1_Even,
             prev_Q1_input_Odd,
             prev_Q1_input_Even,
             jI_Odd,
             jI_Even,
-            jI,
             prev_jI_Odd,
             prev_jI_Even,
             prev_jI_input_Odd,
             prev_jI_input_Even,
             jQ_Odd,
             jQ_Even,
-            jQ,
             prev_jQ_Odd,
             prev_jQ_Even,
             prev_jQ_input_Odd,
             prev_jQ_input_Even,
-            Q2,
-            I2,
             prevQ2,
             prevI2,
             Re,
@@ -1717,18 +1693,8 @@ impl Core {
             deg2Rad,
             constDeg2RadBy360,
             smoothPeriod,
-            idx,
-            DCPeriodInt,
             DCPhase,
-            DCPeriod,
-            imagPart,
-            realPart,
             daysInTrend,
-            trend,
-            prevDCPhase,
-            trendline,
-            prevSine,
-            prevLeadSine,
             sine,
             leadSine,
             smoothPrice_Idx,
@@ -1743,7 +1709,7 @@ impl Core {
             cbSize_smoothPrice: cbSize_smoothPrice,
             cb_smoothPrice: smoothPrice,
         };
-        Ok(HT_TRENDMODE_Stream { core: self.clone(), state })
+        Ok(HT_TRENDMODE_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::HT_TRENDMODE_Open`] (composition seam).
@@ -1753,7 +1719,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outInteger = [0_i32; 1];
-        let handle = self.HT_TRENDMODE_OpenPass(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
+        let handle = self.HT_TRENDMODE_OpenImpl(inReal, startIdx, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
         Ok((handle, sink_outInteger[0]))
     }
 
@@ -1773,8 +1739,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.HT_TRENDMODE_Open(&data).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_HT_TRENDMODE_Open")]
@@ -1792,7 +1762,7 @@ impl Core {
     ) -> Result<(HT_TRENDMODE_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.HT_TRENDMODE_OpenPass(inReal, 0, &mut outBegIdx, &mut outNBElement, outInteger, 1)?;
+        let handle = self.HT_TRENDMODE_OpenAndFillInternal(inReal, 0, &mut outBegIdx, &mut outNBElement, outInteger)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -1801,7 +1771,7 @@ impl Core {
     pub(crate) fn HT_TRENDMODE_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
     ) -> Result<HT_TRENDMODE_Stream, RetCode> {
-        self.HT_TRENDMODE_OpenPass(inReal, startIdx, outBegIdx, outNBElement, outInteger, 1)
+        self.HT_TRENDMODE_OpenImpl(inReal, startIdx, outBegIdx, outNBElement, outInteger, 1)
     }
 
 }
@@ -1834,8 +1804,45 @@ impl HT_TRENDMODE_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.HT_TRENDMODE_step_internal(&mut self.state, inReal, &mut outInteger);
+        self.core.HT_TRENDMODE_step_impl(&mut self.state, inReal, &mut outInteger);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outInteger)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_HT_TRENDMODE_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outInteger.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.HT_TRENDMODE_step_impl(&mut self.state, inReal[i], &mut outInteger[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1860,6 +1867,19 @@ impl HT_TRENDMODE_Stream {
             cell.set(Some(scratch));
             value
         })
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::HT_TRENDMODE`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

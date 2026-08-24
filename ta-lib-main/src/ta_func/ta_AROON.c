@@ -320,6 +320,10 @@ TA_RetCode TA_S_AROON( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_AROON_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double lowest;
    double highest;
@@ -339,7 +343,7 @@ struct TA_AROON_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_AROON_ReleaseInternal( struct TA_AROON_Stream *sp )
+static void TA_AROON_ReleaseImpl( struct TA_AROON_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inHigh ) TA_Free( sp->x_inHigh );
@@ -350,7 +354,7 @@ static void TA_AROON_ReleaseInternal( struct TA_AROON_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_AROON_StepInternal( struct TA_AROON_Stream *sp, double inHigh, double inLow, double *outAroonDown, double *outAroonUp )
+static void TA_AROON_StepImpl( struct TA_AROON_Stream *sp, double inHigh, double inLow, double *outAroonDown, double *outAroonUp )
 {
    double tmp;
 
@@ -418,7 +422,7 @@ static void TA_AROON_StepInternal( struct TA_AROON_Stream *sp, double inHigh, do
    sp->today += 1;
 }
 
-static TA_RetCode TA_AROON_OpenPass( struct TA_AROON_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outAroonDown[], double outAroonUp[], int outStride )
+static TA_RetCode TA_AROON_OpenImpl( struct TA_AROON_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outAroonDown[], double outAroonUp[], int outStride )
 {
    struct TA_AROON_Stream *sp;
    int endIdx;
@@ -434,6 +438,12 @@ static TA_RetCode TA_AROON_OpenPass( struct TA_AROON_Stream **stream, const doub
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -558,18 +568,18 @@ static TA_RetCode TA_AROON_OpenPass( struct TA_AROON_Stream **stream, const doub
       sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_AROON_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_AROON_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
       sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inHigh ) { TA_AROON_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inHigh ) { TA_AROON_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inHigh ) { TA_AROON_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inHigh ) { TA_AROON_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inLow ) { TA_AROON_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inLow ) { TA_AROON_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inLow ) { TA_AROON_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inLow ) { TA_AROON_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -577,6 +587,8 @@ static TA_RetCode TA_AROON_OpenPass( struct TA_AROON_Stream **stream, const doub
            sp->x_inLow[fillJ & sp->xMask] = inLow[fillJ];
         }
       }
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -590,7 +602,7 @@ TA_RetCode TA_AROON_OpenInternal( struct TA_AROON_Stream **stream, const double 
    int dummyNBElement = 0;
    double sink_outAroonDown = 0.0;
    double sink_outAroonUp = 0.0;
-   retCode = TA_AROON_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outAroonDown, &sink_outAroonUp, 0 );
+   retCode = TA_AROON_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outAroonDown, &sink_outAroonUp, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outAroonDown = sink_outAroonDown;
@@ -613,25 +625,26 @@ TA_LIB_API TA_RetCode TA_AROON_OpenAndFill( TA_AROON_Stream **stream, const doub
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outAroonDown == (const void *)inHigh || (const void *)outAroonDown == (const void *)inLow || (const void *)outAroonUp == (const void *)inHigh || (const void *)outAroonUp == (const void *)inLow || (const void *)outAroonDown == (const void *)outAroonUp ) return TA_BAD_PARAM;
-   return TA_AROON_OpenPass( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp, 1 );
+   return TA_AROON_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_AROON_OpenAndFillInternal( struct TA_AROON_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outAroonDown[], double outAroonUp[] )
 {
-   return TA_AROON_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp, 1 );
+   return TA_AROON_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outAroonDown, outAroonUp, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_AROON_Update( TA_AROON_Stream *stream, double inHigh, double inLow, double *outAroonDown, double *outAroonUp )
 {
    if( !stream || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
-   TA_AROON_StepInternal( stream, inHigh, inLow, outAroonDown, outAroonUp );
+   TA_AROON_StepImpl( stream, inHigh, inLow, outAroonDown, outAroonUp );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -646,13 +659,29 @@ TA_LIB_API TA_RetCode TA_AROON_Peek( const TA_AROON_Stream *stream, double inHig
    memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xPhys );
    scratch.x_inLow = stream->xMirror_inLow;
    memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xPhys );
-   TA_AROON_StepInternal( &scratch, inHigh, inLow, outAroonDown, outAroonUp );
+   TA_AROON_StepImpl( &scratch, inHigh, inLow, outAroonDown, outAroonUp );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AROON_UpdateAndFill( TA_AROON_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outAroonDown[], double outAroonUp[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !outAroonDown || !outAroonUp ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outAroonDown == (const void *)inHigh || (const void *)outAroonDown == (const void *)inLow || (const void *)outAroonUp == (const void *)inHigh || (const void *)outAroonUp == (const void *)inLow || (const void *)outAroonDown == (const void *)outAroonUp ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) ) return TA_BAD_PARAM;
+      TA_AROON_StepImpl( stream, inHigh[i], inLow[i], &outAroonDown[i], &outAroonUp[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_AROON_Close( TA_AROON_Stream *stream )
 {
-   TA_AROON_ReleaseInternal( stream );
+   TA_AROON_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

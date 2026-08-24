@@ -131,8 +131,7 @@ public partial class Core
       return RetCode.Success ;
    }
    /// <summary>
-   /// Element-wise multiplication of two input series. Produces outReal[i] =
-   /// inReal0[i] * inReal1[i].
+   /// Element-wise multiplication of two input series.
    /// </summary>
    /// <remarks>
    /// <b>Formula</b>
@@ -188,8 +187,7 @@ public partial class Core
       return new OutRange(outBegIdx, outNBElement);
    }
    /// <summary>
-   /// Element-wise multiplication of two input series. Produces outReal[i] =
-   /// inReal0[i] * inReal1[i].
+   /// Element-wise multiplication of two input series.
    /// </summary>
    /// <remarks>
    /// <b>Formula</b>
@@ -272,30 +270,36 @@ public partial class Core
    {
       internal Core core;
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal MULT_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>MULT_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.MULT</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal MULT_Stream( MULT_Stream other )
       {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( MULT_Stream other )
       {
          this.core = other.core;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
@@ -315,7 +319,8 @@ public partial class Core
       public double Update( double inReal0, double inReal1 )
       {
          if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("MULT", "update", RetCode.BadParam);
-         core.MULT_StreamStep(this, inReal0, inReal1);
+         core.MULT_StepImpl(this, inReal0, inReal1);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -335,8 +340,35 @@ public partial class Core
       {
          if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("MULT", "peek", RetCode.BadParam);
          MULT_Stream scratch = new MULT_Stream(this);
-         core.MULT_StreamStep(scratch, inReal0, inReal1);
+         core.MULT_StepImpl(scratch, inReal0, inReal1);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inReal0">Closed bars for <c>inReal0</c>, oldest first.</param>
+      /// <param name="inReal1">Closed bars for <c>inReal1</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, Span<double> outReal )
+      {
+         int barCount = inReal0.Length;
+         if( inReal1.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inReal0) || outReal.Overlaps(inReal1) ) throw Core.StreamFailure("MULT", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inReal0[i]) || !double.IsFinite(inReal1[i]) ) throw Core.StreamFailure("MULT", "updateAndFill", RetCode.BadParam);
+            core.MULT_StepImpl(this, inReal0[i], inReal1[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -355,12 +387,12 @@ public partial class Core
       }
    }
 
-   internal void MULT_StreamStep( MULT_Stream sp, double inReal0, double inReal1 )
+   internal void MULT_StepImpl( MULT_Stream sp, double inReal0, double inReal1 )
    {
       sp.cur_outReal = inReal0 * inReal1;
    }
 
-   private RetCode MULT_OpenPass( MULT_Stream sp, ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode MULT_OpenImpl( MULT_Stream sp, ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -373,6 +405,11 @@ public partial class Core
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       outIdx = 0;
       i = startIdx;
@@ -388,32 +425,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode MULT_OpenImpl( MULT_Stream sp, ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int startIdx )
-   {
-      double[] sink_outReal = new double[1];
-      return MULT_OpenPass( sp, inReal0, inReal1, startIdx, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode MULT_OpenAndFillImpl( MULT_Stream sp, ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inReal0) || outReal.Overlaps(inReal1) ) {
-         return RetCode.BadParam;
-      }
-      return MULT_OpenPass( sp, inReal0, inReal1, 0, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode MULT_OpenAndFillInternalImpl( MULT_Stream sp, ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return MULT_OpenPass(sp, inReal0, inReal1, startIdx, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* MULT_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal MULT_Stream MULT_OpenAndFillInternal( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int startIdx, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       MULT_Stream sp = new MULT_Stream(this);
-      RetCode retCode = MULT_OpenAndFillInternalImpl(sp, inReal0, inReal1, startIdx, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = MULT_OpenImpl(sp, inReal0, inReal1, startIdx, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -424,7 +442,10 @@ public partial class Core
    internal MULT_Stream MULT_OpenInternal( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int startIdx )
    {
       MULT_Stream sp = new MULT_Stream(this);
-      RetCode retCode = MULT_OpenImpl(sp, inReal0, inReal1, startIdx);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = MULT_OpenImpl(sp, inReal0, inReal1, startIdx, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -464,7 +485,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="MULT_Stream.FillRange"/>.</para>
+   /// <see cref="MULT_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inReal0">First operand series. The warm-up history, oldest bar first.</param>
    /// <param name="inReal1">Second operand series. The warm-up history, oldest bar first.</param>
@@ -481,12 +502,9 @@ public partial class Core
    {
       if( inReal0.IsEmpty ) throw new TaLibArgumentException("inReal0 is empty", nameof(inReal0), RetCode.BadParam);
       if( inReal1.IsEmpty ) throw new TaLibArgumentException("inReal1 is empty", nameof(inReal1), RetCode.BadParam);
-      MULT_Stream sp = new MULT_Stream(this);
-      RetCode retCode = MULT_OpenAndFillImpl(sp, inReal0, inReal1, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inReal0) || outReal.Overlaps(inReal1) ) {
+         throw StreamFailure("MULT", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("MULT", "openAndFill", retCode);
+      return MULT_OpenAndFillInternal(inReal0, inReal1, 0, out _, out _, outReal);
    }
 }

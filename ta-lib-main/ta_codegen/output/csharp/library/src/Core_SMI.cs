@@ -212,7 +212,7 @@ public partial class Core
        * spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
        * preserved for the functions that already shipped with it and dropped from
        * new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-       * The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+       * The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
        */
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
@@ -891,10 +891,6 @@ public partial class Core
       internal double emaSlowDen;
       internal double emaFastNum;
       internal double emaFastDen;
-      internal double num;
-      internal double den;
-      internal double halfDen;
-      internal double smiValue;
       internal double prevSignal;
       internal int trailingIdx;
       internal int highestIdx;
@@ -907,17 +903,21 @@ public partial class Core
       internal double[] x_inClose = [];
       internal double cur_outSMI;
       internal double cur_outSMISignal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal SMI_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>SMI_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.SMI</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal SMI_Stream( SMI_Stream other )
       {
@@ -935,10 +935,6 @@ public partial class Core
          this.emaSlowDen = other.emaSlowDen;
          this.emaFastNum = other.emaFastNum;
          this.emaFastDen = other.emaFastDen;
-         this.num = other.num;
-         this.den = other.den;
-         this.halfDen = other.halfDen;
-         this.smiValue = other.smiValue;
          this.prevSignal = other.prevSignal;
          this.trailingIdx = other.trailingIdx;
          this.highestIdx = other.highestIdx;
@@ -954,7 +950,8 @@ public partial class Core
          Array.Copy( other.x_inClose, this.x_inClose, other.x_inClose.Length );
          this.cur_outSMI = other.cur_outSMI;
          this.cur_outSMISignal = other.cur_outSMISignal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( SMI_Stream other )
@@ -973,10 +970,6 @@ public partial class Core
          this.emaSlowDen = other.emaSlowDen;
          this.emaFastNum = other.emaFastNum;
          this.emaFastDen = other.emaFastDen;
-         this.num = other.num;
-         this.den = other.den;
-         this.halfDen = other.halfDen;
-         this.smiValue = other.smiValue;
          this.prevSignal = other.prevSignal;
          this.trailingIdx = other.trailingIdx;
          this.highestIdx = other.highestIdx;
@@ -998,7 +991,8 @@ public partial class Core
          Array.Copy( other.x_inClose, this.x_inClose, other.x_inClose.Length );
          this.cur_outSMI = other.cur_outSMI;
          this.cur_outSMISignal = other.cur_outSMISignal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /* Peek's reusable scratch — one per thread, see CopyFrom. */
@@ -1022,7 +1016,8 @@ public partial class Core
       public SMI_Value Update( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("SMI", "update", RetCode.BadParam);
-         core.SMI_StreamStep(this, inHigh, inLow, inClose);
+         core.SMI_StepImpl(this, inHigh, inLow, inClose);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new SMI_Value(cur_outSMI, cur_outSMISignal);
       }
 
@@ -1049,8 +1044,38 @@ public partial class Core
          } else {
             scratch.CopyFrom(this);
          }
-         core.SMI_StreamStep(scratch, inHigh, inLow, inClose);
+         core.SMI_StepImpl(scratch, inHigh, inLow, inClose);
          return new SMI_Value(scratch.cur_outSMI, scratch.cur_outSMISignal);
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
+      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
+      /// <param name="inClose">Closed bars for <c>inClose</c>, oldest first.</param>
+      /// <param name="outSMI">Receives one <c>outSMI</c> value per bar committed.</param>
+      /// <param name="outSMISignal">Receives one <c>outSMISignal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outSMI, Span<double> outSMISignal )
+      {
+         int barCount = inHigh.Length;
+         if( inLow.Length != barCount || inClose.Length != barCount || outSMI.Length < barCount || outSMISignal.Length < barCount || outSMI.Overlaps(inHigh) || outSMI.Overlaps(inLow) || outSMI.Overlaps(inClose) || outSMISignal.Overlaps(inHigh) || outSMISignal.Overlaps(inLow) || outSMISignal.Overlaps(inClose) || outSMI.Overlaps(outSMISignal) ) throw Core.StreamFailure("SMI", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) ) throw Core.StreamFailure("SMI", "updateAndFill", RetCode.BadParam);
+            core.SMI_StepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outSMI[i] = cur_outSMI;
+            outSMISignal[i] = cur_outSMISignal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -1069,9 +1094,13 @@ public partial class Core
       }
    }
 
-   internal void SMI_StreamStep( SMI_Stream sp, double inHigh, double inLow, double inClose )
+   internal void SMI_StepImpl( SMI_Stream sp, double inHigh, double inLow, double inClose )
    {
       double tmp = 0.0;
+      double num = 0.0;
+      double den = 0.0;
+      double halfDen = 0.0;
+      double smiValue = 0.0;
       if( sp.today >= 1073741824 ) {
          int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
@@ -1117,10 +1146,10 @@ public partial class Core
          sp.highestIdx = sp.today;
          sp.highest = tmp;
       }
-      sp.den = sp.highest - sp.lowest;
-      sp.num = sp.x_inClose[sp.today & sp.xMask] - (sp.highest + sp.lowest) * 0.5;
-      sp.emaSlowNum = Math.FusedMultiplyAdd(sp.num - sp.emaSlowNum, sp.kSlow, sp.emaSlowNum);
-      sp.emaSlowDen = Math.FusedMultiplyAdd(sp.den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
+      den = sp.highest - sp.lowest;
+      num = sp.x_inClose[sp.today & sp.xMask] - (sp.highest + sp.lowest) * 0.5;
+      sp.emaSlowNum = Math.FusedMultiplyAdd(num - sp.emaSlowNum, sp.kSlow, sp.emaSlowNum);
+      sp.emaSlowDen = Math.FusedMultiplyAdd(den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
       sp.emaFastNum = Math.FusedMultiplyAdd(sp.emaSlowNum - sp.emaFastNum, sp.kFast, sp.emaFastNum);
       sp.emaFastDen = Math.FusedMultiplyAdd(sp.emaSlowDen - sp.emaFastDen, sp.kFast, sp.emaFastDen);
       /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
@@ -1129,20 +1158,20 @@ public partial class Core
        * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
        * CCI (#7) and IMI (#112) convention.
        */
-      sp.halfDen = 0.5 * sp.emaFastDen;
-      if( !((-0.00000000000001 < sp.halfDen) && (sp.halfDen < 0.00000000000001)) ) {
-         sp.smiValue = 100.0 * sp.emaFastNum / sp.halfDen;
+      halfDen = 0.5 * sp.emaFastDen;
+      if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         smiValue = 100.0 * sp.emaFastNum / halfDen;
       } else {
-         sp.smiValue = 0.0;
+         smiValue = 0.0;
       }
-      sp.prevSignal = Math.FusedMultiplyAdd(sp.smiValue - sp.prevSignal, sp.kSignal, sp.prevSignal);
-      sp.cur_outSMI = sp.smiValue;
+      sp.prevSignal = Math.FusedMultiplyAdd(smiValue - sp.prevSignal, sp.kSignal, sp.prevSignal);
+      sp.cur_outSMI = smiValue;
       sp.cur_outSMISignal = sp.prevSignal;
       sp.trailingIdx = sp.trailingIdx + 1;
       sp.today = sp.today + 1;
    }
 
-   private RetCode SMI_OpenPass( SMI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, out int outBegIdx, out int outNBElement, Span<double> outSMI, Span<double> outSMISignal, int outStride )
+   private RetCode SMI_OpenImpl( SMI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, out int outBegIdx, out int outNBElement, Span<double> outSMI, Span<double> outSMISignal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -1206,6 +1235,11 @@ public partial class Core
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
+      }
       lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -1234,7 +1268,7 @@ public partial class Core
        * spelled out in efi.c: ema.c's TA_COMPATIBILITY_METASTOCK seeding arm is
        * preserved for the functions that already shipped with it and dropped from
        * new ones, and it is not reachable at all from the Rust, Java and C# APIs.
-       * The seeding choice itself is measured in docs/ema-seeding-evaluation.md.
+       * The seeding choice itself is measured in docs/studies/ema-seeding/README.md.
        */
       kSlow = 2.0 / (double)(optInSlowPeriod + 1);
       kFast = 2.0 / (double)(optInFastPeriod + 1);
@@ -1455,10 +1489,6 @@ public partial class Core
       sp.emaSlowDen = emaSlowDen;
       sp.emaFastNum = emaFastNum;
       sp.emaFastDen = emaFastDen;
-      sp.num = num;
-      sp.den = den;
-      sp.halfDen = halfDen;
-      sp.smiValue = smiValue;
       sp.prevSignal = prevSignal;
       sp.trailingIdx = trailingIdx;
       sp.highestIdx = highestIdx;
@@ -1474,33 +1504,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode SMI_OpenImpl( SMI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
-   {
-      double[] sink_outSMI = new double[1];
-      double[] sink_outSMISignal = new double[1];
-      return SMI_OpenPass( sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out _, out _, sink_outSMI, sink_outSMISignal, 0 );
-   }
-
-   private RetCode SMI_OpenAndFillImpl( SMI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, out int outBegIdx, out int outNBElement, Span<double> outSMI, Span<double> outSMISignal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outSMI.Overlaps(inHigh) || outSMI.Overlaps(inLow) || outSMI.Overlaps(inClose) || outSMISignal.Overlaps(inHigh) || outSMISignal.Overlaps(inLow) || outSMISignal.Overlaps(inClose) || outSMI.Overlaps(outSMISignal) ) {
-         return RetCode.BadParam;
-      }
-      return SMI_OpenPass( sp, inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outSMI, outSMISignal, 1 );
-   }
-
-   private RetCode SMI_OpenAndFillInternalImpl( SMI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, out int outBegIdx, out int outNBElement, Span<double> outSMI, Span<double> outSMISignal )
-   {
-      return SMI_OpenPass(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outSMI, outSMISignal, 1);
-   }
-
    /* SMI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal SMI_Stream SMI_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, out int outBegIdx, out int outNBElement, Span<double> outSMI, Span<double> outSMISignal )
    {
       SMI_Stream sp = new SMI_Stream(this);
-      RetCode retCode = SMI_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outSMI, outSMISignal);
+      RetCode retCode = SMI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outSMI, outSMISignal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1511,7 +1521,11 @@ public partial class Core
    internal SMI_Stream SMI_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int startIdx, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
       SMI_Stream sp = new SMI_Stream(this);
-      RetCode retCode = SMI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      double[] sink_outSMI = new double[1];
+      double[] sink_outSMISignal = new double[1];
+      RetCode retCode = SMI_OpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out int outBegIdx, out int outNBElement, sink_outSMI, sink_outSMISignal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1561,7 +1575,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="SMI_Stream.FillRange"/>.</para>
+   /// <see cref="SMI_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inHigh">High price series. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price series. The warm-up history, oldest bar first.</param>
@@ -1590,12 +1604,9 @@ public partial class Core
       if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
       if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
-      SMI_Stream sp = new SMI_Stream(this);
-      RetCode retCode = SMI_OpenAndFillImpl(sp, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out int outBegIdx, out int outNBElement, outSMI, outSMISignal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outSMI.Overlaps(inHigh) || outSMI.Overlaps(inLow) || outSMI.Overlaps(inClose) || outSMISignal.Overlaps(inHigh) || outSMISignal.Overlaps(inLow) || outSMISignal.Overlaps(inClose) || outSMI.Overlaps(outSMISignal) ) {
+         throw StreamFailure("SMI", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("SMI", "openAndFill", retCode);
+      return SMI_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out _, out _, outSMI, outSMISignal);
    }
 }

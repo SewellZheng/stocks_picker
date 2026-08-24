@@ -14,6 +14,7 @@
  *  100502 JV     Speed optimization of the algorithm
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  071726 MF,CC  #118 cancellation-free variance (shifted sums + reseed); fixes bug 90.
+ *  082326 MF,CC  #243 reseed floor is scale-relative, not `variance < 0`.
  */
 
    /**
@@ -166,11 +167,44 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            /* A variance is non-negative by definition, but this one is extracted
-             * as a difference of two nearly equal quantities, so its SIGN is not
-             * guaranteed: on a window sitting entirely inside a flat stretch every
-             * deviation is the same rounding residual and the subtraction is pure
-             * cancellation, landing either side of zero. Enforce the invariant.
+            /* Floor the fresh figure at the same ratio the trigger above uses, now
+             * measured against the RE-ANCHORED sums. With the shift AT the window
+             * mean the deviations sum to ~0, so a real window has variance ~
+             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+             * only when every deviation is the same value, i.e. when the spread is
+             * at or under the rounding error of the mean itself. There is then no
+             * spread the anchor could resolve, the surviving digits are noise, and
+             * the honest answer is 0.
+             *
+             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+             * difference is load-bearing. periodTotal2*invPeriod is not the
+             * variance here: it is variance + e^2, where e is the rounding error of
+             * the reseed's own left-to-right sum for the mean -- exactly the term
+             * the two-pass subtraction then cancels out. So the ratio measures how
+             * badly that sum rounded, not how much signal survives, and matching
+             * the trigger's 1e-6 fired ten orders before cancellation eats any
+             * digits. It zeroed a variance the line above had just computed to nine
+             * correct significant figures: 100011 bars at 31498938283.624615 with
+             * two small outliers at period 99991 gives 1.0219900060103338e-09
+             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+             * survives and every intended bit-zero still zeroes -- the live ratios
+             * on flat data are 0 or ~1e-16, six orders the other side.
+             *
+             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+             * relative rather than the `variance < 0.0` it replaced because two
+             * things ride on it:
+             *
+             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+             *    side is >= 0 and any negative variance is clamped unconditionally -
+             *    where `< 0.0` needed the three-case argument below to know that a
+             *    negative one ever reaches this line.
+             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+             *    quantity to 1e-14, which is a cliff at a price level and not a
+             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+             *    Expressed here in the window's own units, the floor lets both of
+             *    them square-root what they are handed unconditionally.
              *
              * Clamping HERE and not at the output write is what keeps this off the
              * per-bar path, and it is sufficient because a negative variance always
@@ -182,7 +216,7 @@
              * THIS - the alternative is an unconditional clamp at the output write,
              * which needs no such argument but does cost ~3%.
              */
-            if( variance < 0.0 ) {
+            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
             /* Re-remove the trailing value under the new shift so the carried state
@@ -294,7 +328,7 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            if( variance < 0.0 ) {
+            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
             tempReal = (double)inReal[windowStart] - shift;
@@ -467,30 +501,32 @@
       double shift;
       double periodTotal1;
       double periodTotal2;
-      double meanValue1;
-      double variance;
       double invPeriod;
-      int j;
       int trailingIdx;
-      int windowStart;
       int nbInitialElementNeeded;
       int barsSinceReseed;
+      int j;
+      int windowStart;
       int i;
       int xMask;
       double[] x_inReal;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       VAR_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#VAR_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#VAR} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       VAR_Stream( VAR_Stream other ) {
          this.core = other.core;
@@ -499,19 +535,18 @@
          this.shift = other.shift;
          this.periodTotal1 = other.periodTotal1;
          this.periodTotal2 = other.periodTotal2;
-         this.meanValue1 = other.meanValue1;
-         this.variance = other.variance;
          this.invPeriod = other.invPeriod;
-         this.j = other.j;
          this.trailingIdx = other.trailingIdx;
-         this.windowStart = other.windowStart;
          this.nbInitialElementNeeded = other.nbInitialElementNeeded;
          this.barsSinceReseed = other.barsSinceReseed;
+         this.j = other.j;
+         this.windowStart = other.windowStart;
          this.i = other.i;
          this.xMask = other.xMask;
          this.x_inReal = other.x_inReal.clone();
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( VAR_Stream other ) {
@@ -521,14 +556,12 @@
          this.shift = other.shift;
          this.periodTotal1 = other.periodTotal1;
          this.periodTotal2 = other.periodTotal2;
-         this.meanValue1 = other.meanValue1;
-         this.variance = other.variance;
          this.invPeriod = other.invPeriod;
-         this.j = other.j;
          this.trailingIdx = other.trailingIdx;
-         this.windowStart = other.windowStart;
          this.nbInitialElementNeeded = other.nbInitialElementNeeded;
          this.barsSinceReseed = other.barsSinceReseed;
+         this.j = other.j;
+         this.windowStart = other.windowStart;
          this.i = other.i;
          this.xMask = other.xMask;
          if( this.x_inReal != null && this.x_inReal.length == other.x_inReal.length ) {
@@ -537,7 +570,8 @@
             this.x_inReal = other.x_inReal.clone();
          }
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -555,8 +589,34 @@
       public double update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("VAR update: BadParam", RetCode.BadParam);
-         core.VAR_StreamStep(this, inReal);
+         core.VAR_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double outReal[] ) {
+         final int barCount = inReal.length;
+         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
+            throw new TaLibArgumentException("VAR updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) )
+               throw new TaLibArgumentException("VAR updateAndFill: BadParam", RetCode.BadParam);
+            core.VAR_StepImpl(this, inReal[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -570,7 +630,7 @@
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("VAR peek: BadParam", RetCode.BadParam);
          VAR_Stream scratch = new VAR_Stream(this);
-         core.VAR_StreamStep(scratch, inReal);
+         core.VAR_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -591,9 +651,11 @@
          return new VAR_Stream(this);
       }
    }
-   void VAR_StreamStep( VAR_Stream sp, double inReal )
+   void VAR_StepImpl( VAR_Stream sp, double inReal )
    {
       double tempReal = 0.0;
+      double meanValue1 = 0.0;
+      double variance = 0.0;
       if( sp.i >= 1073741824 ) {
          int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.i -= rebaseShift;
@@ -607,8 +669,8 @@
       sp.periodTotal1 += tempReal;
       tempReal *= tempReal;
       sp.periodTotal2 += tempReal;
-      sp.meanValue1 = sp.periodTotal1 * sp.invPeriod;
-      sp.variance = sp.periodTotal2 * sp.invPeriod - sp.meanValue1 * sp.meanValue1;
+      meanValue1 = sp.periodTotal1 * sp.invPeriod;
+      variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
       /* Remove the trailing value (prepares the next window). */
       tempReal = sp.x_inReal[sp.trailingIdx & sp.xMask] - sp.shift;
       sp.periodTotal1 -= tempReal;
@@ -629,7 +691,7 @@
        * reseeding it every bar. Guarantees a non-negative output.
        */
       sp.barsSinceReseed -= 1;
-      if( sp.variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 ) {
+      if( variance < 0.000001 * (sp.periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * sp.periodTotal2 || sp.barsSinceReseed <= 0 ) {
          sp.barsSinceReseed = 32 * sp.optInTimePeriod;
          sp.windowStart = sp.i - sp.nbInitialElementNeeded;
          tempReal = 0.0;
@@ -645,13 +707,46 @@
             tempReal *= tempReal;
             sp.periodTotal2 += tempReal;
          }
-         sp.meanValue1 = sp.periodTotal1 * sp.invPeriod;
-         sp.variance = sp.periodTotal2 * sp.invPeriod - sp.meanValue1 * sp.meanValue1;
-         /* A variance is non-negative by definition, but this one is extracted
-          * as a difference of two nearly equal quantities, so its SIGN is not
-          * guaranteed: on a window sitting entirely inside a flat stretch every
-          * deviation is the same rounding residual and the subtraction is pure
-          * cancellation, landing either side of zero. Enforce the invariant.
+         meanValue1 = sp.periodTotal1 * sp.invPeriod;
+         variance = sp.periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+         /* Floor the fresh figure at the same ratio the trigger above uses, now
+          * measured against the RE-ANCHORED sums. With the shift AT the window
+          * mean the deviations sum to ~0, so a real window has variance ~
+          * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+          * only when every deviation is the same value, i.e. when the spread is
+          * at or under the rounding error of the mean itself. There is then no
+          * spread the anchor could resolve, the surviving digits are noise, and
+          * the honest answer is 0.
+          *
+          * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+          * difference is load-bearing. periodTotal2*invPeriod is not the
+          * variance here: it is variance + e^2, where e is the rounding error of
+          * the reseed's own left-to-right sum for the mean -- exactly the term
+          * the two-pass subtraction then cancels out. So the ratio measures how
+          * badly that sum rounded, not how much signal survives, and matching
+          * the trigger's 1e-6 fired ten orders before cancellation eats any
+          * digits. It zeroed a variance the line above had just computed to nine
+          * correct significant figures: 100011 bars at 31498938283.624615 with
+          * two small outliers at period 99991 gives 1.0219900060103338e-09
+          * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+          * survives and every intended bit-zero still zeroes -- the live ratios
+          * on flat data are 0 or ~1e-16, six orders the other side.
+          *
+          * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+          * relative rather than the `variance < 0.0` it replaced because two
+          * things ride on it:
+          *
+          *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+          *    side is >= 0 and any negative variance is clamped unconditionally -
+          *    where `< 0.0` needed the three-case argument below to know that a
+          *    negative one ever reaches this line.
+          *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+          *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+          *    quantity to 1e-14, which is a cliff at a price level and not a
+          *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+          *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+          *    Expressed here in the window's own units, the floor lets both of
+          *    them square-root what they are handed unconditionally.
           *
           * Clamping HERE and not at the output write is what keeps this off the
           * per-bar path, and it is sufficient because a negative variance always
@@ -663,8 +758,8 @@
           * THIS - the alternative is an unconditional clamp at the output write,
           * which needs no such argument but does cost ~3%.
           */
-         if( sp.variance < 0.0 ) {
-            sp.variance = 0.0;
+         if( variance < 0.000000000001 * (sp.periodTotal2 * sp.invPeriod) ) {
+            variance = 0.0;
          }
          /* Re-remove the trailing value under the new shift so the carried state
           * matches the non-reseed path.
@@ -674,10 +769,10 @@
          tempReal *= tempReal;
          sp.periodTotal2 -= tempReal;
       }
-      sp.cur_outReal = sp.variance;
+      sp.cur_outReal = variance;
       sp.i += 1;
    }
-   private RetCode VAR_OpenPass( VAR_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode VAR_OpenImpl( VAR_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double tempReal = 0;
       double shift = 0;
@@ -710,6 +805,11 @@
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       /* Identify the minimum number of price bar needed to calculate
        * at least one output.
@@ -794,11 +894,44 @@
             }
             meanValue1 = periodTotal1 * invPeriod;
             variance = periodTotal2 * invPeriod - meanValue1 * meanValue1;
-            /* A variance is non-negative by definition, but this one is extracted
-             * as a difference of two nearly equal quantities, so its SIGN is not
-             * guaranteed: on a window sitting entirely inside a flat stretch every
-             * deviation is the same rounding residual and the subtraction is pure
-             * cancellation, landing either side of zero. Enforce the invariant.
+            /* Floor the fresh figure at the same ratio the trigger above uses, now
+             * measured against the RE-ANCHORED sums. With the shift AT the window
+             * mean the deviations sum to ~0, so a real window has variance ~
+             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+             * only when every deviation is the same value, i.e. when the spread is
+             * at or under the rounding error of the mean itself. There is then no
+             * spread the anchor could resolve, the surviving digits are noise, and
+             * the honest answer is 0.
+             *
+             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+             * difference is load-bearing. periodTotal2*invPeriod is not the
+             * variance here: it is variance + e^2, where e is the rounding error of
+             * the reseed's own left-to-right sum for the mean -- exactly the term
+             * the two-pass subtraction then cancels out. So the ratio measures how
+             * badly that sum rounded, not how much signal survives, and matching
+             * the trigger's 1e-6 fired ten orders before cancellation eats any
+             * digits. It zeroed a variance the line above had just computed to nine
+             * correct significant figures: 100011 bars at 31498938283.624615 with
+             * two small outliers at period 99991 gives 1.0219900060103338e-09
+             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+             * survives and every intended bit-zero still zeroes -- the live ratios
+             * on flat data are 0 or ~1e-16, six orders the other side.
+             *
+             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+             * relative rather than the `variance < 0.0` it replaced because two
+             * things ride on it:
+             *
+             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+             *    side is >= 0 and any negative variance is clamped unconditionally -
+             *    where `< 0.0` needed the three-case argument below to know that a
+             *    negative one ever reaches this line.
+             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+             *    quantity to 1e-14, which is a cliff at a price level and not a
+             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+             *    Expressed here in the window's own units, the floor lets both of
+             *    them square-root what they are handed unconditionally.
              *
              * Clamping HERE and not at the output write is what keeps this off the
              * per-bar path, and it is sufficient because a negative variance always
@@ -810,7 +943,7 @@
              * THIS - the alternative is an unconditional clamp at the output write,
              * which needs no such argument but does cost ~3%.
              */
-            if( variance < 0.0 ) {
+            if( variance < 0.000000000001 * (periodTotal2 * invPeriod) ) {
                variance = 0.0;
             }
             /* Re-remove the trailing value under the new shift so the carried state
@@ -845,43 +978,25 @@
       sp.shift = shift;
       sp.periodTotal1 = periodTotal1;
       sp.periodTotal2 = periodTotal2;
-      sp.meanValue1 = meanValue1;
-      sp.variance = variance;
       sp.invPeriod = invPeriod;
-      sp.j = j;
       sp.trailingIdx = trailingIdx;
-      sp.windowStart = windowStart;
       sp.nbInitialElementNeeded = nbInitialElementNeeded;
       sp.barsSinceReseed = barsSinceReseed;
+      sp.j = j;
+      sp.windowStart = windowStart;
       sp.i = i;
       sp.xMask = physX - 1;
       sp.x_inReal = capX_inReal;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode VAR_OpenImpl( VAR_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return VAR_OpenPass( sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode VAR_OpenAndFillImpl( VAR_Stream sp, double inReal[], int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inReal ) {
-         return RetCode.BadParam;
-      }
-      return VAR_OpenPass( sp, inReal, 0, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode VAR_OpenAndFillInternalImpl( VAR_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return VAR_OpenPass(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
-   }
    /* VAR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    VAR_Stream VAR_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       VAR_Stream sp = new VAR_Stream(this);
-      RetCode retCode = VAR_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      RetCode retCode = VAR_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -897,7 +1012,12 @@
    VAR_Stream VAR_OpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
    {
       VAR_Stream sp = new VAR_Stream(this);
-      RetCode retCode = VAR_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = VAR_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -930,23 +1050,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link VAR_Stream#fillRange()}.
+    * {@link VAR_Stream#outRange()}.
     */
    public VAR_Stream VAR_OpenAndFill( double inReal[], int optInTimePeriod, double optInNbDev, double outReal[] )
    {
-      VAR_Stream sp = new VAR_Stream(this);
+      if( (Object)outReal == (Object)inReal ) {
+         throw new TaLibArgumentException("VAR openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = VAR_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("VAR openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("VAR openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("VAR openAndFill: " + retCode, retCode);
+      return VAR_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
    }

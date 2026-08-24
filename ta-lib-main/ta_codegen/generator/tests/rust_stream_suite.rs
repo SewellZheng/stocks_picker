@@ -81,8 +81,10 @@ fn test_rust_sma_ring_stream_section() {
     assert!(!s.contains("peekMode"), "no peekMode in the Rust tier");
     assert!(!s.contains("unsafe"), "stream sections are safe Rust");
     // Step: ring read-old-then-push order, `(*outReal)` write.
-    assert!(s.contains("fn SMA_step_internal(&self, sp: &mut SMA_StreamState, inReal: f64, outReal: &mut f64)"));
-    assert!(s.contains("(*outReal) = sp.tempReal / (sp.optInTimePeriod as f64);"));
+    assert!(s.contains("fn SMA_step_impl(&self, sp: &mut SMA_StreamState, inReal: f64, outReal: &mut f64)"));
+    // `tempReal` is step-local scratch, not a handle field (#252).
+    assert!(s.contains("(*outReal) = tempReal / (sp.optInTimePeriod as f64);"));
+    assert!(!s.contains("tempReal: f64,"), "no scratch field on the state struct");
     assert!(s.contains("sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;"));
     // Open family: internal seam + thin wrapper + fill in batch param order.
     assert!(s.contains("pub(crate) fn SMA_OpenInternal("));
@@ -210,7 +212,7 @@ fn test_rust_ht_dcperiod_parity_stream_section() {
     assert!(s.contains("sp.streamParity"));
     // The gate strip + parity carry leave no cursor/startIdx leak in the step.
     let step = s
-        .split("fn HT_DCPERIOD_step_internal")
+        .split("fn HT_DCPERIOD_step_impl")
         .nth(1)
         .and_then(|t| t.split("/// The single whole-history transcription").next())
         .expect("step body");
@@ -231,8 +233,12 @@ fn test_rust_dx_out_feedback_carried() {
 fn test_rust_identity_fast_path_t3() {
     let s = rust_stream_section("t3");
     // param==1 identity short-circuit before the transcribed body: min-history
-    // check via lookback, passthrough value, default state.
-    assert!(s.contains("if historyLen < self.T3_Lookback(optInTimePeriod, optInVFactor) + 1 {"));
+    // check via lookback, passthrough value, default state. The anchor is
+    // max(startIdx, lookback), like the batch call this path stands in for —
+    // a no-op for the public openers, which pass 0 (#241).
+    assert!(s.contains("let fillLb: usize = self.T3_Lookback(optInTimePeriod, optInVFactor);"));
+    assert!(s.contains("let fillLb = if startIdx > fillLb { startIdx } else { fillLb };"));
+    assert!(s.contains("if historyLen < fillLb + 1 {"));
     // Stride 0 short-circuits to the last bar; only the fill arm loops. Letting
     // the loop run at stride 0 is correct but makes the scalar Open O(history).
     assert!(s.contains("if outStride == 0 {"), "identity arm short-circuits at stride 0");
@@ -292,29 +298,35 @@ fn every_streamable_func_emits_rust_stream() {
 }
 
 // ---------------------------------------------------------------------------
-// Merged Open family (`OpenCore` + stride)
+// Merged Open family: three entries over one `<sn>_OpenImpl`
 // ---------------------------------------------------------------------------
 //
-// `OpenInternal` and `OpenAndFill` are one emission: `<sn>_OpenPass(..., outStride:
+// Every entry is one emission: `<sn>_OpenImpl(..., outStride:
 // usize)`. Fill passes stride 1 and the caller's slice; the scalar path passes
 // stride 0 and a one-element sink, so every write collapses onto slot 0 and that
 // slot ends holding the last history value. `Dispatch` (MA) and `PeriodBank`
 // (MAVP) are exempt — they hand the fill to a sub / run a different warm-up.
 
 #[test]
-fn rust_open_family_is_one_core_with_two_wrappers() {
+fn rust_open_family_is_one_core_with_three_entries() {
     let s = rust_stream_section("cdlhammer");
     assert_eq!(
-        s.matches("fn CDLHAMMER_OpenPass(").count(),
+        s.matches("fn CDLHAMMER_OpenImpl(").count(),
         1,
         "the core is emitted exactly once"
     );
     assert!(s.contains("outStride: usize"), "the core takes a stride");
-    // Both wrappers delegate; neither re-transcribes the algorithm.
-    for w in ["fn CDLHAMMER_OpenInternal(", "pub fn CDLHAMMER_OpenAndFill("] {
+    // Every entry delegates; none re-transcribes the algorithm. The public fill
+    // goes through the anchored seam, which is what gives that seam a caller for
+    // all 175 rather than only the 16 something composes over.
+    for (w, callee) in [
+        ("fn CDLHAMMER_OpenInternal(", "CDLHAMMER_OpenImpl("),
+        ("fn CDLHAMMER_OpenAndFillInternal(", "CDLHAMMER_OpenImpl("),
+        ("pub fn CDLHAMMER_OpenAndFill(", "CDLHAMMER_OpenAndFillInternal("),
+    ] {
         let at = s.find(w).unwrap_or_else(|| panic!("missing {w}"));
         let body = &s[at..at + 900.min(s.len() - at)];
-        assert!(body.contains("CDLHAMMER_OpenPass("), "{w} delegates to the core");
+        assert!(body.contains(callee), "{w} delegates to {callee}");
         assert!(
             !body.contains("BodyPeriodTotal"),
             "{w} must not re-transcribe the algorithm"
@@ -378,7 +390,7 @@ fn rust_exempt_tiers_keep_their_own_bodies() {
     for (name, upper) in [("ma", "MA"), ("mavp", "MAVP")] {
         let s = rust_stream_section(name);
         assert!(
-            !s.contains(&format!("fn {upper}_OpenPass(")),
+            !s.contains(&format!("fn {upper}_OpenImpl(")),
             "{upper} is an exempt tier and must keep its own bodies"
         );
         assert!(s.contains(&format!("fn {upper}_OpenInternal(")));
@@ -405,8 +417,14 @@ fn rust_dispatch_open_modes_differ_only_where_intended() {
     assert!(!scalar.contains("outBegIdx"), "the scalar open has no out-meta:\n{scalar}");
     assert!(!fill.contains("outBegIdx"), "the public fill carries no out-meta pair:\n{fill}");
     assert!(
-        fill.contains("Ok((MA_Stream { core: self.clone(), state }, fillRange))"),
-        "the public fill returns the arm's own range beside the handle:\n{fill}"
+        fill.contains("Ok((MA_Stream { core: self.clone(), state, out: fillRange }, fillRange))"),
+        "the public fill returns the arm's own range beside the handle, and keeps it \
+         on the handle too (#241):\n{fill}"
+    );
+    assert!(
+        scalar.contains("let subRange = sub.out_range();")
+            && scalar.contains("out: subRange"),
+        "the scalar open has no out-meta, so it inherits the arm's own range:\n{scalar}"
     );
     assert!(
         internal.contains("(*outBegIdx) = fillLb;"),

@@ -57,6 +57,7 @@ public partial class Core
     *  100502 JV   Speed optimization of the algorithm
     *  052603 MF   Adapt code to compile with .NET Managed C++
     *  090404 MF   Fix #978056. Trap sqrt with negative zero values.
+    *  082326 MF,CC #243 the sqrt trap moves to var's scale-relative floor.
     */
    /// <summary>
    /// Number of leading input bars <c>STDDEV</c> consumes before it can produce
@@ -101,7 +102,6 @@ public partial class Core
       outNBElement = 0;
       int i = 0;
       RetCode retCode;
-      double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -147,24 +147,24 @@ public partial class Core
        * is the standard deviation.
        *
        * Multiply also by the ratio specified.
+       *
+       * Unconditional. var owns the dead-zone and owns the sign: it returns a
+       * non-negative variance, already floored to exactly 0 on any window whose
+       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * stand here instead - zero the output wherever the variance fell under
+       * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
+       * at a price level rather than a noise floor: a $100.00 instrument quoted in
+       * 1e-8 ticks has a variance around 1e-16 and came back as exactly 0 on every
+       * bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
+       * Dropping it also leaves a pure map, which the branch had kept sqrt out of.
        */
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.Sqrt(tempReal) * optInNbDev;
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.Sqrt(outReal[i]) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.Sqrt(tempReal);
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.Sqrt(outReal[i]);
          }
       }
       return RetCode.Success ;
@@ -182,7 +182,6 @@ public partial class Core
       outNBElement = 0;
       int i = 0;
       RetCode retCode;
-      double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -213,21 +212,11 @@ public partial class Core
       }
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.Sqrt(tempReal) * optInNbDev;
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.Sqrt(outReal[i]) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.Sqrt(tempReal);
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.Sqrt(outReal[i]);
          }
       }
       return RetCode.Success ;
@@ -389,18 +378,22 @@ public partial class Core
       internal double optInNbDev;
       internal double cur_outReal;
       internal VAR_Stream sub0 = null!;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal STDDEV_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>STDDEV_OpenAndFill</c> filled, or
-      /// <see cref="OutRange.Empty"/> when this handle came from a plain open
-      /// (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.STDDEV</c> reports over the same bars: the opener sets
+      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
+      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
+      /// last value, a subset of this range, because the caller chose not to take
+      /// the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal STDDEV_Stream( STDDEV_Stream other )
       {
@@ -409,7 +402,8 @@ public partial class Core
          this.optInNbDev = other.optInNbDev;
          this.cur_outReal = other.cur_outReal;
          this.sub0 = new VAR_Stream(other.sub0);
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( STDDEV_Stream other )
@@ -423,7 +417,8 @@ public partial class Core
          } else {
             this.sub0.CopyFrom(other.sub0);
          }
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
@@ -442,7 +437,8 @@ public partial class Core
       public double Update( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("STDDEV", "update", RetCode.BadParam);
-         core.STDDEV_StreamStep(this, inReal);
+         core.STDDEV_StepImpl(this, inReal);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -461,8 +457,34 @@ public partial class Core
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("STDDEV", "peek", RetCode.BadParam);
          STDDEV_Stream scratch = new STDDEV_Stream(this);
-         core.STDDEV_StreamStep(scratch, inReal);
+         core.STDDEV_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
+      {
+         int barCount = inReal.Length;
+         if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("STDDEV", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("STDDEV", "updateAndFill", RetCode.BadParam);
+            core.STDDEV_StepImpl(this, inReal[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -481,38 +503,26 @@ public partial class Core
       }
    }
 
-   internal void STDDEV_StreamStep( STDDEV_Stream sp, double inReal )
+   internal void STDDEV_StepImpl( STDDEV_Stream sp, double inReal )
    {
-      double tempReal = 0.0;
       double cur_outReal = 0.0;
       /* Pipeline the new bar through the sub-streams (batch tail order). */
       cur_outReal = sp.sub0.Update(inReal);
       /* Combine map (batch tail, per bar). */
       if( sp.optInNbDev != 1.0 ) {
-         tempReal = cur_outReal;
-         if( !(tempReal < 0.00000000000001) ) {
-            cur_outReal = Math.Sqrt(tempReal) * sp.optInNbDev;
-         } else {
-            cur_outReal = (double)0.0;
-         }
+         cur_outReal = Math.Sqrt(cur_outReal) * sp.optInNbDev;
       } else {
-         tempReal = cur_outReal;
-         if( !(tempReal < 0.00000000000001) ) {
-            cur_outReal = Math.Sqrt(tempReal);
-         } else {
-            cur_outReal = (double)0.0;
-         }
+         cur_outReal = Math.Sqrt(cur_outReal);
       }
       sp.cur_outReal = cur_outReal;
    }
 
-   private RetCode STDDEV_OpenPass( STDDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInNbDev, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode STDDEV_OpenImpl( STDDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInNbDev, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
       int i = 0;
       RetCode retCode;
-      double tempReal = 0;
       int historyLen = inReal.Length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -530,6 +540,11 @@ public partial class Core
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       if( historyLen < STDDEV_Lookback(optInTimePeriod, optInNbDev) + 1 ) {
          return RetCode.InsufficientHistory;
@@ -561,24 +576,24 @@ public partial class Core
        * is the standard deviation.
        *
        * Multiply also by the ratio specified.
+       *
+       * Unconditional. var owns the dead-zone and owns the sign: it returns a
+       * non-negative variance, already floored to exactly 0 on any window whose
+       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * stand here instead - zero the output wherever the variance fell under
+       * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
+       * at a price level rather than a noise floor: a $100.00 instrument quoted in
+       * 1e-8 ticks has a variance around 1e-16 and came back as exactly 0 on every
+       * bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
+       * Dropping it also leaves a pure map, which the branch had kept sqrt out of.
        */
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            tempReal = sc_outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               sc_outReal[i] = Math.Sqrt(tempReal) * optInNbDev;
-            } else {
-               sc_outReal[i] = (double)0.0;
-            }
+            sc_outReal[i] = Math.Sqrt(sc_outReal[i]) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement; i += 1 ) {
-            tempReal = sc_outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               sc_outReal[i] = Math.Sqrt(tempReal);
-            } else {
-               sc_outReal[i] = (double)0.0;
-            }
+            sc_outReal[i] = Math.Sqrt(sc_outReal[i]);
          }
       }
       /* Capture the live producer state + sub handles. */
@@ -592,32 +607,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode STDDEV_OpenImpl( STDDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInNbDev )
-   {
-      double[] sink_outReal = new double[1];
-      return STDDEV_OpenPass( sp, inReal, startIdx, optInTimePeriod, optInNbDev, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode STDDEV_OpenAndFillImpl( STDDEV_Stream sp, ReadOnlySpan<double> inReal, int optInTimePeriod, double optInNbDev, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inReal) ) {
-         return RetCode.BadParam;
-      }
-      return STDDEV_OpenPass( sp, inReal, 0, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode STDDEV_OpenAndFillInternalImpl( STDDEV_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInNbDev, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return STDDEV_OpenPass(sp, inReal, startIdx, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* STDDEV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal STDDEV_Stream STDDEV_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInNbDev, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       STDDEV_Stream sp = new STDDEV_Stream(this);
-      RetCode retCode = STDDEV_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = STDDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -628,7 +624,10 @@ public partial class Core
    internal STDDEV_Stream STDDEV_OpenInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInNbDev )
    {
       STDDEV_Stream sp = new STDDEV_Stream(this);
-      RetCode retCode = STDDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = STDDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -670,7 +669,7 @@ public partial class Core
    /// and then reads the input tail to seed its rings, so the batch tier's
    /// in-place allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="STDDEV_Stream.FillRange"/>.</para>
+   /// <see cref="STDDEV_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inReal">Series to measure dispersion of. The warm-up history, oldest bar first.</param>
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="STDDEV_Lookback"/> for its default
@@ -689,12 +688,9 @@ public partial class Core
    public STDDEV_Stream STDDEV_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInNbDev, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
-      STDDEV_Stream sp = new STDDEV_Stream(this);
-      RetCode retCode = STDDEV_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInNbDev, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inReal) ) {
+         throw StreamFailure("STDDEV", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("STDDEV", "openAndFill", retCode);
+      return STDDEV_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDev, out _, out _, outReal);
    }
 }

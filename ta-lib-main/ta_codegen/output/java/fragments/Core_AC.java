@@ -20,16 +20,14 @@
     * output.
     *
     * @param optInFastPeriod Number of bars in the short moving average of the
-    *        median price. Default 5, the value Williams uses and every surveyed
-    *        package ships (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+    *        median price (default 5; range 2..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
     * @param optInSlowPeriod Number of bars in the long moving average of the
-    *        median price. Default 34, likewise universal (default 34; range 2..100000;
-    *        {@code Integer.MIN_VALUE} selects the default).
+    *        median price (default 34; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
     * @param optInSignalPeriod Number of bars in the moving average taken over
-    *        the oscillator. Default 5. MetaTrader, Quantower and cTrader hardcode all
-    *        three; trading-signals exposes all three with these same values (default
-    *        5; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
+    *        the oscillator (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int AC_Lookback( int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -363,22 +361,24 @@
    /**
     * Bill Williams' Accelerator/Decelerator Oscillator (*New Trading
     * Dimensions*, 1998): the rate at which market momentum is itself speeding
-    * up or slowing down. Where the Awesome Oscillator measures momentum, this
-    * measures the change in that momentum, by taking the oscillator's distance
-    * above or below its own moving average. Because acceleration turns before
-    * speed does, the reading changes sign ahead of the oscillator it is built
-    * from — it is meant as the early half of a pair, not as a signal on its
-    * own. Above zero acceleration is with the bulls, below zero with the bears,
-    * and it is drawn as a zero-centred histogram whose colour convention is the
-    * bar-to-bar change: rising bars accelerating, falling bars decelerating.
-    * Williams' rule of thumb is that two same-coloured bars are what confirms
-    * the turn, which is why the sign and the direction matter more than the
-    * level. The oscillator is one leg of Williams' Profitunity system,
-    * alongside the Awesome Oscillator and the Alligator.
+    * up or slowing down. Where the Awesome Oscillator
+    * ([{@code AO}](/functions/ao)) measures momentum, this measures the change
+    * in that momentum, by taking the oscillator's distance above or below its
+    * own moving average. Because acceleration turns before speed does, the
+    * reading changes sign ahead of the oscillator it is built from — it is
+    * meant as the early half of a pair, not as a signal on its own. Above zero
+    * acceleration is with the bulls, below zero with the bears, and it is drawn
+    * as a zero-centred histogram whose colour convention is the bar-to-bar
+    * change: rising bars accelerating, falling bars decelerating. Williams'
+    * rule of thumb is that two same-coloured bars are what confirms the turn,
+    * which is why the sign and the direction matter more than the level. The
+    * oscillator is one leg of Williams' Profitunity system, alongside the
+    * Awesome Oscillator ([{@code AO}](/functions/ao)) and the Alligator.
     * <p><b>Formula</b>
     * <pre>{@code
-    * median_t = ( high_t + low_t ) / 2; AO_t = SMA(median, fast)_t − SMA(median, slow)_t; AC_t = AO_t − SMA(AO, signal)_t
-    * Every leg is a plain simple moving average, so there is no seeding convention and none of the cross-library divergence that comes with one.
+    * median_t = ( high_t + low_t ) / 2
+    * AO_t = SMA(median, fast)_t − SMA(median, slow)_t
+    * AC_t = AO_t − SMA(AO, signal)_t
     * }</pre>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -391,19 +391,17 @@
     * @param inHigh High price of each bar.
     * @param inLow Low price of each bar.
     * @param optInFastPeriod Number of bars in the short moving average of the
-    *        median price. Default 5, the value Williams uses and every surveyed
-    *        package ships (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+    *        median price (default 5; range 2..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
     * @param optInSlowPeriod Number of bars in the long moving average of the
-    *        median price. Default 34, likewise universal (default 34; range 2..100000;
-    *        {@code Integer.MIN_VALUE} selects the default).
+    *        median price (default 34; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
     * @param optInSignalPeriod Number of bars in the moving average taken over
-    *        the oscillator. Default 5. MetaTrader, Quantower and cTrader hardcode all
-    *        three; trading-signals exposes all three with these same values (default
-    *        5; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
-    * @param outReal Distance of the Awesome Oscillator from its own moving
-    *        average, centred on zero. Must hold at least {@code endIdx - startIdx + 1}
-    *        values.
+    *        the oscillator (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param outReal Distance of the Awesome Oscillator
+    *        ([{@code AO}](/functions/ao)) from its own moving average, centred on
+    *        zero. Must hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -452,22 +450,24 @@
    /**
     * Bill Williams' Accelerator/Decelerator Oscillator (*New Trading
     * Dimensions*, 1998): the rate at which market momentum is itself speeding
-    * up or slowing down. Where the Awesome Oscillator measures momentum, this
-    * measures the change in that momentum, by taking the oscillator's distance
-    * above or below its own moving average. Because acceleration turns before
-    * speed does, the reading changes sign ahead of the oscillator it is built
-    * from — it is meant as the early half of a pair, not as a signal on its
-    * own. Above zero acceleration is with the bulls, below zero with the bears,
-    * and it is drawn as a zero-centred histogram whose colour convention is the
-    * bar-to-bar change: rising bars accelerating, falling bars decelerating.
-    * Williams' rule of thumb is that two same-coloured bars are what confirms
-    * the turn, which is why the sign and the direction matter more than the
-    * level. The oscillator is one leg of Williams' Profitunity system,
-    * alongside the Awesome Oscillator and the Alligator.
+    * up or slowing down. Where the Awesome Oscillator
+    * ([{@code AO}](/functions/ao)) measures momentum, this measures the change
+    * in that momentum, by taking the oscillator's distance above or below its
+    * own moving average. Because acceleration turns before speed does, the
+    * reading changes sign ahead of the oscillator it is built from — it is
+    * meant as the early half of a pair, not as a signal on its own. Above zero
+    * acceleration is with the bulls, below zero with the bears, and it is drawn
+    * as a zero-centred histogram whose colour convention is the bar-to-bar
+    * change: rising bars accelerating, falling bars decelerating. Williams'
+    * rule of thumb is that two same-coloured bars are what confirms the turn,
+    * which is why the sign and the direction matter more than the level. The
+    * oscillator is one leg of Williams' Profitunity system, alongside the
+    * Awesome Oscillator ([{@code AO}](/functions/ao)) and the Alligator.
     * <p><b>Formula</b>
     * <pre>{@code
-    * median_t = ( high_t + low_t ) / 2; AO_t = SMA(median, fast)_t − SMA(median, slow)_t; AC_t = AO_t − SMA(AO, signal)_t
-    * Every leg is a plain simple moving average, so there is no seeding convention and none of the cross-library divergence that comes with one.
+    * median_t = ( high_t + low_t ) / 2
+    * AO_t = SMA(median, fast)_t − SMA(median, slow)_t
+    * AC_t = AO_t − SMA(AO, signal)_t
     * }</pre>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -483,19 +483,17 @@
     * @param inHigh High price of each bar.
     * @param inLow Low price of each bar.
     * @param optInFastPeriod Number of bars in the short moving average of the
-    *        median price. Default 5, the value Williams uses and every surveyed
-    *        package ships (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+    *        median price (default 5; range 2..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
     * @param optInSlowPeriod Number of bars in the long moving average of the
-    *        median price. Default 34, likewise universal (default 34; range 2..100000;
-    *        {@code Integer.MIN_VALUE} selects the default).
+    *        median price (default 34; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
     * @param optInSignalPeriod Number of bars in the moving average taken over
-    *        the oscillator. Default 5. MetaTrader, Quantower and cTrader hardcode all
-    *        three; trading-signals exposes all three with these same values (default
-    *        5; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
-    * @param outReal Distance of the Awesome Oscillator from its own moving
-    *        average, centred on zero. Must hold at least {@code endIdx - startIdx + 1}
-    *        values.
+    *        the oscillator (default 5; range 2..100000; {@code Integer.MIN_VALUE}
+    *        selects the default).
+    * @param outReal Distance of the Awesome Oscillator
+    *        ([{@code AO}](/functions/ao)) from its own moving average, centred on
+    *        zero. Must hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -565,8 +563,6 @@
       double sumFast;
       double sumSlow;
       double sumSignal;
-      double osc;
-      double tempReal;
       int oscBuffer_Idx;
       int maxIdx_oscBuffer;
       int ringPos_trailingFastIdx;
@@ -578,18 +574,22 @@
       int cbSize_oscBuffer;
       double[] cb_oscBuffer;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       AC_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#AC_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#AC} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       AC_Stream( AC_Stream other ) {
          this.core = other.core;
@@ -599,8 +599,6 @@
          this.sumFast = other.sumFast;
          this.sumSlow = other.sumSlow;
          this.sumSignal = other.sumSignal;
-         this.osc = other.osc;
-         this.tempReal = other.tempReal;
          this.oscBuffer_Idx = other.oscBuffer_Idx;
          this.maxIdx_oscBuffer = other.maxIdx_oscBuffer;
          this.ringPos_trailingFastIdx = other.ringPos_trailingFastIdx;
@@ -612,7 +610,8 @@
          this.cbSize_oscBuffer = other.cbSize_oscBuffer;
          this.cb_oscBuffer = other.cb_oscBuffer.clone();
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( AC_Stream other ) {
@@ -623,8 +622,6 @@
          this.sumFast = other.sumFast;
          this.sumSlow = other.sumSlow;
          this.sumSignal = other.sumSignal;
-         this.osc = other.osc;
-         this.tempReal = other.tempReal;
          this.oscBuffer_Idx = other.oscBuffer_Idx;
          this.maxIdx_oscBuffer = other.maxIdx_oscBuffer;
          this.ringPos_trailingFastIdx = other.ringPos_trailingFastIdx;
@@ -648,7 +645,8 @@
             this.cb_oscBuffer = other.cb_oscBuffer.clone();
          }
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
@@ -669,8 +667,34 @@
       public double update( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("AC update: BadParam", RetCode.BadParam);
-         core.AC_StreamStep(this, inHigh, inLow);
+         core.AC_StepImpl(this, inHigh, inLow);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inHigh.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inHigh[], double inLow[], double outReal[] ) {
+         final int barCount = inHigh.length;
+         if( inLow.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow )
+            throw new TaLibArgumentException("AC updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) )
+               throw new TaLibArgumentException("AC updateAndFill: BadParam", RetCode.BadParam);
+            core.AC_StepImpl(this, inHigh[i], inLow[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -692,7 +716,7 @@
          } else {
             scratch.copyFrom(this);
          }
-         core.AC_StreamStep(scratch, inHigh, inLow);
+         core.AC_StepImpl(scratch, inHigh, inLow);
          return scratch.cur_outReal;
       }
 
@@ -713,9 +737,11 @@
          return new AC_Stream(this);
       }
    }
-   void AC_StreamStep( AC_Stream sp, double inHigh, double inLow )
+   void AC_StepImpl( AC_Stream sp, double inHigh, double inLow )
    {
       double medianPrice = 0.0;
+      double osc = 0.0;
+      double tempReal = 0.0;
       if( sp.ringCap_trailingFastIdx == 0 ) {
          sp.ring_trailingFastIdx_derived[0] = (inHigh + inLow) / 2.0;
       }
@@ -728,7 +754,7 @@
       /* Snapshot the oscillator before either total drops its trailing bar,
        * mirroring the add-new / snapshot / subtract-old order of TA_SMA.
        */
-      sp.osc = sp.sumFast / (double)sp.optInFastPeriod - sp.sumSlow / (double)sp.optInSlowPeriod;
+      osc = sp.sumFast / (double)sp.optInFastPeriod - sp.sumSlow / (double)sp.optInSlowPeriod;
       sp.sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx];
       sp.sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx];
       /* Today's oscillator enters the signal window at its own slot, and the
@@ -736,9 +762,9 @@
        * it -- writing first is what makes the slot the loop is about to
        * overwrite the newest value rather than the oldest one.
        */
-      sp.cb_oscBuffer[sp.oscBuffer_Idx] = sp.osc;
-      sp.sumSignal += sp.osc;
-      sp.tempReal = sp.osc - sp.sumSignal / (double)sp.optInSignalPeriod;
+      sp.cb_oscBuffer[sp.oscBuffer_Idx] = osc;
+      sp.sumSignal += osc;
+      tempReal = osc - sp.sumSignal / (double)sp.optInSignalPeriod;
       sp.oscBuffer_Idx = sp.oscBuffer_Idx + 1;
       if( sp.oscBuffer_Idx > sp.maxIdx_oscBuffer ) {
          sp.oscBuffer_Idx = 0;
@@ -752,7 +778,7 @@
        * that admitting a signal period of 1 would not silently reintroduce
        * the collision ao.c has to guard against.
        */
-      sp.cur_outReal = sp.tempReal;
+      sp.cur_outReal = tempReal;
       sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
       sp.ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx + 1;
       if( sp.ringPos_trailingFastIdx >= sp.ringCap_trailingFastIdx ) {
@@ -764,7 +790,7 @@
          sp.ringPos_trailingSlowIdx = 0;
       }
    }
-   private RetCode AC_OpenPass( AC_Stream sp, double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode AC_OpenImpl( AC_Stream sp, double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double sumFast = 0;
       double sumSlow = 0;
@@ -803,6 +829,11 @@
          optInSignalPeriod = 5;
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       /* Bill Williams' Accelerator/Decelerator Oscillator (New Trading
        * Dimensions, 1998): how fast the Awesome Oscillator is itself
@@ -972,8 +1003,6 @@
       sp.sumFast = sumFast;
       sp.sumSlow = sumSlow;
       sp.sumSignal = sumSignal;
-      sp.osc = osc;
-      sp.tempReal = tempReal;
       sp.oscBuffer_Idx = oscBuffer_Idx;
       sp.maxIdx_oscBuffer = maxIdx_oscBuffer;
       sp.ringPos_trailingFastIdx = 0;
@@ -987,29 +1016,13 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode AC_OpenImpl( AC_Stream sp, double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return AC_OpenPass( sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode AC_OpenAndFillImpl( AC_Stream sp, double inHigh[], double inLow[], int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
-         return RetCode.BadParam;
-      }
-      return AC_OpenPass( sp, inHigh, inLow, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode AC_OpenAndFillInternalImpl( AC_Stream sp, double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return AC_OpenPass(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal, 1);
-   }
    /* AC_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    AC_Stream AC_OpenAndFillInternal( double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       AC_Stream sp = new AC_Stream(this);
-      RetCode retCode = AC_OpenAndFillInternalImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal);
+      RetCode retCode = AC_OpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1025,7 +1038,12 @@
    AC_Stream AC_OpenInternal( double inHigh[], double inLow[], int startIdx, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
       AC_Stream sp = new AC_Stream(this);
-      RetCode retCode = AC_OpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = AC_OpenImpl(sp, inHigh, inLow, startIdx, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1058,23 +1076,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link AC_Stream#fillRange()}.
+    * {@link AC_Stream#outRange()}.
     */
    public AC_Stream AC_OpenAndFill( double inHigh[], double inLow[], int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double outReal[] )
    {
-      AC_Stream sp = new AC_Stream(this);
+      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
+         throw new TaLibArgumentException("AC openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = AC_OpenAndFillImpl(sp, inHigh, inLow, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("AC openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("AC openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("AC openAndFill: " + retCode, retCode);
+      return AC_OpenAndFillInternal(inHigh, inLow, 0, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal);
    }

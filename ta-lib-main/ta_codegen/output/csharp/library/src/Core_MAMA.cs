@@ -1026,47 +1026,37 @@ public partial class Core
       internal Core core;
       internal double optInFastLimit;
       internal double optInSlowLimit;
-      internal double tempReal;
-      internal double tempReal2;
       internal double period;
       internal double periodWMASum;
       internal double periodWMASub;
       internal double trailingWMAValue;
-      internal double smoothedValue;
       internal double a;
       internal double b;
-      internal double hilbertTempReal;
       internal int hilbertIdx;
       internal double[] detrender_Odd = [];
       internal double[] detrender_Even = [];
-      internal double detrender;
       internal double prev_detrender_Odd;
       internal double prev_detrender_Even;
       internal double prev_detrender_input_Odd;
       internal double prev_detrender_input_Even;
       internal double[] Q1_Odd = [];
       internal double[] Q1_Even = [];
-      internal double Q1;
       internal double prev_Q1_Odd;
       internal double prev_Q1_Even;
       internal double prev_Q1_input_Odd;
       internal double prev_Q1_input_Even;
       internal double[] jI_Odd = [];
       internal double[] jI_Even = [];
-      internal double jI;
       internal double prev_jI_Odd;
       internal double prev_jI_Even;
       internal double prev_jI_input_Odd;
       internal double prev_jI_input_Even;
       internal double[] jQ_Odd = [];
       internal double[] jQ_Even = [];
-      internal double jQ;
       internal double prev_jQ_Odd;
       internal double prev_jQ_Even;
       internal double prev_jQ_input_Odd;
       internal double prev_jQ_input_Even;
-      internal double Q2;
-      internal double I2;
       internal double prevQ2;
       internal double prevI2;
       internal double Re;
@@ -1085,39 +1075,38 @@ public partial class Core
       internal double[] ring_trailingWMAIdx_inReal = [];
       internal double cur_outMAMA;
       internal double cur_outFAMA;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal MAMA_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>MAMA_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.MAMA</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal MAMA_Stream( MAMA_Stream other )
       {
          this.core = other.core;
          this.optInFastLimit = other.optInFastLimit;
          this.optInSlowLimit = other.optInSlowLimit;
-         this.tempReal = other.tempReal;
-         this.tempReal2 = other.tempReal2;
          this.period = other.period;
          this.periodWMASum = other.periodWMASum;
          this.periodWMASub = other.periodWMASub;
          this.trailingWMAValue = other.trailingWMAValue;
-         this.smoothedValue = other.smoothedValue;
          this.a = other.a;
          this.b = other.b;
-         this.hilbertTempReal = other.hilbertTempReal;
          this.hilbertIdx = other.hilbertIdx;
          this.detrender_Odd = new double[other.detrender_Odd.Length];
          Array.Copy( other.detrender_Odd, this.detrender_Odd, other.detrender_Odd.Length );
          this.detrender_Even = new double[other.detrender_Even.Length];
          Array.Copy( other.detrender_Even, this.detrender_Even, other.detrender_Even.Length );
-         this.detrender = other.detrender;
          this.prev_detrender_Odd = other.prev_detrender_Odd;
          this.prev_detrender_Even = other.prev_detrender_Even;
          this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
@@ -1126,7 +1115,6 @@ public partial class Core
          Array.Copy( other.Q1_Odd, this.Q1_Odd, other.Q1_Odd.Length );
          this.Q1_Even = new double[other.Q1_Even.Length];
          Array.Copy( other.Q1_Even, this.Q1_Even, other.Q1_Even.Length );
-         this.Q1 = other.Q1;
          this.prev_Q1_Odd = other.prev_Q1_Odd;
          this.prev_Q1_Even = other.prev_Q1_Even;
          this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
@@ -1135,7 +1123,6 @@ public partial class Core
          Array.Copy( other.jI_Odd, this.jI_Odd, other.jI_Odd.Length );
          this.jI_Even = new double[other.jI_Even.Length];
          Array.Copy( other.jI_Even, this.jI_Even, other.jI_Even.Length );
-         this.jI = other.jI;
          this.prev_jI_Odd = other.prev_jI_Odd;
          this.prev_jI_Even = other.prev_jI_Even;
          this.prev_jI_input_Odd = other.prev_jI_input_Odd;
@@ -1144,13 +1131,10 @@ public partial class Core
          Array.Copy( other.jQ_Odd, this.jQ_Odd, other.jQ_Odd.Length );
          this.jQ_Even = new double[other.jQ_Even.Length];
          Array.Copy( other.jQ_Even, this.jQ_Even, other.jQ_Even.Length );
-         this.jQ = other.jQ;
          this.prev_jQ_Odd = other.prev_jQ_Odd;
          this.prev_jQ_Even = other.prev_jQ_Even;
          this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
          this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.Q2 = other.Q2;
-         this.I2 = other.I2;
          this.prevQ2 = other.prevQ2;
          this.prevI2 = other.prevI2;
          this.Re = other.Re;
@@ -1170,7 +1154,8 @@ public partial class Core
          Array.Copy( other.ring_trailingWMAIdx_inReal, this.ring_trailingWMAIdx_inReal, other.ring_trailingWMAIdx_inReal.Length );
          this.cur_outMAMA = other.cur_outMAMA;
          this.cur_outFAMA = other.cur_outFAMA;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( MAMA_Stream other )
@@ -1178,16 +1163,12 @@ public partial class Core
          this.core = other.core;
          this.optInFastLimit = other.optInFastLimit;
          this.optInSlowLimit = other.optInSlowLimit;
-         this.tempReal = other.tempReal;
-         this.tempReal2 = other.tempReal2;
          this.period = other.period;
          this.periodWMASum = other.periodWMASum;
          this.periodWMASub = other.periodWMASub;
          this.trailingWMAValue = other.trailingWMAValue;
-         this.smoothedValue = other.smoothedValue;
          this.a = other.a;
          this.b = other.b;
-         this.hilbertTempReal = other.hilbertTempReal;
          this.hilbertIdx = other.hilbertIdx;
          if( this.detrender_Odd.Length != other.detrender_Odd.Length ) {
             this.detrender_Odd = new double[other.detrender_Odd.Length];
@@ -1197,7 +1178,6 @@ public partial class Core
             this.detrender_Even = new double[other.detrender_Even.Length];
          }
          Array.Copy( other.detrender_Even, this.detrender_Even, other.detrender_Even.Length );
-         this.detrender = other.detrender;
          this.prev_detrender_Odd = other.prev_detrender_Odd;
          this.prev_detrender_Even = other.prev_detrender_Even;
          this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
@@ -1210,7 +1190,6 @@ public partial class Core
             this.Q1_Even = new double[other.Q1_Even.Length];
          }
          Array.Copy( other.Q1_Even, this.Q1_Even, other.Q1_Even.Length );
-         this.Q1 = other.Q1;
          this.prev_Q1_Odd = other.prev_Q1_Odd;
          this.prev_Q1_Even = other.prev_Q1_Even;
          this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
@@ -1223,7 +1202,6 @@ public partial class Core
             this.jI_Even = new double[other.jI_Even.Length];
          }
          Array.Copy( other.jI_Even, this.jI_Even, other.jI_Even.Length );
-         this.jI = other.jI;
          this.prev_jI_Odd = other.prev_jI_Odd;
          this.prev_jI_Even = other.prev_jI_Even;
          this.prev_jI_input_Odd = other.prev_jI_input_Odd;
@@ -1236,13 +1214,10 @@ public partial class Core
             this.jQ_Even = new double[other.jQ_Even.Length];
          }
          Array.Copy( other.jQ_Even, this.jQ_Even, other.jQ_Even.Length );
-         this.jQ = other.jQ;
          this.prev_jQ_Odd = other.prev_jQ_Odd;
          this.prev_jQ_Even = other.prev_jQ_Even;
          this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
          this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.Q2 = other.Q2;
-         this.I2 = other.I2;
          this.prevQ2 = other.prevQ2;
          this.prevI2 = other.prevI2;
          this.Re = other.Re;
@@ -1264,7 +1239,8 @@ public partial class Core
          Array.Copy( other.ring_trailingWMAIdx_inReal, this.ring_trailingWMAIdx_inReal, other.ring_trailingWMAIdx_inReal.Length );
          this.cur_outMAMA = other.cur_outMAMA;
          this.cur_outFAMA = other.cur_outFAMA;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /* Peek's reusable scratch — one per thread, see CopyFrom. */
@@ -1286,7 +1262,8 @@ public partial class Core
       public MAMA_Value Update( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MAMA", "update", RetCode.BadParam);
-         core.MAMA_StreamStep(this, inReal);
+         core.MAMA_StepImpl(this, inReal);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new MAMA_Value(cur_outMAMA, cur_outFAMA);
       }
 
@@ -1311,8 +1288,36 @@ public partial class Core
          } else {
             scratch.CopyFrom(this);
          }
-         core.MAMA_StreamStep(scratch, inReal);
+         core.MAMA_StepImpl(scratch, inReal);
          return new MAMA_Value(scratch.cur_outMAMA, scratch.cur_outFAMA);
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
+      /// <param name="outMAMA">Receives one <c>outMAMA</c> value per bar committed.</param>
+      /// <param name="outFAMA">Receives one <c>outFAMA</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outMAMA, Span<double> outFAMA )
+      {
+         int barCount = inReal.Length;
+         if( outMAMA.Length < barCount || outFAMA.Length < barCount || outMAMA.Overlaps(inReal) || outFAMA.Overlaps(inReal) || outMAMA.Overlaps(outFAMA) ) throw Core.StreamFailure("MAMA", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("MAMA", "updateAndFill", RetCode.BadParam);
+            core.MAMA_StepImpl(this, inReal[i]);
+            outMAMA[i] = cur_outMAMA;
+            outFAMA[i] = cur_outFAMA;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -1331,9 +1336,19 @@ public partial class Core
       }
    }
 
-   internal void MAMA_StreamStep( MAMA_Stream sp, double inReal )
+   internal void MAMA_StepImpl( MAMA_Stream sp, double inReal )
    {
+      double tempReal = 0.0;
+      double tempReal2 = 0.0;
       double adjustedPrevPeriod = 0.0;
+      double smoothedValue = 0.0;
+      double hilbertTempReal = 0.0;
+      double detrender = 0.0;
+      double Q1 = 0.0;
+      double jI = 0.0;
+      double jQ = 0.0;
+      double Q2 = 0.0;
+      double I2 = 0.0;
       double todayValue = 0.0;
       if( sp.ringCap_trailingWMAIdx == 0 ) {
          sp.ring_trailingWMAIdx_inReal[0] = inReal;
@@ -1344,51 +1359,51 @@ public partial class Core
       sp.periodWMASub -= sp.trailingWMAValue;
       sp.periodWMASum += todayValue * 4.0;
       sp.trailingWMAValue = sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx];
-      sp.smoothedValue = sp.periodWMASum * 0.1;
+      smoothedValue = sp.periodWMASum * 0.1;
       sp.periodWMASum -= sp.periodWMASub;
       if( sp.streamParity == 0 ) {
          /* Do the Hilbert Transforms for even price bar */
-         sp.hilbertTempReal = sp.a * sp.smoothedValue;
-         sp.detrender = 0 - sp.detrender_Even[sp.hilbertIdx];
-         sp.detrender_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.detrender += sp.hilbertTempReal;
-         sp.detrender -= sp.prev_detrender_Even;
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = 0 - sp.detrender_Even[sp.hilbertIdx];
+         sp.detrender_Even[sp.hilbertIdx] = hilbertTempReal;
+         detrender += hilbertTempReal;
+         detrender -= sp.prev_detrender_Even;
          sp.prev_detrender_Even = sp.b * sp.prev_detrender_input_Even;
-         sp.detrender += sp.prev_detrender_Even;
-         sp.prev_detrender_input_Even = sp.smoothedValue;
-         sp.detrender *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.detrender;
-         sp.Q1 = 0 - sp.Q1_Even[sp.hilbertIdx];
-         sp.Q1_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.Q1 += sp.hilbertTempReal;
-         sp.Q1 -= sp.prev_Q1_Even;
+         detrender += sp.prev_detrender_Even;
+         sp.prev_detrender_input_Even = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = 0 - sp.Q1_Even[sp.hilbertIdx];
+         sp.Q1_Even[sp.hilbertIdx] = hilbertTempReal;
+         Q1 += hilbertTempReal;
+         Q1 -= sp.prev_Q1_Even;
          sp.prev_Q1_Even = sp.b * sp.prev_Q1_input_Even;
-         sp.Q1 += sp.prev_Q1_Even;
-         sp.prev_Q1_input_Even = sp.detrender;
-         sp.Q1 *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
-         sp.jI = 0 - sp.jI_Even[sp.hilbertIdx];
-         sp.jI_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jI += sp.hilbertTempReal;
-         sp.jI -= sp.prev_jI_Even;
+         Q1 += sp.prev_Q1_Even;
+         sp.prev_Q1_input_Even = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * sp.I1ForEvenPrev3;
+         jI = 0 - sp.jI_Even[sp.hilbertIdx];
+         sp.jI_Even[sp.hilbertIdx] = hilbertTempReal;
+         jI += hilbertTempReal;
+         jI -= sp.prev_jI_Even;
          sp.prev_jI_Even = sp.b * sp.prev_jI_input_Even;
-         sp.jI += sp.prev_jI_Even;
+         jI += sp.prev_jI_Even;
          sp.prev_jI_input_Even = sp.I1ForEvenPrev3;
-         sp.jI *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.Q1;
-         sp.jQ = 0 - sp.jQ_Even[sp.hilbertIdx];
-         sp.jQ_Even[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jQ += sp.hilbertTempReal;
-         sp.jQ -= sp.prev_jQ_Even;
+         jI *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * Q1;
+         jQ = 0 - sp.jQ_Even[sp.hilbertIdx];
+         sp.jQ_Even[sp.hilbertIdx] = hilbertTempReal;
+         jQ += hilbertTempReal;
+         jQ -= sp.prev_jQ_Even;
          sp.prev_jQ_Even = sp.b * sp.prev_jQ_input_Even;
-         sp.jQ += sp.prev_jQ_Even;
-         sp.prev_jQ_input_Even = sp.Q1;
-         sp.jQ *= adjustedPrevPeriod;
+         jQ += sp.prev_jQ_Even;
+         sp.prev_jQ_input_Even = Q1;
+         jQ *= adjustedPrevPeriod;
          if( ++sp.hilbertIdx == 3 ) {
             sp.hilbertIdx = 0;
          }
-         sp.Q2 = Math.FusedMultiplyAdd(0.2, sp.Q1 + sp.jI, 0.8 * sp.prevQ2);
-         sp.I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForEvenPrev3 - sp.jQ, 0.8 * sp.prevI2);
+         Q2 = Math.FusedMultiplyAdd(0.2, Q1 + jI, 0.8 * sp.prevQ2);
+         I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForEvenPrev3 - jQ, 0.8 * sp.prevI2);
          /* The variable I1 is the detrender delayed for
           * 3 price bars.
           *
@@ -1396,53 +1411,53 @@ public partial class Core
           * used by the "odd" logic later.
           */
          sp.I1ForOddPrev3 = sp.I1ForOddPrev2;
-         sp.I1ForOddPrev2 = sp.detrender;
+         sp.I1ForOddPrev2 = detrender;
          /* Put Alpha in tempReal2 */
          if( sp.I1ForEvenPrev3 != 0.0 ) {
-            sp.tempReal2 = Math.Atan(sp.Q1 / sp.I1ForEvenPrev3) * sp.rad2Deg;
+            tempReal2 = Math.Atan(Q1 / sp.I1ForEvenPrev3) * sp.rad2Deg;
          } else {
-            sp.tempReal2 = 0.0;
+            tempReal2 = 0.0;
          }
       } else {
          /* Do the Hilbert Transforms for odd price bar */
-         sp.hilbertTempReal = sp.a * sp.smoothedValue;
-         sp.detrender = 0 - sp.detrender_Odd[sp.hilbertIdx];
-         sp.detrender_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.detrender += sp.hilbertTempReal;
-         sp.detrender -= sp.prev_detrender_Odd;
+         hilbertTempReal = sp.a * smoothedValue;
+         detrender = 0 - sp.detrender_Odd[sp.hilbertIdx];
+         sp.detrender_Odd[sp.hilbertIdx] = hilbertTempReal;
+         detrender += hilbertTempReal;
+         detrender -= sp.prev_detrender_Odd;
          sp.prev_detrender_Odd = sp.b * sp.prev_detrender_input_Odd;
-         sp.detrender += sp.prev_detrender_Odd;
-         sp.prev_detrender_input_Odd = sp.smoothedValue;
-         sp.detrender *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.detrender;
-         sp.Q1 = 0 - sp.Q1_Odd[sp.hilbertIdx];
-         sp.Q1_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.Q1 += sp.hilbertTempReal;
-         sp.Q1 -= sp.prev_Q1_Odd;
+         detrender += sp.prev_detrender_Odd;
+         sp.prev_detrender_input_Odd = smoothedValue;
+         detrender *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * detrender;
+         Q1 = 0 - sp.Q1_Odd[sp.hilbertIdx];
+         sp.Q1_Odd[sp.hilbertIdx] = hilbertTempReal;
+         Q1 += hilbertTempReal;
+         Q1 -= sp.prev_Q1_Odd;
          sp.prev_Q1_Odd = sp.b * sp.prev_Q1_input_Odd;
-         sp.Q1 += sp.prev_Q1_Odd;
-         sp.prev_Q1_input_Odd = sp.detrender;
-         sp.Q1 *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.I1ForOddPrev3;
-         sp.jI = 0 - sp.jI_Odd[sp.hilbertIdx];
-         sp.jI_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jI += sp.hilbertTempReal;
-         sp.jI -= sp.prev_jI_Odd;
+         Q1 += sp.prev_Q1_Odd;
+         sp.prev_Q1_input_Odd = detrender;
+         Q1 *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * sp.I1ForOddPrev3;
+         jI = 0 - sp.jI_Odd[sp.hilbertIdx];
+         sp.jI_Odd[sp.hilbertIdx] = hilbertTempReal;
+         jI += hilbertTempReal;
+         jI -= sp.prev_jI_Odd;
          sp.prev_jI_Odd = sp.b * sp.prev_jI_input_Odd;
-         sp.jI += sp.prev_jI_Odd;
+         jI += sp.prev_jI_Odd;
          sp.prev_jI_input_Odd = sp.I1ForOddPrev3;
-         sp.jI *= adjustedPrevPeriod;
-         sp.hilbertTempReal = sp.a * sp.Q1;
-         sp.jQ = 0 - sp.jQ_Odd[sp.hilbertIdx];
-         sp.jQ_Odd[sp.hilbertIdx] = sp.hilbertTempReal;
-         sp.jQ += sp.hilbertTempReal;
-         sp.jQ -= sp.prev_jQ_Odd;
+         jI *= adjustedPrevPeriod;
+         hilbertTempReal = sp.a * Q1;
+         jQ = 0 - sp.jQ_Odd[sp.hilbertIdx];
+         sp.jQ_Odd[sp.hilbertIdx] = hilbertTempReal;
+         jQ += hilbertTempReal;
+         jQ -= sp.prev_jQ_Odd;
          sp.prev_jQ_Odd = sp.b * sp.prev_jQ_input_Odd;
-         sp.jQ += sp.prev_jQ_Odd;
-         sp.prev_jQ_input_Odd = sp.Q1;
-         sp.jQ *= adjustedPrevPeriod;
-         sp.Q2 = Math.FusedMultiplyAdd(0.2, sp.Q1 + sp.jI, 0.8 * sp.prevQ2);
-         sp.I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForOddPrev3 - sp.jQ, 0.8 * sp.prevI2);
+         jQ += sp.prev_jQ_Odd;
+         sp.prev_jQ_input_Odd = Q1;
+         jQ *= adjustedPrevPeriod;
+         Q2 = Math.FusedMultiplyAdd(0.2, Q1 + jI, 0.8 * sp.prevQ2);
+         I2 = Math.FusedMultiplyAdd(0.2, sp.I1ForOddPrev3 - jQ, 0.8 * sp.prevI2);
          /* The varaiable I1 is the detrender delayed for
           * 3 price bars.
           *
@@ -1450,61 +1465,61 @@ public partial class Core
           * used by the "odd" logic later.
           */
          sp.I1ForEvenPrev3 = sp.I1ForEvenPrev2;
-         sp.I1ForEvenPrev2 = sp.detrender;
+         sp.I1ForEvenPrev2 = detrender;
          /* Put Alpha in tempReal2 */
          if( sp.I1ForOddPrev3 != 0.0 ) {
-            sp.tempReal2 = Math.Atan(sp.Q1 / sp.I1ForOddPrev3) * sp.rad2Deg;
+            tempReal2 = Math.Atan(Q1 / sp.I1ForOddPrev3) * sp.rad2Deg;
          } else {
-            sp.tempReal2 = 0.0;
+            tempReal2 = 0.0;
          }
       }
       /* Put Delta Phase into tempReal */
-      sp.tempReal = sp.prevPhase - sp.tempReal2;
-      sp.prevPhase = sp.tempReal2;
-      if( sp.tempReal < 1.0 ) {
-         sp.tempReal = 1.0;
+      tempReal = sp.prevPhase - tempReal2;
+      sp.prevPhase = tempReal2;
+      if( tempReal < 1.0 ) {
+         tempReal = 1.0;
       }
       /* Put Alpha into tempReal */
-      if( sp.tempReal > 1.0 ) {
-         sp.tempReal = sp.optInFastLimit / sp.tempReal;
-         if( sp.tempReal < sp.optInSlowLimit ) {
-            sp.tempReal = sp.optInSlowLimit;
+      if( tempReal > 1.0 ) {
+         tempReal = sp.optInFastLimit / tempReal;
+         if( tempReal < sp.optInSlowLimit ) {
+            tempReal = sp.optInSlowLimit;
          }
       } else {
-         sp.tempReal = sp.optInFastLimit;
+         tempReal = sp.optInFastLimit;
       }
       /* Calculate MAMA, FAMA */
-      sp.mama = Math.FusedMultiplyAdd(1 - sp.tempReal, sp.mama, sp.tempReal * todayValue);
-      sp.tempReal *= 0.5;
-      sp.fama = Math.FusedMultiplyAdd(1 - sp.tempReal, sp.fama, sp.tempReal * sp.mama);
+      sp.mama = Math.FusedMultiplyAdd(1 - tempReal, sp.mama, tempReal * todayValue);
+      tempReal *= 0.5;
+      sp.fama = Math.FusedMultiplyAdd(1 - tempReal, sp.fama, tempReal * sp.mama);
       /* FAMA is nullable (issue #125): its write carries no outIdx advance so
        * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
        */
       sp.cur_outFAMA = sp.fama;
       sp.cur_outMAMA = sp.mama;
       /* Adjust the period for next price bar */
-      sp.Re = Math.FusedMultiplyAdd(0.8, sp.Re, 0.2 * (Math.FusedMultiplyAdd(sp.I2, sp.prevI2, sp.Q2 * sp.prevQ2)));
-      sp.Im = Math.FusedMultiplyAdd(0.8, sp.Im, 0.2 * (sp.I2 * sp.prevQ2 - sp.Q2 * sp.prevI2));
-      sp.prevQ2 = sp.Q2;
-      sp.prevI2 = sp.I2;
-      sp.tempReal = sp.period;
+      sp.Re = Math.FusedMultiplyAdd(0.8, sp.Re, 0.2 * (Math.FusedMultiplyAdd(I2, sp.prevI2, Q2 * sp.prevQ2)));
+      sp.Im = Math.FusedMultiplyAdd(0.8, sp.Im, 0.2 * (I2 * sp.prevQ2 - Q2 * sp.prevI2));
+      sp.prevQ2 = Q2;
+      sp.prevI2 = I2;
+      tempReal = sp.period;
       if( sp.Im != 0.0 && sp.Re != 0.0 ) {
          sp.period = 360.0 / (Math.Atan(sp.Im / sp.Re) * sp.rad2Deg);
       }
-      sp.tempReal2 = 1.5 * sp.tempReal;
-      if( sp.period > sp.tempReal2 ) {
-         sp.period = sp.tempReal2;
+      tempReal2 = 1.5 * tempReal;
+      if( sp.period > tempReal2 ) {
+         sp.period = tempReal2;
       }
-      sp.tempReal2 = 0.67 * sp.tempReal;
-      if( sp.period < sp.tempReal2 ) {
-         sp.period = sp.tempReal2;
+      tempReal2 = 0.67 * tempReal;
+      if( sp.period < tempReal2 ) {
+         sp.period = tempReal2;
       }
       if( sp.period < 6 ) {
          sp.period = 6;
       } else if( sp.period > 50 ) {
          sp.period = 50;
       }
-      sp.period = Math.FusedMultiplyAdd(0.2, sp.period, 0.8 * sp.tempReal);
+      sp.period = Math.FusedMultiplyAdd(0.2, sp.period, 0.8 * tempReal);
       /* Ooof... let's do the next price bar now! */
       sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
       sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
@@ -1514,7 +1529,7 @@ public partial class Core
       sp.streamParity = 1 - sp.streamParity;
    }
 
-   private RetCode MAMA_OpenPass( MAMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, double optInFastLimit, double optInSlowLimit, out int outBegIdx, out int outNBElement, Span<double> outMAMA, Span<double> outFAMA, int outStride )
+   private RetCode MAMA_OpenImpl( MAMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, double optInFastLimit, double optInSlowLimit, out int outBegIdx, out int outNBElement, Span<double> outMAMA, Span<double> outFAMA, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -1595,6 +1610,11 @@ public partial class Core
          optInSlowLimit = 5e-2;
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       a = 0.0962;
       b = 0.5769;
@@ -1910,47 +1930,37 @@ public partial class Core
       inReal.Slice(historyLen - cap_trailingWMAIdx, cap_trailingWMAIdx).CopyTo(capRing_trailingWMAIdx_inReal);
       sp.optInFastLimit = optInFastLimit;
       sp.optInSlowLimit = optInSlowLimit;
-      sp.tempReal = tempReal;
-      sp.tempReal2 = tempReal2;
       sp.period = period;
       sp.periodWMASum = periodWMASum;
       sp.periodWMASub = periodWMASub;
       sp.trailingWMAValue = trailingWMAValue;
-      sp.smoothedValue = smoothedValue;
       sp.a = a;
       sp.b = b;
-      sp.hilbertTempReal = hilbertTempReal;
       sp.hilbertIdx = hilbertIdx;
       sp.detrender_Odd = detrender_Odd;
       sp.detrender_Even = detrender_Even;
-      sp.detrender = detrender;
       sp.prev_detrender_Odd = prev_detrender_Odd;
       sp.prev_detrender_Even = prev_detrender_Even;
       sp.prev_detrender_input_Odd = prev_detrender_input_Odd;
       sp.prev_detrender_input_Even = prev_detrender_input_Even;
       sp.Q1_Odd = Q1_Odd;
       sp.Q1_Even = Q1_Even;
-      sp.Q1 = Q1;
       sp.prev_Q1_Odd = prev_Q1_Odd;
       sp.prev_Q1_Even = prev_Q1_Even;
       sp.prev_Q1_input_Odd = prev_Q1_input_Odd;
       sp.prev_Q1_input_Even = prev_Q1_input_Even;
       sp.jI_Odd = jI_Odd;
       sp.jI_Even = jI_Even;
-      sp.jI = jI;
       sp.prev_jI_Odd = prev_jI_Odd;
       sp.prev_jI_Even = prev_jI_Even;
       sp.prev_jI_input_Odd = prev_jI_input_Odd;
       sp.prev_jI_input_Even = prev_jI_input_Even;
       sp.jQ_Odd = jQ_Odd;
       sp.jQ_Even = jQ_Even;
-      sp.jQ = jQ;
       sp.prev_jQ_Odd = prev_jQ_Odd;
       sp.prev_jQ_Even = prev_jQ_Even;
       sp.prev_jQ_input_Odd = prev_jQ_input_Odd;
       sp.prev_jQ_input_Even = prev_jQ_input_Even;
-      sp.Q2 = Q2;
-      sp.I2 = I2;
       sp.prevQ2 = prevQ2;
       sp.prevI2 = prevI2;
       sp.Re = Re;
@@ -1972,33 +1982,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode MAMA_OpenImpl( MAMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, double optInFastLimit, double optInSlowLimit )
-   {
-      double[] sink_outMAMA = new double[1];
-      double[] sink_outFAMA = new double[1];
-      return MAMA_OpenPass( sp, inReal, startIdx, optInFastLimit, optInSlowLimit, out _, out _, sink_outMAMA, sink_outFAMA, 0 );
-   }
-
-   private RetCode MAMA_OpenAndFillImpl( MAMA_Stream sp, ReadOnlySpan<double> inReal, double optInFastLimit, double optInSlowLimit, out int outBegIdx, out int outNBElement, Span<double> outMAMA, Span<double> outFAMA )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outMAMA.Overlaps(inReal) || outFAMA.Overlaps(inReal) || outMAMA.Overlaps(outFAMA) ) {
-         return RetCode.BadParam;
-      }
-      return MAMA_OpenPass( sp, inReal, 0, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outMAMA, outFAMA, 1 );
-   }
-
-   private RetCode MAMA_OpenAndFillInternalImpl( MAMA_Stream sp, ReadOnlySpan<double> inReal, int startIdx, double optInFastLimit, double optInSlowLimit, out int outBegIdx, out int outNBElement, Span<double> outMAMA, Span<double> outFAMA )
-   {
-      return MAMA_OpenPass(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outMAMA, outFAMA, 1);
-   }
-
    /* MAMA_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal MAMA_Stream MAMA_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, double optInFastLimit, double optInSlowLimit, out int outBegIdx, out int outNBElement, Span<double> outMAMA, Span<double> outFAMA )
    {
       MAMA_Stream sp = new MAMA_Stream(this);
-      RetCode retCode = MAMA_OpenAndFillInternalImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outMAMA, outFAMA);
+      RetCode retCode = MAMA_OpenImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outMAMA, outFAMA, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -2009,7 +1999,11 @@ public partial class Core
    internal MAMA_Stream MAMA_OpenInternal( ReadOnlySpan<double> inReal, int startIdx, double optInFastLimit, double optInSlowLimit )
    {
       MAMA_Stream sp = new MAMA_Stream(this);
-      RetCode retCode = MAMA_OpenImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit);
+      double[] sink_outMAMA = new double[1];
+      double[] sink_outFAMA = new double[1];
+      RetCode retCode = MAMA_OpenImpl(sp, inReal, startIdx, optInFastLimit, optInSlowLimit, out int outBegIdx, out int outNBElement, sink_outMAMA, sink_outFAMA, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -2051,7 +2045,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="MAMA_Stream.FillRange"/>.</para>
+   /// <see cref="MAMA_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inReal">Price series to smooth. The warm-up history, oldest bar first.</param>
    /// <param name="optInFastLimit">As in the batch call; see <see cref="MAMA_Lookback"/> for its default and
@@ -2072,12 +2066,9 @@ public partial class Core
    public MAMA_Stream MAMA_OpenAndFill( ReadOnlySpan<double> inReal, double optInFastLimit, double optInSlowLimit, Span<double> outMAMA, Span<double> outFAMA )
    {
       if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
-      MAMA_Stream sp = new MAMA_Stream(this);
-      RetCode retCode = MAMA_OpenAndFillImpl(sp, inReal, optInFastLimit, optInSlowLimit, out int outBegIdx, out int outNBElement, outMAMA, outFAMA);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outMAMA.Overlaps(inReal) || outFAMA.Overlaps(inReal) || outMAMA.Overlaps(outFAMA) ) {
+         throw StreamFailure("MAMA", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("MAMA", "openAndFill", retCode);
+      return MAMA_OpenAndFillInternal(inReal, 0, optInFastLimit, optInSlowLimit, out _, out _, outMAMA, outFAMA);
    }
 }

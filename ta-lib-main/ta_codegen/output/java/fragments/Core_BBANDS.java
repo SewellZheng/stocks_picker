@@ -28,6 +28,9 @@
  *  072426 MF,CC  Lookback is now max(MA, STDDEV) so it is honest for MA types
  *                whose lookback is below the deviation's (MAMA >= 34, and
  *                TA_MAType_DISABLED); required for streaming (issue #93).
+ *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
+ *                by var.c's scale-relative reseed floor; the square root is
+ *                unconditional. Bands no longer collapse on a fine tick.
  */
 
    /**
@@ -244,16 +247,35 @@
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               /* The floor from var.c, verbatim: it owns both the sign and the
+                * dead-zone, so the square root below can be unconditional.
+                */
+               if( variance < 0.000000000001 * (varTotal2 * _invPeriod) ) {
+                  variance = 0.0;
+               }
                _tempReal = inReal[_windowStart] - shift;
                varTotal1 -= _tempReal;
                _tempReal *= _tempReal;
                varTotal2 -= _tempReal;
             }
-            if( !(variance < 0.00000000000001) ) {
-               tempBuffer2[_outIdx] = Math.sqrt(variance);
-            } else {
-               tempBuffer2[_outIdx] = 0.0;
-            }
+            /* The TA_EPSILON test that used to stand here compared a SQUARED
+             * quantity to a fixed 1e-14 and flattened all three bands onto each
+             * other for any finely quoted series (#243). What replaces it skips
+             * the root ONLY where the answer is already known, because the
+             * reseed floor above has made it exactly 0 -- worth doing because
+             * this root, unlike stddev.c's, sits in the fused loop with a
+             * carried dependency and cannot vectorize, so running it on flat
+             * input cost 1.59x.
+             *
+             * `!= 0.0` and not `> 0.0`: the two differ only on NaN, and `> 0.0`
+             * sends it to the false arm, which would emit a zero-width band
+             * where stddev.c, BBANDS' own non-SMA paths and BBANDS_Open all
+             * return NaN. Reaching it needs a squared deviation to overflow
+             * (|x| ~ 1.3e154, far outside TA_REAL_MAX), so nothing in the
+             * declared domain can tell the two apart -- but there is no reason
+             * to buy the disagreement, and `!= 0.0` is what this is for.
+             */
+            tempBuffer2[_outIdx] = (variance != 0.0) ? Math.sqrt(variance) : 0.0;
             _outIdx += 1;
             _i += 1;
          } while( _i <= endIdx );
@@ -501,16 +523,15 @@
                }
                meanValue1 = varTotal1 * _invPeriod;
                variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+               if( variance < 0.000000000001 * (varTotal2 * _invPeriod) ) {
+                  variance = 0.0;
+               }
                _tempReal = (double)inReal[_windowStart] - shift;
                varTotal1 -= _tempReal;
                _tempReal *= _tempReal;
                varTotal2 -= _tempReal;
             }
-            if( !(variance < 0.00000000000001) ) {
-               tempBuffer2[_outIdx] = Math.sqrt(variance);
-            } else {
-               tempBuffer2[_outIdx] = 0.0;
-            }
+            tempBuffer2[_outIdx] = (variance != 0.0) ? Math.sqrt(variance) : 0.0;
             _outIdx += 1;
             _i += 1;
          } while( _i <= endIdx );
@@ -803,18 +824,22 @@
       Value cachedValue;
       MA_Stream sub0;
       STDDEV_Stream sub1;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       BBANDS_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#BBANDS_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#BBANDS} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       BBANDS_Stream( BBANDS_Stream other ) {
          this.core = other.core;
@@ -828,7 +853,8 @@
          this.cachedValue = other.cachedValue;
          this.sub0 = new MA_Stream(other.sub0);
          this.sub1 = new STDDEV_Stream(other.sub1);
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( BBANDS_Stream other ) {
@@ -851,7 +877,8 @@
          } else {
             this.sub1.copyFrom(other.sub1);
          }
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
@@ -886,9 +913,43 @@
       public Value update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("BBANDS update: BadParam", RetCode.BadParam);
-         core.BBANDS_StreamStep(this, inReal);
+         core.BBANDS_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
          return this.cachedValue;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] ) {
+         final int barCount = inReal.length;
+         if( outRealUpperBand.length < barCount || outRealMiddleBand.length < barCount || outRealLowerBand.length < barCount || (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand )
+            throw new TaLibArgumentException("BBANDS updateAndFill: BadParam", RetCode.BadParam);
+         int done = 0;
+         try {
+            for( int i = 0; i < barCount; i++ ) {
+               if( !Double.isFinite(inReal[i]) )
+                  throw new TaLibArgumentException("BBANDS updateAndFill: BadParam", RetCode.BadParam);
+               core.BBANDS_StepImpl(this, inReal[i]);
+               outRealUpperBand[i] = this.cur_outRealUpperBand;
+               outRealMiddleBand[i] = this.cur_outRealMiddleBand;
+               outRealLowerBand[i] = this.cur_outRealLowerBand;
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+               done = i + 1;
+            }
+         } finally {
+            if( done > 0 ) this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
+         }
       }
 
       /**
@@ -910,7 +971,7 @@
          } else {
             scratch.copyFrom(this);
          }
-         core.BBANDS_StreamStep(scratch, inReal);
+         core.BBANDS_StepImpl(scratch, inReal);
          return new Value(scratch.cur_outRealUpperBand, scratch.cur_outRealMiddleBand, scratch.cur_outRealLowerBand);
       }
 
@@ -931,7 +992,7 @@
          return new BBANDS_Stream(this);
       }
    }
-   void BBANDS_StreamStep( BBANDS_Stream sp, double inReal )
+   void BBANDS_StepImpl( BBANDS_Stream sp, double inReal )
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
@@ -957,7 +1018,7 @@
       sp.cur_outRealMiddleBand = cur_tempBuffer1;
       sp.cur_outRealLowerBand = cur_outRealLowerBand;
    }
-   private RetCode BBANDS_OpenPass( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
+   private RetCode BBANDS_OpenImpl( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
    {
       RetCode retCode;
       int i = 0;
@@ -992,6 +1053,11 @@
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       if( historyLen < BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) + 1 ) {
          return RetCode.InsufficientHistory;
@@ -1092,31 +1158,13 @@
       sp.cachedValue = new BBANDS_Stream.Value(sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand);
       return RetCode.Success;
    }
-   private RetCode BBANDS_OpenImpl( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outRealUpperBand = new double[1];
-      double[] sink_outRealMiddleBand = new double[1];
-      double[] sink_outRealLowerBand = new double[1];
-      return BBANDS_OpenPass( sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0 );
-   }
-   private RetCode BBANDS_OpenAndFillImpl( BBANDS_Stream sp, double inReal[], int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
-   {
-      if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
-         return RetCode.BadParam;
-      }
-      return BBANDS_OpenPass( sp, inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
-   }
-   private RetCode BBANDS_OpenAndFillInternalImpl( BBANDS_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
-   {
-      return BBANDS_OpenPass(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
-   }
    /* BBANDS_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    BBANDS_Stream BBANDS_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
       BBANDS_Stream sp = new BBANDS_Stream(this);
-      RetCode retCode = BBANDS_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
+      RetCode retCode = BBANDS_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1132,7 +1180,14 @@
    BBANDS_Stream BBANDS_OpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
       BBANDS_Stream sp = new BBANDS_Stream(this);
-      RetCode retCode = BBANDS_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outRealUpperBand = new double[1];
+      double[] sink_outRealMiddleBand = new double[1];
+      double[] sink_outRealLowerBand = new double[1];
+      RetCode retCode = BBANDS_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, sink_outRealUpperBand, sink_outRealMiddleBand, sink_outRealLowerBand, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1165,23 +1220,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link BBANDS_Stream#fillRange()}.
+    * {@link BBANDS_Stream#outRange()}.
     */
    public BBANDS_Stream BBANDS_OpenAndFill( double inReal[], int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
-      BBANDS_Stream sp = new BBANDS_Stream(this);
+      if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
+         throw new TaLibArgumentException("BBANDS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = BBANDS_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("BBANDS openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("BBANDS openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("BBANDS openAndFill: " + retCode, retCode);
+      return BBANDS_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand);
    }

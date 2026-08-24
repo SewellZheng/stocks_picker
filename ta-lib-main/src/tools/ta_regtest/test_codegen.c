@@ -88,6 +88,23 @@ int codegen_lang_has_compatibility_api(const char *lang)
              || strcmp(lang, "csharp") == 0);
 }
 
+/* Which language servers implement the state-equivalence leg (#240): the
+ * handle after Open(P) + (n-P) updates compared field-by-field against the
+ * handle after Open(n).
+ *
+ * C only, and the reason is structural rather than a plan to catch up: the C
+ * server is ONE translation unit that #includes every ta_*.c, so a stream
+ * state struct is a complete type there and the comparator costs no new API
+ * surface. In Rust the state lives in the `ta-lib` crate and the server is a
+ * separate crate; Java and C# would need the fields opened up to their
+ * servers. What the leg catches — a wrong offset in an emitted ring read — is
+ * one IR rewrite reaching all four backends identically, which is the same
+ * argument check_candle_windows.py makes for scanning one backend. */
+static int codegen_lang_has_stream_state_probe(const char *lang)
+{
+    return lang && strcmp(lang, "c") == 0;
+}
+
 /* Which languages cannot be held bit-identical on a call that reaches a
  * transcendental. THE single definition — both --xlang-hash (which copies it
  * into XlangServer.tolTranscendental) and server_verify's own per-call check
@@ -340,6 +357,16 @@ typedef struct {
 
 static FuncStreamCounters g_streamCounters[MAX_FUNCTIONS];
 static int                g_numStreamCounters = 0;
+
+/* Bits set in `v`. Only the range-site mask uses it, and only in a message and
+ * a floor, so a loop is clearer here than a builtin that is not C89. */
+static int codegen_popcount( int v )
+{
+    int n = 0;
+    unsigned int u = (unsigned int)v;
+    while( u ) { n += (int)(u & 1u); u >>= 1; }
+    return n;
+}
 
 static void record_stream_counters( const char *funcName, int langIndex,
                                     int legs, long long benign )
@@ -981,12 +1008,23 @@ static int build_json_request(CodegenRangeTestParam *p,
  * are pinned by test_stoch.c (test_stochrsi_epsilon_issue107). Standalone STOCH/
  * STOCHF keep the same guard but do NOT diverge from the reference on raw OHLC
  * (a flat raw window has highest==lowest exactly, diff==0), so they stay strictly
- * value-compared. This exemption applies ONLY to comparisons whose baseline is
+ * value-compared.
+ *
+ * CORREL (issue #242): the reference carries the one-pass
+ * sumX2-(sumX*sumX)/period form, which keeps only the digits that survive that
+ * subtraction. It reported a perfect correlation as 0, as -1, and as -1.73 —
+ * outside [-1,1] — so it cannot referee the shifted-data form that replaced it.
+ * Its values are pinned instead by test_correl.c, against oracles that share no
+ * code with either version: a fresh per-window two-pass, NIST StRD Norris's
+ * certified R-Squared, and identities exact by construction.
+ *
+ * This exemption applies ONLY to comparisons whose baseline is
  * the frozen reference — NOT the float leg, whose baseline is the current double
  * variant (a self-consistency check, see the widenFloatInputs guard at callsite). */
 static int codegen_ref_value_exempt(const char *name)
 {
-    return strcmp(name, "STOCHRSI") == 0;
+    return strcmp(name, "STOCHRSI") == 0
+        || strcmp(name, "CORREL") == 0;
 }
 
 static void compare_codegen_output_generic(
@@ -1062,7 +1100,8 @@ static void compare_codegen_output_generic(
     }
 
     /* Structural parity verified above; skip the VALUE diff for functions that
-     * intentionally diverge from the frozen reference (issue #107 STOCHRSI).
+     * intentionally diverge from the frozen reference (#107 STOCHRSI, #242
+     * CORREL).
      * NOT in the float leg (widenFloatInputs): there the baseline is the current
      * double variant, so TA_S_ vs TA_ self-consistency must stay strictly checked. */
     if( !p->widenFloatInputs && codegen_ref_value_exempt(p->funcInfo->name) )
@@ -1732,6 +1771,13 @@ typedef struct {
     int               streamSkipped;
     int               streamRejectArms;
     int               streamFillFunctions; /* funcs whose OpenAndFill == batch(0,n-1) bitwise */
+    int               streamUFillFunctions;/* funcs whose UpdateAndFill == batch over the same bars (#246) */
+    int               streamStateFunctions; /* funcs whose handle state matched Open(n) (#240) */
+    int               streamStateLegs;      /* legs that compared handle state (#240) */
+    int               streamRangeFunctions; /* funcs whose handle OutRange matched batch (#241) */
+    int               streamRangeLegs;      /* legs that compared the handle's OutRange (#241) */
+    int               streamRangeSites;     /* OR of the range-compare sites that fired (#241) */
+    int               streamRangeSitesN;    /* how many sites this server says it has */
     long long         streamBenign;        /* cross-tier +0.0/-0.0 pairs (#147) — never a failure */
 } ForEachFuncContext;
 
@@ -2282,7 +2328,8 @@ static void sweep_compare_guarded(CodegenRangeTestParam *p)
     }
 
     /* Structural parity verified above; skip the VALUE diff for functions that
-     * intentionally diverge from the frozen reference (issue #107 STOCHRSI). */
+     * intentionally diverge from the frozen reference (#107 STOCHRSI, #242
+     * CORREL). */
     if( codegen_ref_value_exempt(p->funcInfo->name) )
         return;
 
@@ -2915,6 +2962,9 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
  * it again. Overflow is a hard failure, never a skip. */
 #define STREAM_MAX_VEC 128
 #define STREAM_N       240
+/* Stream-leg variants: 0 = ambient defaults, 1 = unstable period, 2 = Metastock,
+ * then one per data shape from MONO_UP up (FUZZ_NSHAPES - 1 of them). */
+#define STREAM_NVARIANT (3 + FUZZ_NSHAPES - 1)
 
 static int stream_flag(const char *resp, const char *key)
 {
@@ -3231,6 +3281,14 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int vecIsMin[STREAM_MAX_VEC];
     int nvec, v, variant, legs = 0, rejArms = 0, vecOverflow = 0;
     int fillChecked = 0;   /* set once any leg reports OpenAndFill was verified */
+    int ufillChecked = 0;  /* set once any leg reports UpdateAndFill was verified (#246) */
+    int stateChecked = 0;  /* set once any leg reports the state-equivalence compare */
+    int stateLegs = 0;     /* how many legs actually compared handle state */
+    int stateOfLegs = 0;   /* value legs in the requests that reported it */
+    int rangeChecked = 0;  /* set once any leg reports the OutRange compare (#241) */
+    int rangeLegs = 0;     /* how many legs actually compared a handle's OutRange */
+    int rangeSites = 0;    /* OR of the range-compare sites that fired */
+    int rangeSitesN = 0;   /* how many the server says it has */
     long long benign = 0;  /* signed-zero cases this function's legs reported */
     int isUnstable;
 
@@ -3270,7 +3328,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
          * remaining data shapes so ALL fuzz shapes (incl. CONSTANT, TIE_HEAVY,
          * and FUZZ_CANDLE — the pattern-rich inside-bar shape that makes the
          * candlestick streams non-vacuous) are exercised every run. */
-        for( variant = 0; variant < FUZZ_NSHAPES; variant++ )
+        for( variant = 0; variant < STREAM_NVARIANT; variant++ )
         {
             int K = 0, compat = 0, shape;
             ErrorNumber pipeErr;
@@ -3318,10 +3376,25 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                  * 14, where a tie at ONE extremum cannot change the bits of
                  * (highest+lowest)/2. At range.min/min+1 the same shape carries
                  * 5-21 windows per function whose emitted bits are a tie-break
-                 * choice. Costs <= 2 extra vectors x 6 shapes per function. */
+                 * choice. Costs <= 2 extra vectors x 8 shapes per function. */
                 if( v != 0 && !vecIsMin[v] ) continue;
             }
-            shape = (variant >= 3) ? variant : (v + variant) % 7;
+            /* Variants 3.. walk the shape list from MONO_UP up, so every shape
+             * but RANDWALK (which variant 0 already runs at the defaults) is
+             * reached here — in EVERY language and at ambient K and
+             * compatibility.
+             *
+             * The rotation alone does not reach them (#240). A function with
+             * ONE parameter vector — every candlestick — has only v == 0, so
+             * `(v + variant) % 7` yields shape 1 solely at variant 1, the
+             * unstable-period leg, which a non-unstable function skips; and
+             * shape 2 solely at variant 2, the Metastock leg, which the
+             * languages without a compatibility API skip. So MONO_UP was run
+             * by nobody and MONO_DOWN by C alone. Not academic: 58 of
+             * CDLCOUNTERATTACK's 66 firing bars in this corpus are on
+             * MONO_DOWN, and the MONO_DOWN leg is the one that caught a
+             * one-bar ring rotation for it. */
+            shape = (variant >= 3) ? (variant - 2) : (v + variant) % 7;
             stream_build_request(ctx->requestBuf, funcInfo, vec[v],
                                  shape, 1234 + v * 7 + variant, STREAM_N,
                                  K, compat);
@@ -3369,6 +3442,88 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 {
                     printf("STREAM FILL MISMATCH [TA_%s] vector=%d K=%d compat=%d "
                            "(OpenAndFill array != batch(0,n-1))\n"
+                           "  request:  %s\n  response: %s\n",
+                           funcInfo->name, v, K, compat,
+                           ctx->requestBuf, ctx->responseBuf);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
+            }
+            /* UpdateAndFill leg (#246): Open(P) plus ONE UpdateAndFill over the
+             * remaining bars must write exactly what batch(0,n-1) reports for
+             * those bars, reject an aliased output, and treat a zero count as a
+             * no-op. Reported apart from fill_ok so a regression names which of
+             * the two filling entry points broke; folded into ok server-side
+             * too, so it fails even if this check regresses. */
+            if( stream_flag(ctx->responseBuf, "\"ufill_checked\":") == 1 )
+            {
+                ufillChecked = 1;
+                if( stream_flag(ctx->responseBuf, "\"ufill_ok\":") != 1 )
+                {
+                    printf("STREAM UPDATEFILL MISMATCH [TA_%s] vector=%d K=%d compat=%d "
+                           "(UpdateAndFill over the tail != batch over the same bars)\n"
+                           "  request:  %s\n  response: %s\n",
+                           funcInfo->name, v, K, compat,
+                           ctx->requestBuf, ctx->responseBuf);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
+            }
+            /* State-equivalence leg (#240): the handle after Open(P) + (n-P)
+             * updates must be bit-identical to the handle after Open(n). It
+             * compares STATE, so it fires on the bar a running total first
+             * diverges — independent of whether any pattern ever fires, which
+             * is what the value comparison above cannot be for a candlestick
+             * (a 3-valued output hides a total until it crosses a threshold).
+             * Checked before the generic ok flag so the failure names the
+             * field; folded into ok server-side too, so a regression here
+             * still fails the run. */
+            if( stream_flag(ctx->responseBuf, "\"state_checked\":") == 1 )
+            {
+                stateChecked = 1;
+                stateLegs += stream_flag(ctx->responseBuf, "\"state_legs\":");
+                stateOfLegs += stream_flag(ctx->responseBuf, "\"legs\":");
+                if( stream_flag(ctx->responseBuf, "\"state_ok\":") != 1 )
+                {
+                    printf("STREAM STATE MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
+                           "  Open(P)+updates and Open(n) left different handles\n"
+                           "  request:  %s\n  response: %s\n",
+                           funcInfo->name, v, K, compat,
+                           ctx->requestBuf, ctx->responseBuf);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
+            }
+            /* Range leg (#241): the handle's OutRange must equal what the batch
+             * call reports over the same bars — for the OpenAndFill handle, for
+             * Open(P) plus the updates that carry it to bar n-1, and for the
+             * startIdx-anchored open. It ties the streaming tier to the batch
+             * tier through one number pair, which no value leg does: every one
+             * of those compares outputs, and an output is the same whether the
+             * handle knows how many of them it has produced. Checked before the
+             * generic ok flag so the failure names the leg; folded into ok
+             * server-side too. */
+            if( stream_flag(ctx->responseBuf, "\"range_checked\":") == 1 )
+            {
+                rangeChecked = 1;
+                rangeLegs += stream_flag(ctx->responseBuf, "\"range_legs\":");
+                {
+                    /* Which of THIS server's range-compare sites fired, and how
+                     * many it has. Reported by the server rather than held as a
+                     * per-language constant here, so the two cannot drift when a
+                     * language gains a site. */
+                    int m = stream_flag(ctx->responseBuf, "\"range_sites\":");
+                    int nsites = stream_flag(ctx->responseBuf, "\"range_sites_n\":");
+                    if( m > 0 ) rangeSites |= m;
+                    if( nsites > rangeSitesN ) rangeSitesN = nsites;
+                }
+                if( stream_flag(ctx->responseBuf, "\"range_ok\":") != 1 )
+                {
+                    printf("STREAM RANGE MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
+                           "  a handle's OutRange != the batch range over the same bars\n"
                            "  request:  %s\n  response: %s\n",
                            funcInfo->name, v, K, compat,
                            ctx->requestBuf, ctx->responseBuf);
@@ -3425,6 +3580,28 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * the run — see FuncStreamCounters. */
     record_stream_counters(funcInfo->name, ctx->langIndex, legs, benign);
     if( fillChecked ) ctx->streamFillFunctions++;
+    if( ufillChecked ) ctx->streamUFillFunctions++;
+    if( stateChecked ) ctx->streamStateFunctions++;
+    if( rangeChecked ) ctx->streamRangeFunctions++;
+    ctx->streamRangeLegs += rangeLegs;
+    ctx->streamRangeSites |= rangeSites;
+    if( rangeSitesN > ctx->streamRangeSitesN ) ctx->streamRangeSitesN = rangeSitesN;
+    /* Per-leg, not per-function: a function counts as covered as soon as ONE of
+     * its legs compares, so without this a reference open that quietly failed
+     * on 15 of 16 legs would still read as full coverage. Every leg that
+     * compares values also compares state, so within the requests that answered
+     * the state leg at all the two counts must agree. (Requests that did not —
+     * a batch that produced nothing, an expected-reject arm — are excluded from
+     * both sides rather than counted as a shortfall.) */
+    if( stateChecked && stateLegs != stateOfLegs )
+    {
+        printf("STREAM STATE PARTIAL [TA_%s]: %d of %d legs compared handle "
+               "state\n", funcInfo->name, stateLegs, stateOfLegs);
+        ctx->failed++;
+        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+        return;
+    }
+    ctx->streamStateLegs += stateLegs;
     /* Named per function, like --fuzz-064's BENIGN line: a summary total that
      * starts moving says only that something did, not what. */
     if( benign > 0 )
@@ -4160,6 +4337,13 @@ static ErrorNumber test_codegen_for_language(
             ctx.streamSkipped       = 0;
             ctx.streamRejectArms    = 0;
             ctx.streamFillFunctions = 0;
+            ctx.streamUFillFunctions = 0;
+            ctx.streamStateFunctions = 0;
+            ctx.streamStateLegs     = 0;
+            ctx.streamRangeFunctions = 0;
+            ctx.streamRangeLegs     = 0;
+            ctx.streamRangeSites    = 0;
+            ctx.streamRangeSitesN   = 0;
             ctx.streamBenign        = 0;
             TA_ForEachFunc(stream_one_function, &ctx);
             /* The benign total is printed unconditionally, zero included: the
@@ -4169,9 +4353,18 @@ static ErrorNumber test_codegen_for_language(
             printf("  Stream verify: %d functions, %d legs bit-exact vs batch, "
                    "%d expected-reject probes, %d without a stream, "
                    "%lld benign signed-zero\n"
-                   "  OpenAndFill verify: %d functions, filled array == batch(0,n-1) bitwise\n",
+                   "  OpenAndFill verify: %d functions, filled array == batch(0,n-1) bitwise\n"
+                   "  UpdateAndFill verify: %d functions, n bars in one call == batch over the same bars\n"
+                   "  State-equivalence verify: %d functions, %d legs, handle after "
+                   "Open(P)+updates == handle after Open(n) bitwise\n"
+                   "  OutRange verify: %d functions, %d legs across %d of %d compare "
+                   "site(s), the handle's range == the batch range over the same bars\n",
                    ctx.streamFunctions, ctx.streamLegs, ctx.streamRejectArms,
-                   ctx.streamSkipped, ctx.streamBenign, ctx.streamFillFunctions);
+                   ctx.streamSkipped, ctx.streamBenign, ctx.streamFillFunctions,
+                   ctx.streamUFillFunctions,
+                   ctx.streamStateFunctions, ctx.streamStateLegs,
+                   ctx.streamRangeFunctions, ctx.streamRangeLegs,
+                   codegen_popcount(ctx.streamRangeSites), ctx.streamRangeSitesN);
             /* Coverage ratchet: every function with a server stream must ALSO
              * verify OpenAndFill (the emit side and this verify side both gate on
              * the same has_open_and_fill, so they cannot desync silently — but if
@@ -4186,6 +4379,93 @@ static ErrorNumber test_codegen_for_language(
                        "verified OpenAndFill — every streamable function must also "
                        "gate-verify its fill array\n",
                        ctx.streamFillFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            /* The same ratchet for UpdateAndFill (#246). It has the same shape
+             * as the fill floor above and exists for the same reason: the leg
+             * is unconditional in every server, so a function that streams and
+             * reports no UpdateAndFill leg is a tier whose emitter was missed —
+             * which the legs floor and the value legs both read as full
+             * coverage. */
+            if( ctx.error == TA_TEST_PASS &&
+                ctx.streamUFillFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM UPDATEFILL VACUOUS: only %d of %d streaming functions "
+                       "verified UpdateAndFill — every streamable function must also "
+                       "gate-verify its n-bar filler\n",
+                       ctx.streamUFillFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            /* The same ratchet for the state-equivalence leg (#240). The
+             * comparators are generated from the state struct itself and drop
+             * out as a SET when a sub-handle's callee loses its own, so a
+             * quietly shrinking set is the failure mode to catch; on the
+             * languages that do not emit the leg the count is 0 and the floor
+             * is the language's own (0 == not offered), never a partial. */
+            if( ctx.error == TA_TEST_PASS &&
+                ctx.streamStateFunctions != 0 &&
+                ctx.streamStateFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM STATE PARTIAL: only %d of %d streaming functions "
+                       "compared handle state — the generated comparator set has "
+                       "shrunk (a sub-handle callee lost its comparator, or a new "
+                       "state field has no rule)\n",
+                       ctx.streamStateFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            if( ctx.error == TA_TEST_PASS && ctx.streamStateFunctions == 0 &&
+                codegen_lang_has_stream_state_probe(lang->name) )
+            {
+                printf("STREAM STATE VACUOUS: the %s server offers the "
+                       "state-equivalence leg but reported it for 0 of %d "
+                       "streaming functions\n", lang->name, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            /* The range leg's ratchet (#241). Unlike the state leg this one is
+             * offered by EVERY server — the range is public API in all four
+             * backends — so the floor is unconditional: any streaming function
+             * that did not report it is a tier whose emitter was missed, and a
+             * count of 0 is a server that stopped answering the leg entirely.
+             * Both read as full coverage without this. */
+            if( ctx.error == TA_TEST_PASS &&
+                ctx.streamRangeFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM RANGE VACUOUS: only %d of %d streaming functions "
+                       "compared the handle's OutRange against the batch range\n",
+                       ctx.streamRangeFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            /* Per-SITE, not per-total. The floor above counts functions and
+             * the leg total is far above any threshold worth setting, so a whole
+             * compare site going dead — the anchored open, say, or the fill —
+             * stays green on both: the surviving sites carry the counts. Each
+             * server reports which of its own sites fired; every one has to have
+             * fired somewhere in the run. Corpus-wide rather than per function,
+             * because a site can legitimately not run for a given function or
+             * vector (C's anchored compare needs lb < Sidx < svN-1). */
+            /* Fails CLOSED on a server that stops declaring its site count.
+             * `range_sites_n` is the server's own claim about itself, so
+             * skipping the ratchet when it is absent would let the leg be
+             * disarmed by deleting one field — the exact shape this ratchet
+             * exists to catch. A server that answered the leg at all must say
+             * how many sites it has. */
+            if( ctx.error == TA_TEST_PASS && ctx.streamRangeFunctions > 0 &&
+                ctx.streamRangeSitesN <= 0 )
+            {
+                printf("STREAM RANGE PARTIAL: the %s server compared ranges for "
+                       "%d function(s) but never declared how many compare sites "
+                       "it has — the per-site ratchet cannot run\n",
+                       lang->name, ctx.streamRangeFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            if( ctx.error == TA_TEST_PASS && ctx.streamFunctions > 0 &&
+                ctx.streamRangeSitesN > 0 &&
+                ctx.streamRangeSites != (1 << ctx.streamRangeSitesN) - 1 )
+            {
+                printf("STREAM RANGE PARTIAL: only %d of %d range compare site(s) "
+                       "ever fired (mask 0x%x) — a whole site class is dead\n",
+                       codegen_popcount(ctx.streamRangeSites), ctx.streamRangeSitesN,
+                       (unsigned)ctx.streamRangeSites);
                 ctx.error = TA_CODEGEN_STREAM_MISMATCH;
             }
         }
@@ -4220,6 +4500,14 @@ static ErrorNumber test_codegen_for_language(
     if( langIndex == 0 )
     {
         int s;
+        /* Name the value-exempt functions too. Their structural parity is
+         * checked here, but the frozen reference is the wrong VALUE oracle for
+         * them, so this leg compares no numbers -- and a gate that silently
+         * compares nothing reads exactly like one that compared and agreed.
+         * Say so, and say what does pin them instead. */
+        printf("    values not ref-compared (reference is the wrong oracle): "
+               "STOCHRSI (#107, pinned by test_stoch.c), "
+               "CORREL (#242, pinned by test_correl.c + --xlang-hash)\n");
         if( ctx.nbSkipNames > 0 )
         {
             printf("    no frozen-reference baseline (post-cutover): ");
@@ -4620,7 +4908,9 @@ typedef struct {
     long long    fmaTol;      /* cases tolerated by the one-time FMA re-baselining gate (PR #96) */
     double       maxFmaRel;   /* largest FMA-tolerated relative divergence observed (evidence vs the 1e-9 contract) */
     long long    stochRsiSkipped; /* STOCHRSI cases skipped: intentionally diverges from 0.6.4 (issue #107) */
+    long long    mfiSkipped;      /* MFI cases skipped: v0.6.4 categorically wrong there (issue #244) */
     long long    varianceSkipped; /* VAR/STDDEV/BBANDS cases skipped: cancellation-free variance re-baseline (issue #118) */
+    long long    xySkipped;      /* CORREL/BETA cases skipped: same re-baseline over two series (issue #242) */
     int          reportedThisFunc;
     int          funcsWithFailures, funcsBenign, funcsSkipped;
     int          serverRestarts;
@@ -4942,10 +5232,10 @@ static int fuzz_build_vectors(const TA_FuncInfo *fi,
 /* ---- One-time FMA re-baselining transition gate (PR #96) -------------------
  * TA-Lib adopted an explicit-FMA numerical contract: each function is faithful
  * to its algorithm within 1e-9 relative, NOT bit-for-bit
- * (docs/fma-readiness-audit.md). The current library now fuses `a*b + c` into
- * `fma()` wherever the shared codegen detector fires; the frozen v0.6.4 oracle
- * does not. So the two differ by <=~1.7e-10 relative on the fused functions —
- * authorized, below the 1e-9 contract, but no longer hash-exact.
+ * (docs/studies/fma-readiness-audit.md). The current library now fuses `a*b + c`
+ * into `fma()` wherever the shared codegen detector fires; the frozen v0.6.4
+ * oracle does not. So the two differ by <=~1.7e-10 relative on the fused
+ * functions — authorized, below the 1e-9 contract, but no longer hash-exact.
  *
  * While this is 1, any per-element diff NOT covered by an explicit FUZZ_064_TOL
  * entry is tolerated when it is within the contract itself:
@@ -4989,7 +5279,8 @@ static int fma_needs_input_scale(const char *name)
 }
 
 enum { TOL_ABS = 0, TOL_REL_IN = 1, TOL_NAN_TO = 2, TOL_REL_OUT = 3 };
-static const struct { const char *name; int mode; double tol; double cap; } FUZZ_064_TOL[] = {
+typedef struct { const char *name; int mode; double tol; double cap; } TA_Fuzz064Tol;
+static const TA_Fuzz064Tol FUZZ_064_TOL[] = {
     { "CCI",                 TOL_ABS,    1e-9, 0.0 },  /* #7   near-zero identical-price fix */
     /* #118 cancellation-free variance. Bounded relative to the OUTPUT, not the
      * input: VAR's output is a squared quantity, so an inScale-relative bound is
@@ -4999,6 +5290,12 @@ static const struct { const char *name; int mode; double tol; double cap; } FUZZ
     { "VAR",                 TOL_REL_OUT, 1e-9, 0.0 }, /* #118 */
     { "STDDEV",              TOL_REL_OUT, 1e-9, 0.0 }, /* #118 */
     { "BBANDS",              TOL_REL_OUT, 1e-9, 0.0 }, /* #118 */
+    /* #242 the same treatment for the two-series forms. Output-relative: CORREL
+     * is a coefficient in [-1,1] and BETA a ratio of return scales, so neither
+     * is commensurate with the input magnitude. Only well-conditioned windows
+     * reach here -- see fuzz_correl_condition() / fuzz_beta_condition(). */
+    { "CORREL",              TOL_REL_OUT, 4e-9, 0.0 },  /* #242  measured 1.12e-09            */
+    { "BETA",                TOL_REL_OUT, 1e-9, 0.0 },  /* #242  measured 3.08e-10            */
     { "LINEARREG",           TOL_REL_IN, 1e-9, 0.0 },  /* #103 O(1) sliding-sum recurrence   */
     { "LINEARREG_SLOPE",     TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
     { "LINEARREG_INTERCEPT", TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
@@ -5006,6 +5303,24 @@ static const struct { const char *name; int mode; double tol; double cap; } FUZZ
     { "TSF",                 TOL_REL_IN, 1e-9, 0.0 },  /* #103                               */
     { "IMI",                 TOL_NAN_TO, 50.0, 0.0 },  /* #112 all-flat window 0/0 -> NaN, now 50.0 */
 };
+
+/* Largest divergence each manifest entry actually absorbed, in the units of its
+ * own bound. A gate that tolerates should say HOW MUCH it tolerated: without it
+ * an entry can be an order of magnitude looser than the divergence it authorizes
+ * and nothing says so -- and the next person to set one has no measurement to
+ * size it from. The FMA bucket already reports its own ("max observed 4.13e-11");
+ * this is the same for the named entries. Indexed by FUZZ_064_TOL slot. */
+static double g_fuzz064TolMax[sizeof(FUZZ_064_TOL)/sizeof(FUZZ_064_TOL[0])];
+
+/* Record `achieved` (in bound units) against the entry `e` returned by lookup. */
+static void fuzz_064_tol_record(const void *e, double achieved)
+{
+    long idx;
+    if( !e ) return;
+    idx = (const TA_Fuzz064Tol *)e - FUZZ_064_TOL;
+    if( idx < 0 || (unsigned long)idx >= sizeof(FUZZ_064_TOL)/sizeof(FUZZ_064_TOL[0]) ) return;
+    if( achieved > g_fuzz064TolMax[idx] ) g_fuzz064TolMax[idx] = achieved;
+}
 
 /* Look up a function's authorized tolerance; returns NULL if it must be exact. */
 static const void *fuzz_064_tol_lookup(const char *name, int *mode, double *tol, double *cap)
@@ -5079,6 +5394,197 @@ static double fuzz_variance_condition( const double *x, int n, int period, int s
     if( !(minVar > 0.0) || !(maxAbs > 0.0) ) return HUGE_VAL;
 
     return (maxAbs * maxAbs) / minVar;
+}
+
+/* Conditioning of v0.6.4's one-pass CORREL/BETA form over the windows a case
+ * evaluates (issue #242). Same measure, same reasoning and the same caveat as
+ * fuzz_variance_condition() above: v0.6.4 extracts each sum of squares as
+ * S2 - (S*S)/n, a difference of two ~n*mean^2 quantities, and its running
+ * accumulators carry rounding from every value they ever absorbed -- so the
+ * severity is a property of the CASE, not of any one window. Hence
+ *
+ *     kappa = max|v|^2 / min(window variance)
+ *
+ * over the values the accumulators actually read.
+ *
+ * HUGE_VAL (always skip) is returned for the windows where v0.6.4 does not
+ * merely lose digits but has no answer at all: a flat window, where its
+ * subtraction lands either side of zero, and any window its ABSOLUTE epsilon
+ * guard zeroes. Those are categorical divergences -- v0.6.4 returns exactly 0,
+ * or a correlation outside [-1,1] -- and no numeric tolerance can express them.
+ * They are precisely what #242 fixed, so v0.6.4 is not an oracle there.
+ *
+ * Two-pass on purpose: the test must not reuse either implementation to decide
+ * whether to trust the oracle. */
+#define FUZZ_XY_MAX_KAPPA 1.0e5
+
+/* Shared core: kappa of one series over the windows [first..e], plus the
+ * smallest sum-of-squared-deviations any window reaches (the quantity v0.6.4's
+ * epsilon guard is applied to). Returns 0 when there is nothing to judge. */
+static double fuzz_series_condition(const double *v, int n, int period,
+                                    int first, int e, double *outMinSS)
+{
+    double maxAbs = 0.0, minVar = HUGE_VAL, minSS = HUGE_VAL;
+    int t, j;
+
+    if( outMinSS ) *outMinSS = 0.0;
+    if( period < 2 ) return 0.0;
+    if( first > e || first >= n ) return 0.0;
+
+    for( j = first - period + 1; j <= e && j < n; j++ )
+    {
+        double m = fabs(v[j]);
+        if( m > maxAbs ) maxAbs = m;
+    }
+
+    for( t = first; t <= e && t < n; t++ )
+    {
+        double sum = 0.0, mean, ss = 0.0;
+        for( j = t - period + 1; j <= t; j++ ) sum += v[j];
+        mean = sum / (double)period;
+        for( j = t - period + 1; j <= t; j++ ) { double d = v[j] - mean; ss += d * d; }
+        if( !(ss > 0.0) ) { if( outMinSS ) *outMinSS = 0.0; return HUGE_VAL; }
+        if( ss < minSS ) minSS = ss;
+        if( ss / (double)period < minVar ) minVar = ss / (double)period;
+    }
+    if( !(minVar > 0.0) || !(maxAbs > 0.0) ) return HUGE_VAL;
+    if( outMinSS ) *outMinSS = minSS;
+    return (maxAbs * maxAbs) / minVar;
+}
+
+/* CORREL: v0.6.4 guards the PRODUCT of the two sums of squares against a fixed
+ * TA_EPSILON, so the pair is what decides whether it returns a number at all. */
+/* v0.6.4 is not an oracle for the MFI cases it gets categorically wrong
+ * (issue #244). Unlike the variance and CORREL/BETA carve-outs, this is not a
+ * question of lost digits, so there is no kappa to threshold: v0.6.4 either
+ * reports the index or it reports something that is not one.
+ *
+ *   1. Its `sum < 1.0` guard fires. Money flow is a price times a volume, so
+ *      that literal lives in whatever unit the instrument happens to be quoted
+ *      in; where it fires, v0.6.4 emits 0 for an index that is well defined.
+ *   2. The window is empty -- no bar moved, or none carried volume -- so the
+ *      true sums are 0/0. v0.6.4's running sums then hold nothing but the
+ *      rounding residue they accumulated, of arbitrary sign, and it divides
+ *      that by itself.
+ *   3. Some window is one-sided: every bar that moved went the same way, so
+ *      the true sum on the other side is exactly 0 and again what v0.6.4
+ *      divides by is residue. This is what put its output above 100.
+ *
+ * Everything else IS compared, and at ZERO tolerance -- no manifest entry: over
+ * the fuzz corpus all 3222 surviving case-slots are bit-identical to v0.6.4,
+ * because neither the reseed nor the range clamp can fire on a case that got
+ * past this predicate. Two-pass on purpose, like fuzz_variance_condition()
+ * above: the test must not reuse the algorithm under test to decide whether to
+ * trust the oracle. */
+static int fuzz_mfi_064_blind( const double *h, const double *l,
+                               const double *c, const double *v,
+                               int n, int period, int s, int e )
+{
+    int t, j, first;
+
+    if( period < 1 ) return 0;
+    first = (s > period) ? s : period;
+    if( first > e || first >= n ) return 0;
+
+    for( t = first; t <= e && t < n; t++ )
+    {
+        double pos = 0.0, neg = 0.0, total;
+        for( j = t - period + 1; j <= t; j++ )
+        {
+            double tp  = (h[j]   + l[j]   + c[j])   / 3.0;
+            double tpp = (h[j-1] + l[j-1] + c[j-1]) / 3.0;
+            if     ( tp > tpp ) pos += tp * v[j];
+            else if( tp < tpp ) neg += tp * v[j];
+        }
+        total = pos + neg;
+        if( !(total > 0.0) )                return 1;   /* (2) empty window   */
+        if( total < 1.0 )                   return 1;   /* (1) v0.6.4's guard */
+        if( !(pos > 0.0) || !(neg > 0.0) )  return 1;   /* (3) one-sided      */
+    }
+    return 0;
+}
+
+static double fuzz_correl_condition(const double *x, const double *y,
+                                    int n, int period, int s, int e)
+{
+    double kx, ky, ssx = 0.0, ssy = 0.0;
+    int first = (s > period - 1) ? s : period - 1;
+
+    kx = fuzz_series_condition(x, n, period, first, e, &ssx);
+    if( kx == HUGE_VAL ) return HUGE_VAL;
+    ky = fuzz_series_condition(y, n, period, first, e, &ssy);
+    if( ky == HUGE_VAL ) return HUGE_VAL;
+    if( kx == 0.0 && ky == 0.0 ) return 0.0;
+    /* v0.6.4: if( !TA_IS_ZERO_OR_NEG(ssX*ssY) ) ... else 0.0 */
+    if( ssx * ssy < 1e-14 ) return HUGE_VAL;
+    return (kx > ky) ? kx : ky;
+}
+
+/* BETA: same, over the RETURNS (its regressor), with BETA's own zero-price
+ * guard, and against its own absolute guard on n*S_xx - S_x*S_x. Both series
+ * matter: the denominator cancels on x, the numerator on x and y alike. */
+static double fuzz_beta_condition(const double *p0, const double *p1,
+                                  int n, int period, int s, int e)
+{
+    static double rx[MAX_NB_TEST_ELEMENT], ry[MAX_NB_TEST_ELEMENT];
+    double kx, ky, ssx = 0.0, ssy = 0.0;
+    int first, j;
+
+    if( n > MAX_NB_TEST_ELEMENT || n < 2 ) return HUGE_VAL;
+    /* BETA's lookback is optInTimePeriod: the first output at bar t reads the
+     * `period` returns ending at t, and a return needs its predecessor. */
+    rx[0] = ry[0] = 0.0;
+    for( j = 1; j < n; j++ )
+    {
+        rx[j] = ( p0[j-1] > 1e-14 || p0[j-1] < -1e-14 )
+                ? ( p0[j] - p0[j-1] ) / p0[j-1] : 0.0;
+        ry[j] = ( p1[j-1] > 1e-14 || p1[j-1] < -1e-14 )
+                ? ( p1[j] - p1[j-1] ) / p1[j-1] : 0.0;
+    }
+    first = (s > period) ? s : period;
+    if( first > e || first >= n ) return 0.0;
+
+    kx = fuzz_series_condition(rx, n, period, first, e, &ssx);
+    if( kx == HUGE_VAL ) return HUGE_VAL;
+    ky = fuzz_series_condition(ry, n, period, first, e, &ssy);
+    if( ky == HUGE_VAL ) return HUGE_VAL;
+    if( kx == 0.0 && ky == 0.0 ) return 0.0;
+    /* v0.6.4: if( !TA_IS_ZERO(n*S_xx - S_x*S_x) ) ... else 0.0, and that
+     * quantity is exactly period * ssx. */
+    if( (double)period * ssx < 1e-14 ) return HUGE_VAL;
+    if( ky > kx ) kx = ky;
+
+    /* The NUMERATOR cancels on its own axis, and the denominator measure above
+     * is blind to it: a window where the two return series are uncorrelated has
+     * a perfectly well-conditioned S_xx and a slope that is pure residue --
+     * 1e-16 against a natural scale of order 1, with the two versions disagreeing
+     * on its SIGN. Judging that as a relative divergence is meaningless.
+     *
+     * The measure is the Cauchy-Schwarz ceiling over what survives, which is
+     * exactly 1/|correlation| on the window: 1 when the returns move together,
+     * unbounded as they decouple. So this reads "skip where the two series are
+     * essentially uncorrelated", and at the shared 1e5 threshold that is
+     * |r| < 1e-5. CORREL needs no such term -- its OUTPUT is r, so a window
+     * this measure would reject is one its own epsilon-guard check already has.
+     */
+    for( j = first; j <= e && j < n; j++ )
+    {
+        double mx = 0.0, my = 0.0, sxx = 0.0, syy = 0.0, sxy = 0.0, ceil_, kn;
+        int t;
+        for( t = j - period + 1; t <= j; t++ ) { mx += rx[t]; my += ry[t]; }
+        mx /= (double)period; my /= (double)period;
+        for( t = j - period + 1; t <= j; t++ )
+        {
+            double dx = rx[t] - mx, dy = ry[t] - my;
+            sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+        }
+        if( sxx <= 0.0 || syy <= 0.0 ) return HUGE_VAL;
+        ceil_ = sqrt( sxx * syy );
+        if( !(fabs(sxy) > 0.0) ) return HUGE_VAL;
+        kn = ceil_ / fabs(sxy);
+        if( kn > kx ) kx = kn;
+    }
+    return kx;
 }
 
 /* Returns 0 if a REAL divergence, 1 if benign (+0.0 vs -0.0), 2 if tolerated
@@ -5163,7 +5669,20 @@ static int fuzz_classify_and_report(FuzzContext *ctx, const TA_FuncInfo *fi,
                     outBound = tolVal * m;
                 }
                 if( a == b ) benignDiff = 1;        /* numerically equal => signed zero */
-                else if( tolEntry && d <= outBound ) tolDiff = 1; /* within manifest bound */
+                else if( tolEntry && d <= outBound )
+                {
+                    tolDiff = 1;                    /* within manifest bound */
+                    if( tolMode == TOL_REL_OUT )
+                    {
+                        double m = fabs(a) > fabs(b) ? fabs(a) : fabs(b);
+                        if( m > 0.0 ) fuzz_064_tol_record(tolEntry, d / m);
+                    }
+                    else if( tolMode == TOL_REL_IN )
+                    {
+                        if( inScale > 0.0 ) fuzz_064_tol_record(tolEntry, d / inScale);
+                    }
+                    else fuzz_064_tol_record(tolEntry, d);
+                }
 #if FMA_TRANSITION_TOLERANCE
                 /* One-time FMA re-baseline: within the 1e-9 relative contract,
                  * output-relative (`1e-9 × max(|current|, |v0.6.4|)`). The
@@ -5260,6 +5779,7 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
      * (STOCH/STOCHF on raw OHLC do NOT diverge and stay strictly compared.) */
     if( strcmp(funcInfo->name, "STOCHRSI") == 0 ) { ctx->stochRsiSkipped++; return; }
 
+
     /* VAR/STDDEV/BBANDS intentionally diverge from 0.6.4 (issue #118): their
      * variance moved from the catastrophically-cancelling E[x^2]-mean^2 to a
      * cancellation-free shifted-data form, so on ILL-CONDITIONED windows 0.6.4
@@ -5272,6 +5792,20 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int isVarianceFunc = ( strcmp(funcInfo->name, "VAR") == 0 ||
                            strcmp(funcInfo->name, "STDDEV") == 0 ||
                            strcmp(funcInfo->name, "BBANDS") == 0 );
+
+    /* CORREL/BETA intentionally diverge from 0.6.4 (issue #242), for the same
+     * reason and by the same remedy as #118 above: their sums moved off the
+     * cancelling one-pass form onto shifted data with a reseed, and their fixed
+     * TA_EPSILON guards became scale-relative. On an ILL-CONDITIONED window
+     * 0.6.4 does not merely round differently -- it returned exactly 0, or a
+     * correlation outside [-1,1] -- so it is the wrong oracle there. Skipped
+     * per-case below on fuzz_correl_condition()/fuzz_beta_condition(); every
+     * better-conditioned case IS compared, at the manifest's output-relative
+     * bound. The new behaviour is pinned by test_correl.c / test_beta.c against
+     * oracles sharing no code with either version, stays bitwise cross-language
+     * (--xlang-hash) and batch==stream (stream_verify). */
+    int isCorrelFunc = ( strcmp(funcInfo->name, "CORREL") == 0 );
+    int isBetaFunc   = ( strcmp(funcInfo->name, "BETA")   == 0 );
 
     for( i = 0; i < funcInfo->nbInput; i++ )
     {
@@ -5398,6 +5932,25 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                     if( kappa > FUZZ_VAR_MAX_KAPPA ) { ctx->varianceSkipped++; continue; }
                 }
 
+                /* #242: the same carve-out over two series. Both take
+                 * (inReal0, inReal1) = (close, volume) per setup_inputs, and
+                 * optInTimePeriod is opt 0 for both. */
+                if( isCorrelFunc || isBetaFunc )
+                {
+                    double kappa = isCorrelFunc
+                        ? fuzz_correl_condition( g_fzBuf[3], g_fzBuf[4], n, (int)vec[k][0], s, e )
+                        : fuzz_beta_condition  ( g_fzBuf[3], g_fzBuf[4], n, (int)vec[k][0], s, e );
+                    if( kappa > FUZZ_XY_MAX_KAPPA ) { ctx->xySkipped++; continue; }
+                }
+
+                /* #244: skip only the cases v0.6.4 reports wrongly; the rest
+                 * stay bit-exact. g_fzBuf is O,H,L,C,V,OI and optInTimePeriod
+                 * is opt 0. */
+                if( strcmp(funcInfo->name, "MFI") == 0 &&
+                    fuzz_mfi_064_blind( g_fzBuf[1], g_fzBuf[2], g_fzBuf[3], g_fzBuf[4],
+                                        n, (int)vec[k][0], s, e ) )
+                { ctx->mfiSkipped++; continue; }
+
                 TA_Integer curBeg = 0, curNb = 0;
                 for( unsigned int o = 0; o < funcInfo->nbOutput; o++ )
                 {
@@ -5448,10 +6001,15 @@ static void fuzz_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                    "returns the guarded %g (authorized manifest)\n",
                    funcInfo->name, ctx->cciTol - cciTolBefore, tv);
         else
-            printf("  TOLERATED TA_%s: %lld case(s) within %g%s%s vs 0.6.4 (authorized manifest bound)\n",
+        {
+            int ti = 0; double tmax = 0.0;
+            const void *te = fuzz_064_tol_lookup(funcInfo->name, &ti, &tv, &tc);
+            if( te ) tmax = g_fuzz064TolMax[(const TA_Fuzz064Tol *)te - FUZZ_064_TOL];
+            printf("  TOLERATED TA_%s: %lld case(s) within %g%s%s vs 0.6.4 (authorized manifest bound, max observed %.3g)\n",
                    funcInfo->name, ctx->cciTol - cciTolBefore, tv,
                    tm == TOL_REL_IN ? " * max|input|" : "",
-                   (tm == TOL_REL_IN && tc > 0.0) ? " (capped)" : "");
+                   (tm == TOL_REL_IN && tc > 0.0) ? " (capped)" : "", tmax);
+        }
     }
     else if( ctx->fmaTol > fmaTolBefore )
         printf("  FMA-REBASELINE TA_%s: %lld case(s) within 1e-9 relative of v0.6.4 "
@@ -5531,6 +6089,9 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.stochRsiSkipped > 0 )
         printf("stochrsi-skipped: %lld STOCHRSI function(s) skipped entirely — intentionally diverges from 0.6.4 (issue #107); pinned by test_stoch.c\n",
                ctx.stochRsiSkipped);
+    if( ctx.mfiSkipped > 0 )
+        printf("mfi-skipped: %lld MFI case(s) where v0.6.4 reports a non-index (issue #244): its 1.0 guard fired, the window was empty, or a one-sided window left it dividing residue. Every other MFI case was compared bit-exact\n",
+               ctx.mfiSkipped);
     if( g_frozenEnumSkips > 0 )
         printf("post-freeze enums: %lld MAType value(s) > %d excluded vs v0.6.4 "
                "(#139, #93, #182; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
@@ -5538,6 +6099,9 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
     if( ctx.varianceSkipped > 0 )
         printf("variance-skipped: %lld VAR/STDDEV/BBANDS case(s) ill-conditioned for 0.6.4 (kappa > %.0e, issue #118); every better-conditioned case was compared\n",
                ctx.varianceSkipped, (double)FUZZ_VAR_MAX_KAPPA);
+    if( ctx.xySkipped > 0 )
+        printf("correl/beta-skipped: %lld CORREL/BETA case(s) ill-conditioned for 0.6.4 (kappa > %.0e, issue #242); every better-conditioned case was compared\n",
+               ctx.xySkipped, (double)FUZZ_XY_MAX_KAPPA);
     if( ctx.serverRestarts )
         printf("oracle restarts (recovered crashes): %d\n", ctx.serverRestarts);
     if( ctx.comparisons == 0 )

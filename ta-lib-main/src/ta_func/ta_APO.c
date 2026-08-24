@@ -264,6 +264,10 @@ TA_RetCode TA_S_APO( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_APO_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInFastPeriod;
    int optInSlowPeriod;
    TA_MAType optInMAType;
@@ -276,7 +280,7 @@ struct TA_APO_Stream {
 };
 
 /* Private function, not in public API. */
-static TA_RetCode TA_APO_StepInternal( struct TA_APO_Stream *sp, double inReal, double *outReal )
+static TA_RetCode TA_APO_StepImpl( struct TA_APO_Stream *sp, double inReal, double *outReal )
 {
    double cur_tempBuffer = 0.0;
    double cur_outReal = 0.0;
@@ -305,7 +309,7 @@ static TA_RetCode TA_APO_StepInternal( struct TA_APO_Stream *sp, double inReal, 
    return TA_SUCCESS;
 }
 
-static TA_RetCode TA_APO_OpenPass( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_APO_OpenImpl( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_APO_Stream *sp;
    int endIdx;
@@ -334,6 +338,12 @@ static TA_RetCode TA_APO_OpenPass( struct TA_APO_Stream **stream, const double i
       optInMAType = 1;
    else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -458,6 +468,8 @@ static TA_RetCode TA_APO_OpenPass( struct TA_APO_Stream **stream, const double i
       *outNBElement = dummyNBElement;
       if( !outStride ) outReal[0] = sc_outReal[dummyNBElement - 1];
       if( !outStride ) TA_Free( sc_outReal );
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -470,7 +482,7 @@ TA_RetCode TA_APO_OpenInternal( struct TA_APO_Stream **stream, const double inRe
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_APO_OpenPass( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_APO_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -492,25 +504,30 @@ TA_LIB_API TA_RetCode TA_APO_OpenAndFill( TA_APO_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_APO_OpenPass( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
+   return TA_APO_OpenAndFillInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_APO_OpenAndFillInternal( struct TA_APO_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInFastPeriod, int optInSlowPeriod, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_APO_OpenPass( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
+   return TA_APO_OpenImpl( stream, inReal, startIdx, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_APO_Update( TA_APO_Stream *stream, double inReal, double *outReal )
 {
+   TA_RetCode retCode;
+
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   return TA_APO_StepInternal( stream, inReal, outReal );
+   retCode = TA_APO_StepImpl( stream, inReal, outReal );
+   if( retCode != TA_SUCCESS ) return retCode;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_APO_Peek( const TA_APO_Stream *stream, double inReal, double *outReal )
@@ -521,7 +538,25 @@ TA_LIB_API TA_RetCode TA_APO_Peek( const TA_APO_Stream *stream, double inReal, d
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.peekMode = 1;
-   return TA_APO_StepInternal( &scratch, inReal, outReal );
+   return TA_APO_StepImpl( &scratch, inReal, outReal );
+}
+
+TA_LIB_API TA_RetCode TA_APO_UpdateAndFill( TA_APO_Stream *stream, const double inReal[], int barCount, double outReal[] )
+{
+   int i;
+   TA_RetCode retCode;
+
+   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      retCode = TA_APO_StepImpl( stream, inReal[i], &outReal[i] );
+      if( retCode != TA_SUCCESS ) return retCode;
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_APO_Close( TA_APO_Stream *stream )

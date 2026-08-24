@@ -238,25 +238,30 @@
       double prevReal;
       double prevOBV;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       OBV_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#OBV_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#OBV} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       OBV_Stream( OBV_Stream other ) {
          this.core = other.core;
          this.prevReal = other.prevReal;
          this.prevOBV = other.prevOBV;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( OBV_Stream other ) {
@@ -264,7 +269,8 @@
          this.prevReal = other.prevReal;
          this.prevOBV = other.prevOBV;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -282,8 +288,34 @@
       public double update( double inReal, double inVolume ) {
          if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("OBV update: BadParam", RetCode.BadParam);
-         core.OBV_StreamStep(this, inReal, inVolume);
+         core.OBV_StepImpl(this, inReal, inVolume);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double inVolume[], double outReal[] ) {
+         final int barCount = inReal.length;
+         if( inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume )
+            throw new TaLibArgumentException("OBV updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) || !Double.isFinite(inVolume[i]) )
+               throw new TaLibArgumentException("OBV updateAndFill: BadParam", RetCode.BadParam);
+            core.OBV_StepImpl(this, inReal[i], inVolume[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -297,7 +329,7 @@
          if( !Double.isFinite(inReal) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("OBV peek: BadParam", RetCode.BadParam);
          OBV_Stream scratch = new OBV_Stream(this);
-         core.OBV_StreamStep(scratch, inReal, inVolume);
+         core.OBV_StepImpl(scratch, inReal, inVolume);
          return scratch.cur_outReal;
       }
 
@@ -318,7 +350,7 @@
          return new OBV_Stream(this);
       }
    }
-   void OBV_StreamStep( OBV_Stream sp, double inReal, double inVolume )
+   void OBV_StepImpl( OBV_Stream sp, double inReal, double inVolume )
    {
       double tempReal = 0.0;
       tempReal = inReal;
@@ -330,7 +362,7 @@
       sp.cur_outReal = sp.prevOBV;
       sp.prevReal = tempReal;
    }
-   private RetCode OBV_OpenPass( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode OBV_OpenImpl( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       int outIdx = 0;
@@ -344,6 +376,11 @@
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       prevOBV = inVolume[startIdx];
       prevReal = inReal[startIdx];
@@ -366,29 +403,13 @@
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
-   private RetCode OBV_OpenImpl( OBV_Stream sp, double inReal[], double inVolume[], int startIdx )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return OBV_OpenPass( sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode OBV_OpenAndFillImpl( OBV_Stream sp, double inReal[], double inVolume[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
-         return RetCode.BadParam;
-      }
-      return OBV_OpenPass( sp, inReal, inVolume, 0, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode OBV_OpenAndFillInternalImpl( OBV_Stream sp, double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return OBV_OpenPass(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
-   }
    /* OBV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    OBV_Stream OBV_OpenAndFillInternal( double inReal[], double inVolume[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       OBV_Stream sp = new OBV_Stream(this);
-      RetCode retCode = OBV_OpenAndFillInternalImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = OBV_OpenImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -404,7 +425,12 @@
    OBV_Stream OBV_OpenInternal( double inReal[], double inVolume[], int startIdx )
    {
       OBV_Stream sp = new OBV_Stream(this);
-      RetCode retCode = OBV_OpenImpl(sp, inReal, inVolume, startIdx);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = OBV_OpenImpl(sp, inReal, inVolume, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -437,23 +463,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link OBV_Stream#fillRange()}.
+    * {@link OBV_Stream#outRange()}.
     */
    public OBV_Stream OBV_OpenAndFill( double inReal[], double inVolume[], double outReal[] )
    {
-      OBV_Stream sp = new OBV_Stream(this);
+      if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
+         throw new TaLibArgumentException("OBV openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = OBV_OpenAndFillImpl(sp, inReal, inVolume, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("OBV openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("OBV openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("OBV openAndFill: " + retCode, retCode);
+      return OBV_OpenAndFillInternal(inReal, inVolume, 0, outBegIdx, outNBElement, outReal);
    }

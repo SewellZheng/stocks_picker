@@ -66,6 +66,9 @@ public partial class Core
     *  071026 MF,CC Fix #107. Classify money-flow direction with a magnitude-scaled
     *               dead-zone (TA_IS_ZERO_SCALED), not an exact sign test, so an
     *               epsilon-flat typical price is "no movement", not a spurious move.
+    *  082326 MF,CC Fix #244. Detect an empty window by counting bars, not by
+    *               testing the money-flow sum against a literal 1.0; classify
+    *               branchlessly; clamp the emitted ratio into [0,100].
     */
    /// <summary>
    /// Number of leading input bars <c>MFI</c> consumes before it can produce its
@@ -108,10 +111,15 @@ public partial class Core
       double tempValue1 = 0;
       double tempValue2 = 0;
       double tempValue3 = 0;
+      double moneyFlow = 0;
+      double posFlow = 0;
+      double negFlow = 0;
+      double posClamped = 0;
       int lookbackTotal = 0;
       int outIdx = 0;
       int i = 0;
       int today = 0;
+      int nullRun = 0;
       double[] mflow_positive;
       double[] mflow_negative;
       int mflow_Idx = 0;
@@ -156,6 +164,13 @@ public partial class Core
       prevValue = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
       posSumMF = 0.0;
       negSumMF = 0.0;
+      /* Consecutive bars that put nothing into the window, counted so that an
+       * empty window can be recognized exactly (issue #244).  The running sums
+       * cannot answer that question themselves: they are maintained by
+       * add-then-subtract, so when the window empties they hold rounding
+       * residue of arbitrary sign, not zero.
+       */
+      nullRun = 0;
       today += 1;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
          tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
@@ -166,17 +181,38 @@ public partial class Core
          tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
          prevValue = tempValue1;
          tempValue1 *= inVolume[today++];
-         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
-            mflow_positive[mflow_Idx] = 0.0;
-            mflow_negative[mflow_Idx] = 0.0;
-         } else if( tempValue2 < 0 ) {
-            mflow_negative[mflow_Idx] = tempValue1;
-            negSumMF += tempValue1;
-            mflow_positive[mflow_Idx] = 0.0;
-         } else {
-            mflow_positive[mflow_Idx] = tempValue1;
-            posSumMF += tempValue1;
-            mflow_negative[mflow_Idx] = 0.0;
+         /* This bar's money flow, and its split into the positive and negative
+          * sums.  Selects rather than a three-arm branch: the direction of a
+          * price move is a coin flip, so that branch mispredicted on roughly
+          * every other bar and dominated the cost of the function.  Adding the
+          * unused side's 0.0 to a sum is an exact no-op, so this reproduces the
+          * branching form bit for bit.
+          *
+          * The three quantities are named rather than folded back into
+          * tempValue1/2 deliberately, at a known cost: every local in a step body
+          * becomes a field of the stream handle, so each name is another store
+          * per bar (~10% of MFI's streaming Update, +32 handle bytes).  That is
+          * the generator's to fix -- issue #252, which counts 436 such fields
+          * across 125 streaming functions -- not something to obfuscate an
+          * indicator body over.
+          */
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         mflow_positive[mflow_Idx] = posFlow;
+         mflow_negative[mflow_Idx] = negFlow;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         /* A bar contributes nothing when the typical price did not move, or
+          * when it moved but carried no volume.  Once a whole period of those
+          * has gone by, every slot of the ring is 0.0, so the sums are known to
+          * be exactly zero and the residue can be dropped.
+          */
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
          mflow_Idx++;
          if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
@@ -185,15 +221,27 @@ public partial class Core
        *    MFI = 100 - (100 / 1 + (posSumMF/negSumMF))
        *    MFI = 100 * (posSumMF/(posSumMF+negSumMF))
        * The second equation is used here for speed optimization.
+       *
+       * Both sums are non-negative, so the total is zero only for a window that
+       * received no money flow at all -- 0/0, reported as 0.0.  The test is on
+       * the total itself, not on a fixed threshold: money flow is a price times
+       * a volume, so any constant compared against it is a constant in some
+       * arbitrary unit, and would zero a healthy index for any instrument
+       * quoted small enough to fall under it (issue #244).
+       *
+       * Clamping the numerator into [0,total] keeps the result inside the
+       * documented 0-100 range: the sums drift by a few ulp as the window
+       * slides, and a sum whose true value is near zero can drift negative.
        */
       /* The first full window is complete: emit its output for startIdx here,
        * then slide the window over the remaining bars below.
        */
       tempValue1 = posSumMF + negSumMF;
-      if( tempValue1 < 1.0 ) {
+      posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+      if( tempValue1 <= 0.0 ) {
          outReal[outIdx++] = 0.0;
       } else {
-         outReal[outIdx++] = 100.0 * (posSumMF / tempValue1);
+         outReal[outIdx++] = 100.0 * (posClamped / tempValue1);
       }
       /* Now continue processing the remaining bars. */
       while( today <= endIdx ) {
@@ -207,23 +255,25 @@ public partial class Core
          tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
          prevValue = tempValue1;
          tempValue1 *= inVolume[today++];
-         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
-            mflow_positive[mflow_Idx] = 0.0;
-            mflow_negative[mflow_Idx] = 0.0;
-         } else if( tempValue2 < 0 ) {
-            mflow_negative[mflow_Idx] = tempValue1;
-            negSumMF += tempValue1;
-            mflow_positive[mflow_Idx] = 0.0;
-         } else {
-            mflow_positive[mflow_Idx] = tempValue1;
-            posSumMF += tempValue1;
-            mflow_negative[mflow_Idx] = 0.0;
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         mflow_positive[mflow_Idx] = posFlow;
+         mflow_negative[mflow_Idx] = negFlow;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
          tempValue1 = posSumMF + negSumMF;
-         if( tempValue1 < 1.0 ) {
+         posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+         if( tempValue1 <= 0.0 ) {
             outReal[outIdx++] = 0.0;
          } else {
-            outReal[outIdx++] = 100.0 * (posSumMF / tempValue1);
+            outReal[outIdx++] = 100.0 * (posClamped / tempValue1);
          }
          mflow_Idx++;
          if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
@@ -251,10 +301,15 @@ public partial class Core
       double tempValue1 = 0;
       double tempValue2 = 0;
       double tempValue3 = 0;
+      double moneyFlow = 0;
+      double posFlow = 0;
+      double negFlow = 0;
+      double posClamped = 0;
       int lookbackTotal = 0;
       int outIdx = 0;
       int i = 0;
       int today = 0;
+      int nullRun = 0;
       double[] mflow_positive;
       double[] mflow_negative;
       int mflow_Idx = 0;
@@ -289,6 +344,7 @@ public partial class Core
       prevValue = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
       posSumMF = 0.0;
       negSumMF = 0.0;
+      nullRun = 0;
       today += 1;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
          tempValue1 = ((double)inHigh[today] + (double)inLow[today] + (double)inClose[today]) / 3.0;
@@ -296,26 +352,28 @@ public partial class Core
          tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
          prevValue = tempValue1;
          tempValue1 *= (double)inVolume[today++];
-         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
-            mflow_positive[mflow_Idx] = 0.0;
-            mflow_negative[mflow_Idx] = 0.0;
-         } else if( tempValue2 < 0 ) {
-            mflow_negative[mflow_Idx] = tempValue1;
-            negSumMF += tempValue1;
-            mflow_positive[mflow_Idx] = 0.0;
-         } else {
-            mflow_positive[mflow_Idx] = tempValue1;
-            posSumMF += tempValue1;
-            mflow_negative[mflow_Idx] = 0.0;
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         mflow_positive[mflow_Idx] = posFlow;
+         mflow_negative[mflow_Idx] = negFlow;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
          mflow_Idx++;
          if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
       }
       tempValue1 = posSumMF + negSumMF;
-      if( tempValue1 < 1.0 ) {
+      posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+      if( tempValue1 <= 0.0 ) {
          outReal[outIdx++] = 0.0;
       } else {
-         outReal[outIdx++] = 100.0 * (posSumMF / tempValue1);
+         outReal[outIdx++] = 100.0 * (posClamped / tempValue1);
       }
       while( today <= endIdx ) {
          posSumMF -= mflow_positive[mflow_Idx];
@@ -325,23 +383,25 @@ public partial class Core
          tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
          prevValue = tempValue1;
          tempValue1 *= (double)inVolume[today++];
-         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
-            mflow_positive[mflow_Idx] = 0.0;
-            mflow_negative[mflow_Idx] = 0.0;
-         } else if( tempValue2 < 0 ) {
-            mflow_negative[mflow_Idx] = tempValue1;
-            negSumMF += tempValue1;
-            mflow_positive[mflow_Idx] = 0.0;
-         } else {
-            mflow_positive[mflow_Idx] = tempValue1;
-            posSumMF += tempValue1;
-            mflow_negative[mflow_Idx] = 0.0;
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         mflow_positive[mflow_Idx] = posFlow;
+         mflow_negative[mflow_Idx] = negFlow;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
          tempValue1 = posSumMF + negSumMF;
-         if( tempValue1 < 1.0 ) {
+         posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+         if( tempValue1 <= 0.0 ) {
             outReal[outIdx++] = 0.0;
          } else {
-            outReal[outIdx++] = 100.0 * (posSumMF / tempValue1);
+            outReal[outIdx++] = 100.0 * (posClamped / tempValue1);
          }
          mflow_Idx++;
          if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
@@ -362,6 +422,7 @@ public partial class Core
    /// </code>
    /// <list type="bullet">
    /// <item><description>When the typical price is unchanged from the prior bar, that bar's money flow is counted as neither positive nor negative.</description></item>
+   /// <item><description>A window in which no bar contributed any money flow — every typical price unchanged, or no volume traded — leaves the index undefined (0/0); 0 is returned. The result does not otherwise depend on the size of the money flow: scaling every volume, or quoting the instrument in a different unit, leaves the index unchanged.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -431,6 +492,7 @@ public partial class Core
    /// </code>
    /// <list type="bullet">
    /// <item><description>When the typical price is unchanged from the prior bar, that bar's money flow is counted as neither positive nor negative.</description></item>
+   /// <item><description>A window in which no bar contributed any money flow — every typical price unchanged, or no volume traded — leaves the index undefined (0/0); 0 is returned. The result does not otherwise depend on the size of the money flow: scaling every volume, or quoting the instrument in a different unit, leaves the index unchanged.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -519,26 +581,28 @@ public partial class Core
       internal double posSumMF;
       internal double negSumMF;
       internal double prevValue;
-      internal double tempValue1;
-      internal double tempValue2;
-      internal double tempValue3;
+      internal int nullRun;
       internal int mflow_Idx;
       internal int maxIdx_mflow;
       internal int cbSize_mflow;
       internal double[] cb_mflow_positive = [];
       internal double[] cb_mflow_negative = [];
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal MFI_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>MFI_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.MFI</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal MFI_Stream( MFI_Stream other )
       {
@@ -547,9 +611,7 @@ public partial class Core
          this.posSumMF = other.posSumMF;
          this.negSumMF = other.negSumMF;
          this.prevValue = other.prevValue;
-         this.tempValue1 = other.tempValue1;
-         this.tempValue2 = other.tempValue2;
-         this.tempValue3 = other.tempValue3;
+         this.nullRun = other.nullRun;
          this.mflow_Idx = other.mflow_Idx;
          this.maxIdx_mflow = other.maxIdx_mflow;
          this.cbSize_mflow = other.cbSize_mflow;
@@ -558,7 +620,8 @@ public partial class Core
          this.cb_mflow_negative = new double[other.cb_mflow_negative.Length];
          Array.Copy( other.cb_mflow_negative, this.cb_mflow_negative, other.cb_mflow_negative.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( MFI_Stream other )
@@ -568,9 +631,7 @@ public partial class Core
          this.posSumMF = other.posSumMF;
          this.negSumMF = other.negSumMF;
          this.prevValue = other.prevValue;
-         this.tempValue1 = other.tempValue1;
-         this.tempValue2 = other.tempValue2;
-         this.tempValue3 = other.tempValue3;
+         this.nullRun = other.nullRun;
          this.mflow_Idx = other.mflow_Idx;
          this.maxIdx_mflow = other.maxIdx_mflow;
          this.cbSize_mflow = other.cbSize_mflow;
@@ -583,7 +644,8 @@ public partial class Core
          }
          Array.Copy( other.cb_mflow_negative, this.cb_mflow_negative, other.cb_mflow_negative.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /* Peek's reusable scratch — one per thread, see CopyFrom. */
@@ -608,7 +670,8 @@ public partial class Core
       public double Update( double inHigh, double inLow, double inClose, double inVolume )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MFI", "update", RetCode.BadParam);
-         core.MFI_StreamStep(this, inHigh, inLow, inClose, inVolume);
+         core.MFI_StepImpl(this, inHigh, inLow, inClose, inVolume);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -636,8 +699,37 @@ public partial class Core
          } else {
             scratch.CopyFrom(this);
          }
-         core.MFI_StreamStep(scratch, inHigh, inLow, inClose, inVolume);
+         core.MFI_StepImpl(scratch, inHigh, inLow, inClose, inVolume);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
+      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
+      /// <param name="inClose">Closed bars for <c>inClose</c>, oldest first.</param>
+      /// <param name="inVolume">Closed bars for <c>inVolume</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, Span<double> outReal )
+      {
+         int barCount = inHigh.Length;
+         if( inLow.Length != barCount || inClose.Length != barCount || inVolume.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) throw Core.StreamFailure("MFI", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) || !double.IsFinite(inVolume[i]) ) throw Core.StreamFailure("MFI", "updateAndFill", RetCode.BadParam);
+            core.MFI_StepImpl(this, inHigh[i], inLow[i], inClose[i], inVolume[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -656,35 +748,44 @@ public partial class Core
       }
    }
 
-   internal void MFI_StreamStep( MFI_Stream sp, double inHigh, double inLow, double inClose, double inVolume )
+   internal void MFI_StepImpl( MFI_Stream sp, double inHigh, double inLow, double inClose, double inVolume )
    {
+      double tempValue1 = 0.0;
+      double tempValue2 = 0.0;
+      double tempValue3 = 0.0;
+      double moneyFlow = 0.0;
+      double posFlow = 0.0;
+      double negFlow = 0.0;
+      double posClamped = 0.0;
       sp.posSumMF -= sp.cb_mflow_positive[sp.mflow_Idx];
       sp.negSumMF -= sp.cb_mflow_negative[sp.mflow_Idx];
-      sp.tempValue1 = (inHigh + inLow + inClose) / 3.0;
-      sp.tempValue2 = sp.tempValue1 - sp.prevValue;
+      tempValue1 = (inHigh + inLow + inClose) / 3.0;
+      tempValue2 = tempValue1 - sp.prevValue;
       /* Dead-zone scaled to the two typical prices being compared (issue #107).
        * Captured before prevValue/tempValue1 are repurposed below.
        */
-      sp.tempValue3 = Math.Abs(sp.tempValue1) + Math.Abs(sp.prevValue);
-      sp.prevValue = sp.tempValue1;
-      sp.tempValue1 *= inVolume;
-      if( (Math.Abs(sp.tempValue2) <= 0.00000000000001 * (sp.tempValue3)) ) {
-         sp.cb_mflow_positive[sp.mflow_Idx] = 0.0;
-         sp.cb_mflow_negative[sp.mflow_Idx] = 0.0;
-      } else if( sp.tempValue2 < 0 ) {
-         sp.cb_mflow_negative[sp.mflow_Idx] = sp.tempValue1;
-         sp.negSumMF += sp.tempValue1;
-         sp.cb_mflow_positive[sp.mflow_Idx] = 0.0;
-      } else {
-         sp.cb_mflow_positive[sp.mflow_Idx] = sp.tempValue1;
-         sp.posSumMF += sp.tempValue1;
-         sp.cb_mflow_negative[sp.mflow_Idx] = 0.0;
+      tempValue3 = Math.Abs(tempValue1) + Math.Abs(sp.prevValue);
+      sp.prevValue = tempValue1;
+      tempValue1 *= inVolume;
+      moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+      posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+      negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+      sp.cb_mflow_positive[sp.mflow_Idx] = posFlow;
+      sp.cb_mflow_negative[sp.mflow_Idx] = negFlow;
+      sp.posSumMF += posFlow;
+      sp.negSumMF += negFlow;
+      sp.nullRun = (moneyFlow == 0.0) ? sp.nullRun + 1 : 0;
+      if( sp.nullRun >= sp.optInTimePeriod ) {
+         sp.nullRun = sp.optInTimePeriod;
+         sp.posSumMF = 0.0;
+         sp.negSumMF = 0.0;
       }
-      sp.tempValue1 = sp.posSumMF + sp.negSumMF;
-      if( sp.tempValue1 < 1.0 ) {
+      tempValue1 = sp.posSumMF + sp.negSumMF;
+      posClamped = (sp.posSumMF < 0.0) ? 0.0 : ((sp.posSumMF > tempValue1) ? tempValue1 : sp.posSumMF);
+      if( tempValue1 <= 0.0 ) {
          sp.cur_outReal = 0.0;
       } else {
-         sp.cur_outReal = 100.0 * (sp.posSumMF / sp.tempValue1);
+         sp.cur_outReal = 100.0 * (posClamped / tempValue1);
       }
       sp.mflow_Idx = sp.mflow_Idx + 1;
       if( sp.mflow_Idx > sp.maxIdx_mflow ) {
@@ -692,7 +793,7 @@ public partial class Core
       }
    }
 
-   private RetCode MFI_OpenPass( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode MFI_OpenImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -702,10 +803,15 @@ public partial class Core
       double tempValue1 = 0;
       double tempValue2 = 0;
       double tempValue3 = 0;
+      double moneyFlow = 0;
+      double posFlow = 0;
+      double negFlow = 0;
+      double posClamped = 0;
       int lookbackTotal = 0;
       int outIdx = 0;
       int i = 0;
       int today = 0;
+      int nullRun = 0;
       double[] mflow_positive = [];
       double[] mflow_negative = [];
       int mflow_Idx = 0;
@@ -722,6 +828,11 @@ public partial class Core
          optInTimePeriod = 14;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       /* Id, Type, Static Size */
       if( optInTimePeriod < 1 ) return RetCode.InternalError;
@@ -749,6 +860,13 @@ public partial class Core
       prevValue = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
       posSumMF = 0.0;
       negSumMF = 0.0;
+      /* Consecutive bars that put nothing into the window, counted so that an
+       * empty window can be recognized exactly (issue #244).  The running sums
+       * cannot answer that question themselves: they are maintained by
+       * add-then-subtract, so when the window empties they hold rounding
+       * residue of arbitrary sign, not zero.
+       */
+      nullRun = 0;
       today += 1;
       for( i = optInTimePeriod; i > 0; i -= 1 ) {
          tempValue1 = (inHigh[today] + inLow[today] + inClose[today]) / 3.0;
@@ -759,17 +877,38 @@ public partial class Core
          tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
          prevValue = tempValue1;
          tempValue1 *= inVolume[today++];
-         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
-            mflow_positive[mflow_Idx] = 0.0;
-            mflow_negative[mflow_Idx] = 0.0;
-         } else if( tempValue2 < 0 ) {
-            mflow_negative[mflow_Idx] = tempValue1;
-            negSumMF += tempValue1;
-            mflow_positive[mflow_Idx] = 0.0;
-         } else {
-            mflow_positive[mflow_Idx] = tempValue1;
-            posSumMF += tempValue1;
-            mflow_negative[mflow_Idx] = 0.0;
+         /* This bar's money flow, and its split into the positive and negative
+          * sums.  Selects rather than a three-arm branch: the direction of a
+          * price move is a coin flip, so that branch mispredicted on roughly
+          * every other bar and dominated the cost of the function.  Adding the
+          * unused side's 0.0 to a sum is an exact no-op, so this reproduces the
+          * branching form bit for bit.
+          *
+          * The three quantities are named rather than folded back into
+          * tempValue1/2 deliberately, at a known cost: every local in a step body
+          * becomes a field of the stream handle, so each name is another store
+          * per bar (~10% of MFI's streaming Update, +32 handle bytes).  That is
+          * the generator's to fix -- issue #252, which counts 436 such fields
+          * across 125 streaming functions -- not something to obfuscate an
+          * indicator body over.
+          */
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         mflow_positive[mflow_Idx] = posFlow;
+         mflow_negative[mflow_Idx] = negFlow;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         /* A bar contributes nothing when the typical price did not move, or
+          * when it moved but carried no volume.  Once a whole period of those
+          * has gone by, every slot of the ring is 0.0, so the sums are known to
+          * be exactly zero and the residue can be dropped.
+          */
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
          mflow_Idx++;
          if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
@@ -778,15 +917,27 @@ public partial class Core
        *    MFI = 100 - (100 / 1 + (posSumMF/negSumMF))
        *    MFI = 100 * (posSumMF/(posSumMF+negSumMF))
        * The second equation is used here for speed optimization.
+       *
+       * Both sums are non-negative, so the total is zero only for a window that
+       * received no money flow at all -- 0/0, reported as 0.0.  The test is on
+       * the total itself, not on a fixed threshold: money flow is a price times
+       * a volume, so any constant compared against it is a constant in some
+       * arbitrary unit, and would zero a healthy index for any instrument
+       * quoted small enough to fall under it (issue #244).
+       *
+       * Clamping the numerator into [0,total] keeps the result inside the
+       * documented 0-100 range: the sums drift by a few ulp as the window
+       * slides, and a sum whose true value is near zero can drift negative.
        */
       /* The first full window is complete: emit its output for startIdx here,
        * then slide the window over the remaining bars below.
        */
       tempValue1 = posSumMF + negSumMF;
-      if( tempValue1 < 1.0 ) {
+      posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+      if( tempValue1 <= 0.0 ) {
          outReal[outIdx++ * outStride] = 0.0;
       } else {
-         outReal[outIdx++ * outStride] = 100.0 * (posSumMF / tempValue1);
+         outReal[outIdx++ * outStride] = 100.0 * (posClamped / tempValue1);
       }
       /* Now continue processing the remaining bars. */
       while( today <= endIdx ) {
@@ -800,23 +951,25 @@ public partial class Core
          tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
          prevValue = tempValue1;
          tempValue1 *= inVolume[today++];
-         if( (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ) {
-            mflow_positive[mflow_Idx] = 0.0;
-            mflow_negative[mflow_Idx] = 0.0;
-         } else if( tempValue2 < 0 ) {
-            mflow_negative[mflow_Idx] = tempValue1;
-            negSumMF += tempValue1;
-            mflow_positive[mflow_Idx] = 0.0;
-         } else {
-            mflow_positive[mflow_Idx] = tempValue1;
-            posSumMF += tempValue1;
-            mflow_negative[mflow_Idx] = 0.0;
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         mflow_positive[mflow_Idx] = posFlow;
+         mflow_negative[mflow_Idx] = negFlow;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
          tempValue1 = posSumMF + negSumMF;
-         if( tempValue1 < 1.0 ) {
+         posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+         if( tempValue1 <= 0.0 ) {
             outReal[outIdx++ * outStride] = 0.0;
          } else {
-            outReal[outIdx++ * outStride] = 100.0 * (posSumMF / tempValue1);
+            outReal[outIdx++ * outStride] = 100.0 * (posClamped / tempValue1);
          }
          mflow_Idx++;
          if( mflow_Idx > maxIdx_mflow ) { mflow_Idx = 0; }
@@ -832,9 +985,7 @@ public partial class Core
       sp.posSumMF = posSumMF;
       sp.negSumMF = negSumMF;
       sp.prevValue = prevValue;
-      sp.tempValue1 = tempValue1;
-      sp.tempValue2 = tempValue2;
-      sp.tempValue3 = tempValue3;
+      sp.nullRun = nullRun;
       sp.mflow_Idx = mflow_Idx;
       sp.maxIdx_mflow = maxIdx_mflow;
       sp.cbSize_mflow = capCb_mflow;
@@ -844,32 +995,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode MFI_OpenImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod )
-   {
-      double[] sink_outReal = new double[1];
-      return MFI_OpenPass( sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode MFI_OpenAndFillImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) {
-         return RetCode.BadParam;
-      }
-      return MFI_OpenPass( sp, inHigh, inLow, inClose, inVolume, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode MFI_OpenAndFillInternalImpl( MFI_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return MFI_OpenPass(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* MFI_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal MFI_Stream MFI_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       MFI_Stream sp = new MFI_Stream(this);
-      RetCode retCode = MFI_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = MFI_OpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -880,7 +1012,10 @@ public partial class Core
    internal MFI_Stream MFI_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, ReadOnlySpan<double> inVolume, int startIdx, int optInTimePeriod )
    {
       MFI_Stream sp = new MFI_Stream(this);
-      RetCode retCode = MFI_OpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = MFI_OpenImpl(sp, inHigh, inLow, inClose, inVolume, startIdx, optInTimePeriod, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -926,7 +1061,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="MFI_Stream.FillRange"/>.</para>
+   /// <see cref="MFI_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
@@ -949,12 +1084,9 @@ public partial class Core
       if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
       if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
       if( inVolume.IsEmpty ) throw new TaLibArgumentException("inVolume is empty", nameof(inVolume), RetCode.BadParam);
-      MFI_Stream sp = new MFI_Stream(this);
-      RetCode retCode = MFI_OpenAndFillImpl(sp, inHigh, inLow, inClose, inVolume, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) {
+         throw StreamFailure("MFI", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("MFI", "openAndFill", retCode);
+      return MFI_OpenAndFillInternal(inHigh, inLow, inClose, inVolume, 0, optInTimePeriod, out _, out _, outReal);
    }
 }

@@ -327,11 +327,14 @@ TA_RetCode TA_S_AROONOSC( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_AROONOSC_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double lowest;
    double highest;
    double factor;
-   double aroon;
    int trailingIdx;
    int lowestIdx;
    int highestIdx;
@@ -347,7 +350,7 @@ struct TA_AROONOSC_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_AROONOSC_ReleaseInternal( struct TA_AROONOSC_Stream *sp )
+static void TA_AROONOSC_ReleaseImpl( struct TA_AROONOSC_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inHigh ) TA_Free( sp->x_inHigh );
@@ -358,9 +361,10 @@ static void TA_AROONOSC_ReleaseInternal( struct TA_AROONOSC_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_AROONOSC_StepInternal( struct TA_AROONOSC_Stream *sp, double inHigh, double inLow, double *outReal )
+static void TA_AROONOSC_StepImpl( struct TA_AROONOSC_Stream *sp, double inHigh, double inLow, double *outReal )
 {
    double tmp;
+   double aroon;
 
    if( sp->today >= 1073741824 )
    {
@@ -425,16 +429,16 @@ static void TA_AROONOSC_StepInternal( struct TA_AROONOSC_Stream *sp, double inHi
     * An arithmetic simplification give us:
     *  Aroon = factor*(highestIdx-lowestIdx)
     */
-   sp->aroon = sp->factor * (sp->highestIdx - sp->lowestIdx);
+   aroon = sp->factor * (sp->highestIdx - sp->lowestIdx);
    /* Note: Do not forget that input and output buffer can be the same,
     *       so writing to the output is the last thing being done here.
     */
-   *outReal= sp->aroon;
+   *outReal= aroon;
    sp->trailingIdx += 1;
    sp->today += 1;
 }
 
-static TA_RetCode TA_AROONOSC_OpenPass( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_AROONOSC_OpenImpl( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_AROONOSC_Stream *sp;
    int endIdx;
@@ -450,6 +454,12 @@ static TA_RetCode TA_AROONOSC_OpenPass( struct TA_AROONOSC_Stream **stream, cons
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -461,7 +471,7 @@ static TA_RetCode TA_AROONOSC_OpenPass( struct TA_AROONOSC_Stream **stream, cons
       double highest = 0.0;
       double tmp;
       double factor = 0.0;
-      double aroon = 0.0;
+      double aroon;
       int outIdx;
       int trailingIdx = 0;
       int lowestIdx = 0;
@@ -583,25 +593,24 @@ static TA_RetCode TA_AROONOSC_OpenPass( struct TA_AROONOSC_Stream **stream, cons
       sp->lowest = lowest;
       sp->highest = highest;
       sp->factor = factor;
-      sp->aroon = aroon;
       sp->trailingIdx = trailingIdx;
       sp->lowestIdx = lowestIdx;
       sp->highestIdx = highestIdx;
       sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_AROONOSC_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
       sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inHigh ) { TA_AROONOSC_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inHigh ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inHigh ) { TA_AROONOSC_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inHigh ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->x_inLow ) { TA_AROONOSC_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->x_inLow ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inLow ) { TA_AROONOSC_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->xMirror_inLow ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -609,6 +618,8 @@ static TA_RetCode TA_AROONOSC_OpenPass( struct TA_AROONOSC_Stream **stream, cons
            sp->x_inLow[fillJ & sp->xMask] = inLow[fillJ];
         }
       }
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -621,7 +632,7 @@ TA_RetCode TA_AROONOSC_OpenInternal( struct TA_AROONOSC_Stream **stream, const d
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_AROONOSC_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_AROONOSC_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -643,25 +654,26 @@ TA_LIB_API TA_RetCode TA_AROONOSC_OpenAndFill( TA_AROONOSC_Stream **stream, cons
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
-   return TA_AROONOSC_OpenPass( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AROONOSC_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_AROONOSC_OpenAndFillInternal( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_AROONOSC_OpenPass( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_AROONOSC_OpenImpl( stream, inHigh, inLow, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_AROONOSC_Update( TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
-   TA_AROONOSC_StepInternal( stream, inHigh, inLow, outReal );
+   TA_AROONOSC_StepImpl( stream, inHigh, inLow, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -676,13 +688,29 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double
    memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xPhys );
    scratch.x_inLow = stream->xMirror_inLow;
    memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xPhys );
-   TA_AROONOSC_StepInternal( &scratch, inHigh, inLow, outReal );
+   TA_AROONOSC_StepImpl( &scratch, inHigh, inLow, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AROONOSC_UpdateAndFill( TA_AROONOSC_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) ) return TA_BAD_PARAM;
+      TA_AROONOSC_StepImpl( stream, inHigh[i], inLow[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_AROONOSC_Close( TA_AROONOSC_Stream *stream )
 {
-   TA_AROONOSC_ReleaseInternal( stream );
+   TA_AROONOSC_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

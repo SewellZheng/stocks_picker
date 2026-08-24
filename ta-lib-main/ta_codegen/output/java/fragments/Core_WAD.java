@@ -64,14 +64,18 @@
        *        = 0             if close == prevClose
        *    WAD = running sum of AD
        *
-       * NO VOLUME IS CONSUMED, despite the name and despite the group this is
-       * filed under. Larry Williams' original multiplies the move by volume;
-       * Achelis' modification drops it, the industry attached Williams' name to
-       * the modification anyway, and Tulip, pandas-ta-classic, cTrader, TC2000,
-       * WealthCharts and MultiCharts all ship the no-volume form. Shipping the
-       * volume form under this name would surprise every user, so this is the
-       * one place the usual "the original author wins" rule is set aside. The
-       * volume-weighted series is a different indicator.
+       * NO VOLUME IS CONSUMED, despite the name. Larry Williams' original
+       * multiplies the move by volume; Achelis' modification drops it, the
+       * industry attached Williams' name to the modification anyway, and Tulip,
+       * pandas-ta-classic, cTrader, TC2000, WealthCharts and MultiCharts all ship
+       * the no-volume form. Shipping the volume form under this name would
+       * surprise every user, so this is the one place the usual "the original
+       * author wins" rule is set aside. The volume-weighted series is a different
+       * indicator. What is left once the multiplier is gone is a signed
+       * close-to-close move clipped by the true-range extreme and accumulated --
+       * momentum measured on the true range -- which is why this is grouped with
+       * the other no-volume directional lines (PLUS_DM, MINUS_DM, BOP, WILLR)
+       * rather than with AD/OBV.
        *
        * The three-way branch is written with plain > and < rather than any
        * epsilon: the flat arm must fire on exactly-equal consecutive closes and
@@ -160,21 +164,31 @@
       return RetCode.Success ;
    }
    /**
-    * Williams' Accumulation/Distribution: a cumulative line that measures each
-    * bar's close against the *true range* extreme — the previous close,
-    * whenever it lies outside the current bar — rather than against the bar's
-    * own high and low. A close above the previous one accumulates the distance
-    * up from the true low; a close below it distributes the distance down from
-    * the true high; an unchanged close contributes nothing. **It consumes no
+    * Williams' Accumulation/Distribution: a cumulative line meant to expose
+    * whether a security is quietly under accumulation (informed buying) or
+    * distribution (informed selling) beneath the surface of price. Larry
+    * Williams built it to catch that shift before price confirms it — traders
+    * watch for the line to diverge from price, since a line that keeps rising
+    * while price stalls or falls points to accumulation, and one that stalls
+    * while price pushes to a new high points to distribution. **It consumes no
     * volume.** Larry Williams' original multiplies each move by that bar's
     * volume; Steven Achelis published the modification that drops the
     * multiplier (*Technical Analysis from A to Z*, 2nd ed., p.368), and the
     * industry kept Williams' name on that no-volume form. That industry-wide
     * decision is enough for TA-Lib to ship the same form under the same name.
+    * What remains once the multiplier is dropped is a signed close-to-close
+    * move measured on the true range, so it is grouped as a momentum indicator,
+    * not a volume one.
     * <p><b>Formula</b>
     * <pre>{@code
-    * TRH_t = max(close_{t-1}, high_t); TRL_t = min(close_{t-1}, low_t); AD_t = close_t - TRL_t if close_t > close_{t-1}, close_t - TRH_t if close_t < close_{t-1}, otherwise 0; WAD_t = WAD_{t-1} + AD_t
-    * The first bar of the requested range has no previous close, so it contributes 0 and the line starts there — the same convention as AD, OBV, NVI and PVI. The accumulator restarts wherever the caller starts, so a different `startIdx` shifts the whole line by a constant.
+    * For each bar t:
+    * TRH_t = max(close_{t-1}, high_t)
+    * TRL_t = min(close_{t-1}, low_t)
+    * if close_t > close_{t-1} then AD_t = close_t - TRL_t
+    * if close_t < close_{t-1} then AD_t = close_t - TRH_t
+    * otherwise                     AD_t = 0
+    * WAD_t = WAD_{t-1} + AD_t
+    * The first bar of the requested range has no previous close, so the first output is always AD_t = 0. A different `startIdx` shifts WAD's whole line by a constant.
     * }</pre>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -234,21 +248,31 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
    /**
-    * Williams' Accumulation/Distribution: a cumulative line that measures each
-    * bar's close against the *true range* extreme — the previous close,
-    * whenever it lies outside the current bar — rather than against the bar's
-    * own high and low. A close above the previous one accumulates the distance
-    * up from the true low; a close below it distributes the distance down from
-    * the true high; an unchanged close contributes nothing. **It consumes no
+    * Williams' Accumulation/Distribution: a cumulative line meant to expose
+    * whether a security is quietly under accumulation (informed buying) or
+    * distribution (informed selling) beneath the surface of price. Larry
+    * Williams built it to catch that shift before price confirms it — traders
+    * watch for the line to diverge from price, since a line that keeps rising
+    * while price stalls or falls points to accumulation, and one that stalls
+    * while price pushes to a new high points to distribution. **It consumes no
     * volume.** Larry Williams' original multiplies each move by that bar's
     * volume; Steven Achelis published the modification that drops the
     * multiplier (*Technical Analysis from A to Z*, 2nd ed., p.368), and the
     * industry kept Williams' name on that no-volume form. That industry-wide
     * decision is enough for TA-Lib to ship the same form under the same name.
+    * What remains once the multiplier is dropped is a signed close-to-close
+    * move measured on the true range, so it is grouped as a momentum indicator,
+    * not a volume one.
     * <p><b>Formula</b>
     * <pre>{@code
-    * TRH_t = max(close_{t-1}, high_t); TRL_t = min(close_{t-1}, low_t); AD_t = close_t - TRL_t if close_t > close_{t-1}, close_t - TRH_t if close_t < close_{t-1}, otherwise 0; WAD_t = WAD_{t-1} + AD_t
-    * The first bar of the requested range has no previous close, so it contributes 0 and the line starts there — the same convention as AD, OBV, NVI and PVI. The accumulator restarts wherever the caller starts, so a different `startIdx` shifts the whole line by a constant.
+    * For each bar t:
+    * TRH_t = max(close_{t-1}, high_t)
+    * TRL_t = min(close_{t-1}, low_t)
+    * if close_t > close_{t-1} then AD_t = close_t - TRL_t
+    * if close_t < close_{t-1} then AD_t = close_t - TRH_t
+    * otherwise                     AD_t = 0
+    * WAD_t = WAD_{t-1} + AD_t
+    * The first bar of the requested range has no previous close, so the first output is always AD_t = 0. A different `startIdx` shifts WAD's whole line by a constant.
     * }</pre>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -330,37 +354,40 @@
       Core core;
       double sum;
       double prevClose;
-      double trueExtreme;
       double cur_outReal;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       WAD_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#WAD_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#WAD} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       WAD_Stream( WAD_Stream other ) {
          this.core = other.core;
          this.sum = other.sum;
          this.prevClose = other.prevClose;
-         this.trueExtreme = other.trueExtreme;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( WAD_Stream other ) {
          this.core = other.core;
          this.sum = other.sum;
          this.prevClose = other.prevClose;
-         this.trueExtreme = other.trueExtreme;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -378,8 +405,34 @@
       public double update( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("WAD update: BadParam", RetCode.BadParam);
-         core.WAD_StreamStep(this, inHigh, inLow, inClose);
+         core.WAD_StepImpl(this, inHigh, inLow, inClose);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inHigh.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         final int barCount = inHigh.length;
+         if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
+            throw new TaLibArgumentException("WAD updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) )
+               throw new TaLibArgumentException("WAD updateAndFill: BadParam", RetCode.BadParam);
+            core.WAD_StepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -393,7 +446,7 @@
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("WAD peek: BadParam", RetCode.BadParam);
          WAD_Stream scratch = new WAD_Stream(this);
-         core.WAD_StreamStep(scratch, inHigh, inLow, inClose);
+         core.WAD_StepImpl(scratch, inHigh, inLow, inClose);
          return scratch.cur_outReal;
       }
 
@@ -414,27 +467,28 @@
          return new WAD_Stream(this);
       }
    }
-   void WAD_StreamStep( WAD_Stream sp, double inHigh, double inLow, double inClose )
+   void WAD_StepImpl( WAD_Stream sp, double inHigh, double inLow, double inClose )
    {
       double close = 0.0;
+      double trueExtreme = 0.0;
       close = inClose;
       if( close > sp.prevClose ) {
-         sp.trueExtreme = inLow;
-         if( sp.prevClose < sp.trueExtreme ) {
-            sp.trueExtreme = sp.prevClose;
+         trueExtreme = inLow;
+         if( sp.prevClose < trueExtreme ) {
+            trueExtreme = sp.prevClose;
          }
-         sp.sum += close - sp.trueExtreme;
+         sp.sum += close - trueExtreme;
       } else if( close < sp.prevClose ) {
-         sp.trueExtreme = inHigh;
-         if( sp.prevClose > sp.trueExtreme ) {
-            sp.trueExtreme = sp.prevClose;
+         trueExtreme = inHigh;
+         if( sp.prevClose > trueExtreme ) {
+            trueExtreme = sp.prevClose;
          }
-         sp.sum += close - sp.trueExtreme;
+         sp.sum += close - trueExtreme;
       }
       sp.cur_outReal = sp.sum;
       sp.prevClose = close;
    }
-   private RetCode WAD_OpenPass( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode WAD_OpenImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       double sum = 0;
       double prevClose = 0;
@@ -450,6 +504,11 @@
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
       }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
+      }
       /* Williams' Accumulation/Distribution, in the form Steven Achelis
        * published (Technical Analysis from A to Z, 2nd ed., p.368) and the form
        * every modern vendor ships: each bar's close is measured against the TRUE
@@ -462,14 +521,18 @@
        *        = 0             if close == prevClose
        *    WAD = running sum of AD
        *
-       * NO VOLUME IS CONSUMED, despite the name and despite the group this is
-       * filed under. Larry Williams' original multiplies the move by volume;
-       * Achelis' modification drops it, the industry attached Williams' name to
-       * the modification anyway, and Tulip, pandas-ta-classic, cTrader, TC2000,
-       * WealthCharts and MultiCharts all ship the no-volume form. Shipping the
-       * volume form under this name would surprise every user, so this is the
-       * one place the usual "the original author wins" rule is set aside. The
-       * volume-weighted series is a different indicator.
+       * NO VOLUME IS CONSUMED, despite the name. Larry Williams' original
+       * multiplies the move by volume; Achelis' modification drops it, the
+       * industry attached Williams' name to the modification anyway, and Tulip,
+       * pandas-ta-classic, cTrader, TC2000, WealthCharts and MultiCharts all ship
+       * the no-volume form. Shipping the volume form under this name would
+       * surprise every user, so this is the one place the usual "the original
+       * author wins" rule is set aside. The volume-weighted series is a different
+       * indicator. What is left once the multiplier is gone is a signed
+       * close-to-close move clipped by the true-range extreme and accumulated --
+       * momentum measured on the true range -- which is why this is grouped with
+       * the other no-volume directional lines (PLUS_DM, MINUS_DM, BOP, WILLR)
+       * rather than with AD/OBV.
        *
        * The three-way branch is written with plain > and < rather than any
        * epsilon: the flat arm must fire on exactly-equal consecutive closes and
@@ -511,33 +574,16 @@
       /* Capture the live batch state into the handle. */
       sp.sum = sum;
       sp.prevClose = prevClose;
-      sp.trueExtreme = trueExtreme;
       sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
-   }
-   private RetCode WAD_OpenImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return WAD_OpenPass( sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode WAD_OpenAndFillImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
-         return RetCode.BadParam;
-      }
-      return WAD_OpenPass( sp, inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode WAD_OpenAndFillInternalImpl( WAD_Stream sp, double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return WAD_OpenPass(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
    }
    /* WAD_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    WAD_Stream WAD_OpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       WAD_Stream sp = new WAD_Stream(this);
-      RetCode retCode = WAD_OpenAndFillInternalImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal);
+      RetCode retCode = WAD_OpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -553,7 +599,12 @@
    WAD_Stream WAD_OpenInternal( double inHigh[], double inLow[], double inClose[], int startIdx )
    {
       WAD_Stream sp = new WAD_Stream(this);
-      RetCode retCode = WAD_OpenImpl(sp, inHigh, inLow, inClose, startIdx);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = WAD_OpenImpl(sp, inHigh, inLow, inClose, startIdx, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -586,23 +637,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link WAD_Stream#fillRange()}.
+    * {@link WAD_Stream#outRange()}.
     */
    public WAD_Stream WAD_OpenAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] )
    {
-      WAD_Stream sp = new WAD_Stream(this);
+      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
+         throw new TaLibArgumentException("WAD openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = WAD_OpenAndFillImpl(sp, inHigh, inLow, inClose, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("WAD openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("WAD openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("WAD openAndFill: " + retCode, retCode);
+      return WAD_OpenAndFillInternal(inHigh, inLow, inClose, 0, outBegIdx, outNBElement, outReal);
    }

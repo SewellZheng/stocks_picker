@@ -13,6 +13,7 @@ use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::ir;
 use ta_codegen_lib::parser;
 use ta_codegen_lib::registry::{Lang, Registry};
+use ta_codegen_lib::streaming;
 
 // ---------------------------------------------------------------------------
 // Test infrastructure
@@ -7132,15 +7133,40 @@ fn test_c_ma_dispatch_stream_section() {
     let helpers = HelperRegistry::empty();
     let c = backends::c::generate(&func, &enums, &registry, &helpers);
 
-    // Handle: params + a single tagged sub pointer, no StepInternal.
+    // Handle: params + a single tagged sub pointer, no StepImpl.
     assert!(c.contains("struct TA_MA_Stream {"), "state struct");
     assert!(c.contains("void *sub;"), "tagged sub-stream pointer");
-    assert!(!c.contains("TA_MA_StepInternal"), "dispatch has no transition fn");
+    // Paired with the control below, because on its own this is an assertion
+    // about a word: rename the transition tier and the negative goes true for
+    // all 176 at once. SMA is generated here only to prove the name is still
+    // the one the emitter writes, so MA's silence means something.
+    assert!(!c.contains("TA_MA_StepImpl"), "dispatch has no transition fn");
+    {
+        let (mut sma, sma_enums) = load_indicator("sma");
+        sma.streaming = true;
+        let sma_c = backends::c::generate(&sma, &sma_enums, &registry, &helpers);
+        assert!(
+            sma_c.contains("TA_SMA_StepImpl( struct"),
+            "control: a non-dispatch tier still spells its transition fn _StepImpl"
+        );
+    }
 
-    // Open: identity path first (mirrors batch order), then the dispatch.
+    // Open: identity path first (mirrors batch order), then the dispatch. The
+    // anchor is resolved once per mode and the range is reported from it.
+    //
+    // The ORDER of the clamp and the history re-check — the property 96d1052f8
+    // is about — is pinned in open_core_suite's
+    // `dispatch_open_modes_differ_only_where_intended`, per mode, on a sliced
+    // body. It cannot be pinned here: `c` is the whole file, the three lines are
+    // emitted byte-identically by the scalar open and the anchored fill, and a
+    // `contains` over both is satisfied by whichever arm is still correct.
+    // Measured — reordering the scalar arm alone left every generator test green.
     assert!(
-        c.contains("if( historyLen < TA_MA_Lookback( optInTimePeriod, optInMAType ) + 1 )"),
-        "identity min-history check"
+        c.contains(concat!(
+            "      sp->outRangeBegIdx = fillLb;\n",
+            "      sp->outRangeCount = historyLen - fillLb;\n",
+        )),
+        "the identity arm reports the anchor it actually used"
     );
     for (label, callee) in [
         ("Sma", "TA_SMA"),
@@ -7266,7 +7292,7 @@ fn test_dual_mode_identity_guard_is_hoisted_above_the_predicate() {
     let c = backends::c::generate(&func, &enums, &registry, &helpers);
 
     let step = c
-        .split("static void TA_HMA_StepInternal(")
+        .split("static void TA_HMA_StepImpl(")
         .nth(1)
         .and_then(|s| s.split("\n}\n").next())
         .expect("step body");
@@ -7286,7 +7312,7 @@ fn test_dual_mode_identity_guard_is_hoisted_above_the_predicate() {
 }
 
 /// Pin the generated MINUS_DM dual-mode stream section: ONE union state struct,
-/// ONE StepInternal that branches on the stored (immutable) period param — no
+/// ONE StepImpl that branches on the stored (immutable) period param — no
 /// separate mode tag — and an OpenInternal that selects the degenerate vs the
 /// Wilder arm by the same predicate. The input `.c` is untouched: both arms are
 /// transcribed verbatim, so the period<=1 raw-DM1 behavior (which ignores the
@@ -7299,8 +7325,8 @@ fn test_c_minus_dm_dual_mode_stream_section() {
     let helpers = HelperRegistry::empty();
     let c = backends::c::generate(&func, &enums, &registry, &helpers);
 
-    // Exactly one StepInternal (not one per mode), branching on the stored param.
-    assert_eq!(c.matches("TA_MINUS_DM_StepInternal( struct").count(), 1, "one StepInternal def");
+    // Exactly one StepImpl (not one per mode), branching on the stored param.
+    assert_eq!(c.matches("TA_MINUS_DM_StepImpl( struct").count(), 1, "one StepImpl def");
     assert!(
         c.contains("if( sp->optInTimePeriod <= 1 )"),
         "step selects the degenerate arm from the immutable stored param"
@@ -7358,10 +7384,10 @@ fn test_c_ht_dcperiod_parity_stream_section() {
     // (1) output-gate strip: the step writes outReal UNCONDITIONALLY (no
     // `today >= startIdx` gate survives in the per-bar transition).
     let step = stream
-        .split("TA_HT_DCPERIOD_StepInternal")
+        .split("TA_HT_DCPERIOD_StepImpl")
         .nth(1)
-        .expect("StepInternal emitted");
-    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenPass").unwrap_or(step.len())];
+        .expect("StepImpl emitted");
+    let step_body = &step[..step.find("TA_HT_DCPERIOD_OpenImpl").unwrap_or(step.len())];
     assert!(
         step_body.contains("*outReal= sp->smoothPeriod;"),
         "unconditional smoothPeriod output in the step"
@@ -7406,15 +7432,15 @@ fn test_c_ht_phasor_nested_gate_two_outputs_stream_section() {
     assert!(stream.contains("sp->streamParity = 1 - sp->streamParity;"), "parity flips each step");
 
     let step = stream
-        .split("TA_HT_PHASOR_StepInternal")
+        .split("TA_HT_PHASOR_StepImpl")
         .nth(1)
-        .expect("StepInternal emitted");
-    let step_body = &step[..step.find("TA_HT_PHASOR_OpenPass").unwrap_or(step.len())];
+        .expect("StepImpl emitted");
+    let step_body = &step[..step.find("TA_HT_PHASOR_OpenImpl").unwrap_or(step.len())];
     // The step branches on the carried parity, and BOTH outputs are written
     // unconditionally in each arm (the nested `today >= startIdx` gate stripped).
     assert!(step_body.contains("if( sp->streamParity == 0 )"), "parity branch in the step");
     assert_eq!(
-        step_body.matches("*outQuadrature= sp->Q1;").count(),
+        step_body.matches("*outQuadrature= Q1;").count(),
         2,
         "outQuadrature written unconditionally in BOTH parity arms (nested gate stripped)"
     );
@@ -7450,8 +7476,8 @@ fn test_c_ht_dcphase_circ_ring_fixed_coexist() {
     assert!(s.contains("double *ring_trailingWMAIdx_inReal;"), "WMA trailing ring");
     assert!(s.contains("double detrender_Even[3];"), "fixed Hilbert array");
     assert!(s.contains("double DCPhase;"), "DCPhase carried across bars");
-    assert!(s.contains("sp->cb_smoothPrice[sp->smoothPrice_Idx] = sp->smoothedValue;"), "circbuf write");
-    assert!(s.contains("sp->cb_smoothPrice[sp->idx]"), "circbuf backward rescan read");
+    assert!(s.contains("sp->cb_smoothPrice[sp->smoothPrice_Idx] = smoothedValue;"), "circbuf write");
+    assert!(s.contains("sp->cb_smoothPrice[idx]"), "circbuf backward rescan read");
     assert!(s.contains("memcpy( sp->cb_smoothPrice, smoothPrice"), "circbuf captured (contents+phase) in Open");
     assert!(s.contains("*outReal= sp->DCPhase;"), "unconditional DCPhase output (gate stripped)");
 }
@@ -7461,8 +7487,8 @@ fn test_c_ht_dcphase_circ_ring_fixed_coexist() {
 fn test_c_ht_sine_two_sin_outputs() {
     let s = ht_stream_section("ht_sine");
     assert!(s.contains("double *cb_smoothPrice;"), "shares DCPHASE's circbuf");
-    let step = s.split("TA_HT_SINE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_SINE_OpenPass").unwrap_or(step.len())];
+    let step = s.split("TA_HT_SINE_StepImpl").nth(1).unwrap();
+    let step = &step[..step.find("TA_HT_SINE_OpenImpl").unwrap_or(step.len())];
     assert!(step.contains("*outSine="), "outSine written unconditionally");
     assert!(step.contains("*outLeadSine="), "outLeadSine written unconditionally");
     assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
@@ -7494,14 +7520,14 @@ fn test_c_folded_window_read_is_cursor_relative_and_de_moduloed() {
         !s.contains("win_totIdx_"),
         "the rescan window keeps no buffer (#229)"
     );
-    let step = s.split("TA_CDL3BLACKCROWS_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_CDL3BLACKCROWS_OpenPass").unwrap_or(step.len())];
+    let step = s.split("TA_CDL3BLACKCROWS_StepImpl").nth(1).unwrap();
+    let step = &step[..step.find("TA_CDL3BLACKCROWS_OpenImpl").unwrap_or(step.len())];
     let ring = "ring_ShadowVeryShortTrailingIdx_derived";
     let pos = "sp->ringPos_ShadowVeryShortTrailingIdx";
     let cap = "sp->ringCap_ShadowVeryShortTrailingIdx";
     let want = format!(
-        "sp->{ring}[({pos} + {cap} - sp->totIdx >= {cap}) ? \
-         {pos} + {cap} - sp->totIdx - {cap} : {pos} + {cap} - sp->totIdx]"
+        "sp->{ring}[({pos} + {cap} - totIdx >= {cap}) ? \
+         {pos} + {cap} - totIdx - {cap} : {pos} + {cap} - totIdx]"
     );
     assert!(
         step.contains(&want),
@@ -7511,7 +7537,7 @@ fn test_c_folded_window_read_is_cursor_relative_and_de_moduloed() {
     // the two are different reads of one buffer and must not be conflated.
     assert!(
         step.contains(&format!(
-            "sp->{ring}[({pos} + {cap} - sp->ringLag_ShadowVeryShortTrailingIdx - sp->totIdx) % {cap}]"
+            "sp->{ring}[({pos} + {cap} - sp->ringLag_ShadowVeryShortTrailingIdx - totIdx) % {cap}]"
         )),
         "the trailing read is unchanged"
     );
@@ -7524,6 +7550,389 @@ fn test_c_folded_window_read_is_cursor_relative_and_de_moduloed() {
     );
 }
 
+/// The C server's #240 state-equivalence comparators are generated by reading
+/// `c_stream::state_struct_text` back and emitting one compare per declared
+/// field. That is only drift-proof if the text is the very text the shipped
+/// struct is emitted from — so pin the identity here, over the whole streaming
+/// corpus.
+///
+/// Without this, a tier that grew a state field through some path
+/// `state_struct_text` does not take would leave that field out of the compare
+/// silently, and the leg would keep reporting `state_ok:1` while no longer
+/// looking at the new state. The comparator's own generation already panics on
+/// a pointer field it has no rule for; this covers the other direction, where
+/// the field never reaches it at all.
+#[test]
+fn test_c_state_struct_text_is_the_emitted_struct() {
+    let registry = make_registry();
+    let helpers =
+        HelperRegistry::from_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input"));
+    let mut checked = 0usize;
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        if !func.streaming {
+            continue;
+        }
+        let c = backends::c::generate(&func, &enums, &registry, &helpers);
+        let text = backends::c_stream::state_struct_text(&func, &registry);
+        assert!(
+            text.contains(&format!("struct TA_{}_Stream {{", name.to_uppercase())),
+            "{name}: state_struct_text produced no struct"
+        );
+        assert!(
+            c.contains(&text),
+            "{name}: the state struct the #240 comparators are built from is not \
+             the one emitted into the shipped .c\n--- want ---\n{text}"
+        );
+        checked += 1;
+    }
+    assert!(checked >= 170, "expected the streaming corpus, saw {checked}");
+}
+
+/// The layout `TA_StreamOutRange` reads through (#241). One public accessor
+/// serves every stream only because the range sits at a fixed offset in EVERY
+/// `TA_<N>_Stream`, so this pins the emitted text: the two declarations, first,
+/// in that order, in every tier's struct. Nothing else can see it — the accessor
+/// takes a `const void *`, so a struct that leads with something else compiles
+/// and returns whatever those four bytes happened to be.
+#[test]
+fn c_stream_every_tier_leads_with_the_range_head() {
+    let head = backends::c_stream::RANGE_HEAD_FIELDS;
+    let mut checked = 0usize;
+    let mut tiers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for name in discover_indicators() {
+        let (func, _enums) = load_indicator(&name);
+        if !func.streaming {
+            continue;
+        }
+        let registry = make_registry();
+        let text = backends::c_stream::state_struct_text(&func, &registry);
+        let open = format!("struct TA_{}_Stream {{", name.to_uppercase());
+        let body = text.split(&open).nth(1).unwrap_or_else(|| panic!("{name}: no struct"));
+        // The declarations, in order, ignoring comment and blank lines.
+        let decls: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("/*") && !l.starts_with('*'))
+            .collect();
+        assert!(
+            decls.len() >= 2 && decls[0] == head[0] && decls[1] == head[1],
+            "{name}: a stream struct must lead with the range head {head:?}, saw {:?}",
+            &decls[..decls.len().min(3)]
+        );
+        // Once each, so a tier cannot carry a second copy further down.
+        for d in head {
+            assert_eq!(
+                body.matches(d).count(),
+                1,
+                "{name}: `{d}` appears more than once in the stream struct"
+            );
+        }
+        let resolved = func.resolved_for(ir::Lang::C);
+        let plan = streaming::validate_streamable(&resolved, &registry).expect("streamable");
+        tiers.insert(format!("{:?}", std::mem::discriminant(&plan)));
+        checked += 1;
+    }
+    assert!(checked >= 170, "expected the streaming corpus, saw {checked}");
+    assert_eq!(tiers.len(), 5, "all five stream tiers must be covered, saw {}", tiers.len());
+}
+
+/// The per-bar transition tier is spelled `_StepImpl` in all four backends
+/// (#250) — `_Impl` for the numerics, leaving `_Internal` to mean a variant of
+/// an entry point. It was three different words before: `_StepInternal` in C,
+/// `_step_internal` in Rust, `_StreamStep` in Java and C#.
+///
+/// A name pin rather than a behavioural one, because a name is all this is: the
+/// tier is private in every backend, so no runtime gate can see the spelling —
+/// measured, renaming the C# emitter's method left the whole generator suite
+/// green, and only the C# compiler would have objected.
+///
+/// Both directions per backend, and on every call site the backend has, so a
+/// half-applied rename (a definition the callers no longer name, or a Peek left
+/// on the old word) fails rather than passing on the half that moved. Rust has
+/// one call site where the others have two: its `peek` clones the handle and
+/// runs `update` on the copy, so the transition is named once.
+#[test]
+fn the_transition_tier_is_step_impl_in_every_backend() {
+    // SMA's own `stream` flag, not one forced on here: a test that sets the flag
+    // itself still renders a stream section after the flag is dropped from the
+    // YAML, and would keep asserting names on output nothing ships.
+    let (func, enums) = load_indicator("sma");
+    assert!(func.streaming, "sma must carry the `stream` flag");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    let java = backends::java::generate(&func, &enums, &registry, &helpers);
+    let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+
+    // (backend, source, definition, call sites, the retired word)
+    let cases: [(&str, &str, &str, &[&str], &str); 4] = [
+        (
+            "c",
+            &c,
+            "static void TA_SMA_StepImpl( struct TA_SMA_Stream *sp,",
+            &["TA_SMA_StepImpl( stream,", "TA_SMA_StepImpl( &scratch,"],
+            "StepInternal",
+        ),
+        (
+            "rust",
+            &rust,
+            "fn SMA_step_impl(&self, sp: &mut SMA_StreamState,",
+            &["self.core.SMA_step_impl(&mut self.state,"],
+            "step_internal",
+        ),
+        (
+            "java",
+            &java,
+            "void SMA_StepImpl( SMA_Stream sp,",
+            &["core.SMA_StepImpl(this,", "core.SMA_StepImpl(scratch,"],
+            "StreamStep",
+        ),
+        (
+            "csharp",
+            &csharp,
+            "internal void SMA_StepImpl( SMA_Stream sp,",
+            &["core.SMA_StepImpl(this,", "core.SMA_StepImpl(scratch,"],
+            "StreamStep",
+        ),
+    ];
+
+    for (lang, src, def, calls, retired) in cases {
+        assert_eq!(
+            src.matches(def).count(),
+            1,
+            "{lang}: exactly one transition definition named `{def}`"
+        );
+        for call in calls {
+            assert!(src.contains(call), "{lang}: a call site must name `{call}`");
+        }
+        // Paired with the positives above: this is the word the rename retired,
+        // so it discriminates only while the positives hold.
+        assert!(!src.contains(retired), "{lang}: `{retired}` is the retired spelling");
+    }
+}
+
+/// The clamp and its history re-check are ONE edit, in all four backends.
+///
+/// The identity arms resolve their own anchor — the lookback, moved up to
+/// `startIdx` — and then have to test the history against the CLAMPED value.
+/// Clamping and then testing the PRE-clamp anchor lets an anchor the history
+/// does not reach through, and the count published is `historyLen - anchor`:
+/// negative in C, Java and C#, a `usize` underflow in Rust. That is the defect
+/// this branch shipped and 96d1052f8 fixed.
+///
+/// Pinned in the generator rather than behaviourally, because outside Rust the
+/// guard is not reachable from the public API: the public openers pass
+/// `startIdx = 0`, where the clamp is a no-op, and the only caller that anchors
+/// is the `_OpenInternal` seam — contracted on `startIdx <= endIdx`, whose
+/// transcribed bodies index before they check. Driving it out of contract is
+/// undefined, not a rejection; measured, `TA_AD_OpenInternal(45, 40)` segfaults
+/// under ASan. Rust's case IS publicly reachable (its MAVP has no own-lookback
+/// precheck) and is covered behaviourally by
+/// `an_anchor_past_the_history_is_insufficient_history`.
+#[test]
+fn identity_anchor_clamps_before_it_rechecks_in_every_backend() {
+    let (func, enums) = load_indicator("ma");
+    let registry = make_registry();
+    let helpers =
+        HelperRegistry::from_dir(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input"));
+
+    // (backend, emitted text, clamp needle, re-check needle)
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    let java = backends::java::generate(&func, &enums, &registry, &helpers);
+    let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    let cases: [(&str, &str, &str, &str); 4] = [
+        ("c", &c, "if( startIdx > fillLb ) fillLb = startIdx;", "if( historyLen < fillLb + 1 )"),
+        (
+            "rust",
+            &rust,
+            "let fillLb = if startIdx > fillLb { startIdx } else { fillLb };",
+            "if historyLen < fillLb + 1 {",
+        ),
+        ("java", &java, "if( startIdx > fillLb ) fillLb = startIdx;", "if( historyLen < fillLb + 1 )"),
+        ("csharp", &csharp, "if( startIdx > fillLb ) fillLb = startIdx;", "if( historyLen < fillLb + 1 )"),
+    ];
+
+    let mut checked = 0usize;
+    for (lang, src, clamp, recheck) in cases {
+        // Every clamp in the file must be followed by its re-check before the
+        // next clamp — walking them pairwise rather than taking the first of
+        // each, because the same two lines are emitted by more than one arm and
+        // a first-occurrence check is satisfied by whichever arm is still right.
+        let mut from = 0usize;
+        let mut seen = 0usize;
+        while let Some(i) = src[from..].find(clamp) {
+            let at = from + i;
+            let rest = &src[at + clamp.len()..];
+            let next_clamp = rest.find(clamp).unwrap_or(rest.len());
+            let next_recheck = rest
+                .find(recheck)
+                .unwrap_or_else(|| panic!("{lang}: a clamp at byte {at} has no re-check after it"));
+            assert!(
+                next_recheck < next_clamp,
+                "{lang}: the clamp at byte {at} is not followed by its history re-check before \
+                 the next clamp — clamping and then testing the PRE-clamp anchor is the defect"
+            );
+            seen += 1;
+            from = at + clamp.len();
+        }
+        assert!(seen >= 1, "{lang}: MA emits no startIdx clamp at all");
+        checked += 1;
+    }
+    assert_eq!(checked, 4, "all four backends must be covered");
+}
+
+/// The #241 range leg's per-site ratchet, pinned across all four servers at once.
+///
+/// The driver ORs the `range_sites` mask across the run and requires every bit
+/// below the `range_sites_n` the server declares. Two drifts fail OPEN and are
+/// what this catches:
+///
+///   * a site added without bumping the count — the mask then carries a bit the
+///     ratchet never demands, so the new site can die unnoticed;
+///   * a site that reuses an existing bit — its death is masked by the other.
+///
+/// Neither is visible at run time: both leave a full mask. So the check is on
+/// the emitted text — the set of bits a server actually ORs in must be exactly
+/// `{1, 2, .., 2^(n-1)}` for the `n` it declares. C, Java and C# reach the
+/// anchored `_OpenInternal` seam and declare 4; Rust's server is a separate
+/// crate and cannot, so it declares 3 and says so.
+#[test]
+fn sv_range_sites_mask_matches_the_declared_count() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let funcs: Vec<ir::FuncDef> = discover_indicators().iter().map(|n| load_indicator(n).0).collect();
+
+    let servers = [
+        ("c", ta_codegen_lib::server_gen::generate_c_server(&funcs, &enums), 4usize),
+        ("java", ta_codegen_lib::server_gen::generate_java_server(&funcs, &enums), 4),
+        ("csharp", ta_codegen_lib::server_gen::generate_csharp_server(&funcs, &enums), 4),
+        ("rust", ta_codegen_lib::server_gen::generate_rust_server(&funcs, &enums), 3),
+    ];
+
+    for (lang, src, want_n) in servers {
+        // What the server tells the driver about itself.
+        let decl = format!("\\\"range_sites_n\\\":{want_n}");
+        let decl_plain = format!("\"range_sites_n\":{want_n}");
+        assert!(
+            src.contains(&decl) || src.contains(&decl_plain),
+            "{lang}: server does not declare range_sites_n = {want_n}"
+        );
+
+        // What it actually ORs in. Collect every `rangeSites |= N` / `range_sites |= N`.
+        let mut bits: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for needle in ["rangeSites |= ", "range_sites |= "] {
+            let mut from = 0usize;
+            while let Some(i) = src[from..].find(needle) {
+                let at = from + i + needle.len();
+                let digits: String = src[at..].chars().take_while(char::is_ascii_digit).collect();
+                assert!(!digits.is_empty(), "{lang}: unparsable site bit at byte {at}");
+                bits.insert(digits.parse().expect("site bit is a number"));
+                from = at;
+            }
+        }
+        let want: std::collections::BTreeSet<u32> = (0..want_n as u32).map(|b| 1u32 << b).collect();
+        assert_eq!(
+            bits, want,
+            "{lang}: the site bits the server sets do not match the {want_n} sites it declares. \
+             A bit above the count is a site the ratchet never demands; a missing bit is a site \
+             whose death nothing would see."
+        );
+    }
+}
+
+/// The #240 state-equivalence leg, pinned where #229 taught us to pin: as the
+/// EMITTED text of the comparison, not as the election that produced it.
+///
+/// Two properties, and both were false at some point while this was written:
+///   * one comparator per streaming function — the set closes under a fixpoint
+///     over sub-handles, so a callee losing its comparator silently drops every
+///     caller's leg with it;
+///   * the ring compare is LOGICAL (rotated by each handle's own cursor), not
+///     slot-by-slot. Slot-by-slot failed 90 of 175 functions on nothing but the
+///     rotation: the plain oldest-slot layout re-bases every open to phase 0
+///     while an update just advances the cursor. A future "simplification" back
+///     to `ring[k] == ring[k]` would turn the leg permanently red, and the
+///     obvious fix for THAT is to delete the leg.
+#[test]
+fn test_c_server_state_equivalence_leg() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let funcs: Vec<ir::FuncDef> = discover_indicators()
+        .iter()
+        .map(|n| load_indicator(n).0)
+        .collect();
+    let streaming: Vec<&ir::FuncDef> = funcs.iter().filter(|f| f.streaming).collect();
+    assert!(streaming.len() >= 170, "expected the streaming corpus, saw {}", streaming.len());
+    let srv = ta_codegen_lib::server_gen::generate_c_server(&funcs, &enums);
+
+    for f in &streaming {
+        let n = &f.name;
+        assert!(
+            srv.contains(&format!("static int sv_steq_TA_{n}( const struct TA_{n}_Stream *a,")),
+            "{n}: no state-equivalence comparator — the fixpoint dropped it"
+        );
+        assert!(
+            srv.contains(&format!("if( sv_steq_TA_{n}( st, stEq, &stateWhat, &svZsign ) ) stateOk = 0;")),
+            "{n}: comparator emitted but the leg never calls it"
+        );
+    }
+
+    // CDLPIERCING: two shifted windows of ONE setting over one derived ring —
+    // the #229 fold's own shape, and the reason the leg exists.
+    let body = srv
+        .split("static int sv_steq_TA_CDLPIERCING( const struct TA_CDLPIERCING_Stream *a, const struct TA_CDLPIERCING_Stream *b, const char **w, int *z )\n{")
+        .nth(1)
+        .expect("CDLPIERCING comparator body");
+    let body = &body[..body.find("\n}").expect("comparator end")];
+    for want in [
+        // the running totals, both windows, bitwise
+        "for( k = 0; k < 2; k++ ) if( sv_xtier_ne(a->BodyLongPeriodTotal[k], b->BodyLongPeriodTotal[k], z) )",
+        // the ring, rotated by each handle's own cursor
+        "ia = (a->ringPos_BodyLongTrailingIdx + k) % a->ringCap_BodyLongTrailingIdx;",
+        "ib = (b->ringPos_BodyLongTrailingIdx + k) % b->ringCap_BodyLongTrailingIdx;",
+        "if( sv_xtier_ne(a->ring_BodyLongTrailingIdx_derived[ia], b->ring_BodyLongTrailingIdx_derived[ib], z) )",
+        // the produced-bar range (#241): a leading scalar, so the comparator
+        // picks it up with no rule of its own — and Open(P)+k updates and
+        // Open(P+k) must agree on it, which is what makes it worth comparing.
+        "if( a->outRangeBegIdx != b->outRangeBegIdx )",
+        "if( a->outRangeCount != b->outRangeCount )",
+        // the carried bar, and the ring geometry
+        "if( sv_xtier_ne(a->lag1_inClose, b->lag1_inClose, z) )",
+        "if( a->ringCap_BodyLongTrailingIdx != b->ringCap_BodyLongTrailingIdx )",
+        "if( a->ringLag_BodyLongTrailingIdx != b->ringLag_BodyLongTrailingIdx )",
+    ] {
+        assert!(body.contains(want), "CDLPIERCING comparator missing:\n  {want}\nbody:\n{body}");
+    }
+    // The cursor itself is the ring's PHASE, absorbed by the rotation above.
+    // Comparing it directly is the 90-of-175 mistake.
+    assert!(
+        !body.contains("if( a->ringPos_BodyLongTrailingIdx != b->ringPos_BodyLongTrailingIdx )"),
+        "the ring cursor must not be compared directly — it is the phase the rotation absorbs"
+    );
+    // The Peek scratch mirror is not state: Peek is the only writer, so it holds
+    // malloc leftovers on a handle Peek has not been called on.
+    assert!(
+        !body.contains("ringMirror_BodyLongTrailingIdx_derived["),
+        "the Peek mirror must not be compared"
+    );
+
+    // AROON: the extrema automaton reads only the live window, never the
+    // power-of-two slack above it (never written, so it is malloc leftovers).
+    let ar = srv
+        .split("static int sv_steq_TA_AROON( const struct TA_AROON_Stream *a, const struct TA_AROON_Stream *b, const char **w, int *z )\n{")
+        .nth(1)
+        .expect("AROON comparator body");
+    assert!(
+        ar.contains("for( k = 0; k < a->xCap; k++ )")
+            && ar.contains("ix = (a->trailingIdx - 1 + a->xPhys + k) & a->xMask;"),
+        "AROON must compare exactly the xCap live slots, not the xPhys allocation"
+    );
+}
+
 /// Pin HT_TRENDLINE: a rescan window over the RAW input (the padded-loop source
 /// rewrite of `inReal[idx--]`), no circbuf, single output.
 #[test]
@@ -7531,11 +7940,11 @@ fn test_c_ht_trendline_raw_price_window() {
     let s = ht_stream_section("ht_trendline");
     assert!(s.contains("double *win_i_inReal;"), "rescan window over raw inReal");
     assert!(!s.contains("cb_smoothPrice"), "no smoothPrice circbuf (removed, issue #88)");
-    let step = s.split("TA_HT_TRENDLINE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_TRENDLINE_OpenPass").unwrap_or(step.len())];
-    assert!(step.contains("sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - sp->i >= sp->winCap_i) ?"), "de-modulo window read of bar today-i");
-    assert!(step.contains("if( sp->i < sp->DCPeriodInt )"), "guarded to the first DCPeriodInt bars");
-    assert!(step.contains("*outReal= sp->tempReal2;"), "unconditional trendline output");
+    let step = s.split("TA_HT_TRENDLINE_StepImpl").nth(1).unwrap();
+    let step = &step[..step.find("TA_HT_TRENDLINE_OpenImpl").unwrap_or(step.len())];
+    assert!(step.contains("sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ?"), "de-modulo window read of bar today-i");
+    assert!(step.contains("if( i < DCPeriodInt )"), "guarded to the first DCPeriodInt bars");
+    assert!(step.contains("*outReal= tempReal2;"), "unconditional trendline output");
 }
 
 /// Pin HT_TRENDMODE: the full HT union — WMA ring + smoothPrice circbuf + a
@@ -7546,11 +7955,11 @@ fn test_c_ht_trendmode_full_union() {
     assert!(s.contains("double *ring_trailingWMAIdx_inReal;"), "WMA ring");
     assert!(s.contains("double *cb_smoothPrice;"), "smoothPrice circbuf");
     assert!(s.contains("double *win_j_inReal;"), "raw-price rescan window (counter j)");
-    let step = s.split("TA_HT_TRENDMODE_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_HT_TRENDMODE_OpenPass").unwrap_or(step.len())];
+    let step = s.split("TA_HT_TRENDMODE_StepImpl").nth(1).unwrap();
+    let step = &step[..step.find("TA_HT_TRENDMODE_OpenImpl").unwrap_or(step.len())];
     assert!(step.contains("*outInteger="), "integer trend-mode output, unconditional");
-    assert!(step.contains("sp->cb_smoothPrice[sp->idx]"), "circbuf DC-phase read");
-    assert!(step.contains("sp->win_j_inReal[(sp->winPos_j + sp->winCap_j - sp->j >= sp->winCap_j) ?"), "de-modulo window trendline read");
+    assert!(step.contains("sp->cb_smoothPrice[idx]"), "circbuf DC-phase read");
+    assert!(step.contains("sp->win_j_inReal[(sp->winPos_j + sp->winCap_j - j >= sp->winCap_j) ?"), "de-modulo window trendline read");
     assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
 }
 
@@ -7563,12 +7972,12 @@ fn test_c_mama_two_outputs_and_params() {
     let s = ht_stream_section("mama");
     assert!(s.contains("double optInFastLimit;") && s.contains("double optInSlowLimit;"), "real params carried in the handle");
     assert!(s.contains("double mama;") && s.contains("double fama;"), "coupled mama/fama carried");
-    let step = s.split("TA_MAMA_StepInternal").nth(1).unwrap();
-    let step = &step[..step.find("TA_MAMA_OpenPass").unwrap_or(step.len())];
+    let step = s.split("TA_MAMA_StepImpl").nth(1).unwrap();
+    let step = &step[..step.find("TA_MAMA_OpenImpl").unwrap_or(step.len())];
     assert!(step.contains("if( sp->streamParity == 0 )"), "parity branch");
     // MAMA line always written; FAMA (nullable) write is NULL-guarded so the
     // step never dereferences a NULL FAMA pointer (the gate itself is stripped).
-    assert!(step.contains("*outMAMA= sp->mama;"), "MAMA line written unconditionally");
+    assert!(step.contains("*outMAMA= mama;"), "MAMA line written unconditionally");
     assert!(
         step.contains("if( outFAMA != NULL )") && step.contains("*outFAMA= sp->fama;"),
         "FAMA is nullable (#125): its write is NULL-guarded"
@@ -7615,7 +8024,10 @@ fn test_c_mavp_period_bank() {
     assert!(upd.contains("*outReal = stream->scratch[cp - stream->optInMinPeriod];"), "outputs the selected slot");
     // Peek: only the selected slot (non-committing).
     let peek = s.split("TA_MAVP_Peek").nth(1).unwrap();
-    let peek = &peek[..peek.find("TA_MAVP_Close").unwrap_or(peek.len())];
+    // Up to the NEXT entry point, which is the n-bar filler (#246) — it drives
+    // the bank the way Update does, so slicing all the way to Close would read
+    // its body as Peek's.
+    let peek = &peek[..peek.find("TA_MAVP_UpdateAndFill").unwrap_or(peek.len())];
     assert!(peek.contains("TA_MA_Peek( stream->bank[cp - stream->optInMinPeriod], inReal, outReal );"), "peeks only the selected slot");
     assert!(!peek.contains("TA_MA_Update"), "peek never advances the bank");
     // Close frees every sub-stream + the arrays.
@@ -7624,8 +8036,8 @@ fn test_c_mavp_period_bank() {
 
 /// Pin the generated TRIMA dual-mode (if/else) stream section: the odd/even arms
 /// are genuinely different but share identical rings, so the handle carries ONE
-/// ring set + one StepInternal branching on the stored parity; the ring buffers are
-/// freed by ReleaseInternal and mirrored in Peek.
+/// ring set + one StepImpl branching on the stored parity; the ring buffers are
+/// freed by ReleaseImpl and mirrored in Peek.
 #[test]
 fn test_c_trima_dual_mode_rings_stream_section() {
     let (mut func, enums) = load_indicator("trima");
@@ -7640,20 +8052,20 @@ fn test_c_trima_dual_mode_rings_stream_section() {
         "shared middleIdx/trailingIdx rings (one set, both arms)"
     );
     assert!(c.contains("double numerator;"), "shared triangular-sum accumulator");
-    assert_eq!(c.matches("TA_TRIMA_StepInternal( struct").count(), 1, "one StepInternal");
+    assert_eq!(c.matches("TA_TRIMA_StepImpl( struct").count(), 1, "one StepImpl");
     assert!(
         c.contains("if( sp->optInTimePeriod % 2 == 1 )"),
         "step branches on the stored parity"
     );
-    assert!(c.contains("TA_TRIMA_ReleaseInternal"), "ReleaseInternal frees the rings");
+    assert!(c.contains("TA_TRIMA_ReleaseImpl"), "ReleaseImpl frees the rings");
     assert!(c.contains("ringMirror_middleIdx_inReal"), "Peek ring mirror");
 }
 
-/// The body of `TA_<NAME>_StepInternal`, brace-balanced. Ring slots are also
+/// The body of `TA_<NAME>_StepImpl`, brace-balanced. Ring slots are also
 /// written during Open, so the per-bar stores have to be counted here alone.
-fn step_internal_body(c: &str) -> String {
-    let i = c.find("_StepInternal( struct").expect("a StepInternal definition");
-    let j = c[i..].find('{').expect("StepInternal has a body") + i;
+fn step_impl_body(c: &str) -> String {
+    let i = c.find("_StepImpl( struct").expect("a StepImpl definition");
+    let j = c[i..].find('{').expect("StepImpl has a body") + i;
     let bytes = c.as_bytes();
     let (mut depth, mut k) = (0usize, j);
     loop {
@@ -7712,14 +8124,14 @@ fn test_c_back_offset_ring_writes_the_current_bar_once() {
     // same formula. Nothing between there and the end of the step moves
     // `ringPos`, so repeating that store before the advance is a dead store.
     //
-    // `test_c_no_step_internal_stores_a_ring_slot_twice` sweeps the same
+    // `test_c_no_step_impl_stores_a_ring_slot_twice` sweeps the same
     // invariant over the whole streaming corpus; this one keeps a named witness
     // for the offset-ring layout, which is the shape that made the dead store
     // possible in the first place.
     let (mut func, enums) = load_indicator("cdlonneck");
     func.streaming = true;
     let c = backends::c::generate(&func, &enums, &make_registry(), &HelperRegistry::empty());
-    let step = step_internal_body(&c);
+    let step = step_impl_body(&c);
 
     // The ring is found by its POSITION variable, not by a hardcoded name. The
     // first version of this test spelled out `ring_EqualTrailingIdx_inOpen` and
@@ -7748,7 +8160,7 @@ fn test_c_back_offset_ring_writes_the_current_bar_once() {
 }
 
 #[test]
-fn test_c_no_step_internal_stores_a_ring_slot_twice() {
+fn test_c_no_step_impl_stores_a_ring_slot_twice() {
     // Corpus sweep for the same invariant: one write per ring slot per block.
     let registry = make_registry();
     let helpers =
@@ -7761,10 +8173,10 @@ fn test_c_no_step_internal_stores_a_ring_slot_twice() {
             continue;
         }
         let c = backends::c::generate(&func, &enums, &registry, &helpers);
-        if !c.contains("_StepInternal( struct") {
+        if !c.contains("_StepImpl( struct") {
             continue;
         }
-        let stores = ring_slot_stores(&step_internal_body(&c));
+        let stores = ring_slot_stores(&step_impl_body(&c));
         let mut seen = std::collections::BTreeSet::new();
         for (block, s) in &stores {
             assert!(
@@ -7783,7 +8195,7 @@ fn test_c_no_step_internal_stores_a_ring_slot_twice() {
 }
 
 /// Pin the generated MIDPRICE stream section: batch runs the block scan and the
-/// stream runs `midprice_ALT1`'s T4 extrema automaton — one StepInternal, no
+/// stream runs `midprice_ALT1`'s T4 extrema automaton — one StepImpl, no
 /// mode branch, and no trace of the block scan inside the Open.
 ///
 /// Every check here asserts on a string the generator DOES produce, in both
@@ -7803,7 +8215,7 @@ fn test_c_midprice_stream_uses_the_declared_alternate() {
         c.contains("double *x_inHigh;") && c.contains("double *x_inLow;"),
         "T4 extrema rings for high/low"
     );
-    assert_eq!(c.matches("TA_MIDPRICE_StepInternal( struct").count(), 1, "one StepInternal");
+    assert_eq!(c.matches("TA_MIDPRICE_StepImpl( struct").count(), 1, "one StepImpl");
     assert!(
         c.contains("*outReal= (sp->highest + sp->lowest) / 2.0;"),
         "midprice combine in the extrema step"
@@ -7819,8 +8231,8 @@ fn test_c_midprice_stream_uses_the_declared_alternate() {
     // wrong body; these check the emitted CODE. The block scan's scratch and
     // block cursor appear in the batch tier and nowhere in the Open.
     let (batch, open) = c
-        .split_once("TA_MIDPRICE_OpenPass")
-        .expect("OpenCore emitted");
+        .split_once("TA_MIDPRICE_OpenImpl")
+        .expect("the merged open numerics emitted");
     for marker in ["sufHighest", "preHighest", "blockNext"] {
         assert!(
             batch.contains(marker),
@@ -7898,7 +8310,7 @@ fn test_c_stoch_composed_stream_section() {
     // Peek sets the flag on the scratch copy; Close closes subs then frees.
     assert!(stream.contains("scratch.peekMode = 1;"));
     assert!(stream.contains("TA_MA_Close( stream->sub0 );"));
-    assert!(stream.contains("TA_STOCH_ReleaseInternal( stream );"));
+    assert!(stream.contains("TA_STOCH_ReleaseImpl( stream );"));
 }
 
 /// Pin the ADXR composed Open's allocation-failure cleanup. The intermediate
@@ -7963,7 +8375,7 @@ fn test_c_composed_open_emits_one_null_check_per_intermediate() {
         let open_at = c
             .find(&format!("TA_RetCode TA_{upper}_Open"))
             .unwrap_or_else(|| panic!("{upper} composed Open"));
-        // One `OpenCore` transcribes the region for both entry points, so every
+        // One `_OpenImpl` transcribes the region for both entry points, so every
         // buffer is checked exactly once — never twice. (Before the Open family
         // was merged this read 2, one per transcription; the invariant being
         // pinned is unchanged: the source's own check must not be emitted
@@ -7974,7 +8386,7 @@ fn test_c_composed_open_emits_one_null_check_per_intermediate() {
             assert_eq!(
                 n, 1,
                 "{upper}: `{buf}` must be null-checked exactly once in the composed \
-                 OpenCore, found {n} — the source's own check is being emitted \
+                 `_OpenImpl`, found {n} — the source's own check is being emitted \
                  alongside the injected one again"
             );
         }
@@ -8106,9 +8518,25 @@ fn rust_bbands_elects_output_scratch_only_in_the_sma_fast_path() {
         rust_out.contains("outRealMiddleBand[_outIdx] = maTotal /"),
         "BBANDS Rust should write the SMA straight into outRealMiddleBand: {rust_out}"
     );
+    // Pinned on the DESTINATION, which is the property this test exists for --
+    // the deviation lands in outRealUpperBand by name, with no scratch Vec --
+    // and on the sqrt being what lands there. NOT on the exact right-hand side:
+    // #243 wrapped it in an exact-zero skip (`if variance != 0.0`), and pinning
+    // the whole expression as text made an unrelated numerical fix red this
+    // test for a property it never changed. Matching the line rather than a
+    // substring keeps it tight -- a redirect to a scratch, or something other
+    // than the root of the variance, still fails.
+    let dev_write = rust_out
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("outRealUpperBand[_outIdx] ="))
+        .unwrap_or_else(|| {
+            panic!("BBANDS Rust should write the standard deviation into outRealUpperBand: {rust_out}")
+        });
     assert!(
-        rust_out.contains("outRealUpperBand[_outIdx] = (variance).sqrt();"),
-        "BBANDS Rust should write the standard deviation into outRealUpperBand: {rust_out}"
+        dev_write.contains("(variance).sqrt()"),
+        "the deviation written into outRealUpperBand should be the root of the variance, \
+         got `{dev_write}`: {rust_out}"
     );
     assert!(
         rust_out.contains("tempReal = outRealUpperBand[i] * optInNbDevUp;"),
@@ -10067,4 +10495,196 @@ fn test_composed_open_fuses_every_sub_call() {
         "expected 17 fused sub-calls across the composed tier; found {fused_total}. \
          Adding a composed indicator moves this number: update it deliberately."
     );
+}
+
+/// Every transcribed `_OpenImpl` rejects an anchor that lands past the history,
+/// in all four backends, and does it before any loop can run.
+///
+/// The batch prologue has always rejected `endIdx < startIdx`; the streaming
+/// prologue did not, and only 137 of the 174 transcribed bodies carry TA-Lib's
+/// own "make sure there is still something to evaluate" preamble to make up for
+/// it — a function with no lookback has nothing to clamp `startIdx` up to, so
+/// its transcription never had the check. The other 37 compute
+/// `nbBar = endIdx - startIdx + 1` and then run `while( nbBar != 0 )`: a
+/// negative count never reaches zero, and the loop walks off the end of both
+/// the inputs and the output. `TA_AD_OpenInternal` with `startIdx` 45 over 40
+/// bars was an ASan stack-buffer-overflow; the same call panicked in Rust,
+/// where the count is `usize`.
+///
+/// Two ORDER assertions, because presence alone is the weaker half of this and
+/// a guard in the wrong place is exactly the bug:
+///
+///   * after the history-emptiness check — `historyLen - 1` is evaluated by the
+///     guard itself, and in Rust `historyLen` is a `usize`;
+///   * before the first loop in the body — a guard the loop has already run
+///     past protects nothing.
+#[test]
+fn every_open_pass_rejects_an_anchor_past_the_history() {
+    /// The `{`-matched body that follows `from`.
+    fn body_after(s: &str, from: usize) -> &str {
+        let b = match s[from..].find('{') {
+            Some(i) => from + i,
+            None => return "",
+        };
+        let bytes = s.as_bytes();
+        let (mut depth, mut j) = (0usize, b);
+        while j < bytes.len() {
+            match bytes[j] {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &s[b..=j];
+                    }
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        &s[b..]
+    }
+
+    /// Comments removed, line by line so every slice stays on a char boundary
+    /// (these bodies carry em dashes). Prose is not code: "Trading for a
+    /// Living" in EFI's provenance note otherwise reads as a loop.
+    fn strip_comments(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut in_block = false;
+        for line in s.lines() {
+            let mut rest = line;
+            loop {
+                if in_block {
+                    match rest.find("*/") {
+                        Some(e) => {
+                            rest = &rest[e + 2..];
+                            in_block = false;
+                        }
+                        None => break,
+                    }
+                } else {
+                    match (rest.find("/*"), rest.find("//")) {
+                        (Some(a), Some(b)) if b < a => {
+                            out.push_str(&rest[..b]);
+                            break;
+                        }
+                        (Some(a), _) => {
+                            out.push_str(&rest[..a]);
+                            rest = &rest[a + 2..];
+                            in_block = true;
+                        }
+                        (None, Some(b)) => {
+                            out.push_str(&rest[..b]);
+                            break;
+                        }
+                        (None, None) => {
+                            out.push_str(rest);
+                            break;
+                        }
+                    }
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Every TRANSCRIBED `_OpenImpl` DEFINITION body in `src`. Two filters, and
+    /// both are load-bearing. `_OpenImpl(` alone also matches the call sites
+    /// every function has, and a body sliced from a call site is whatever block
+    /// happens to follow it — so the definition keyword has to be on the same
+    /// line. And in Java and C# the two exempt tiers (MA, MAVP) wear the same
+    /// name over a hand-rolled body that is not the strided numerics and owns no
+    /// anchor of its own, so the parameter list must carry `outStride`.
+    fn open_impls<'a>(src: &'a str, def_kw: &str) -> Vec<&'a str> {
+        let mut out = Vec::new();
+        let mut at = 0;
+        while let Some(i) = src[at..].find("_OpenImpl(") {
+            let abs = at + i;
+            at = abs + "_OpenImpl(".len();
+            let line_start = src[..abs].rfind('\n').map_or(0, |n| n + 1);
+            let params_end = src[abs..].find('{').map_or(src.len(), |b| abs + b);
+            if src[line_start..abs].contains(def_kw) && src[abs..params_end].contains("outStride") {
+                out.push(body_after(src, abs));
+            }
+        }
+        out
+    }
+
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let enums = load_enums();
+
+    // guard text, the emptiness check it must follow, and the signature marker
+    let specs: [(&str, &str, &str); 4] = [
+        ("C", "if( startIdx > historyLen - 1 )", "if( historyLen < 1 ) return TA_BAD_PARAM;"),
+        ("Rust", "if startIdx > endIdx {", ".is_empty()"),
+        ("Java", "if( startIdx > endIdx ) {", "historyLen < 1"),
+        ("C#", "if( startIdx > endIdx ) {", "historyLen < 1"),
+    ];
+    // The definition keyword, which is what tells a definition from a call site.
+    let def_kws = ["static TA_RetCode", "pub(crate) fn", "private RetCode", "private RetCode"];
+
+    let mut checked = 0usize;
+    let mut per_backend = [0usize; 4];
+
+    for name in discover_indicators() {
+        let Some((func, _)) = try_load_indicator(&name) else { continue };
+        let sources = [
+            backends::c::generate(&func, &enums, &registry, &helpers),
+            backends::rust_lang::generate(&func, &enums, &registry, &helpers),
+            backends::java::generate(&func, &enums, &registry, &helpers),
+            backends::csharp::generate(&func, &enums, &registry, &helpers),
+        ];
+
+        for (b, src) in sources.iter().enumerate() {
+            let (lang, guard, empty_check) = specs[b];
+            for body in open_impls(src, def_kws[b]) {
+                if body.is_empty() {
+                    continue;
+                }
+                let body = &strip_comments(body);
+                let g = body.find(guard).unwrap_or_else(|| {
+                    panic!("{lang} {}_OpenImpl: no anchor guard — an anchor past the history would run the body's loop with a negative count", func.name)
+                });
+                if let Some(e) = body.find(empty_check) {
+                    assert!(
+                        e < g,
+                        "{lang} {}_OpenImpl: the anchor guard evaluates the history length, so it must come after the emptiness check",
+                        func.name
+                    );
+                }
+                // Arm-blind, and deliberately loose because of it: a DualMode
+                // body has one guard/loop pair PER ARM, so comparing the first
+                // of each across the whole body is the wrong shape there — add
+                // `for(` to the needle and HMA reports a false positive on its
+                // identity arm's fill loop, which its own clamp already guards.
+                // The "a guard exists" assertion above is the total one; this is
+                // a placement check that skips the 37 bodies matching no needle.
+                let first_loop = ["while", "for "]
+                    .iter()
+                    .filter_map(|kw| body.find(kw))
+                    .min();
+                if let Some(l) = first_loop {
+                    assert!(
+                        g < l,
+                        "{lang} {}_OpenImpl: the anchor guard sits after the first loop, which is where the unbounded walk happens",
+                        func.name
+                    );
+                }
+                per_backend[b] += 1;
+                checked += 1;
+            }
+        }
+    }
+
+    // Non-vacuity: this must actually have looked at the corpus, in every
+    // backend, not silently skip on a signature marker that stopped matching.
+    for (b, n) in per_backend.iter().enumerate() {
+        assert!(
+            *n > 150,
+            "{}: only {n} _OpenImpl bodies seen — the signature marker has drifted",
+            specs[b].0
+        );
+    }
+    assert!(checked > 600, "only {checked} bodies checked across four backends");
 }

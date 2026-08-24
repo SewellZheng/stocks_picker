@@ -298,6 +298,10 @@ TA_RetCode TA_S_STOCHRSI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_STOCHRSI_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    int optInFastK_Period;
    int optInFastD_Period;
@@ -311,7 +315,7 @@ struct TA_STOCHRSI_Stream {
 };
 
 /* Private function, not in public API. */
-static TA_RetCode TA_STOCHRSI_StepInternal( struct TA_STOCHRSI_Stream *sp, double inReal, double *outFastK, double *outFastD )
+static TA_RetCode TA_STOCHRSI_StepImpl( struct TA_STOCHRSI_Stream *sp, double inReal, double *outFastK, double *outFastD )
 {
    double cur_tempRSIBuffer = 0.0;
    double cur_outFastK = 0.0;
@@ -340,7 +344,7 @@ static TA_RetCode TA_STOCHRSI_StepInternal( struct TA_STOCHRSI_Stream *sp, doubl
    return TA_SUCCESS;
 }
 
-static TA_RetCode TA_STOCHRSI_OpenPass( struct TA_STOCHRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, int *outBegIdx, int *outNBElement, double outFastK[], double outFastD[], int outStride )
+static TA_RetCode TA_STOCHRSI_OpenImpl( struct TA_STOCHRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, int *outBegIdx, int *outNBElement, double outFastK[], double outFastD[], int outStride )
 {
    struct TA_STOCHRSI_Stream *sp;
    int endIdx;
@@ -374,6 +378,12 @@ static TA_RetCode TA_STOCHRSI_OpenPass( struct TA_STOCHRSI_Stream **stream, cons
       optInFastD_MAType = 0;
    else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -512,6 +522,8 @@ static TA_RetCode TA_STOCHRSI_OpenPass( struct TA_STOCHRSI_Stream **stream, cons
       if( !outStride ) outFastD[0] = sc_outFastD[dummyNBElement - 1];
       if( !outStride ) TA_Free( sc_outFastK );
       if( !outStride ) TA_Free( sc_outFastD );
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -525,7 +537,7 @@ TA_RetCode TA_STOCHRSI_OpenInternal( struct TA_STOCHRSI_Stream **stream, const d
    int dummyNBElement = 0;
    double sink_outFastK = 0.0;
    double sink_outFastD = 0.0;
-   retCode = TA_STOCHRSI_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &dummyBegIdx, &dummyNBElement, &sink_outFastK, &sink_outFastD, 0 );
+   retCode = TA_STOCHRSI_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &dummyBegIdx, &dummyNBElement, &sink_outFastK, &sink_outFastD, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outFastK = sink_outFastK;
@@ -548,25 +560,30 @@ TA_LIB_API TA_RetCode TA_STOCHRSI_OpenAndFill( TA_STOCHRSI_Stream **stream, cons
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outFastK || !outFastD ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outFastK || !outFastD ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outFastK == (const void *)inReal || (const void *)outFastD == (const void *)inReal || (const void *)outFastK == (const void *)outFastD ) return TA_BAD_PARAM;
-   return TA_STOCHRSI_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1 );
+   return TA_STOCHRSI_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_STOCHRSI_OpenAndFillInternal( struct TA_STOCHRSI_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType, int *outBegIdx, int *outNBElement, double outFastK[], double outFastD[] )
 {
-   return TA_STOCHRSI_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1 );
+   return TA_STOCHRSI_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_STOCHRSI_Update( TA_STOCHRSI_Stream *stream, double inReal, double *outFastK, double *outFastD )
 {
+   TA_RetCode retCode;
+
    if( !stream || !outFastK || !outFastD ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   return TA_STOCHRSI_StepInternal( stream, inReal, outFastK, outFastD );
+   retCode = TA_STOCHRSI_StepImpl( stream, inReal, outFastK, outFastD );
+   if( retCode != TA_SUCCESS ) return retCode;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_STOCHRSI_Peek( const TA_STOCHRSI_Stream *stream, double inReal, double *outFastK, double *outFastD )
@@ -577,7 +594,25 @@ TA_LIB_API TA_RetCode TA_STOCHRSI_Peek( const TA_STOCHRSI_Stream *stream, double
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.peekMode = 1;
-   return TA_STOCHRSI_StepInternal( &scratch, inReal, outFastK, outFastD );
+   return TA_STOCHRSI_StepImpl( &scratch, inReal, outFastK, outFastD );
+}
+
+TA_LIB_API TA_RetCode TA_STOCHRSI_UpdateAndFill( TA_STOCHRSI_Stream *stream, const double inReal[], int barCount, double outFastK[], double outFastD[] )
+{
+   int i;
+   TA_RetCode retCode;
+
+   if( !stream || !inReal || !outFastK || !outFastD ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outFastK == (const void *)inReal || (const void *)outFastD == (const void *)inReal || (const void *)outFastK == (const void *)outFastD ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      retCode = TA_STOCHRSI_StepImpl( stream, inReal[i], &outFastK[i], &outFastD[i] );
+      if( retCode != TA_SUCCESS ) return retCode;
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_STOCHRSI_Close( TA_STOCHRSI_Stream *stream )

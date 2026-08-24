@@ -175,13 +175,13 @@ impl Core {
     /// # Formula
     ///
     /// ```text
-    /// outInteger[i] = argmax_{j in [i-optInTimePeriod+1, i]} inReal[j]
+    /// outInteger[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
     /// ```
     ///
     /// # Notes
     ///
-    /// * When several bars in a window share the highest value, which bar's index is returned is
-    ///   not guaranteed to be a specific one of the tied bars.
+    /// * When several bars in a window share the highest value, the index of one of them is
+    ///   returned — not necessarily the first or the last.
     ///
     /// # Arguments
     ///
@@ -268,12 +268,16 @@ impl Core {
 /// Live MAXINDEX stream: one value per closed bar, bit-identical to [`Core::MAXINDEX`]
 /// over the same series. Open with [`Core::MAXINDEX_Open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
+///
+/// [`Self::out_range`] reports the bars it has produced a value for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MAXINDEX_Stream")]
 pub struct MAXINDEX_Stream {
     core: Core,
     state: MAXINDEX_StreamState,
+    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    out: OutRange,
 }
 
 #[allow(dead_code)]
@@ -283,6 +287,7 @@ impl MAXINDEX_Stream {
     pub(crate) fn restore_from(&mut self, src: &Self) {
         self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
+        self.out = src.out;
     }
 }
 
@@ -292,8 +297,8 @@ struct MAXINDEX_StreamState {
     optInTimePeriod: i32,
     highest: f64,
     trailingIdx: i32,
-    i: i32,
     highestIdx: i32,
+    i: i32,
     today: i32,
     xMask: i32,
     x_inReal: Vec<f64>,
@@ -307,8 +312,8 @@ impl MAXINDEX_StreamState {
         self.optInTimePeriod = src.optInTimePeriod;
         self.highest = src.highest;
         self.trailingIdx = src.trailingIdx;
-        self.i = src.i;
         self.highestIdx = src.highestIdx;
+        self.i = src.i;
         self.today = src.today;
         self.xMask = src.xMask;
         self.x_inReal.clone_from(&src.x_inReal);
@@ -322,7 +327,7 @@ impl MAXINDEX_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn MAXINDEX_step_internal(&self, sp: &mut MAXINDEX_StreamState, inReal: f64, outInteger: &mut i32) {
+    fn MAXINDEX_step_impl(&self, sp: &mut MAXINDEX_StreamState, inReal: f64, outInteger: &mut i32) {
         let mut tmp: f64 = 0.0_f64;
         if sp.today >= 1073741824 {
             let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
@@ -355,7 +360,7 @@ impl Core {
 
     /// The single whole-history transcription behind [`Core::MAXINDEX_OpenInternal`]
     /// (stride 0, scalar sink) and [`Core::MAXINDEX_OpenAndFill`] (stride 1, caller slices).
-    pub(crate) fn MAXINDEX_OpenPass(
+    pub(crate) fn MAXINDEX_OpenImpl(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<MAXINDEX_Stream, RetCode> {
         if inReal.is_empty() {
@@ -372,6 +377,11 @@ impl Core {
         let historyLen: usize = inReal.len();
         let endIdx: usize = historyLen - 1;
         let mut startIdx = startIdx;
+        if startIdx > endIdx {
+            (*outBegIdx) = 0;
+            (*outNBElement) = 0;
+            return Err(RetCode::InsufficientHistory);
+        }
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut highest: f64 = 0.0_f64;
@@ -452,13 +462,13 @@ impl Core {
             optInTimePeriod,
             highest,
             trailingIdx: (trailingIdx) as i32,
-            i: (i) as i32,
             highestIdx: (highestIdx) as i32,
+            i: (i) as i32,
             today: (today) as i32,
             xMask: (physX - 1) as i32,
             x_inReal,
         };
-        Ok(MAXINDEX_Stream { core: self.clone(), state })
+        Ok(MAXINDEX_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::MAXINDEX_Open`] (composition seam).
@@ -468,7 +478,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         let mut sink_outInteger = [0_i32; 1];
-        let handle = self.MAXINDEX_OpenPass(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
+        let handle = self.MAXINDEX_OpenImpl(inReal, startIdx, optInTimePeriod, &mut dummyBegIdx, &mut dummyNBElement, &mut sink_outInteger, 0)?;
         Ok((handle, sink_outInteger[0]))
     }
 
@@ -488,8 +498,12 @@ impl Core {
     ///
     /// let core = Core::new();
     /// let (mut s, _last) = core.MAXINDEX_Open(&data, 30).expect("enough history");
+    /// let r0 = s.out_range();
     /// let peeked = s.peek(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().count, r0.count); // a peek commits nothing
     /// let updated = s.update(100.9).expect("a finite bar");
+    /// assert_eq!(s.out_range().beg_idx, r0.beg_idx);
+    /// assert_eq!(s.out_range().count, r0.count + 1);
     /// assert_eq!(peeked, updated);
     /// ```
     #[doc(alias = "TA_MAXINDEX_Open")]
@@ -507,7 +521,7 @@ impl Core {
     ) -> Result<(MAXINDEX_Stream, OutRange), RetCode> {
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
-        let handle = self.MAXINDEX_OpenPass(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outInteger, 1)?;
+        let handle = self.MAXINDEX_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outInteger)?;
         Ok((handle, OutRange { beg_idx: outBegIdx, count: outNBElement }))
     }
 
@@ -516,7 +530,7 @@ impl Core {
     pub(crate) fn MAXINDEX_OpenAndFillInternal(
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32],
     ) -> Result<MAXINDEX_Stream, RetCode> {
-        self.MAXINDEX_OpenPass(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1)
+        self.MAXINDEX_OpenImpl(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outInteger, 1)
     }
 
 }
@@ -541,8 +555,45 @@ impl MAXINDEX_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.MAXINDEX_step_internal(&mut self.state, inReal, &mut outInteger);
+        self.core.MAXINDEX_step_impl(&mut self.state, inReal, &mut outInteger);
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
         Ok(outInteger)
+    }
+
+    /// Commit `n` closed bars and write their `n` values, in one call —
+    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
+    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
+    /// hold at least that many. Never allocates.
+    ///
+    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// rejection below readable: there is no second out-parameter for it.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
+    /// is shorter than the bar count — neither commits anything — or if a bar
+    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
+    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
+    /// and everything after it is not, and `out_range().count` has advanced by
+    /// `k`.
+    #[doc(alias = "TA_MAXINDEX_UpdateAndFill")]
+    pub fn update_and_fill(&mut self, inReal: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
+        let barCount = inReal.len();
+        if outInteger.len() < barCount {
+            return Err(RetCode::BadParam);
+        }
+        for i in 0..barCount {
+            if !inReal[i].is_finite() {
+                return Err(RetCode::BadParam);
+            }
+            self.core.MAXINDEX_step_impl(&mut self.state, inReal[i], &mut outInteger[i]);
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
+        }
+        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -564,6 +615,19 @@ impl MAXINDEX_Stream {
         }
         let mut scratch = self.clone();
         scratch.update(inReal)
+    }
+
+    /// The bars this stream has produced a value for, in the input series'
+    /// coordinates: `[beg_idx, beg_idx + count)`.
+    ///
+    /// It is what [`Core::MAXINDEX`] reports over the same bars: the opener sets it
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
+    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// A plain `Open` hands back only the last value, a subset of this range,
+    /// because the caller chose not to take the fill.
+    #[doc(alias = "TA_StreamOutRange")]
+    pub fn out_range(&self) -> OutRange {
+        self.out
     }
 }
 

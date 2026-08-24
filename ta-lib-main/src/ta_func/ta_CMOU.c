@@ -337,10 +337,13 @@ TA_RetCode TA_S_CMOU( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CMOU_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double upSum;
    double downSum;
-   double sum;
    double prevValue;
    double trailingValue;
    int ringPos_trailingIdx;
@@ -350,7 +353,7 @@ struct TA_CMOU_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_CMOU_ReleaseInternal( struct TA_CMOU_Stream *sp )
+static void TA_CMOU_ReleaseImpl( struct TA_CMOU_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingIdx_inReal ) TA_Free( sp->ring_trailingIdx_inReal );
@@ -359,8 +362,9 @@ static void TA_CMOU_ReleaseInternal( struct TA_CMOU_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_CMOU_StepInternal( struct TA_CMOU_Stream *sp, double inReal, double *outReal )
+static void TA_CMOU_StepImpl( struct TA_CMOU_Stream *sp, double inReal, double *outReal )
 {
+   double sum;
    double diff;
    double tempReal;
 
@@ -394,10 +398,10 @@ static void TA_CMOU_StepInternal( struct TA_CMOU_Stream *sp, double inReal, doub
    {
       sp->downSum -= diff;
    }
-   sp->sum = sp->upSum + sp->downSum;
-   if( !TA_IS_ZERO(sp->sum) )
+   sum = sp->upSum + sp->downSum;
+   if( !TA_IS_ZERO(sum) )
    {
-      *outReal= 100.0 * (sp->upSum - sp->downSum) / sp->sum;
+      *outReal= 100.0 * (sp->upSum - sp->downSum) / sum;
    } else 
    {
       *outReal= 0.0;
@@ -410,7 +414,7 @@ static void TA_CMOU_StepInternal( struct TA_CMOU_Stream *sp, double inReal, doub
    }
 }
 
-static TA_RetCode TA_CMOU_OpenPass( struct TA_CMOU_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_CMOU_OpenImpl( struct TA_CMOU_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_CMOU_Stream *sp;
    int endIdx;
@@ -426,6 +430,12 @@ static TA_RetCode TA_CMOU_OpenPass( struct TA_CMOU_Stream **stream, const double
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -440,7 +450,7 @@ static TA_RetCode TA_CMOU_OpenPass( struct TA_CMOU_Stream **stream, const double
       int i;
       double upSum = 0.0;
       double downSum = 0.0;
-      double sum = 0.0;
+      double sum;
       double diff;
       double tempReal;
       double prevValue = 0.0;
@@ -563,19 +573,20 @@ static TA_RetCode TA_CMOU_OpenPass( struct TA_CMOU_Stream **stream, const double
       sp->optInTimePeriod = optInTimePeriod;
       sp->upSum = upSum;
       sp->downSum = downSum;
-      sp->sum = sum;
       sp->prevValue = prevValue;
       sp->trailingValue = trailingValue;
       sp->ringCap_trailingIdx = (int)(today - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_CMOU_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_CMOU_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingIdx_inReal ) { TA_CMOU_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingIdx_inReal ) { TA_CMOU_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdx_inReal ) { TA_CMOU_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingIdx_inReal ) { TA_CMOU_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingIdx_inReal, inReal + (historyLen - sp->ringCap_trailingIdx), sizeof(double) * (size_t)sp->ringCap_trailingIdx );
       }
       sp->ringPos_trailingIdx = 0;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -588,7 +599,7 @@ TA_RetCode TA_CMOU_OpenInternal( struct TA_CMOU_Stream **stream, const double in
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_CMOU_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_CMOU_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -610,25 +621,26 @@ TA_LIB_API TA_RetCode TA_CMOU_OpenAndFill( TA_CMOU_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_CMOU_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CMOU_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_CMOU_OpenAndFillInternal( struct TA_CMOU_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_CMOU_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
+   return TA_CMOU_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_CMOU_Update( TA_CMOU_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_CMOU_StepInternal( stream, inReal, outReal );
+   TA_CMOU_StepImpl( stream, inReal, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -641,13 +653,29 @@ TA_LIB_API TA_RetCode TA_CMOU_Peek( const TA_CMOU_Stream *stream, double inReal,
    scratch = *stream;
    scratch.ring_trailingIdx_inReal = stream->ringMirror_trailingIdx_inReal;
    memcpy( scratch.ring_trailingIdx_inReal, stream->ring_trailingIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );
-   TA_CMOU_StepInternal( &scratch, inReal, outReal );
+   TA_CMOU_StepImpl( &scratch, inReal, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CMOU_UpdateAndFill( TA_CMOU_Stream *stream, const double inReal[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_CMOU_StepImpl( stream, inReal[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_CMOU_Close( TA_CMOU_Stream *stream )
 {
-   TA_CMOU_ReleaseInternal( stream );
+   TA_CMOU_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

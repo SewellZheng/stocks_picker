@@ -1,11 +1,11 @@
 ---
-title: .NET Streaming API
-description: ".NET streaming API for live feeds: a stream handle carries indicator state from bar to bar at O(1) per update, bit-identical to the batch calls, and Update allocates nothing."
+title: C# Streaming API
+description: "C# streaming API for live feeds: a stream handle carries indicator state from bar to bar at O(1) per update, bit-identical to the batch calls, and Update allocates nothing."
 toc: false
 ---
 
 ::: warning Not yet released
-The .NET API is not yet released. Estimated release: **Q1 2027**.
+The C# API is not yet released. Estimated release: **Q1 2027**.
 :::
 
 The **streaming API** is built for live feeds: open a stream once, then feed it one bar at a time. The stream carries its state from bar to bar, so each new bar costs O(1) — and every value is **bit-identical** to what the [batch method](/api/csharp/) (`core.SMA`, `core.RSI`, …) would return by recomputing over the whole array.
@@ -17,10 +17,11 @@ Each streamable function adds two factory methods on `Core` and a handful of mem
 | `core.<NAME>_Open(history, params)` | once | validate params, consume warm-up history, return a **handle** |
 | `core.<NAME>_OpenAndFill(..)` | once, instead of `Open` | like `Open`, but also fills the output for **every** history bar — see [below](#full-history-output-openandfill) |
 | `handle.Update(bar)` | once per **closed** bar | commit one bar, return the new value |
+| `handle.UpdateAndFill(bars, outs)` | instead of a loop of `Update` | commit `n` closed bars and write the `n` values — see [below](#catch-up-n-bars-at-once-updateandfill) |
 | `handle.Peek(bar)` | any time on the **forming** bar | evaluate a provisional bar **without** committing |
 | `handle.Value` | any time | the most recently committed value |
 | `handle.Clone()` | any time | an independent deep copy of the handle |
-| `handle.FillRange` | any time | the range `OpenAndFill` wrote (`OutRange.Empty` after a plain `Open`) |
+| `handle.OutRange` | any time | the bars this handle has a value for — the batch range over the same bars |
 
 There is **no `Dispose`**: a handle owns only managed state — its arrays, its sub-handles and a `Core` reference — so an unreferenced handle is simply collected. The handle types deliberately do not implement `IDisposable`.
 
@@ -64,12 +65,34 @@ var outReal = new double[history.Length];
 
 Core.SMA_Stream s = core.SMA_OpenAndFill(history, 30, outReal);
 
-OutRange r = s.FillRange;   // where the filled values start, and how many
+OutRange r = s.OutRange;    // the bars it has a value for
 // outReal[0 .. r.Count - 1] == what core.SMA(0, history.Length - 1, ...) writes
 // ...and s is live, ready for Update.
 ```
 
 The output arguments are the batch call's, in the same order. An output may not overlap an input, or another output — that throws `ArgumentException` and mints no handle. With spans that means genuine memory overlap, not just the same buffer: two slices of one array that share even one element are rejected.
+
+## Catch up n bars at once (`UpdateAndFill`)
+
+Feeding a gap one `Update` at a time works; `UpdateAndFill` does the same thing
+in one call, writing one value per bar into your span:
+
+```csharp
+double[] outReal = new double[gap.Length];
+
+s.UpdateAndFill(gap, outReal);      // outReal[i] is the SMA at gap[i]
+```
+
+It is exactly `gap.Length` back-to-back `Update` calls — same values, same state
+— with one set of argument checks instead of `n`. `s.OutRange` reports the bars
+the handle has a value for, before and after.
+
+That includes a call that fails partway. A non-finite bar throws
+`ArgumentException` exactly as `Update` does, which means the bars **before** it
+are already committed and their values already written; the range tells you how
+many. It throws before committing anything if the input spans differ in length,
+an output is shorter than the bar count, or an output overlaps an input or
+another output. An empty call does nothing.
 
 ## Multi-input / multi-output
 
@@ -91,7 +114,7 @@ These are record structs, so `==` is .NET's `double` equality: `NaN` equals `NaN
 
 ## Error model
 
-`Open` and `OpenAndFill` throw. After a successful open the only thing `Update` and `Peek` reject is a non-finite bar; `Value` and `Clone()` never throw.
+`Open` and `OpenAndFill` throw. After a successful open the only thing `Update` and `Peek` reject is a non-finite bar; `UpdateAndFill` adds ragged inputs, an output shorter than the bar count and an overlapping output, all three before it commits anything. `Value` and `Clone()` never throw.
 
 | Condition | Exception |
 |---|---|
@@ -101,16 +124,6 @@ These are record structs, so `==` is .NET's `double` equality: `NaN` equals `NaN
 | A non-finite bar, or a non-finite real parameter | `ArgumentException` |
 
 One narrow exception to "the handle is unchanged": a *composed* indicator drives its sub-stages through their own public update, so a value the library computed internally is re-checked there. If such an intermediate overflowed to an infinity, the rejection would surface after earlier sub-stages had advanced, and would name the sub-stage. It needs input magnitudes around 1e306 and up — the overflow class TA-Lib already treats as out of scope — but the guarantee is stated for the caller-supplied case, which is the one you can provoke.
-
-
-**Non-finite input is rejected.** NaN and ±Inf are not supported as inputs anywhere in TA-Lib, but the streaming tier is the one that *enforces* it: every public streaming entry point checks, and rejects without touching the handle. The batch API does not filter — it computes on whatever it is given.
-
-The difference is the retained state. Batch computes and forgets, so a NaN reaches the outputs depending on that bar and no others; a stream handle carries state forward, so a single non-finite bar would poison every value it produces afterwards, long after the feed recovers. Rejecting the bar and leaving the handle usable is more useful than accepting it and going permanently NaN.
-
-This covers every bar value at update/peek, and a real optional parameter that is NaN — which a plain range check lets through, since `x < min` and `x > max` are both false for NaN.
-
-It does **not** cover the warm-up history, or any other input **array**. Arrays are never scanned: keeping one free of NaN and infinities is the caller's responsibility. Passing a non-finite one is **undefined behaviour** — nothing is promised.
-
 
 `InsufficientHistoryException` derives from `ArgumentException`, so you can catch it specifically — it is the one routine, data-dependent rejection — or catch every open failure uniformly. Messages carry a stable `"<NAME> open: "` prefix, and it is always the *called* function's name: `core.MA_Open(...)` rejecting reports `MA open:`, never the name of whatever moving average it delegates to.
 

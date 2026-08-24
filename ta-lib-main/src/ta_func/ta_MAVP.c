@@ -743,6 +743,10 @@ TA_RetCode TA_S_MAVP( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MAVP_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInMinPeriod;
    int optInMaxPeriod;
    TA_MAType optInMAType;
@@ -779,6 +783,7 @@ TA_RetCode TA_MAVP_OpenInternal( struct TA_MAVP_Stream **stream, const double in
    if( optInMinPeriod > optInMaxPeriod ) return TA_BAD_PARAM;
    lookbackTotal = TA_MA_Lookback( optInMaxPeriod, optInMAType );
    subStart = startIdx < lookbackTotal ? lookbackTotal : startIdx;
+   if( historyLen < subStart + 1 ) return TA_INSUFFICIENT_HISTORY;
 
    sp = (struct TA_MAVP_Stream *)TA_Malloc( sizeof(*sp) );
    if( !sp ) return TA_ALLOC_ERR;
@@ -810,6 +815,9 @@ TA_RetCode TA_MAVP_OpenInternal( struct TA_MAVP_Stream **stream, const double in
    else if( cpReal > optInMaxPeriod ) cp = optInMaxPeriod;
    else cp = (int)cpReal;
    *outReal = sp->scratch[cp - optInMinPeriod];
+
+   sp->outRangeBegIdx = subStart;
+   sp->outRangeCount = historyLen - subStart;
 
    *stream = sp;
    return TA_SUCCESS;
@@ -898,6 +906,8 @@ TA_LIB_API TA_RetCode TA_MAVP_OpenAndFill( TA_MAVP_Stream **stream, const double
 
    *outBegIdx = lookbackTotal;
    *outNBElement = historyLen - lookbackTotal;
+   sp->outRangeBegIdx = *outBegIdx;
+   sp->outRangeCount = *outNBElement;
    *stream = sp;
    return TA_SUCCESS;
 }
@@ -915,6 +925,7 @@ TA_LIB_API TA_RetCode TA_MAVP_Update( TA_MAVP_Stream *stream, double inReal, dou
    else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
    else cp = (int)cpReal;
    *outReal = stream->scratch[cp - stream->optInMinPeriod];
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -929,6 +940,29 @@ TA_LIB_API TA_RetCode TA_MAVP_Peek( const TA_MAVP_Stream *stream, double inReal,
    else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
    else cp = (int)cpReal;
    TA_MA_Peek( stream->bank[cp - stream->optInMinPeriod], inReal, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MAVP_UpdateAndFill( TA_MAVP_Stream *stream, const double inReal[], const double inPeriods[], int barCount, double outReal[] )
+{
+   int i, k, cp;
+   double cpReal;
+
+   if( !stream || !inReal || !inPeriods || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inPeriods ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) || !TA_IS_FINITE( inPeriods[i] ) ) return TA_BAD_PARAM;
+      for( k = 0; k < stream->nBank; k++ )
+         TA_MA_Update( stream->bank[k], inReal[i], &stream->scratch[k] );
+      cpReal = inPeriods[i];
+      if( !(cpReal >= stream->optInMinPeriod) ) cp = stream->optInMinPeriod;
+      else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
+      else cp = (int)cpReal;
+      outReal[i] = stream->scratch[cp - stream->optInMinPeriod];
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 

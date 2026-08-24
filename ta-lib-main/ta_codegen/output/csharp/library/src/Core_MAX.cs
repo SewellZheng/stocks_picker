@@ -489,23 +489,27 @@ public partial class Core
       internal int optInTimePeriod;
       internal double highest;
       internal int trailingIdx;
-      internal int i;
       internal int highestIdx;
+      internal int i;
       internal int today;
       internal int xMask;
       internal double[] x_inReal = [];
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal MAX_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>MAX_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.MAX</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal MAX_Stream( MAX_Stream other )
       {
@@ -513,14 +517,15 @@ public partial class Core
          this.optInTimePeriod = other.optInTimePeriod;
          this.highest = other.highest;
          this.trailingIdx = other.trailingIdx;
-         this.i = other.i;
          this.highestIdx = other.highestIdx;
+         this.i = other.i;
          this.today = other.today;
          this.xMask = other.xMask;
          this.x_inReal = new double[other.x_inReal.Length];
          Array.Copy( other.x_inReal, this.x_inReal, other.x_inReal.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( MAX_Stream other )
@@ -529,8 +534,8 @@ public partial class Core
          this.optInTimePeriod = other.optInTimePeriod;
          this.highest = other.highest;
          this.trailingIdx = other.trailingIdx;
-         this.i = other.i;
          this.highestIdx = other.highestIdx;
+         this.i = other.i;
          this.today = other.today;
          this.xMask = other.xMask;
          if( this.x_inReal.Length != other.x_inReal.Length ) {
@@ -538,7 +543,8 @@ public partial class Core
          }
          Array.Copy( other.x_inReal, this.x_inReal, other.x_inReal.Length );
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
@@ -557,7 +563,8 @@ public partial class Core
       public double Update( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MAX", "update", RetCode.BadParam);
-         core.MAX_StreamStep(this, inReal);
+         core.MAX_StepImpl(this, inReal);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -576,8 +583,34 @@ public partial class Core
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MAX", "peek", RetCode.BadParam);
          MAX_Stream scratch = new MAX_Stream(this);
-         core.MAX_StreamStep(scratch, inReal);
+         core.MAX_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
+      {
+         int barCount = inReal.Length;
+         if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("MAX", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("MAX", "updateAndFill", RetCode.BadParam);
+            core.MAX_StepImpl(this, inReal[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -596,7 +629,7 @@ public partial class Core
       }
    }
 
-   internal void MAX_StreamStep( MAX_Stream sp, double inReal )
+   internal void MAX_StepImpl( MAX_Stream sp, double inReal )
    {
       double tmp = 0.0;
       if( sp.today >= 1073741824 ) {
@@ -628,7 +661,7 @@ public partial class Core
       sp.today += 1;
    }
 
-   private RetCode MAX_OpenPass( MAX_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode MAX_OpenImpl( MAX_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -652,6 +685,11 @@ public partial class Core
          optInTimePeriod = 30;
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       /* Identify the minimum number of price bar needed
        * to identify at least one output over the specified
@@ -731,8 +769,8 @@ public partial class Core
       sp.optInTimePeriod = optInTimePeriod;
       sp.highest = highest;
       sp.trailingIdx = trailingIdx;
-      sp.i = i;
       sp.highestIdx = highestIdx;
+      sp.i = i;
       sp.today = today;
       sp.xMask = physX - 1;
       sp.x_inReal = capX_inReal;
@@ -740,32 +778,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode MAX_OpenImpl( MAX_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod )
-   {
-      double[] sink_outReal = new double[1];
-      return MAX_OpenPass( sp, inReal, startIdx, optInTimePeriod, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode MAX_OpenAndFillImpl( MAX_Stream sp, ReadOnlySpan<double> inReal, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inReal) ) {
-         return RetCode.BadParam;
-      }
-      return MAX_OpenPass( sp, inReal, 0, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode MAX_OpenAndFillInternalImpl( MAX_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return MAX_OpenPass(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* MAX_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal MAX_Stream MAX_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       MAX_Stream sp = new MAX_Stream(this);
-      RetCode retCode = MAX_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = MAX_OpenImpl(sp, inReal, startIdx, optInTimePeriod, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -776,7 +795,10 @@ public partial class Core
    internal MAX_Stream MAX_OpenInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod )
    {
       MAX_Stream sp = new MAX_Stream(this);
-      RetCode retCode = MAX_OpenImpl(sp, inReal, startIdx, optInTimePeriod);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = MAX_OpenImpl(sp, inReal, startIdx, optInTimePeriod, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -817,7 +839,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="MAX_Stream.FillRange"/>.</para>
+   /// <see cref="MAX_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inReal">Series to take the rolling maximum of. The warm-up history, oldest bar
    /// first.</param>
@@ -835,12 +857,9 @@ public partial class Core
    public MAX_Stream MAX_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
-      MAX_Stream sp = new MAX_Stream(this);
-      RetCode retCode = MAX_OpenAndFillImpl(sp, inReal, optInTimePeriod, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inReal) ) {
+         throw StreamFailure("MAX", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("MAX", "openAndFill", retCode);
+      return MAX_OpenAndFillInternal(inReal, 0, optInTimePeriod, out _, out _, outReal);
    }
 }

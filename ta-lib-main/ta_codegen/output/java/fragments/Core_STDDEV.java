@@ -13,6 +13,7 @@
  *  100502 JV   Speed optimization of the algorithm
  *  052603 MF   Adapt code to compile with .NET Managed C++
  *  090404 MF   Fix #978056. Trap sqrt with negative zero values.
+ *  082326 MF,CC #243 the sqrt trap moves to var's scale-relative floor.
  */
 
    /**
@@ -55,7 +56,6 @@
    {
       int i = 0;
       RetCode retCode;
-      double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -98,24 +98,24 @@
        * is the standard deviation.
        *
        * Multiply also by the ratio specified.
+       *
+       * Unconditional. var owns the dead-zone and owns the sign: it returns a
+       * non-negative variance, already floored to exactly 0 on any window whose
+       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * stand here instead - zero the output wherever the variance fell under
+       * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
+       * at a price level rather than a noise floor: a $100.00 instrument quoted in
+       * 1e-8 ticks has a variance around 1e-16 and came back as exactly 0 on every
+       * bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
+       * Dropping it also leaves a pure map, which the branch had kept sqrt out of.
        */
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.sqrt(tempReal) * optInNbDev;
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.sqrt(outReal[i]) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.sqrt(tempReal);
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.sqrt(outReal[i]);
          }
       }
       return RetCode.Success ;
@@ -131,7 +131,6 @@
    {
       int i = 0;
       RetCode retCode;
-      double tempReal = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -162,21 +161,11 @@
       }
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.sqrt(tempReal) * optInNbDev;
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.sqrt(outReal[i]) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               outReal[i] = Math.sqrt(tempReal);
-            } else {
-               outReal[i] = (double)0.0;
-            }
+            outReal[i] = Math.sqrt(outReal[i]);
          }
       }
       return RetCode.Success ;
@@ -338,18 +327,22 @@
       double optInNbDev;
       double cur_outReal;
       VAR_Stream sub0;
-      OutRange fillRange = OutRange.EMPTY;
+      int outRangeBegIdx;
+      int outRangeCount;
 
       STDDEV_Stream( Core core ) { this.core = core; }
 
       /**
-       * The range filled by {@link Core#STDDEV_OpenAndFill}, or
-       * {@link OutRange#EMPTY} when this handle came from a plain
-       * {@code open} (which fills nothing). Never {@code null}; a
-       * successful {@code openAndFill} always writes at least one value,
-       * so {@link OutRange#isEmpty()} tells the two apart.
+       * The bars this stream has produced a value for, in the input series'
+       * coordinates: {@code [begIdx, begIdx + count)}.
+       * <p>It is what {@link Core#STDDEV} reports over the same bars: the
+       * opener sets it to {@code (lookback, historyLen - lookback)}, every
+       * accepted {@code update} adds one to the count, {@code peek} leaves
+       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code open} hands back only the last value, a subset of this range,
+       * because the caller chose not to take the fill.
        */
-      public OutRange fillRange() { return fillRange; }
+      public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
       STDDEV_Stream( STDDEV_Stream other ) {
          this.core = other.core;
@@ -357,7 +350,8 @@
          this.optInNbDev = other.optInNbDev;
          this.cur_outReal = other.cur_outReal;
          this.sub0 = new VAR_Stream(other.sub0);
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       void copyFrom( STDDEV_Stream other ) {
@@ -370,7 +364,8 @@
          } else {
             this.sub0.copyFrom(other.sub0);
          }
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /**
@@ -388,8 +383,34 @@
       public double update( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("STDDEV update: BadParam", RetCode.BadParam);
-         core.STDDEV_StreamStep(this, inReal);
+         core.STDDEV_StepImpl(this, inReal);
+         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
+      }
+
+      /**
+       * Commit {@code n} closed bars and write their {@code n} values, in one
+       * call — exactly {@code n} back-to-back {@code update} calls, with one
+       * set of argument checks instead of {@code n}. {@code n} is
+       * {@code inReal.length}; the outputs must hold at least that many, and must
+       * not be the same array as an input or as each other.
+       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * rejection readable: a non-finite bar {@code k} throws
+       * {@link IllegalArgumentException} exactly as {@code update} would, with
+       * bars {@code 0..k} committed and written, bar {@code k} and everything
+       * after it not, and the count advanced by {@code k}.
+       */
+      public void updateAndFill( double inReal[], double outReal[] ) {
+         final int barCount = inReal.length;
+         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
+            throw new TaLibArgumentException("STDDEV updateAndFill: BadParam", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) )
+               throw new TaLibArgumentException("STDDEV updateAndFill: BadParam", RetCode.BadParam);
+            core.STDDEV_StepImpl(this, inReal[i]);
+            outReal[i] = this.cur_outReal;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         }
       }
 
       /**
@@ -403,7 +424,7 @@
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("STDDEV peek: BadParam", RetCode.BadParam);
          STDDEV_Stream scratch = new STDDEV_Stream(this);
-         core.STDDEV_StreamStep(scratch, inReal);
+         core.STDDEV_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
       }
 
@@ -424,35 +445,23 @@
          return new STDDEV_Stream(this);
       }
    }
-   void STDDEV_StreamStep( STDDEV_Stream sp, double inReal )
+   void STDDEV_StepImpl( STDDEV_Stream sp, double inReal )
    {
-      double tempReal = 0.0;
       double cur_outReal = 0.0;
       /* Pipeline the new bar through the sub-streams (batch tail order). */
       cur_outReal = sp.sub0.update(inReal);
       /* Combine map (batch tail, per bar). */
       if( sp.optInNbDev != 1.0 ) {
-         tempReal = cur_outReal;
-         if( !(tempReal < 0.00000000000001) ) {
-            cur_outReal = Math.sqrt(tempReal) * sp.optInNbDev;
-         } else {
-            cur_outReal = (double)0.0;
-         }
+         cur_outReal = Math.sqrt(cur_outReal) * sp.optInNbDev;
       } else {
-         tempReal = cur_outReal;
-         if( !(tempReal < 0.00000000000001) ) {
-            cur_outReal = Math.sqrt(tempReal);
-         } else {
-            cur_outReal = (double)0.0;
-         }
+         cur_outReal = Math.sqrt(cur_outReal);
       }
       sp.cur_outReal = cur_outReal;
    }
-   private RetCode STDDEV_OpenPass( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
+   private RetCode STDDEV_OpenImpl( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outStride )
    {
       int i = 0;
       RetCode retCode;
-      double tempReal = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -470,6 +479,11 @@
          optInNbDev = 1e0;
       } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.InsufficientHistory;
       }
       if( historyLen < STDDEV_Lookback(optInTimePeriod, optInNbDev) + 1 ) {
          return RetCode.InsufficientHistory;
@@ -501,24 +515,24 @@
        * is the standard deviation.
        *
        * Multiply also by the ratio specified.
+       *
+       * Unconditional. var owns the dead-zone and owns the sign: it returns a
+       * non-negative variance, already floored to exactly 0 on any window whose
+       * re-anchored spread sat under its own rounding noise (var.c). What used to
+       * stand here instead - zero the output wherever the variance fell under
+       * TA_EPSILON - compared a SQUARED quantity to a fixed 1e-14, which is a cliff
+       * at a price level rather than a noise floor: a $100.00 instrument quoted in
+       * 1e-8 ticks has a variance around 1e-16 and came back as exactly 0 on every
+       * bar, with TA_SUCCESS and nothing to say it had been suppressed (#243).
+       * Dropping it also leaves a pure map, which the branch had kept sqrt out of.
        */
       if( optInNbDev != 1.0 ) {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = sc_outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               sc_outReal[i] = Math.sqrt(tempReal) * optInNbDev;
-            } else {
-               sc_outReal[i] = (double)0.0;
-            }
+            sc_outReal[i] = Math.sqrt(sc_outReal[i]) * optInNbDev;
          }
       } else {
          for( i = 0; i < (int)outNBElement.value; i += 1 ) {
-            tempReal = sc_outReal[i];
-            if( !(tempReal < 0.00000000000001) ) {
-               sc_outReal[i] = Math.sqrt(tempReal);
-            } else {
-               sc_outReal[i] = (double)0.0;
-            }
+            sc_outReal[i] = Math.sqrt(sc_outReal[i]);
          }
       }
       /* Capture the live producer state + sub handles. */
@@ -531,29 +545,13 @@
       sp.cur_outReal = sc_outReal[outNBElement.value - 1];
       return RetCode.Success;
    }
-   private RetCode STDDEV_OpenImpl( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
-   {
-      MInteger outBegIdx = new MInteger();
-      MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      return STDDEV_OpenPass( sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0 );
-   }
-   private RetCode STDDEV_OpenAndFillImpl( STDDEV_Stream sp, double inReal[], int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      if( (Object)outReal == (Object)inReal ) {
-         return RetCode.BadParam;
-      }
-      return STDDEV_OpenPass( sp, inReal, 0, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1 );
-   }
-   private RetCode STDDEV_OpenAndFillInternalImpl( STDDEV_Stream sp, double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
-   {
-      return STDDEV_OpenPass(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
-   }
    /* STDDEV_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    STDDEV_Stream STDDEV_OpenAndFillInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       STDDEV_Stream sp = new STDDEV_Stream(this);
-      RetCode retCode = STDDEV_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
+      RetCode retCode = STDDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -569,7 +567,12 @@
    STDDEV_Stream STDDEV_OpenInternal( double inReal[], int startIdx, int optInTimePeriod, double optInNbDev )
    {
       STDDEV_Stream sp = new STDDEV_Stream(this);
-      RetCode retCode = STDDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev);
+      MInteger outBegIdx = new MInteger();
+      MInteger outNBElement = new MInteger();
+      double[] sink_outReal = new double[1];
+      RetCode retCode = STDDEV_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx.value;
+      sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -602,23 +605,14 @@
     * not alias the inputs or each other, and must hold
     * {@code historyLen - lookback} values.
     * <p>The range written is on the returned handle:
-    * {@link STDDEV_Stream#fillRange()}.
+    * {@link STDDEV_Stream#outRange()}.
     */
    public STDDEV_Stream STDDEV_OpenAndFill( double inReal[], int optInTimePeriod, double optInNbDev, double outReal[] )
    {
-      STDDEV_Stream sp = new STDDEV_Stream(this);
+      if( (Object)outReal == (Object)inReal ) {
+         throw new TaLibArgumentException("STDDEV openAndFill: " + RetCode.BadParam, RetCode.BadParam);
+      }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = STDDEV_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx.value, outNBElement.value);
-      if( retCode == RetCode.Success ) {
-         return sp;
-      }
-      if( retCode == RetCode.InsufficientHistory ) {
-         throw new InsufficientHistoryException("STDDEV openAndFill: history shorter than lookback + 1");
-      }
-      if( retCode == RetCode.InternalError ) {
-         throw new TaLibStateException("STDDEV openAndFill: internal error", retCode);
-      }
-      throw new TaLibArgumentException("STDDEV openAndFill: " + retCode, retCode);
+      return STDDEV_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal);
    }

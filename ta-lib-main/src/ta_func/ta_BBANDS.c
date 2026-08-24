@@ -72,6 +72,9 @@
  *  072426 MF,CC  Lookback is now max(MA, STDDEV) so it is honest for MA types
  *                whose lookback is below the deviation's (MAMA >= 34, and
  *                TA_MAType_DISABLED); required for streaming (issue #93).
+ *  082326 MF,CC  #243 the SMA path's TA_EPSILON test on the variance is replaced
+ *                by var.c's scale-relative reseed floor; the square root is
+ *                unconditional. Bands no longer collapse on a fine tick.
  */
 
 TA_LIB_API int TA_BBANDS_Lookback( int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType )
@@ -287,18 +290,36 @@ TA_LIB_API TA_RetCode TA_BBANDS( int    startIdx,
             }
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+            /* The floor from var.c, verbatim: it owns both the sign and the
+             * dead-zone, so the square root below can be unconditional.
+             */
+            if( variance < 0.000000000001 * (varTotal2 * _invPeriod) )
+            {
+               variance = 0.0;
+            }
             _tempReal = inReal[_windowStart] - shift;
             varTotal1 -= _tempReal;
             _tempReal *= _tempReal;
             varTotal2 -= _tempReal;
          }
-         if( !TA_IS_ZERO_OR_NEG(variance) )
-         {
-            tempBuffer2[_outIdx] = sqrt(variance);
-         } else 
-         {
-            tempBuffer2[_outIdx] = 0.0;
-         }
+         /* The TA_EPSILON test that used to stand here compared a SQUARED
+          * quantity to a fixed 1e-14 and flattened all three bands onto each
+          * other for any finely quoted series (#243). What replaces it skips
+          * the root ONLY where the answer is already known, because the
+          * reseed floor above has made it exactly 0 -- worth doing because
+          * this root, unlike stddev.c's, sits in the fused loop with a
+          * carried dependency and cannot vectorize, so running it on flat
+          * input cost 1.59x.
+          *
+          * `!= 0.0` and not `> 0.0`: the two differ only on NaN, and `> 0.0`
+          * sends it to the false arm, which would emit a zero-width band
+          * where stddev.c, BBANDS' own non-SMA paths and BBANDS_Open all
+          * return NaN. Reaching it needs a squared deviation to overflow
+          * (|x| ~ 1.3e154, far outside TA_REAL_MAX), so nothing in the
+          * declared domain can tell the two apart -- but there is no reason
+          * to buy the disagreement, and `!= 0.0` is what this is for.
+          */
+         tempBuffer2[_outIdx] = (variance != 0.0) ? sqrt(variance) : 0.0;
          _outIdx += 1;
          _i += 1;
       } while( _i <= endIdx );
@@ -590,18 +611,16 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
             }
             meanValue1 = varTotal1 * _invPeriod;
             variance = varTotal2 * _invPeriod - meanValue1 * meanValue1;
+            if( variance < 0.000000000001 * (varTotal2 * _invPeriod) )
+            {
+               variance = 0.0;
+            }
             _tempReal = (double)inReal[_windowStart] - shift;
             varTotal1 -= _tempReal;
             _tempReal *= _tempReal;
             varTotal2 -= _tempReal;
          }
-         if( !TA_IS_ZERO_OR_NEG(variance) )
-         {
-            tempBuffer2[_outIdx] = sqrt(variance);
-         } else 
-         {
-            tempBuffer2[_outIdx] = 0.0;
-         }
+         tempBuffer2[_outIdx] = (variance != 0.0) ? sqrt(variance) : 0.0;
          _outIdx += 1;
          _i += 1;
       } while( _i <= endIdx );
@@ -700,6 +719,10 @@ TA_RetCode TA_S_BBANDS( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_BBANDS_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    int optInTimePeriod;
    double optInNbDevUp;
    double optInNbDevDn;
@@ -713,7 +736,7 @@ struct TA_BBANDS_Stream {
 };
 
 /* Private function, not in public API. */
-static TA_RetCode TA_BBANDS_StepInternal( struct TA_BBANDS_Stream *sp, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
+static TA_RetCode TA_BBANDS_StepImpl( struct TA_BBANDS_Stream *sp, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
    double tempReal;
    double tempReal2;
@@ -759,7 +782,7 @@ static TA_RetCode TA_BBANDS_StepInternal( struct TA_BBANDS_Stream *sp, double in
    return TA_SUCCESS;
 }
 
-static TA_RetCode TA_BBANDS_OpenPass( struct TA_BBANDS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
+static TA_RetCode TA_BBANDS_OpenImpl( struct TA_BBANDS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[], int outStride )
 {
    struct TA_BBANDS_Stream *sp;
    int endIdx;
@@ -794,6 +817,12 @@ static TA_RetCode TA_BBANDS_OpenPass( struct TA_BBANDS_Stream **stream, const do
       optInMAType = 0;
    else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
       return TA_BAD_PARAM;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -974,6 +1003,8 @@ static TA_RetCode TA_BBANDS_OpenPass( struct TA_BBANDS_Stream **stream, const do
       if( !outStride ) TA_Free( sc_outRealUpperBand );
       if( !outStride ) TA_Free( sc_outRealMiddleBand );
       if( !outStride ) TA_Free( sc_outRealLowerBand );
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -988,7 +1019,7 @@ TA_RetCode TA_BBANDS_OpenInternal( struct TA_BBANDS_Stream **stream, const doubl
    double sink_outRealUpperBand = 0.0;
    double sink_outRealMiddleBand = 0.0;
    double sink_outRealLowerBand = 0.0;
-   retCode = TA_BBANDS_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &dummyBegIdx, &dummyNBElement, &sink_outRealUpperBand, &sink_outRealMiddleBand, &sink_outRealLowerBand, 0 );
+   retCode = TA_BBANDS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, &dummyBegIdx, &dummyNBElement, &sink_outRealUpperBand, &sink_outRealMiddleBand, &sink_outRealLowerBand, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outRealUpperBand = sink_outRealUpperBand;
@@ -1012,25 +1043,30 @@ TA_LIB_API TA_RetCode TA_BBANDS_OpenAndFill( TA_BBANDS_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outRealUpperBand == (const void *)inReal || (const void *)outRealMiddleBand == (const void *)inReal || (const void *)outRealLowerBand == (const void *)inReal || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
-   return TA_BBANDS_OpenPass( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
+   return TA_BBANDS_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_BBANDS_OpenAndFillInternal( struct TA_BBANDS_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, TA_MAType optInMAType, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
 {
-   return TA_BBANDS_OpenPass( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
+   return TA_BBANDS_OpenImpl( stream, inReal, startIdx, historyLen, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_BBANDS_Update( TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
+   TA_RetCode retCode;
+
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   return TA_BBANDS_StepInternal( stream, inReal, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
+   retCode = TA_BBANDS_StepImpl( stream, inReal, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
+   if( retCode != TA_SUCCESS ) return retCode;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_BBANDS_Peek( const TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
@@ -1041,7 +1077,25 @@ TA_LIB_API TA_RetCode TA_BBANDS_Peek( const TA_BBANDS_Stream *stream, double inR
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
    scratch.peekMode = 1;
-   return TA_BBANDS_StepInternal( &scratch, inReal, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
+   return TA_BBANDS_StepImpl( &scratch, inReal, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
+}
+
+TA_LIB_API TA_RetCode TA_BBANDS_UpdateAndFill( TA_BBANDS_Stream *stream, const double inReal[], int barCount, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
+{
+   int i;
+   TA_RetCode retCode;
+
+   if( !stream || !inReal || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outRealUpperBand == (const void *)inReal || (const void *)outRealMiddleBand == (const void *)inReal || (const void *)outRealLowerBand == (const void *)inReal || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      retCode = TA_BBANDS_StepImpl( stream, inReal[i], &outRealUpperBand[i], &outRealMiddleBand[i], &outRealLowerBand[i] );
+      if( retCode != TA_SUCCESS ) return retCode;
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_BBANDS_Close( TA_BBANDS_Stream *stream )

@@ -687,17 +687,21 @@ public partial class Core
       internal double ep;
       internal double sar;
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal SAR_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>SAR_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.SAR</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal SAR_Stream( SAR_Stream other )
       {
@@ -711,7 +715,8 @@ public partial class Core
          this.ep = other.ep;
          this.sar = other.sar;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( SAR_Stream other )
@@ -726,7 +731,8 @@ public partial class Core
          this.ep = other.ep;
          this.sar = other.sar;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
@@ -746,7 +752,8 @@ public partial class Core
       public double Update( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("SAR", "update", RetCode.BadParam);
-         core.SAR_StreamStep(this, inHigh, inLow);
+         core.SAR_StepImpl(this, inHigh, inLow);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -766,8 +773,35 @@ public partial class Core
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("SAR", "peek", RetCode.BadParam);
          SAR_Stream scratch = new SAR_Stream(this);
-         core.SAR_StreamStep(scratch, inHigh, inLow);
+         core.SAR_StepImpl(scratch, inHigh, inLow);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
+      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, Span<double> outReal )
+      {
+         int barCount = inHigh.Length;
+         if( inLow.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) ) throw Core.StreamFailure("SAR", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) ) throw Core.StreamFailure("SAR", "updateAndFill", RetCode.BadParam);
+            core.SAR_StepImpl(this, inHigh[i], inLow[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -786,7 +820,7 @@ public partial class Core
       }
    }
 
-   internal void SAR_StreamStep( SAR_Stream sp, double inHigh, double inLow )
+   internal void SAR_StepImpl( SAR_Stream sp, double inHigh, double inLow )
    {
       double prevHigh = 0.0;
       double prevLow = 0.0;
@@ -905,7 +939,7 @@ public partial class Core
       }
    }
 
-   private RetCode SAR_OpenPass( SAR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int startIdx, double optInAcceleration, double optInMaximum, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode SAR_OpenImpl( SAR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int startIdx, double optInAcceleration, double optInMaximum, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -939,6 +973,11 @@ public partial class Core
          optInMaximum = 2e-1;
       } else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
       }
       /* > 0 indicates long. == 0 indicates short */
       /* Implementation of the SAR has been a little bit open to interpretation
@@ -1170,32 +1209,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode SAR_OpenImpl( SAR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int startIdx, double optInAcceleration, double optInMaximum )
-   {
-      double[] sink_outReal = new double[1];
-      return SAR_OpenPass( sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode SAR_OpenAndFillImpl( SAR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, double optInAcceleration, double optInMaximum, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) ) {
-         return RetCode.BadParam;
-      }
-      return SAR_OpenPass( sp, inHigh, inLow, 0, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode SAR_OpenAndFillInternalImpl( SAR_Stream sp, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int startIdx, double optInAcceleration, double optInMaximum, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return SAR_OpenPass(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* SAR_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal SAR_Stream SAR_OpenAndFillInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int startIdx, double optInAcceleration, double optInMaximum, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       SAR_Stream sp = new SAR_Stream(this);
-      RetCode retCode = SAR_OpenAndFillInternalImpl(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = SAR_OpenImpl(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1206,7 +1226,10 @@ public partial class Core
    internal SAR_Stream SAR_OpenInternal( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, int startIdx, double optInAcceleration, double optInMaximum )
    {
       SAR_Stream sp = new SAR_Stream(this);
-      RetCode retCode = SAR_OpenImpl(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = SAR_OpenImpl(sp, inHigh, inLow, startIdx, optInAcceleration, optInMaximum, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -1250,7 +1273,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="SAR_Stream.FillRange"/>.</para>
+   /// <see cref="SAR_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
@@ -1271,12 +1294,9 @@ public partial class Core
    {
       if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
       if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      SAR_Stream sp = new SAR_Stream(this);
-      RetCode retCode = SAR_OpenAndFillImpl(sp, inHigh, inLow, optInAcceleration, optInMaximum, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) ) {
+         throw StreamFailure("SAR", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("SAR", "openAndFill", retCode);
+      return SAR_OpenAndFillInternal(inHigh, inLow, 0, optInAcceleration, optInMaximum, out _, out _, outReal);
    }
 }

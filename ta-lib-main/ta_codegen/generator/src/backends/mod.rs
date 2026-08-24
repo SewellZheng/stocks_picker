@@ -230,7 +230,7 @@ impl LanguageBackend for CBackend {
         // C server uses the real FuncUnstId enum from ta_defs.h — no local copy.
         let output = server_gen::generate_c_server(funcs, enums);
         let path = dir.join("ta_codegen_serve.c");
-        std::fs::write(&path, &output).unwrap();
+        crate::emit::write_if_changed(&path, &output).unwrap();
         println!("  C server -> {}", path.display());
     }
 }
@@ -272,7 +272,7 @@ impl LanguageBackend for RustBackend {
     fn clean_keep(&self) -> &'static [&'static str] {
         // Hand-written modules copied from `templates/rust/` (see
         // `RUST_TEMPLATE_MODULES`) plus the generated `mod.rs`.
-        &["types.rs", "scratch_election.rs", "stream_finite.rs", "mod.rs"]
+        &["types.rs", "scratch_election.rs", "stream_finite.rs", "stream_out_range.rs", "mod.rs"]
     }
     fn reserved_words(&self) -> &'static [&'static str] {
         rust_lang::RESERVED_WORDS
@@ -289,7 +289,7 @@ impl LanguageBackend for RustBackend {
         std::fs::create_dir_all(&dir).unwrap();
         let output = server_gen::generate_rust_server(funcs, enums);
         let path = dir.join("ta_codegen_serve.rs");
-        std::fs::write(&path, &output).unwrap();
+        crate::emit::write_if_changed(&path, &output).unwrap();
         println!("  Rust server -> {}", path.display());
     }
 }
@@ -341,7 +341,7 @@ impl LanguageBackend for JavaBackend {
         let template = server_gen::generate_java_server(funcs, enums);
         let output = server_gen::inline_java_core_methods(&template, &frag_dir, funcs);
         let path = tools_dir.join("TaCodegenServe.java");
-        std::fs::write(&path, &output).unwrap();
+        crate::emit::write_if_changed(&path, &output).unwrap();
         println!("  Java server -> {}", path.display());
     }
 }
@@ -390,11 +390,11 @@ impl LanguageBackend for CSharpBackend {
         let dir = out_base.join("csharp/tools");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("TaCodegenServe.cs");
-        std::fs::write(&path, &output).unwrap();
+        crate::emit::write_if_changed(&path, &output).unwrap();
         // The csproj is generated too: it compiles the shipped library sources
         // into the server assembly (the same-text identity proof).
         let csproj = dir.join("TaCodegenServe.csproj");
-        std::fs::write(&csproj, server_gen::csharp_server_csproj()).unwrap();
+        crate::emit::write_if_changed(&csproj, server_gen::csharp_server_csproj()).unwrap();
         println!("  C# server -> {}", path.display());
     }
 }
@@ -455,7 +455,7 @@ pub fn write_if_changed(path: &std::path::Path, content: &str, label: &str, coun
     if existing == content {
         println!("  {label} is up to date ({count} functions)");
     } else {
-        std::fs::write(path, content).unwrap();
+        crate::emit::write_if_changed(path, content).unwrap();
         println!("  {label} updated ({count} functions)");
     }
 }
@@ -465,7 +465,7 @@ pub fn write_if_changed(path: &std::path::Path, content: &str, label: &str, coun
 pub fn write_if_changed_silent(path: &std::path::Path, content: &str) {
     let existing = std::fs::read_to_string(path).unwrap_or_default();
     if existing != content {
-        std::fs::write(path, content).unwrap();
+        crate::emit::write_if_changed(path, content).unwrap();
     }
 }
 

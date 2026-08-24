@@ -17,9 +17,11 @@ Each streamable function adds two factory methods on `Core` and a handful of met
 | `core.<NAME>_Open(history, params)` | once | validate params, consume warm-up history, return a **stream** |
 | `core.<NAME>_OpenAndFill(..)` | once, instead of `Open` | like `Open`, but also fills the output for **every** history bar — see [below](#full-history-output-openandfill) |
 | `stream.update(bar)` | once per **closed** bar | commit one bar, return the new value |
+| `stream.updateAndFill(bars, outs)` | instead of a loop of `update` | commit `n` closed bars and write the `n` values — see [below](#catch-up-n-bars-at-once-updateandfill) |
 | `stream.peek(bar)` | any time on the **forming** bar | evaluate a provisional bar **without** committing |
 | `stream.value()` | any time | the most recently committed value |
 | `stream.copy()` | any time | an independent copy of the stream |
+| `stream.outRange()` | any time | the bars this stream has a value for — the batch range over the same bars |
 
 There is no `close` — a stream is ordinary heap state, so an unreferenced stream is simply garbage-collected.
 
@@ -61,13 +63,35 @@ import io.github.talib.OutRange;
 double[] warmup = new double[history.length];
 
 Core.SMA_Stream s = core.SMA_OpenAndFill(history, 30, warmup);
-OutRange r = s.fillRange();                     // what was written, on the handle
+OutRange r = s.outRange();                      // the bars it has a value for
 
 // warmup[0 .. r.count() - 1] is the SMA over all of history; then stream on:
 double v = s.update(newClose);
 ```
 
-The optional parameters and output arrays are exactly the [batch method](/api/java/)'s. The filled range is reported on the returned handle as `fillRange()` rather than through out-parameters — never `null`, and `OutRange.EMPTY` after a plain `Open`, which fills nothing. A successful `OpenAndFill` always writes at least one value, so `fillRange().isEmpty()` tells the two apart. The output arrays must not alias the input or each other.
+The optional parameters and output arrays are exactly the [batch method](/api/java/)'s. The range written is reported on the returned handle as `outRange()` rather than through out-parameters. That accessor is on every stream, not just a filled one: it holds the bars the handle has a value for, which is what the batch call over the same bars reports — `(lookback, historyLen - lookback)` at open, one more per `update`, unchanged by `peek`. The output arrays must not alias the input or each other.
+
+## Catch up n bars at once (`updateAndFill`)
+
+Feeding a gap one `update` at a time works; `updateAndFill` does the same thing
+in one call, writing one value per bar into your array:
+
+```java
+double[] out = new double[gap.length];
+
+s.updateAndFill(gap, out);          // out[i] is the SMA at gap[i]
+```
+
+It is exactly `gap.length` back-to-back `update` calls — same values, same state
+— with one set of argument checks instead of `n`. `s.outRange()` reports the bars
+the stream has a value for, before and after.
+
+That includes a call that fails partway. A non-finite bar throws
+`IllegalArgumentException` exactly as `update` does, which means the bars
+**before** it are already committed and their values already written; the range
+tells you how many. It throws before committing anything if the input arrays
+differ in length, an output is shorter than the bar count, or an output is the
+same array as an input or as another output. A zero-length call does nothing.
 
 ## Multi-input / multi-output
 
@@ -92,19 +116,10 @@ int pattern = c.update(o, h, l, cl);
 |------|-----------|
 | `<NAME>_Open` / `<NAME>_OpenAndFill` | Too little history throws `InsufficientHistoryException` (a subclass of `IllegalArgumentException` — catch it to accumulate more bars and retry). Out-of-range parameters, or output arrays that alias the input or each other (`OpenAndFill`), throw plain `IllegalArgumentException`. |
 | `update` / `peek` | `IllegalArgumentException` on a non-finite bar value, leaving the handle unchanged. Nothing else throws after a successful `Open` (see the note below for the one composed-indicator corner). |
+| `updateAndFill` | The same non-finite rejection, per bar — and it commits the bars ahead of the one it rejects. Ragged inputs, an output shorter than the bar count, and an output that is also an input or another output throw before it commits anything. |
 | `value` / `copy` | Never throw. |
 
 One narrow exception to "the handle is unchanged": a *composed* indicator drives its sub-stages through their own public update, so a value the library computed internally is re-checked there. If such an intermediate overflowed to an infinity, the rejection would surface after earlier sub-stages had advanced, and would name the sub-stage. It needs input magnitudes around 1e306 and up — the overflow class TA-Lib already treats as out of scope — but the guarantee is stated for the caller-supplied case, which is the one you can provoke.
-
-
-**Non-finite input is rejected.** NaN and ±Inf are not supported as inputs anywhere in TA-Lib, but the streaming tier is the one that *enforces* it: every public streaming entry point checks, and rejects without touching the handle. The batch API does not filter — it computes on whatever it is given.
-
-The difference is the retained state. Batch computes and forgets, so a NaN reaches the outputs depending on that bar and no others; a stream handle carries state forward, so a single non-finite bar would poison every value it produces afterwards, long after the feed recovers. Rejecting the bar and leaving the handle usable is more useful than accepting it and going permanently NaN.
-
-This covers every bar value at update/peek, and a real optional parameter that is NaN — which a plain range check lets through, since `x < min` and `x > max` are both false for NaN.
-
-It does **not** cover the warm-up history, or any other input **array**. Arrays are never scanned: keeping one free of NaN and infinities is the caller's responsibility. Passing a non-finite one is **undefined behaviour** — nothing is promised.
-
 
 ## Discovering streamable functions
 

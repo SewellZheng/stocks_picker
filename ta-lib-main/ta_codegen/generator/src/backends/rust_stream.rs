@@ -4,7 +4,7 @@
 //! `/**** Streaming API *****/` section to the generated per-function Rust
 //! file: an opaque `#[derive(Clone)]` handle (`<NAME>_Stream { core, state }`),
 //! a private state struct mirroring the C stream struct field-for-field, a
-//! `<NAME>_step_internal` transition method on `Core` (so batch rendering
+//! `<NAME>_step_impl` transition method on `Core` (so batch rendering
 //! conventions — `self.candle_settings`, `self.compatibility`, lookback calls —
 //! work verbatim), a `pub(crate) <NAME>_OpenInternal(.., startIdx, ..)`
 //! composition seam, the public `<NAME>_Open` / `<NAME>_OpenAndFill`
@@ -517,7 +517,7 @@ fn emit_loop(
 }
 
 
-/// `OpenInternal`: the scalar wrapper onto `OpenCore`. One 1-element array per
+/// `OpenInternal`: the scalar wrapper onto `<N>_OpenImpl`. One 1-element array per
 /// output stands in for the caller's slice; at stride 0 every per-bar write
 /// lands on slot 0, so after the replay it holds the last history value.
 fn emit_open_internal_wrapper(o: &mut String, func: &FuncDef, model: &StreamModel) {
@@ -545,7 +545,7 @@ fn emit_open_internal_wrapper_named(o: &mut String, func: &FuncDef, outputs: &[S
     }
     let _ = writeln!(
         o,
-        "        let handle = self.{sn}_OpenPass({args}, &mut dummyBegIdx, &mut dummyNBElement, {}, 0)?;",
+        "        let handle = self.{sn}_OpenImpl({args}, &mut dummyBegIdx, &mut dummyNBElement, {}, 0)?;",
         sinks.join(", ")
     );
     let vals: Vec<String> = outputs.iter().map(|o2| format!("sink_{o2}[0]")).collect();
@@ -554,7 +554,7 @@ fn emit_open_internal_wrapper_named(o: &mut String, func: &FuncDef, outputs: &[S
     let _ = writeln!(o, "    }}\n");
 }
 
-/// `OpenAndFill`: the fill wrapper onto `OpenCore`. It owns the output
+/// `OpenAndFill`: the fill wrapper onto `<N>_OpenImpl`. It owns the output
 /// mutual-distinctness guard (#108) — the capture epilogue reads the input tail
 /// after writing the outputs, and only this path writes caller-owned slices.
 fn emit_open_and_fill_wrapper(
@@ -584,16 +584,21 @@ fn emit_open_and_fill_wrapper(
     for opt in &opt_names {
         let _ = write!(args, ", {opt}");
     }
-    // `OpenCore` is the seam both entry points share and still reports through
+    // `<N>_OpenImpl` is the seam both entry points share and still reports through
     // out-parameters, so the pair lands in locals here and is folded into the
     // returned `OutRange` — the same shape the batch wrapper has (#179 C15).
     let _ = writeln!(
         o,
         "        let mut outBegIdx: usize = 0;\n        let mut outNBElement: usize = 0;"
     );
+    // Straight to the anchored seam at 0, not to `_OpenImpl`, so the seam has a
+    // caller for every function instead of only the sixteen something composes
+    // over. Rust needs no aliasing guard between the two frames -- `&[f64]` and
+    // `&mut [f64]` cannot overlap -- so they differ only in the anchor, and
+    // `args` already carries it as the literal 0 the numerics used to take.
     let _ = writeln!(
         o,
-        "        let handle = self.{sn}_OpenPass({args}, &mut outBegIdx, &mut outNBElement, {}, 1)?;",
+        "        let handle = self.{sn}_OpenAndFillInternal({args}, &mut outBegIdx, &mut outNBElement, {})?;",
         outs.join(", ")
     );
     let _ = writeln!(
@@ -603,7 +608,7 @@ fn emit_open_and_fill_wrapper(
     let _ = writeln!(o, "    }}\n");
 }
 
-/// `OpenAndFillInternal` for every tier that owns an `OpenCore`: the same single
+/// `OpenAndFillInternal` for every tier that owns an `<N>_OpenImpl`: the same single
 /// pass as `OpenAndFill`, at the caller's `startIdx`. See [`OutMode::FillInternal`]
 /// for why it carries no distinctness guard.
 fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef) {
@@ -619,7 +624,7 @@ fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef) {
     }
     let _ = writeln!(
         o,
-        "        self.{sn}_OpenPass({args}, outBegIdx, outNBElement, {}, 1)",
+        "        self.{sn}_OpenImpl({args}, outBegIdx, outNBElement, {}, 1)",
         outs.join(", ")
     );
     let _ = writeln!(o, "    }}\n");
@@ -678,10 +683,14 @@ fn emit_handle_struct(o: &mut String, func: &FuncDef) {
         "/// Live {n} stream: one value per closed bar, bit-identical to [`Core::{sn}`]\n\
          /// over the same series. Open with [`Core::{sn}_Open`]; dropping the handle\n\
          /// closes the stream. Cloning it forks an independent stream.\n\
+         ///\n\
+         /// [`Self::out_range`] reports the bars it has produced a value for.\n\
          #[must_use = \"a stream does nothing unless updated; dropping it closes the stream\"]\n\
          #[derive(Debug, Clone)]\n\
          #[doc(alias = \"TA_{n}_Stream\")]\n\
-         pub struct {handle} {{\n    core: Core,\n    state: {state},\n}}\n"
+         pub struct {handle} {{\n    core: Core,\n    state: {state},\n\
+         \x20   /// The bars this handle has produced a value for — see [`Self::out_range`].\n\
+         \x20   out: OutRange,\n}}\n"
     );
     // The handle's half of the scratch restore: only a handle embedded in
     // another handle's state (a composed sub, a dispatch arm, a period bank
@@ -694,6 +703,7 @@ fn emit_handle_struct(o: &mut String, func: &FuncDef) {
          \x20   pub(crate) fn restore_from(&mut self, src: &Self) {{\n\
          \x20       self.core.clone_from(&src.core);\n\
          \x20       self.state.restore_from(&src.state);\n\
+         \x20       self.out = src.out;\n\
          \x20   }}\n}}\n"
     );
 }
@@ -869,7 +879,7 @@ fn emit_state_restore(
 }
 
 // ---------------------------------------------------------------------------
-// StepInternal
+// StepImpl
 // ---------------------------------------------------------------------------
 
 /// Step context: the open-body typing plus every state name aliased under its
@@ -979,7 +989,7 @@ fn finite_bar_check(func: &FuncDef, indent: &str) -> String {
 }
 
 
-/// `fn <NAME>_step_internal(&self, sp: &mut State, <bars>, <&mut outs>)`.
+/// `fn <NAME>_step_impl(&self, sp: &mut State, <bars>, <&mut outs>)`.
 #[allow(clippy::too_many_arguments)]
 fn emit_step(
     o: &mut String,
@@ -1017,7 +1027,7 @@ fn emit_step_sig(o: &mut String, func: &FuncDef, fallible: bool) {
     let ret = if fallible { " -> Result<(), RetCode>" } else { "" };
     let _ = writeln!(
         o,
-        "    fn {sn}_step_internal(&self, sp: &mut {state}{params}){ret} {{"
+        "    fn {sn}_step_impl(&self, sp: &mut {state}{params}){ret} {{"
     );
 }
 
@@ -1341,7 +1351,7 @@ fn emit_open_sig(o: &mut String, func: &FuncDef, mode: OutMode) {
             );
             let _ = writeln!(
                 o,
-                "    pub(crate) fn {sn}_OpenPass(\n        &self, {sig_inputs}startIdx: usize{sig_opts}, outBegIdx: &mut usize, outNBElement: &mut usize{outs}, outStride: usize,\n    ) -> Result<{handle}, RetCode> {{"
+                "    pub(crate) fn {sn}_OpenImpl(\n        &self, {sig_inputs}startIdx: usize{sig_opts}, outBegIdx: &mut usize, outNBElement: &mut usize{outs}, outStride: usize,\n    ) -> Result<{handle}, RetCode> {{"
             );
         }
         // Batch parameter order: inputs, optional params, then one slice per
@@ -1444,6 +1454,21 @@ fn emit_open_validation_head(o: &mut String, func: &FuncDef, mode: OutMode, enum
 /// The open initialization block: `historyLen`/`endIdx`/`startIdx`, out-meta
 /// dummies, the Scalar-mode `lastValue_*` sinks, and private-extra-param
 /// locals. Shared by the transcribing tiers (loop and dual-mode).
+/// The anchor has to land inside the history — see `c_stream::emit_anchor_guard`
+/// for why the transcribed bodies cannot be relied on for this (only 137 of 174
+/// carry TA-Lib's "make sure there is still something to evaluate" preamble, and
+/// the rest run `while nbBar != 0` on a count that went negative).
+///
+/// `startIdx` is `usize` here, so only the upper half of the C guard exists —
+/// the lower half is unrepresentable rather than omitted.
+fn emit_anchor_guard(o: &mut String) {
+    let _ = writeln!(o, "        if startIdx > endIdx {{");
+    let _ = writeln!(o, "            (*outBegIdx) = 0;");
+    let _ = writeln!(o, "            (*outNBElement) = 0;");
+    let _ = writeln!(o, "            return Err(RetCode::InsufficientHistory);");
+    let _ = writeln!(o, "        }}");
+}
+
 fn emit_open_inits(
     o: &mut String,
     func: &FuncDef,
@@ -1459,6 +1484,7 @@ fn emit_open_inits(
     // startIdx is always a parameter of the core: 0 from both public entry
     // points, the caller's own when a composed function opens this as a sub.
     let _ = writeln!(o, "        let mut startIdx = startIdx;");
+    emit_anchor_guard(o);
     let _ = writeln!(o, "        let mut dummyBegIdx: usize = 0;");
     let _ = writeln!(o, "        let mut dummyNBElement: usize = 0;");
     let opt_real_params: Vec<String> = func
@@ -1503,7 +1529,7 @@ fn emit_capture_and_publish(
     let _ = writeln!(o, "\n        // Capture the live batch state into the handle.");
     emit_capture(o, func, model, scalars, typing, registry, helpers, counter, extra_fields);
     // The core publishes only the handle; the scalar wrapper reads its sink.
-    let _ = writeln!(o, "        Ok({handle} {{ core: self.clone(), state }})");
+    let _ = writeln!(o, "        Ok({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: *outBegIdx, count: *outNBElement }} }})");
 }
 
 
@@ -1644,9 +1670,15 @@ fn emit_identity_fast_path(
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     let lb_call = format!("self.{sn}_Lookback({})", lb_args.join(", "));
     let _ = writeln!(o, "        if {cond} {{");
+    // batch( startIdx, .. ) begins at max(startIdx, lookback), and the anchored
+    // `_Open*Internal` variants are the batch call over that same range. The
+    // public entry points pass 0, so the clamp is a no-op for them — it is the
+    // composition seams that were reporting (and filling) from the raw lookback.
+    let _ = writeln!(o, "            let fillLb: usize = {lb_call};");
+    let _ = writeln!(o, "            let fillLb = if startIdx > fillLb {{ startIdx }} else {{ fillLb }};");
     let _ = writeln!(
         o,
-        "            if historyLen < {lb_call} + 1 {{\n                return Err(RetCode::InsufficientHistory);\n            }}"
+        "            if historyLen < fillLb + 1 {{\n                return Err(RetCode::InsufficientHistory);\n            }}"
     );
     // Identity state: params captured, everything else deterministic defaults
     // (1-slot buffers keep the transition's cap-0 guard well-defined).
@@ -1660,7 +1692,6 @@ fn emit_identity_fast_path(
     // run would be CORRECT (every iteration rewrites slot 0, the last one leaves
     // the right value) but would make the scalar Open O(history) where it is
     // O(1). `outStride` is a literal at both call sites, so the branch folds.
-    let _ = writeln!(o, "            let fillLb: usize = {lb_call};");
     let _ = writeln!(o, "            (*outBegIdx) = fillLb;");
     let _ = writeln!(o, "            (*outNBElement) = historyLen - fillLb;");
     let _ = writeln!(o, "            if outStride == 0 {{");
@@ -1678,7 +1709,7 @@ fn emit_identity_fast_path(
     let _ = writeln!(o, "            }}");
     let _ = writeln!(
         o,
-        "            return Ok({handle} {{ core: self.clone(), state }});"
+        "            return Ok({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: *outBegIdx, count: *outNBElement }} }});"
     );
     let _ = writeln!(o, "        }}");
 }
@@ -2069,14 +2100,21 @@ fn stream_doctest(
         "let (mut s, _last) = core.{sn}_Open({}).expect(\"enough history\");",
         args.join(", ")
     ));
+    // The range the handle reports, before and after one committed bar. Fields
+    // rather than the whole struct, so the example needs no extra `use` line
+    // (`example_use_line` builds that from the enum imports alone).
+    lines.push("let r0 = s.out_range();".to_string());
     lines.push(format!(
         "let peeked = s.peek({}).expect(\"a finite bar\");",
         bar_args.join(", ")
     ));
+    lines.push("assert_eq!(s.out_range().count, r0.count); // a peek commits nothing".to_string());
     lines.push(format!(
         "let updated = s.update({}).expect(\"a finite bar\");",
         bar_args.join(", ")
     ));
+    lines.push("assert_eq!(s.out_range().beg_idx, r0.beg_idx);".to_string());
+    lines.push("assert_eq!(s.out_range().count, r0.count + 1);".to_string());
     // peek == update, bit-for-bit (it is the same code on a throwaway clone).
     let n_outs = func.outputs.len();
     let int_out = func
@@ -2189,10 +2227,116 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
     o.push_str(&out_decls);
     let _ = writeln!(
         o,
-        "        self.core.{sn}_step_internal(&mut self.state, {fwd_bars}{out_refs}){step_try};"
+        "        self.core.{sn}_step_impl(&mut self.state, {fwd_bars}{out_refs}){step_try};"
+    );
+    // After the step, so a rejected bar (non-finite here, or a sub-stream's
+    // reject through `?`) leaves the range exactly where it was. `peek` runs the
+    // same step on a copy and so never reaches this.
+    let _ = writeln!(
+        o,
+        "        if self.out.count < Core::MAX_INDEX {{\n\
+         \x20           self.out.count += 1;\n\
+         \x20       }}"
     );
     let _ = writeln!(o, "        Ok({ret})");
     let _ = writeln!(o, "    }}\n");
+    // --- update_and_fill ------------------------------------------------------
+    // One emitter for every tier: each one owns a `<n>_step_impl` with the same
+    // surface, so the n-bar filler is that step in a loop whatever the tier
+    // underneath is (issue #246).
+    //
+    // Slices carry their own lengths, so there is no `barCount` parameter and no
+    // aliasing guard — `&[f64]` and `&mut [f64]` cannot alias, which is the C
+    // hazard the C wrapper has to reject by hand.
+    let mut in_sig = String::new();
+    let mut len_checks: Vec<String> = Vec::new();
+    for (k, a) in inputs.iter().enumerate() {
+        let _ = write!(in_sig, "{a}: &[f64], ");
+        if k > 0 {
+            len_checks.push(format!("{a}.len() != {}.len()", inputs[0]));
+        }
+    }
+    let mut out_sig = String::new();
+    for out in &func.outputs {
+        let t = if out_is_int(func, &out.name) { "i32" } else { "f64" };
+        let _ = write!(out_sig, "{}: &mut [{t}], ", out.name);
+        len_checks.push(format!("{}.len() < barCount", out.name));
+    }
+    let count_src = inputs
+        .first()
+        .map_or_else(|| "0".to_string(), |a| format!("{a}.len()"));
+    let idx_bars: String = inputs
+        .iter()
+        .map(|a| format!("{a}[i]"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let idx_outs: String = func
+        .outputs
+        .iter()
+        .map(|out| format!("&mut {}[i]", out.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let step_args = if idx_bars.is_empty() {
+        idx_outs.clone()
+    } else {
+        format!("{idx_bars}, {idx_outs}")
+    };
+    let _ = writeln!(
+        o,
+        "    /// Commit `n` closed bars and write their `n` values, in one call —\n\
+         \x20   /// exactly `n` back-to-back [`Self::update`] calls, with one set of\n\
+         \x20   /// argument checks instead of `n`. `n` is `{count_src}`; the outputs must\n\
+         \x20   /// hold at least that many. Never allocates.\n\
+         \x20   ///\n\
+         \x20   /// [`Self::out_range`] counts what was committed, which is what makes the\n\
+         \x20   /// rejection below readable: there is no second out-parameter for it.\n\
+         \x20   ///\n\
+         \x20   /// # Errors\n\
+         \x20   ///\n\
+         \x20   /// [`RetCode::BadParam`] if the input slices differ in length, if an output\n\
+         \x20   /// is shorter than the bar count — neither commits anything — or if a bar\n\
+         \x20   /// is not finite. A non-finite bar `k` is rejected exactly as `update`\n\
+         \x20   /// rejects it: bars `0..k` stay committed and their values written, bar `k`\n\
+         \x20   /// and everything after it is not, and `out_range().count` has advanced by\n\
+         \x20   /// `k`."
+    );
+    let _ = writeln!(o, "    #[doc(alias = \"TA_{n}_UpdateAndFill\")]");
+    let _ = writeln!(
+        o,
+        "    pub fn update_and_fill(&mut self, {}) -> Result<(), RetCode> {{",
+        format!("{in_sig}{out_sig}").trim_end_matches(", ")
+    );
+    let _ = writeln!(o, "        let barCount = {count_src};");
+    if !len_checks.is_empty() {
+        let _ = writeln!(
+            o,
+            "        if {} {{\n            return Err(RetCode::BadParam);\n        }}",
+            len_checks.join(" || ")
+        );
+    }
+    let _ = writeln!(o, "        for i in 0..barCount {{");
+    if !inputs.is_empty() {
+        let conds: Vec<String> = inputs.iter().map(|a| format!("!{a}[i].is_finite()")).collect();
+        let _ = writeln!(
+            o,
+            "            if {} {{\n                return Err(RetCode::BadParam);\n            }}",
+            conds.join(" || ")
+        );
+    }
+    let _ = writeln!(
+        o,
+        "            self.core.{sn}_step_impl(&mut self.state, {step_args}){step_try};"
+    );
+    let _ = writeln!(
+        o,
+        "            if self.out.count < Core::MAX_INDEX {{\n\
+         \x20               self.out.count += 1;\n\
+         \x20           }}"
+    );
+    let _ = writeln!(o, "        }}");
+    let _ = writeln!(o, "        Ok(())");
+    let _ = writeln!(o, "    }}\n");
+
     let alloc_note = if reuse {
         "The copy it runs on is held per thread and reused,\n    /// so only the first peek of this function on a thread allocates."
     } else if shape.owns_heap() {
@@ -2251,7 +2395,26 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
         let _ = writeln!(o, "        let mut scratch = self.clone();");
         let _ = writeln!(o, "        scratch.update({fwd_bars})");
     }
-    let _ = writeln!(o, "    }}\n}}\n");
+    let _ = writeln!(o, "    }}\n");
+    // The range accessor. Rust's `OpenAndFill` keeps returning the range beside
+    // the handle (#179 C15) — this is the same pair, and the only way to read it
+    // after an update or off a plain `Open`.
+    let _ = writeln!(
+        o,
+        "    /// The bars this stream has produced a value for, in the input series'\n\
+         \x20   /// coordinates: `[beg_idx, beg_idx + count)`.\n\
+         \x20   ///\n\
+         \x20   /// It is what [`Core::{sn}`] reports over the same bars: the opener sets it\n\
+         \x20   /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one\n\
+         \x20   /// to the count, `peek` leaves it alone, and a clone carries it verbatim.\n\
+         \x20   /// A plain `Open` hands back only the last value, a subset of this range,\n\
+         \x20   /// because the caller chose not to take the fill.\n\
+         \x20   #[doc(alias = \"TA_StreamOutRange\")]\n\
+         \x20   pub fn out_range(&self) -> OutRange {{\n\
+         \x20       self.out\n\
+         \x20   }}"
+    );
+    let _ = writeln!(o, "}}\n");
 }
 
 /// `outReal` / `(outA, outB, ...)` — the update return expression.
@@ -2718,7 +2881,7 @@ fn emit_dispatch(
     // back the last history bar's value; the two fills write the caller's arrays
     // over the whole history, the second of them anchored at the caller's startIdx —
     // the seam a composed caller fuses into (issue #192). MA is the Dispatch
-    // tier and has no OpenCore of its own, yet is the callee of most composed
+    // tier and has no OpenImpl of its own, yet is the callee of most composed
     // sub-calls, so without that variant the fusion would reach almost none of
     // them. `open` itself is the public one-liner over `open_internal`, emitted
     // next to the body it wraps; the two fills are their own public surface.
@@ -2734,17 +2897,24 @@ fn emit_dispatch(
                 o,
                 "            if historyLen < {lb_call} + 1 {{\n                return Err(RetCode::InsufficientHistory);\n            }}"
             );
+            // The identity arm produces its whole range in every mode — only the
+            // fills go on to write the caller's arrays with it — so `fillLb` is
+            // emitted unconditionally.
+            let _ = writeln!(o, "            let fillLb: usize = {lb_call};");
+            if mode != OutMode::Fill {
+                // batch( startIdx, .. ) begins at max(startIdx, lookback); the
+                // public entry points anchor at 0, so only the startIdx-carrying
+                // variants clamp. The history check then has to be RE-MADE
+                // against the clamped anchor: `historyLen - fillLb` is usize
+                // here, so an anchor past the history underflows rather than
+                // going negative.
+                let _ = writeln!(o, "            let fillLb = if startIdx > fillLb {{ startIdx }} else {{ fillLb }};");
+                let _ = writeln!(
+                    o,
+                    "            if historyLen < fillLb + 1 {{\n                return Err(RetCode::InsufficientHistory);\n            }}"
+                );
+            }
             if mode != OutMode::Scalar {
-                let _ = writeln!(o, "            let fillLb: usize = {lb_call};");
-                if mode == OutMode::FillInternal {
-                    // batch( startIdx, .. ) begins at max(startIdx, lookback); the
-                    // public entry point's startIdx is 0, so only this variant clamps.
-                    let _ = writeln!(o, "            let fillLb = if startIdx > fillLb {{ startIdx }} else {{ fillLb }};");
-                    let _ = writeln!(
-                        o,
-                        "            if historyLen < fillLb + 1 {{\n                return Err(RetCode::InsufficientHistory);\n            }}"
-                    );
-                }
                 if mode == OutMode::FillInternal {
                     let _ = writeln!(o, "            (*outBegIdx) = fillLb;");
                     let _ = writeln!(o, "            (*outNBElement) = historyLen - fillLb;");
@@ -2776,17 +2946,17 @@ fn emit_dispatch(
                     };
                     let _ = writeln!(
                         o,
-                        "            return Ok(({handle} {{ core: self.clone(), state }}, {value}));"
+                        "            return Ok(({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: fillLb, count: historyLen - fillLb }} }}, {value}));"
                     );
                 }
                 OutMode::Fill => {
                     let _ = writeln!(
                         o,
-                        "            return Ok(({handle} {{ core: self.clone(), state }}, OutRange {{ beg_idx: fillLb, count: historyLen - fillLb }}));"
+                        "            return Ok(({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: fillLb, count: historyLen - fillLb }} }}, OutRange {{ beg_idx: fillLb, count: historyLen - fillLb }}));"
                     );
                 }
                 OutMode::FillInternal => {
-                    let _ = writeln!(o, "            return Ok({handle} {{ core: self.clone(), state }});");
+                    let _ = writeln!(o, "            return Ok({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: *outBegIdx, count: *outNBElement }} }});");
                 }
             }
             let _ = writeln!(o, "        }}");
@@ -2796,7 +2966,7 @@ fn emit_dispatch(
         // the caller's arrays.
         let binding = match mode {
             OutMode::Core => unreachable!("dispatch tier is exempt from the merge"),
-            OutMode::Scalar => "let (sub, value)",
+            OutMode::Scalar => "let (sub, value, subRange)",
             // Exactly one arm runs, so the callee's own `OutRange` IS this
             // call's — carry it out of the match rather than round-tripping it
             // through a pair of locals (#179 C15).
@@ -2847,9 +3017,13 @@ fn emit_dispatch(
                                 format!("({})", parts.join(", "))
                             }
                         };
+                        // The arm's handle already resolved the range; read it
+                        // before `sub` moves into the enum. Scalar has no out-meta
+                        // pair to read it from instead.
+                        let _ = writeln!(o, "                let subRange = sub.out_range();");
                         let _ = writeln!(
                             o,
-                            "                ({sub_enum}::{}(sub), {value_expr})",
+                            "                ({sub_enum}::{}(sub), {value_expr}, subRange)",
                             callee_variant(&arm.callee)
                         );
                         let _ = writeln!(o, "            }}");
@@ -2918,13 +3092,13 @@ fn emit_dispatch(
         match mode {
             OutMode::Core => unreachable!("dispatch tier is exempt from the merge"),
             OutMode::Scalar => {
-                let _ = writeln!(o, "        Ok(({handle} {{ core: self.clone(), state }}, value))");
+                let _ = writeln!(o, "        Ok(({handle} {{ core: self.clone(), state, out: subRange }}, value))");
             }
             OutMode::Fill => {
-                let _ = writeln!(o, "        Ok(({handle} {{ core: self.clone(), state }}, fillRange))");
+                let _ = writeln!(o, "        Ok(({handle} {{ core: self.clone(), state, out: fillRange }}, fillRange))");
             }
             OutMode::FillInternal => {
-                let _ = writeln!(o, "        Ok({handle} {{ core: self.clone(), state }})");
+                let _ = writeln!(o, "        Ok({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: *outBegIdx, count: *outNBElement }} }})");
             }
         }
         let _ = writeln!(o, "    }}\n");
@@ -3046,6 +3220,13 @@ fn emit_period_bank(
         o,
         "        let subStart: usize = if startIdx < lookbackTotal {{ lookbackTotal }} else {{ startIdx }};"
     );
+    // The bank is opened at `subStart`, so the history has to reach it. These
+    // are usize, so without this the count below underflows rather than going
+    // negative — a panic in debug, a nonsense count in release.
+    let _ = writeln!(
+        o,
+        "        if historyLen < subStart + 1 {{\n            return Err(RetCode::InsufficientHistory);\n        }}"
+    );
     let _ = writeln!(o, "        let nBank: usize = ({max} - {min} + 1) as usize;");
     let _ = writeln!(o, "        let mut bank: Vec<{subty}> = Vec::with_capacity(nBank);");
     let _ = writeln!(o, "        let mut scratch: Vec<f64> = Vec::with_capacity(nBank);");
@@ -3063,7 +3244,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "        let state = {state} {{ {params_join}, bank }};");
     let _ = writeln!(
         o,
-        "        Ok(({handle} {{ core: self.clone(), state }}, lastValue_{out}))"
+        "        Ok(({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: subStart, count: historyLen - subStart }} }}, lastValue_{out}))"
     );
     let _ = writeln!(o, "    }}\n");
 
@@ -3113,7 +3294,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "        let state = {state} {{ {params_join}, bank }};");
     let _ = writeln!(
         o,
-        "        Ok(({handle} {{ core: self.clone(), state }}, OutRange {{ beg_idx: lookbackTotal, count: historyLen - lookbackTotal }}))"
+        "        Ok(({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: lookbackTotal, count: historyLen - lookbackTotal }} }}, OutRange {{ beg_idx: lookbackTotal, count: historyLen - lookbackTotal }}))"
     );
     let _ = writeln!(o, "    }}\n");
     let _ = writeln!(o, "}}\n");
@@ -3343,7 +3524,7 @@ fn composed_step_ctx(
     ctx
 }
 
-/// The composed StepInternal: producer transition (writing `cur_<series>`),
+/// The composed StepImpl: producer transition (writing `cur_<series>`),
 /// then the batch-tail pipeline through the owned sub handles, combine maps
 /// per bar, lag-ring pushes, and the output writes. No peek flag: peek is the
 /// universal clone-of-the-whole-tree.
@@ -3793,7 +3974,7 @@ fn emit_composed_open(
                     let _ = writeln!(o, "        }}");
                 }
             }
-            let _ = writeln!(o, "        Ok({handle} {{ core: self.clone(), state }})");
+            let _ = writeln!(o, "        Ok({handle} {{ core: self.clone(), state, out: OutRange {{ beg_idx: *outBegIdx, count: *outNBElement }} }})");
         }
     }
     let _ = writeln!(o, "    }}\n");

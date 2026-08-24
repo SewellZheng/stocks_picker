@@ -822,51 +822,44 @@ TA_RetCode TA_S_HT_TRENDLINE( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HT_TRENDLINE_Stream {
-   int i;
-   double tempReal;
-   double tempReal2;
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    double period;
    double periodWMASum;
    double periodWMASub;
    double trailingWMAValue;
-   double smoothedValue;
    double iTrend1;
    double iTrend2;
    double iTrend3;
    double a;
    double b;
-   double hilbertTempReal;
    int hilbertIdx;
    double detrender_Odd[3];
    double detrender_Even[3];
-   double detrender;
    double prev_detrender_Odd;
    double prev_detrender_Even;
    double prev_detrender_input_Odd;
    double prev_detrender_input_Even;
    double Q1_Odd[3];
    double Q1_Even[3];
-   double Q1;
    double prev_Q1_Odd;
    double prev_Q1_Even;
    double prev_Q1_input_Odd;
    double prev_Q1_input_Even;
    double jI_Odd[3];
    double jI_Even[3];
-   double jI;
    double prev_jI_Odd;
    double prev_jI_Even;
    double prev_jI_input_Odd;
    double prev_jI_input_Even;
    double jQ_Odd[3];
    double jQ_Even[3];
-   double jQ;
    double prev_jQ_Odd;
    double prev_jQ_Even;
    double prev_jQ_input_Odd;
    double prev_jQ_input_Even;
-   double Q2;
-   double I2;
    double prevQ2;
    double prevI2;
    double Re;
@@ -877,8 +870,6 @@ struct TA_HT_TRENDLINE_Stream {
    double I1ForEvenPrev3;
    double rad2Deg;
    double smoothPeriod;
-   int DCPeriodInt;
-   double DCPeriod;
    int streamParity;
    int ringPos_trailingWMAIdx;
    int ringCap_trailingWMAIdx;
@@ -891,7 +882,7 @@ struct TA_HT_TRENDLINE_Stream {
 };
 
 /* Private function, not in public API. */
-static void TA_HT_TRENDLINE_ReleaseInternal( struct TA_HT_TRENDLINE_Stream *sp )
+static void TA_HT_TRENDLINE_ReleaseImpl( struct TA_HT_TRENDLINE_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingWMAIdx_inReal ) TA_Free( sp->ring_trailingWMAIdx_inReal );
@@ -902,10 +893,23 @@ static void TA_HT_TRENDLINE_ReleaseInternal( struct TA_HT_TRENDLINE_Stream *sp )
 }
 
 /* Private function, not in public API. */
-static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, double inReal, double *outReal )
+static void TA_HT_TRENDLINE_StepImpl( struct TA_HT_TRENDLINE_Stream *sp, double inReal, double *outReal )
 {
+   int i;
+   double tempReal;
+   double tempReal2;
    double adjustedPrevPeriod;
+   double smoothedValue;
+   double hilbertTempReal;
+   double detrender;
+   double Q1;
+   double jI;
+   double jQ;
+   double Q2;
+   double I2;
    double todayValue;
+   int DCPeriodInt;
+   double DCPeriod;
 
    if( sp->ringCap_trailingWMAIdx == 0 )
    {
@@ -918,53 +922,53 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
    sp->periodWMASub -= sp->trailingWMAValue;
    sp->periodWMASum += todayValue * 4.0;
    sp->trailingWMAValue = sp->ring_trailingWMAIdx_inReal[sp->ringPos_trailingWMAIdx];
-   sp->smoothedValue = sp->periodWMASum * 0.1;
+   smoothedValue = sp->periodWMASum * 0.1;
    sp->periodWMASum -= sp->periodWMASub;
    if( sp->streamParity == 0 )
    {
       /* Do the Hilbert Transforms for even price bar */
-      sp->hilbertTempReal = sp->a * sp->smoothedValue;
-      sp->detrender = 0 - sp->detrender_Even[sp->hilbertIdx];
-      sp->detrender_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->detrender += sp->hilbertTempReal;
-      sp->detrender -= sp->prev_detrender_Even;
+      hilbertTempReal = sp->a * smoothedValue;
+      detrender = 0 - sp->detrender_Even[sp->hilbertIdx];
+      sp->detrender_Even[sp->hilbertIdx] = hilbertTempReal;
+      detrender += hilbertTempReal;
+      detrender -= sp->prev_detrender_Even;
       sp->prev_detrender_Even = sp->b * sp->prev_detrender_input_Even;
-      sp->detrender += sp->prev_detrender_Even;
-      sp->prev_detrender_input_Even = sp->smoothedValue;
-      sp->detrender *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->detrender;
-      sp->Q1 = 0 - sp->Q1_Even[sp->hilbertIdx];
-      sp->Q1_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->Q1 += sp->hilbertTempReal;
-      sp->Q1 -= sp->prev_Q1_Even;
+      detrender += sp->prev_detrender_Even;
+      sp->prev_detrender_input_Even = smoothedValue;
+      detrender *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * detrender;
+      Q1 = 0 - sp->Q1_Even[sp->hilbertIdx];
+      sp->Q1_Even[sp->hilbertIdx] = hilbertTempReal;
+      Q1 += hilbertTempReal;
+      Q1 -= sp->prev_Q1_Even;
       sp->prev_Q1_Even = sp->b * sp->prev_Q1_input_Even;
-      sp->Q1 += sp->prev_Q1_Even;
-      sp->prev_Q1_input_Even = sp->detrender;
-      sp->Q1 *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->I1ForEvenPrev3;
-      sp->jI = 0 - sp->jI_Even[sp->hilbertIdx];
-      sp->jI_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jI += sp->hilbertTempReal;
-      sp->jI -= sp->prev_jI_Even;
+      Q1 += sp->prev_Q1_Even;
+      sp->prev_Q1_input_Even = detrender;
+      Q1 *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * sp->I1ForEvenPrev3;
+      jI = 0 - sp->jI_Even[sp->hilbertIdx];
+      sp->jI_Even[sp->hilbertIdx] = hilbertTempReal;
+      jI += hilbertTempReal;
+      jI -= sp->prev_jI_Even;
       sp->prev_jI_Even = sp->b * sp->prev_jI_input_Even;
-      sp->jI += sp->prev_jI_Even;
+      jI += sp->prev_jI_Even;
       sp->prev_jI_input_Even = sp->I1ForEvenPrev3;
-      sp->jI *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->Q1;
-      sp->jQ = 0 - sp->jQ_Even[sp->hilbertIdx];
-      sp->jQ_Even[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jQ += sp->hilbertTempReal;
-      sp->jQ -= sp->prev_jQ_Even;
+      jI *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * Q1;
+      jQ = 0 - sp->jQ_Even[sp->hilbertIdx];
+      sp->jQ_Even[sp->hilbertIdx] = hilbertTempReal;
+      jQ += hilbertTempReal;
+      jQ -= sp->prev_jQ_Even;
       sp->prev_jQ_Even = sp->b * sp->prev_jQ_input_Even;
-      sp->jQ += sp->prev_jQ_Even;
-      sp->prev_jQ_input_Even = sp->Q1;
-      sp->jQ *= adjustedPrevPeriod;
+      jQ += sp->prev_jQ_Even;
+      sp->prev_jQ_input_Even = Q1;
+      jQ *= adjustedPrevPeriod;
       if( ++sp->hilbertIdx == 3 )
       {
          sp->hilbertIdx = 0;
       }
-      sp->Q2 = fma(0.2, sp->Q1 + sp->jI, 0.8 * sp->prevQ2);
-      sp->I2 = fma(0.2, sp->I1ForEvenPrev3 - sp->jQ, 0.8 * sp->prevI2);
+      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
+      I2 = fma(0.2, sp->I1ForEvenPrev3 - jQ, 0.8 * sp->prevI2);
       /* The variable I1 is the detrender delayed for
        * 3 price bars.
        *
@@ -972,48 +976,48 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
        * used by the "odd" logic later.
        */
       sp->I1ForOddPrev3 = sp->I1ForOddPrev2;
-      sp->I1ForOddPrev2 = sp->detrender;
+      sp->I1ForOddPrev2 = detrender;
    } else 
    {
       /* Do the Hilbert Transforms for odd price bar */
-      sp->hilbertTempReal = sp->a * sp->smoothedValue;
-      sp->detrender = 0 - sp->detrender_Odd[sp->hilbertIdx];
-      sp->detrender_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->detrender += sp->hilbertTempReal;
-      sp->detrender -= sp->prev_detrender_Odd;
+      hilbertTempReal = sp->a * smoothedValue;
+      detrender = 0 - sp->detrender_Odd[sp->hilbertIdx];
+      sp->detrender_Odd[sp->hilbertIdx] = hilbertTempReal;
+      detrender += hilbertTempReal;
+      detrender -= sp->prev_detrender_Odd;
       sp->prev_detrender_Odd = sp->b * sp->prev_detrender_input_Odd;
-      sp->detrender += sp->prev_detrender_Odd;
-      sp->prev_detrender_input_Odd = sp->smoothedValue;
-      sp->detrender *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->detrender;
-      sp->Q1 = 0 - sp->Q1_Odd[sp->hilbertIdx];
-      sp->Q1_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->Q1 += sp->hilbertTempReal;
-      sp->Q1 -= sp->prev_Q1_Odd;
+      detrender += sp->prev_detrender_Odd;
+      sp->prev_detrender_input_Odd = smoothedValue;
+      detrender *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * detrender;
+      Q1 = 0 - sp->Q1_Odd[sp->hilbertIdx];
+      sp->Q1_Odd[sp->hilbertIdx] = hilbertTempReal;
+      Q1 += hilbertTempReal;
+      Q1 -= sp->prev_Q1_Odd;
       sp->prev_Q1_Odd = sp->b * sp->prev_Q1_input_Odd;
-      sp->Q1 += sp->prev_Q1_Odd;
-      sp->prev_Q1_input_Odd = sp->detrender;
-      sp->Q1 *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->I1ForOddPrev3;
-      sp->jI = 0 - sp->jI_Odd[sp->hilbertIdx];
-      sp->jI_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jI += sp->hilbertTempReal;
-      sp->jI -= sp->prev_jI_Odd;
+      Q1 += sp->prev_Q1_Odd;
+      sp->prev_Q1_input_Odd = detrender;
+      Q1 *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * sp->I1ForOddPrev3;
+      jI = 0 - sp->jI_Odd[sp->hilbertIdx];
+      sp->jI_Odd[sp->hilbertIdx] = hilbertTempReal;
+      jI += hilbertTempReal;
+      jI -= sp->prev_jI_Odd;
       sp->prev_jI_Odd = sp->b * sp->prev_jI_input_Odd;
-      sp->jI += sp->prev_jI_Odd;
+      jI += sp->prev_jI_Odd;
       sp->prev_jI_input_Odd = sp->I1ForOddPrev3;
-      sp->jI *= adjustedPrevPeriod;
-      sp->hilbertTempReal = sp->a * sp->Q1;
-      sp->jQ = 0 - sp->jQ_Odd[sp->hilbertIdx];
-      sp->jQ_Odd[sp->hilbertIdx] = sp->hilbertTempReal;
-      sp->jQ += sp->hilbertTempReal;
-      sp->jQ -= sp->prev_jQ_Odd;
+      jI *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * Q1;
+      jQ = 0 - sp->jQ_Odd[sp->hilbertIdx];
+      sp->jQ_Odd[sp->hilbertIdx] = hilbertTempReal;
+      jQ += hilbertTempReal;
+      jQ -= sp->prev_jQ_Odd;
       sp->prev_jQ_Odd = sp->b * sp->prev_jQ_input_Odd;
-      sp->jQ += sp->prev_jQ_Odd;
-      sp->prev_jQ_input_Odd = sp->Q1;
-      sp->jQ *= adjustedPrevPeriod;
-      sp->Q2 = fma(0.2, sp->Q1 + sp->jI, 0.8 * sp->prevQ2);
-      sp->I2 = fma(0.2, sp->I1ForOddPrev3 - sp->jQ, 0.8 * sp->prevI2);
+      jQ += sp->prev_jQ_Odd;
+      sp->prev_jQ_input_Odd = Q1;
+      jQ *= adjustedPrevPeriod;
+      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
+      I2 = fma(0.2, sp->I1ForOddPrev3 - jQ, 0.8 * sp->prevI2);
       /* The varaiable I1 is the detrender delayed for
        * 3 price bars.
        *
@@ -1021,27 +1025,27 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
        * used by the "even" logic later.
        */
       sp->I1ForEvenPrev3 = sp->I1ForEvenPrev2;
-      sp->I1ForEvenPrev2 = sp->detrender;
+      sp->I1ForEvenPrev2 = detrender;
    }
    /* Adjust the period for next price bar */
-   sp->Re = fma(0.8, sp->Re, 0.2 * (fma(sp->I2, sp->prevI2, sp->Q2 * sp->prevQ2)));
-   sp->Im = fma(0.8, sp->Im, 0.2 * (sp->I2 * sp->prevQ2 - sp->Q2 * sp->prevI2));
-   sp->prevQ2 = sp->Q2;
-   sp->prevI2 = sp->I2;
-   sp->tempReal = sp->period;
+   sp->Re = fma(0.8, sp->Re, 0.2 * (fma(I2, sp->prevI2, Q2 * sp->prevQ2)));
+   sp->Im = fma(0.8, sp->Im, 0.2 * (I2 * sp->prevQ2 - Q2 * sp->prevI2));
+   sp->prevQ2 = Q2;
+   sp->prevI2 = I2;
+   tempReal = sp->period;
    if( sp->Im != 0.0 && sp->Re != 0.0 )
    {
       sp->period = 360.0 / (atan(sp->Im / sp->Re) * sp->rad2Deg);
    }
-   sp->tempReal2 = 1.5 * sp->tempReal;
-   if( sp->period > sp->tempReal2 )
+   tempReal2 = 1.5 * tempReal;
+   if( sp->period > tempReal2 )
    {
-      sp->period = sp->tempReal2;
+      sp->period = tempReal2;
    }
-   sp->tempReal2 = 0.67 * sp->tempReal;
-   if( sp->period < sp->tempReal2 )
+   tempReal2 = 0.67 * tempReal;
+   if( sp->period < tempReal2 )
    {
-      sp->period = sp->tempReal2;
+      sp->period = tempReal2;
    }
    if( sp->period < 6 )
    {
@@ -1050,11 +1054,11 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
    {
       sp->period = 50;
    }
-   sp->period = fma(0.2, sp->period, 0.8 * sp->tempReal);
+   sp->period = fma(0.2, sp->period, 0.8 * tempReal);
    sp->smoothPeriod = fma(0.67, sp->smoothPeriod, 0.33 * sp->period);
    /* Compute Trendline */
-   sp->DCPeriod = sp->smoothPeriod + 0.5;
-   sp->DCPeriodInt = (int)sp->DCPeriod;
+   DCPeriod = sp->smoothPeriod + 0.5;
+   DCPeriodInt = (int)DCPeriod;
    /* Average the RAW price over the dominant cycle period
     * (Ehlers, "Rocket Science for Traders": the Instantaneous
     * Trendline sums Price — not SmoothPrice, which only feeds
@@ -1067,23 +1071,23 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
     * bit-for-bit unchanged, but the constant cap lets the rescan-window
     * machinery bound the window (DCPeriod is clamped to [6.5, 50.5]).
     */
-   sp->tempReal = 0.0;
-   for( sp->i = 0; sp->i < 50; sp->i += 1 )
+   tempReal = 0.0;
+   for( i = 0; i < 50; i += 1 )
    {
-      if( sp->i < sp->DCPeriodInt )
+      if( i < DCPeriodInt )
       {
-         sp->tempReal += sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - sp->i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - sp->i - sp->winCap_i : sp->winPos_i + sp->winCap_i - sp->i];
+         tempReal += sp->win_i_inReal[(sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i];
       }
    }
-   if( sp->DCPeriodInt > 0 )
+   if( DCPeriodInt > 0 )
    {
-      sp->tempReal = sp->tempReal / (double)sp->DCPeriodInt;
+      tempReal = tempReal / (double)DCPeriodInt;
    }
-   sp->tempReal2 = (fma(2.0, sp->iTrend2, fma(4.0, sp->tempReal, 3.0 * sp->iTrend1)) + sp->iTrend3) / 10.0;
+   tempReal2 = (fma(2.0, sp->iTrend2, fma(4.0, tempReal, 3.0 * sp->iTrend1)) + sp->iTrend3) / 10.0;
    sp->iTrend3 = sp->iTrend2;
    sp->iTrend2 = sp->iTrend1;
-   sp->iTrend1 = sp->tempReal;
-   *outReal= sp->tempReal2;
+   sp->iTrend1 = tempReal;
+   *outReal= tempReal2;
    /* Ooof... let's do the next price bar now! */
    sp->ring_trailingWMAIdx_inReal[sp->ringPos_trailingWMAIdx] = inReal;
    sp->ringPos_trailingWMAIdx = sp->ringPos_trailingWMAIdx + 1;
@@ -1099,7 +1103,7 @@ static void TA_HT_TRENDLINE_StepInternal( struct TA_HT_TRENDLINE_Stream *sp, dou
    sp->streamParity = 1 - sp->streamParity;
 }
 
-static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_HT_TRENDLINE_Stream *sp;
    int endIdx;
@@ -1111,6 +1115,12 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -1119,11 +1129,11 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
 
    {
       int outIdx;
-      int i = 0;
+      int i;
       int lookbackTotal;
       int today;
-      double tempReal = 0.0;
-      double tempReal2 = 0.0;
+      double tempReal;
+      double tempReal2;
       double adjustedPrevPeriod;
       double period = 0.0;
       /* Variable used for the price smoother (a weighted moving average). */
@@ -1131,7 +1141,7 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
       double periodWMASum = 0.0;
       double periodWMASub = 0.0;
       double trailingWMAValue = 0.0;
-      double smoothedValue = 0.0;
+      double smoothedValue;
       /* Variable to keep track of the last 3 ITrend */
       double iTrend1 = 0.0;
       double iTrend2 = 0.0;
@@ -1139,38 +1149,38 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
       /* Variables used for the Hilbert Transormation */
       double a = 0.0962;
       double b = 0.5769;
-      double hilbertTempReal = 0.0;
+      double hilbertTempReal;
       int hilbertIdx = 0;
       double detrender_Odd[3] = {0};
       double detrender_Even[3] = {0};
-      double detrender = 0.0;
+      double detrender;
       double prev_detrender_Odd = 0.0;
       double prev_detrender_Even = 0.0;
       double prev_detrender_input_Odd = 0.0;
       double prev_detrender_input_Even = 0.0;
       double Q1_Odd[3] = {0};
       double Q1_Even[3] = {0};
-      double Q1 = 0.0;
+      double Q1;
       double prev_Q1_Odd = 0.0;
       double prev_Q1_Even = 0.0;
       double prev_Q1_input_Odd = 0.0;
       double prev_Q1_input_Even = 0.0;
       double jI_Odd[3] = {0};
       double jI_Even[3] = {0};
-      double jI = 0.0;
+      double jI;
       double prev_jI_Odd = 0.0;
       double prev_jI_Even = 0.0;
       double prev_jI_input_Odd = 0.0;
       double prev_jI_input_Even = 0.0;
       double jQ_Odd[3] = {0};
       double jQ_Even[3] = {0};
-      double jQ = 0.0;
+      double jQ;
       double prev_jQ_Odd = 0.0;
       double prev_jQ_Even = 0.0;
       double prev_jQ_input_Odd = 0.0;
       double prev_jQ_input_Even = 0.0;
-      double Q2 = 0.0;
-      double I2 = 0.0;
+      double Q2;
+      double I2;
       double prevQ2 = 0.0;
       double prevI2 = 0.0;
       double Re = 0.0;
@@ -1183,8 +1193,8 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
       double todayValue;
       double smoothPeriod = 0.0;
       /* Variable used to calculate the dominant cycle phase */
-      int DCPeriodInt = 0;
-      double DCPeriod = 0.0;
+      int DCPeriodInt;
+      double DCPeriod;
       /* circular buffer already declared */
       iTrend3 = 0.0;
       iTrend2 = iTrend3;
@@ -1502,51 +1512,40 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
       sp = (struct TA_HT_TRENDLINE_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
-      sp->i = i;
-      sp->tempReal = tempReal;
-      sp->tempReal2 = tempReal2;
       sp->period = period;
       sp->periodWMASum = periodWMASum;
       sp->periodWMASub = periodWMASub;
       sp->trailingWMAValue = trailingWMAValue;
-      sp->smoothedValue = smoothedValue;
       sp->iTrend1 = iTrend1;
       sp->iTrend2 = iTrend2;
       sp->iTrend3 = iTrend3;
       sp->a = a;
       sp->b = b;
-      sp->hilbertTempReal = hilbertTempReal;
       sp->hilbertIdx = hilbertIdx;
       memcpy( sp->detrender_Odd, detrender_Odd, sizeof( sp->detrender_Odd ) );
       memcpy( sp->detrender_Even, detrender_Even, sizeof( sp->detrender_Even ) );
-      sp->detrender = detrender;
       sp->prev_detrender_Odd = prev_detrender_Odd;
       sp->prev_detrender_Even = prev_detrender_Even;
       sp->prev_detrender_input_Odd = prev_detrender_input_Odd;
       sp->prev_detrender_input_Even = prev_detrender_input_Even;
       memcpy( sp->Q1_Odd, Q1_Odd, sizeof( sp->Q1_Odd ) );
       memcpy( sp->Q1_Even, Q1_Even, sizeof( sp->Q1_Even ) );
-      sp->Q1 = Q1;
       sp->prev_Q1_Odd = prev_Q1_Odd;
       sp->prev_Q1_Even = prev_Q1_Even;
       sp->prev_Q1_input_Odd = prev_Q1_input_Odd;
       sp->prev_Q1_input_Even = prev_Q1_input_Even;
       memcpy( sp->jI_Odd, jI_Odd, sizeof( sp->jI_Odd ) );
       memcpy( sp->jI_Even, jI_Even, sizeof( sp->jI_Even ) );
-      sp->jI = jI;
       sp->prev_jI_Odd = prev_jI_Odd;
       sp->prev_jI_Even = prev_jI_Even;
       sp->prev_jI_input_Odd = prev_jI_input_Odd;
       sp->prev_jI_input_Even = prev_jI_input_Even;
       memcpy( sp->jQ_Odd, jQ_Odd, sizeof( sp->jQ_Odd ) );
       memcpy( sp->jQ_Even, jQ_Even, sizeof( sp->jQ_Even ) );
-      sp->jQ = jQ;
       sp->prev_jQ_Odd = prev_jQ_Odd;
       sp->prev_jQ_Even = prev_jQ_Even;
       sp->prev_jQ_input_Odd = prev_jQ_input_Odd;
       sp->prev_jQ_input_Even = prev_jQ_input_Even;
-      sp->Q2 = Q2;
-      sp->I2 = I2;
       sp->prevQ2 = prevQ2;
       sp->prevI2 = prevI2;
       sp->Re = Re;
@@ -1557,27 +1556,27 @@ static TA_RetCode TA_HT_TRENDLINE_OpenPass( struct TA_HT_TRENDLINE_Stream **stre
       sp->I1ForEvenPrev3 = I1ForEvenPrev3;
       sp->rad2Deg = rad2Deg;
       sp->smoothPeriod = smoothPeriod;
-      sp->DCPeriodInt = DCPeriodInt;
-      sp->DCPeriod = DCPeriod;
       sp->streamParity = historyLen % 2;
       sp->ringCap_trailingWMAIdx = (int)(today - trailingWMAIdx);
-      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_TRENDLINE_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       { size_t allocN = (size_t)(sp->ringCap_trailingWMAIdx > 0 ? sp->ringCap_trailingWMAIdx : 1);
         sp->ring_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_TRENDLINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         sp->ringMirror_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingWMAIdx_inReal ) { TA_HT_TRENDLINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+        if( !sp->ringMirror_trailingWMAIdx_inReal ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingWMAIdx_inReal, inReal + (historyLen - sp->ringCap_trailingWMAIdx), sizeof(double) * (size_t)sp->ringCap_trailingWMAIdx );
       }
       sp->ringPos_trailingWMAIdx = 0;
       sp->winCap_i = (int)(50);
-      if( sp->winCap_i < 1 || sp->winCap_i > historyLen ) { TA_HT_TRENDLINE_ReleaseInternal( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->winCap_i < 1 || sp->winCap_i > historyLen ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
       sp->win_i_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_i );
-      if( !sp->win_i_inReal ) { TA_HT_TRENDLINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->win_i_inReal ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->winMirror_i_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_i );
-      if( !sp->winMirror_i_inReal ) { TA_HT_TRENDLINE_ReleaseInternal( sp ); return TA_ALLOC_ERR; }
+      if( !sp->winMirror_i_inReal ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->win_i_inReal, inReal + (historyLen - sp->winCap_i), sizeof(double) * (size_t)sp->winCap_i );
       sp->winPos_i = 0;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1590,7 +1589,7 @@ TA_RetCode TA_HT_TRENDLINE_OpenInternal( struct TA_HT_TRENDLINE_Stream **stream,
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_HT_TRENDLINE_OpenPass( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -1612,25 +1611,26 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_OpenAndFill( TA_HT_TRENDLINE_Stream **stre
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   return TA_HT_TRENDLINE_OpenPass( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_HT_TRENDLINE_OpenAndFillInternal( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_HT_TRENDLINE_OpenAndFillInternal( struct TA_HT_TRENDLINE_Stream **stream, const double inReal[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_HT_TRENDLINE_OpenPass( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_HT_TRENDLINE_OpenImpl( stream, inReal, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Update( TA_HT_TRENDLINE_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   TA_HT_TRENDLINE_StepInternal( stream, inReal, outReal );
+   TA_HT_TRENDLINE_StepImpl( stream, inReal, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1645,13 +1645,29 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Peek( const TA_HT_TRENDLINE_Stream *stream
    memcpy( scratch.ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingWMAIdx > 0 ? stream->ringCap_trailingWMAIdx : 1) );
    scratch.win_i_inReal = stream->winMirror_i_inReal;
    memcpy( scratch.win_i_inReal, stream->win_i_inReal, sizeof(double) * (size_t)stream->winCap_i );
-   TA_HT_TRENDLINE_StepInternal( &scratch, inReal, outReal );
+   TA_HT_TRENDLINE_StepImpl( &scratch, inReal, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_TRENDLINE_UpdateAndFill( TA_HT_TRENDLINE_Stream *stream, const double inReal[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      TA_HT_TRENDLINE_StepImpl( stream, inReal[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Close( TA_HT_TRENDLINE_Stream *stream )
 {
-   TA_HT_TRENDLINE_ReleaseInternal( stream );
+   TA_HT_TRENDLINE_ReleaseImpl( stream );
    return TA_SUCCESS;
 }
 

@@ -591,17 +591,21 @@ public partial class Core
       internal double c3;
       internal double c4;
       internal double cur_outReal;
-      internal OutRange fillRange = OutRange.Empty;
+      internal int outRangeBegIdx;
+      internal int outRangeCount;
 
       internal T3_Stream( Core core ) { this.core = core; }
 
-      /// <summary>The range <c>T3_OpenAndFill</c> filled, or <see cref="OutRange.Empty"/>
-      /// when this handle came from a plain open (which fills nothing).</summary>
+      /// <summary>The bars this stream has produced a value for, in the input series'
+      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
-      /// <para>A successful <c>OpenAndFill</c> always writes at least one value, so
-      /// <see cref="OutRange.IsEmpty"/> tells the two apart.</para>
+      /// <para>It is what <c>Core.T3</c> reports over the same bars: the opener sets it
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
-      public OutRange FillRange => fillRange;
+      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal T3_Stream( T3_Stream other )
       {
@@ -621,7 +625,8 @@ public partial class Core
          this.c3 = other.c3;
          this.c4 = other.c4;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       internal void CopyFrom( T3_Stream other )
@@ -642,7 +647,8 @@ public partial class Core
          this.c3 = other.c3;
          this.c4 = other.c4;
          this.cur_outReal = other.cur_outReal;
-         this.fillRange = other.fillRange;
+         this.outRangeBegIdx = other.outRangeBegIdx;
+         this.outRangeCount = other.outRangeCount;
       }
 
       /// <summary>Commit one closed bar, returning the new current value.</summary>
@@ -661,7 +667,8 @@ public partial class Core
       public double Update( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("T3", "update", RetCode.BadParam);
-         core.T3_StreamStep(this, inReal);
+         core.T3_StepImpl(this, inReal);
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
       }
 
@@ -680,8 +687,34 @@ public partial class Core
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("T3", "peek", RetCode.BadParam);
          T3_Stream scratch = new T3_Stream(this);
-         core.T3_StreamStep(scratch, inReal);
+         core.T3_StepImpl(scratch, inReal);
          return scratch.cur_outReal;
+      }
+
+      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
+      /// <remarks>
+      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
+      /// argument checks instead of <c>n</c>. The outputs must hold at least
+      /// <c>n</c> values and must not overlap an input or each other.</para>
+      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
+      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
+      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
+      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// </remarks>
+      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
+      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
+      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
+      {
+         int barCount = inReal.Length;
+         if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("T3", "updateAndFill", RetCode.BadParam);
+         for( int i = 0; i < barCount; i++ )
+         {
+            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("T3", "updateAndFill", RetCode.BadParam);
+            core.T3_StepImpl(this, inReal[i]);
+            outReal[i] = cur_outReal;
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         }
       }
 
       /// <summary>The value at the most recently committed bar — the last history bar right
@@ -700,7 +733,7 @@ public partial class Core
       }
    }
 
-   internal void T3_StreamStep( T3_Stream sp, double inReal )
+   internal void T3_StepImpl( T3_Stream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -715,7 +748,7 @@ public partial class Core
       sp.cur_outReal = Math.FusedMultiplyAdd(sp.c4, sp.e3, Math.FusedMultiplyAdd(sp.c3, sp.e4, Math.FusedMultiplyAdd(sp.c1, sp.e6, sp.c2 * sp.e5)));
    }
 
-   private RetCode T3_OpenPass( T3_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInVFactor, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
+   private RetCode T3_OpenImpl( T3_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInVFactor, out int outBegIdx, out int outNBElement, Span<double> outReal, int outStride )
    {
       outBegIdx = 0;
       outNBElement = 0;
@@ -754,8 +787,15 @@ public partial class Core
       } else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) ) {
          return RetCode.BadParam;
       }
+      if( startIdx > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.InsufficientHistory;
+      }
       if( optInTimePeriod == 1 ) {
-         if( historyLen < T3_Lookback(optInTimePeriod, optInVFactor) + 1 ) {
+         int fillLb = T3_Lookback(optInTimePeriod, optInVFactor);
+         if( startIdx > fillLb ) fillLb = startIdx;
+         if( historyLen < fillLb + 1 ) {
             return RetCode.InsufficientHistory;
          }
          sp.optInTimePeriod = optInTimePeriod;
@@ -772,7 +812,6 @@ public partial class Core
          sp.c2 = 0.0;
          sp.c3 = 0.0;
          sp.c4 = 0.0;
-         int fillLb = T3_Lookback(optInTimePeriod, optInVFactor);
          outBegIdx = fillLb;
          outNBElement = historyLen - fillLb;
          if( outStride == 0 ) {
@@ -918,32 +957,13 @@ public partial class Core
       return RetCode.Success;
    }
 
-   private RetCode T3_OpenImpl( T3_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInVFactor )
-   {
-      double[] sink_outReal = new double[1];
-      return T3_OpenPass( sp, inReal, startIdx, optInTimePeriod, optInVFactor, out _, out _, sink_outReal, 0 );
-   }
-
-   private RetCode T3_OpenAndFillImpl( T3_Stream sp, ReadOnlySpan<double> inReal, int optInTimePeriod, double optInVFactor, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      outBegIdx = 0;
-      outNBElement = 0;
-      if( outReal.Overlaps(inReal) ) {
-         return RetCode.BadParam;
-      }
-      return T3_OpenPass( sp, inReal, 0, optInTimePeriod, optInVFactor, out outBegIdx, out outNBElement, outReal, 1 );
-   }
-
-   private RetCode T3_OpenAndFillInternalImpl( T3_Stream sp, ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInVFactor, out int outBegIdx, out int outNBElement, Span<double> outReal )
-   {
-      return T3_OpenPass(sp, inReal, startIdx, optInTimePeriod, optInVFactor, out outBegIdx, out outNBElement, outReal, 1);
-   }
-
    /* T3_OpenAndFill anchored at startIdx — the composed-open fusion seam. */
    internal T3_Stream T3_OpenAndFillInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInVFactor, out int outBegIdx, out int outNBElement, Span<double> outReal )
    {
       T3_Stream sp = new T3_Stream(this);
-      RetCode retCode = T3_OpenAndFillInternalImpl(sp, inReal, startIdx, optInTimePeriod, optInVFactor, out outBegIdx, out outNBElement, outReal);
+      RetCode retCode = T3_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInVFactor, out outBegIdx, out outNBElement, outReal, 1);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -954,7 +974,10 @@ public partial class Core
    internal T3_Stream T3_OpenInternal( ReadOnlySpan<double> inReal, int startIdx, int optInTimePeriod, double optInVFactor )
    {
       T3_Stream sp = new T3_Stream(this);
-      RetCode retCode = T3_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInVFactor);
+      double[] sink_outReal = new double[1];
+      RetCode retCode = T3_OpenImpl(sp, inReal, startIdx, optInTimePeriod, optInVFactor, out int outBegIdx, out int outNBElement, sink_outReal, 0);
+      sp.outRangeBegIdx = outBegIdx;
+      sp.outRangeCount = outNBElement;
       if( retCode == RetCode.Success ) {
          return sp;
       }
@@ -996,7 +1019,7 @@ public partial class Core
    /// then reads the input tail to seed its rings, so the batch tier's in-place
    /// allowance does not carry over here.</para>
    /// <para>The range written is reported on the returned handle:
-   /// <see cref="T3_Stream.FillRange"/>.</para>
+   /// <see cref="T3_Stream.OutRange"/>.</para>
    /// </remarks>
    /// <param name="inReal">Source series to smooth. The warm-up history, oldest bar first.</param>
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="T3_Lookback"/> for its default and
@@ -1015,12 +1038,9 @@ public partial class Core
    public T3_Stream T3_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, double optInVFactor, Span<double> outReal )
    {
       if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
-      T3_Stream sp = new T3_Stream(this);
-      RetCode retCode = T3_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInVFactor, out int outBegIdx, out int outNBElement, outReal);
-      sp.fillRange = new OutRange(outBegIdx, outNBElement);
-      if( retCode == RetCode.Success ) {
-         return sp;
+      if( outReal.Overlaps(inReal) ) {
+         throw StreamFailure("T3", "openAndFill", RetCode.BadParam);
       }
-      throw StreamFailure("T3", "openAndFill", retCode);
+      return T3_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInVFactor, out _, out _, outReal);
    }
 }

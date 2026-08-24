@@ -108,14 +108,18 @@ TA_LIB_API TA_RetCode TA_WAD( int    startIdx,
     *        = 0             if close == prevClose
     *    WAD = running sum of AD
     *
-    * NO VOLUME IS CONSUMED, despite the name and despite the group this is
-    * filed under. Larry Williams' original multiplies the move by volume;
-    * Achelis' modification drops it, the industry attached Williams' name to
-    * the modification anyway, and Tulip, pandas-ta-classic, cTrader, TC2000,
-    * WealthCharts and MultiCharts all ship the no-volume form. Shipping the
-    * volume form under this name would surprise every user, so this is the
-    * one place the usual "the original author wins" rule is set aside. The
-    * volume-weighted series is a different indicator.
+    * NO VOLUME IS CONSUMED, despite the name. Larry Williams' original
+    * multiplies the move by volume; Achelis' modification drops it, the
+    * industry attached Williams' name to the modification anyway, and Tulip,
+    * pandas-ta-classic, cTrader, TC2000, WealthCharts and MultiCharts all ship
+    * the no-volume form. Shipping the volume form under this name would
+    * surprise every user, so this is the one place the usual "the original
+    * author wins" rule is set aside. The volume-weighted series is a different
+    * indicator. What is left once the multiplier is gone is a signed
+    * close-to-close move clipped by the true-range extreme and accumulated --
+    * momentum measured on the true range -- which is why this is grouped with
+    * the other no-volume directional lines (PLUS_DM, MINUS_DM, BOP, WILLR)
+    * rather than with AD/OBV.
     *
     * The three-way branch is written with plain > and < rather than any
     * epsilon: the flat arm must fire on exactly-equal consecutive closes and
@@ -227,39 +231,43 @@ TA_RetCode TA_S_WAD( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_WAD_Stream {
+   /* The bars this handle has a value for (see TA_StreamOutRange).
+    * Kept first, and in this order, in every stream struct. */
+   int outRangeBegIdx;
+   int outRangeCount;
    double sum;
    double prevClose;
-   double trueExtreme;
 };
 
 /* Private function, not in public API. */
-static void TA_WAD_StepInternal( struct TA_WAD_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
+static void TA_WAD_StepImpl( struct TA_WAD_Stream *sp, double inHigh, double inLow, double inClose, double *outReal )
 {
    double close;
+   double trueExtreme;
 
    close = inClose;
    if( close > sp->prevClose )
    {
-      sp->trueExtreme = inLow;
-      if( sp->prevClose < sp->trueExtreme )
+      trueExtreme = inLow;
+      if( sp->prevClose < trueExtreme )
       {
-         sp->trueExtreme = sp->prevClose;
+         trueExtreme = sp->prevClose;
       }
-      sp->sum += close - sp->trueExtreme;
+      sp->sum += close - trueExtreme;
    } else if( close < sp->prevClose )
    {
-      sp->trueExtreme = inHigh;
-      if( sp->prevClose > sp->trueExtreme )
+      trueExtreme = inHigh;
+      if( sp->prevClose > trueExtreme )
       {
-         sp->trueExtreme = sp->prevClose;
+         trueExtreme = sp->prevClose;
       }
-      sp->sum += close - sp->trueExtreme;
+      sp->sum += close - trueExtreme;
    }
    *outReal= sp->sum;
    sp->prevClose = close;
 }
 
-static TA_RetCode TA_WAD_OpenPass( struct TA_WAD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
+static TA_RetCode TA_WAD_OpenImpl( struct TA_WAD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
 {
    struct TA_WAD_Stream *sp;
    int endIdx;
@@ -271,6 +279,12 @@ static TA_RetCode TA_WAD_OpenPass( struct TA_WAD_Stream **stream, const double i
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( startIdx > historyLen - 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    endIdx = historyLen - 1;
    dummyBegIdx = 0;
@@ -281,7 +295,7 @@ static TA_RetCode TA_WAD_OpenPass( struct TA_WAD_Stream **stream, const double i
       double sum = 0.0;
       double prevClose = 0.0;
       double close;
-      double trueExtreme = 0.0;
+      double trueExtreme;
       int i;
       int outIdx;
       /* Williams' Accumulation/Distribution, in the form Steven Achelis
@@ -296,14 +310,18 @@ static TA_RetCode TA_WAD_OpenPass( struct TA_WAD_Stream **stream, const double i
        *        = 0             if close == prevClose
        *    WAD = running sum of AD
        *
-       * NO VOLUME IS CONSUMED, despite the name and despite the group this is
-       * filed under. Larry Williams' original multiplies the move by volume;
-       * Achelis' modification drops it, the industry attached Williams' name to
-       * the modification anyway, and Tulip, pandas-ta-classic, cTrader, TC2000,
-       * WealthCharts and MultiCharts all ship the no-volume form. Shipping the
-       * volume form under this name would surprise every user, so this is the
-       * one place the usual "the original author wins" rule is set aside. The
-       * volume-weighted series is a different indicator.
+       * NO VOLUME IS CONSUMED, despite the name. Larry Williams' original
+       * multiplies the move by volume; Achelis' modification drops it, the
+       * industry attached Williams' name to the modification anyway, and Tulip,
+       * pandas-ta-classic, cTrader, TC2000, WealthCharts and MultiCharts all ship
+       * the no-volume form. Shipping the volume form under this name would
+       * surprise every user, so this is the one place the usual "the original
+       * author wins" rule is set aside. The volume-weighted series is a different
+       * indicator. What is left once the multiplier is gone is a signed
+       * close-to-close move clipped by the true-range extreme and accumulated --
+       * momentum measured on the true range -- which is why this is grouped with
+       * the other no-volume directional lines (PLUS_DM, MINUS_DM, BOP, WILLR)
+       * rather than with AD/OBV.
        *
        * The three-way branch is written with plain > and < rather than any
        * epsilon: the flat arm must fire on exactly-equal consecutive closes and
@@ -354,7 +372,8 @@ static TA_RetCode TA_WAD_OpenPass( struct TA_WAD_Stream **stream, const double i
       memset( sp, 0, sizeof(*sp) );
       sp->sum = sum;
       sp->prevClose = prevClose;
-      sp->trueExtreme = trueExtreme;
+      sp->outRangeBegIdx = *outBegIdx;
+      sp->outRangeCount = *outNBElement;
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -367,7 +386,7 @@ TA_RetCode TA_WAD_OpenInternal( struct TA_WAD_Stream **stream, const double inHi
    int dummyBegIdx = 0;
    int dummyNBElement = 0;
    double sink_outReal = 0.0;
-   retCode = TA_WAD_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
+   retCode = TA_WAD_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, &dummyBegIdx, &dummyNBElement, &sink_outReal, 0 );
    if( retCode == TA_SUCCESS )
    {
       *outReal = sink_outReal;
@@ -389,25 +408,26 @@ TA_LIB_API TA_RetCode TA_WAD_OpenAndFill( TA_WAD_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
    if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( historyLen < 1 ) return TA_BAD_PARAM;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
-   return TA_WAD_OpenPass( stream, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_WAD_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal );
 }
 
 /* Private function, not in public API. */
 TA_RetCode TA_WAD_OpenAndFillInternal( struct TA_WAD_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[] )
 {
-   return TA_WAD_OpenPass( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
+   return TA_WAD_OpenImpl( stream, inHigh, inLow, inClose, startIdx, historyLen, outBegIdx, outNBElement, outReal, 1 );
 }
 
 TA_LIB_API TA_RetCode TA_WAD_Update( TA_WAD_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   TA_WAD_StepInternal( stream, inHigh, inLow, inClose, outReal );
+   TA_WAD_StepImpl( stream, inHigh, inLow, inClose, outReal );
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -418,7 +438,23 @@ TA_LIB_API TA_RetCode TA_WAD_Peek( const TA_WAD_Stream *stream, double inHigh, d
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_WAD_StepInternal( &scratch, inHigh, inLow, inClose, outReal );
+   TA_WAD_StepImpl( &scratch, inHigh, inLow, inClose, outReal );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_WAD_UpdateAndFill( TA_WAD_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outReal[] )
+{
+   int i;
+
+   if( !stream || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
+   if( barCount < 0 ) return TA_BAD_PARAM;
+   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
+   for( i = 0; i < barCount; i++ )
+   {
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      TA_WAD_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outReal[i] );
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   }
    return TA_SUCCESS;
 }
 
