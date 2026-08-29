@@ -59,6 +59,8 @@
  *  092103 MF    Some changes related on first round of tests
  *  092303 PP    Minor bug fixes.
  *  122104 MF,CF Fix#1089506 for out-of-bound access to ep_temp.
+ *  082726 MF,CC Answer a rejected minus_dm before reading ep_temp, not after:
+ *               the read was of an uninitialised local.
  */
 
 TA_LIB_API int TA_SAREXT_Lookback( double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort )
@@ -138,10 +140,6 @@ TA_LIB_API TA_RetCode TA_SAREXT( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
    else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
@@ -173,6 +171,12 @@ TA_LIB_API TA_RetCode TA_SAREXT( int    startIdx,
    if( optInAccelerationMaxShort == TA_REAL_DEFAULT )
       optInAccelerationMaxShort = 0.2;
    else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -286,18 +290,18 @@ TA_LIB_API TA_RetCode TA_SAREXT( int    startIdx,
        *  of the parameter is not significant).
        */
       retCode = TA_MINUS_DM(startIdx,startIdx,inHigh,inLow,1,&tempInt,&tempInt,ep_temp);
+      if( retCode != TA_SUCCESS )
+      {
+         *outBegIdx= 0;
+         *outNBElement= 0;
+         return retCode;
+      }
       if( ep_temp[0] > 0 )
       {
          isLong = 0;
       } else 
       {
          isLong = 1;
-      }
-      if( retCode != TA_SUCCESS )
-      {
-         *outBegIdx= 0;
-         *outNBElement= 0;
-         return retCode;
       }
    } else if( optInStartValue > 0 )
    {
@@ -529,10 +533,6 @@ TA_RetCode TA_S_SAREXT( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
    else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
@@ -564,6 +564,12 @@ TA_RetCode TA_S_SAREXT( int    startIdx,
    if( optInAccelerationMaxShort == TA_REAL_DEFAULT )
       optInAccelerationMaxShort = 0.2;
    else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -601,18 +607,18 @@ TA_RetCode TA_S_SAREXT( int    startIdx,
    if( optInStartValue == 0 )
    {
       retCode = TA_S_MINUS_DM(startIdx,startIdx,inHigh,inLow,1,&tempInt,&tempInt,ep_temp);
+      if( retCode != TA_SUCCESS )
+      {
+         *outBegIdx= 0;
+         *outNBElement= 0;
+         return retCode;
+      }
       if( ep_temp[0] > 0 )
       {
          isLong = 0;
       } else 
       {
          isLong = 1;
-      }
-      if( retCode != TA_SUCCESS )
-      {
-         *outBegIdx= 0;
-         *outNBElement= 0;
-         return retCode;
       }
    } else if( optInStartValue > 0 )
    {
@@ -951,9 +957,9 @@ static TA_RetCode TA_SAREXT_OpenImpl( struct TA_SAREXT_Stream **stream, const do
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( optInStartValue == TA_REAL_DEFAULT )
       optInStartValue = 0;
    else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) )
@@ -1122,18 +1128,18 @@ static TA_RetCode TA_SAREXT_OpenImpl( struct TA_SAREXT_Stream **stream, const do
           *  of the parameter is not significant).
           */
          retCode = TA_MINUS_DM(startIdx,startIdx,inHigh,inLow,1,&tempInt,&tempInt,ep_temp);
+         if( retCode != TA_SUCCESS )
+         {
+            *outBegIdx= 0;
+            *outNBElement= 0;
+            return retCode;
+         }
          if( ep_temp[0] > 0 )
          {
             isLong = 0;
          } else 
          {
             isLong = 1;
-         }
-         if( retCode != TA_SUCCESS )
-         {
-            *outBegIdx= 0;
-            *outNBElement= 0;
-            return retCode;
          }
       } else if( optInStartValue > 0 )
       {
@@ -1371,9 +1377,9 @@ TA_LIB_API TA_RetCode TA_SAREXT_Open( TA_SAREXT_Stream **stream, const double in
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_SAREXT_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outReal );
 }
 
@@ -1381,10 +1387,9 @@ TA_LIB_API TA_RetCode TA_SAREXT_OpenAndFill( TA_SAREXT_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_SAREXT_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outBegIdx, outNBElement, outReal );
 }

@@ -97,13 +97,15 @@ TA_LIB_API TA_RetCode TA_MINUS_DM( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -333,13 +335,15 @@ TA_RetCode TA_S_MINUS_DM( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -525,9 +529,9 @@ static TA_RetCode TA_MINUS_DM_OpenImpl( struct TA_MINUS_DM_Stream **stream, cons
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -882,7 +886,7 @@ static TA_RetCode TA_MINUS_DM_OpenImpl( struct TA_MINUS_DM_Stream **stream, cons
    }
    }
 
-   return TA_INTERNAL_ERROR;
+   return TA_INTERNAL_ERROR(374);
 }
 
 /* Private function, not in public API. */
@@ -904,9 +908,9 @@ TA_LIB_API TA_RetCode TA_MINUS_DM_Open( TA_MINUS_DM_Stream **stream, const doubl
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_MINUS_DM_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -914,10 +918,9 @@ TA_LIB_API TA_RetCode TA_MINUS_DM_OpenAndFill( TA_MINUS_DM_Stream **stream, cons
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_MINUS_DM_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

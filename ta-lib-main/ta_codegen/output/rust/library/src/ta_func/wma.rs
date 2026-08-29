@@ -53,6 +53,8 @@
  *  -------------------------------------------------------------------
  *  112400 MF   Template creation.
  *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  082426 MF,CC Fix #255. Re-anchor the running sums: every 32*period bars,
+ *               and on the bar a large value leaves the window.
  */
 
 // Import types from parent module
@@ -73,19 +75,22 @@ impl Core {
     /// * `optInTimePeriod` — Number of bars in the weighting window (default 30, range
     ///   1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn WMA_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn WMA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
-        return (optInTimePeriod - 1) as usize;
+        return Ok((optInTimePeriod - 1) as usize);
     }
     /// C-shaped body behind [`Core::WMA`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn WMA_Impl(
         &self,
         startIdx: usize,
@@ -107,7 +112,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.WMA_Lookback(optInTimePeriod);
+        let _assertLb = self.WMA_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -116,6 +121,10 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
+        let mut j: usize = 0_usize;
+        let mut rw: usize = 0_usize;
+        let mut lookbackWin: usize = 0_usize;
+        let mut barsSinceReseed: usize = 0_usize;
         let mut periodSum: f64 = 0.0_f64;
         let mut periodSub: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
@@ -185,35 +194,96 @@ impl Core {
         outIdx = 0;
         trailingIdx = startIdx - lookbackTotal;
         // Evaluate the initial periodSum/periodSub and trailingValue.
+        lookbackWin = (optInTimePeriod - 1) as usize;
         periodSub = 0.0 as f64;
         periodSum = periodSub;
         inIdx = trailingIdx;
         i = 1;
         while inIdx < startIdx {
-            tempReal = inReal[{ let _v = inIdx; inIdx += 1; _v }];
+            tempReal = inReal[inIdx];
+            inIdx += 1;
             periodSub += tempReal;
             periodSum += tempReal * ((i) as f64);
             i += 1;
         }
+        barsSinceReseed = (8 * optInTimePeriod) as usize;
         trailingValue = 0.0;
         // Tight loop for the requested range.
         while inIdx <= endIdx {
             // Add the current price bar to the sum
             // who are carried through the iterations.
-            tempReal = inReal[{ let _v = inIdx; inIdx += 1; _v }];
+            tempReal = inReal[inIdx];
             periodSub += tempReal;
             periodSub -= trailingValue;
             periodSum += tempReal * ((optInTimePeriod) as f64);
+            // Re-anchor: rebuild both totals from the window itself.
+            //
+            // periodSum and periodSub were running totals that were never
+            // recomputed, so each bar's rounding joined a residue no later bar
+            // could subtract, and its size was set by the largest value the totals
+            // had ever held rather than by the current window. That is the defect
+            // #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+            // below is the same weight-shifting identity as that family's
+            // `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+            // it and TA_SMA, whose output lives at its own sum's scale, does not.
+            // Measured before the fix: worst range disagreement 1.41e-08 at 200000
+            // bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+            // closes or ~1000 with one large print. After: 1.79e-12, flat in call
+            // length.
+            //
+            // ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+            // LINEARREG family also carries an OUTLIER trigger (rebuild when the
+            // departing value outweighs the window) because for a slope the
+            // interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+            // that position: its weights are bounded by `period` and its divider is
+            // period*(period+1)/2, which dilutes the residue enough that the
+            // interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+            // 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+            // is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+            // either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+            // here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+            // shorter interval buys most of the accuracy for ~1.1x instead.
+            //
+            // The rebuild walks the window OLDEST FIRST with the weight counting UP
+            // from 1 -- the priming scan's own order and weighting -- so a
+            // re-anchored bar is bit-identical to the same bar computed by a call
+            // that started there. That identity is what the range-stability
+            // contract measures, and what test_wma.c W2/W3 assert.
+            //
+            // The loop start is written INLINE rather than through a `windowStart`
+            // local: only that form is recognised as a rescan window, which is what
+            // keeps this on the stream classifier's primary path. See
+            // docs/ta_codegen_input_code.md.
+            //
+            // Reading the window is safe when outReal aliases inReal: the outputs
+            // written so far occupy [0, outIdx-1], and the window starts at
+            // startIdx-lookbackTotal+outIdx, which is >= outIdx.
+            barsSinceReseed -= 1;
+            if barsSinceReseed <= 0 {
+                barsSinceReseed = (8 * optInTimePeriod) as usize;
+                periodSub = 0.0 as f64;
+                periodSum = 0.0 as f64;
+                rw = 1;
+                for j in (inIdx - lookbackWin as usize)..(inIdx as usize) + 1 {
+                    tempReal = inReal[j];
+                    periodSub += tempReal;
+                    periodSum += tempReal * ((rw) as f64);
+                    rw += 1;
+                }
+                j = (inIdx as usize) + 1;
+            }
             // Save the trailing value for being substract at
             // the next iteration.
             // (must be saved here just in case outReal and
             //  inReal are the same buffer).
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
+            trailingValue = inReal[trailingIdx];
+            trailingIdx += 1;
             // Calculate the WMA for this price bar.
             outReal[outIdx] = periodSum / divider;
             outIdx += 1;
             // Prepare the periodSum for the next iteration.
             periodSum -= periodSub;
+            inIdx += 1;
         }
         // Set output limits.
         (*outNBElement) = outIdx;
@@ -259,11 +329,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -297,6 +365,21 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.WMA_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.WMA_Impl(
@@ -326,7 +409,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_WMA_Stream")]
 pub struct WMA_Stream {
-    core: Core,
     state: WMA_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -337,7 +419,6 @@ impl WMA_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `WMA_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -347,6 +428,8 @@ impl WMA_Stream {
 #[allow(non_snake_case, dead_code)]
 struct WMA_StreamState {
     optInTimePeriod: i32,
+    lookbackWin: usize,
+    barsSinceReseed: usize,
     periodSum: f64,
     periodSub: f64,
     trailingValue: f64,
@@ -354,6 +437,9 @@ struct WMA_StreamState {
     ringPos_trailingIdx: usize,
     ringCap_trailingIdx: usize,
     ring_trailingIdx_inReal: Vec<f64>,
+    winPos_j: usize,
+    winCap_j: usize,
+    win_j_inReal: Vec<f64>,
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -362,6 +448,8 @@ impl WMA_StreamState {
     /// instead of allocating new ones — `peek`'s scratch restore.
     fn restore_from(&mut self, src: &Self) {
         self.optInTimePeriod = src.optInTimePeriod;
+        self.lookbackWin = src.lookbackWin;
+        self.barsSinceReseed = src.barsSinceReseed;
         self.periodSum = src.periodSum;
         self.periodSub = src.periodSub;
         self.trailingValue = src.trailingValue;
@@ -369,6 +457,9 @@ impl WMA_StreamState {
         self.ringPos_trailingIdx = src.ringPos_trailingIdx;
         self.ringCap_trailingIdx = src.ringCap_trailingIdx;
         self.ring_trailingIdx_inReal.clone_from(&src.ring_trailingIdx_inReal);
+        self.winPos_j = src.winPos_j;
+        self.winCap_j = src.winCap_j;
+        self.win_j_inReal.clone_from(&src.win_j_inReal);
     }
 }
 
@@ -379,7 +470,9 @@ impl WMA_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn WMA_step_impl(&self, sp: &mut WMA_StreamState, inReal: f64, outReal: &mut f64) {
+    fn WMA_step_impl(sp: &mut WMA_StreamState, inReal: f64, outReal: &mut f64) {
+        let mut j: usize = 0_usize;
+        let mut rw: usize = 0_usize;
         let mut tempReal: f64 = 0.0_f64;
         if sp.optInTimePeriod == 1 {
             (*outReal) = inReal;
@@ -388,12 +481,72 @@ impl Core {
         if sp.ringCap_trailingIdx == 0 {
             sp.ring_trailingIdx_inReal[0] = inReal;
         }
+        sp.win_j_inReal[sp.winPos_j] = inReal;
         // Add the current price bar to the sum
         // who are carried through the iterations.
         tempReal = inReal;
         sp.periodSub += tempReal;
         sp.periodSub -= sp.trailingValue;
         sp.periodSum += tempReal * ((sp.optInTimePeriod) as f64);
+        // Re-anchor: rebuild both totals from the window itself.
+        //
+        // periodSum and periodSub were running totals that were never
+        // recomputed, so each bar's rounding joined a residue no later bar
+        // could subtract, and its size was set by the largest value the totals
+        // had ever held rather than by the current window. That is the defect
+        // #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+        // below is the same weight-shifting identity as that family's
+        // `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+        // it and TA_SMA, whose output lives at its own sum's scale, does not.
+        // Measured before the fix: worst range disagreement 1.41e-08 at 200000
+        // bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+        // closes or ~1000 with one large print. After: 1.79e-12, flat in call
+        // length.
+        //
+        // ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+        // LINEARREG family also carries an OUTLIER trigger (rebuild when the
+        // departing value outweighs the window) because for a slope the
+        // interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+        // that position: its weights are bounded by `period` and its divider is
+        // period*(period+1)/2, which dilutes the residue enough that the
+        // interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+        // 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+        // is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+        // either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+        // here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+        // shorter interval buys most of the accuracy for ~1.1x instead.
+        //
+        // The rebuild walks the window OLDEST FIRST with the weight counting UP
+        // from 1 -- the priming scan's own order and weighting -- so a
+        // re-anchored bar is bit-identical to the same bar computed by a call
+        // that started there. That identity is what the range-stability
+        // contract measures, and what test_wma.c W2/W3 assert.
+        //
+        // The loop start is written INLINE rather than through a `windowStart`
+        // local: only that form is recognised as a rescan window, which is what
+        // keeps this on the stream classifier's primary path. See
+        // docs/ta_codegen_input_code.md.
+        //
+        // Reading the window is safe when outReal aliases inReal: the outputs
+        // written so far occupy [0, outIdx-1], and the window starts at
+        // startIdx-lookbackTotal+outIdx, which is >= outIdx.
+        sp.barsSinceReseed -= 1;
+        if sp.barsSinceReseed <= 0 {
+            sp.barsSinceReseed = (8 * sp.optInTimePeriod) as usize;
+            sp.periodSub = 0.0 as f64;
+            sp.periodSum = 0.0 as f64;
+            rw = 1;
+            // for( j = sp.lookbackWin; j >= 0; j -= 1 )
+            j = sp.lookbackWin;
+            loop {
+                tempReal = sp.win_j_inReal[((if sp.winPos_j + sp.winCap_j - j >= sp.winCap_j { sp.winPos_j + sp.winCap_j - j - sp.winCap_j } else { sp.winPos_j + sp.winCap_j - j })) as usize];
+                sp.periodSub += tempReal;
+                sp.periodSum += tempReal * ((rw) as f64);
+                rw += 1;
+                if j == 0 { break; }
+                j -= 1;
+            }
+        }
         // Save the trailing value for being substract at
         // the next iteration.
         // (must be saved here just in case outReal and
@@ -408,6 +561,10 @@ impl Core {
         if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
             sp.ringPos_trailingIdx = 0;
         }
+        sp.winPos_j = sp.winPos_j + 1;
+        if sp.winPos_j >= sp.winCap_j {
+            sp.winPos_j = 0;
+        }
     }
 
     /// The single whole-history transcription behind [`Core::WMA_OpenInternal`]
@@ -416,7 +573,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<WMA_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -437,13 +594,15 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
-            let fillLb: usize = self.WMA_Lookback(optInTimePeriod);
+            let fillLb: usize = self.WMA_Lookback(optInTimePeriod)?;
             let fillLb = if startIdx > fillLb { startIdx } else { fillLb };
             if historyLen < fillLb + 1 {
                 return Err(RetCode::InsufficientHistory);
             }
             let state = WMA_StreamState {
                 optInTimePeriod: optInTimePeriod,
+                lookbackWin: 0_usize,
+                barsSinceReseed: 0_usize,
                 periodSum: 0.0_f64,
                 periodSub: 0.0_f64,
                 trailingValue: 0.0_f64,
@@ -451,6 +610,9 @@ impl Core {
                 ringPos_trailingIdx: 0_usize,
                 ringCap_trailingIdx: 0_usize,
                 ring_trailingIdx_inReal: vec![0.0_f64; 1],
+                winPos_j: 0_usize,
+                winCap_j: 1_usize,
+                win_j_inReal: vec![0.0_f64; 1],
             };
             (*outBegIdx) = fillLb;
             (*outNBElement) = historyLen - fillLb;
@@ -463,12 +625,16 @@ impl Core {
                     fillIdx += 1;
                 }
             }
-            return Ok(WMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
+            return Ok(WMA_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
         }
         let mut inIdx: usize = 0_usize;
         let mut outIdx: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
+        let mut j: usize = 0_usize;
+        let mut rw: usize = 0_usize;
+        let mut lookbackWin: usize = 0_usize;
+        let mut barsSinceReseed: usize = 0_usize;
         let mut periodSum: f64 = 0.0_f64;
         let mut periodSub: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
@@ -519,34 +685,95 @@ impl Core {
         outIdx = 0;
         trailingIdx = startIdx - lookbackTotal;
         // Evaluate the initial periodSum/periodSub and trailingValue.
+        lookbackWin = (optInTimePeriod - 1) as usize;
         periodSub = 0.0 as f64;
         periodSum = periodSub;
         inIdx = trailingIdx;
         i = 1;
         while inIdx < startIdx {
-            tempReal = inReal[{ let _v = inIdx; inIdx += 1; _v }];
+            tempReal = inReal[inIdx];
+            inIdx += 1;
             periodSub += tempReal;
             periodSum += tempReal * ((i) as f64);
             i += 1;
         }
+        barsSinceReseed = (8 * optInTimePeriod) as usize;
         trailingValue = 0.0;
         // Tight loop for the requested range.
         while inIdx <= endIdx {
             // Add the current price bar to the sum
             // who are carried through the iterations.
-            tempReal = inReal[{ let _v = inIdx; inIdx += 1; _v }];
+            tempReal = inReal[inIdx];
             periodSub += tempReal;
             periodSub -= trailingValue;
             periodSum += tempReal * ((optInTimePeriod) as f64);
+            // Re-anchor: rebuild both totals from the window itself.
+            //
+            // periodSum and periodSub were running totals that were never
+            // recomputed, so each bar's rounding joined a residue no later bar
+            // could subtract, and its size was set by the largest value the totals
+            // had ever held rather than by the current window. That is the defect
+            // #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+            // below is the same weight-shifting identity as that family's
+            // `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+            // it and TA_SMA, whose output lives at its own sum's scale, does not.
+            // Measured before the fix: worst range disagreement 1.41e-08 at 200000
+            // bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+            // closes or ~1000 with one large print. After: 1.79e-12, flat in call
+            // length.
+            //
+            // ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+            // LINEARREG family also carries an OUTLIER trigger (rebuild when the
+            // departing value outweighs the window) because for a slope the
+            // interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+            // that position: its weights are bounded by `period` and its divider is
+            // period*(period+1)/2, which dilutes the residue enough that the
+            // interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+            // 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+            // is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+            // either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+            // here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+            // shorter interval buys most of the accuracy for ~1.1x instead.
+            //
+            // The rebuild walks the window OLDEST FIRST with the weight counting UP
+            // from 1 -- the priming scan's own order and weighting -- so a
+            // re-anchored bar is bit-identical to the same bar computed by a call
+            // that started there. That identity is what the range-stability
+            // contract measures, and what test_wma.c W2/W3 assert.
+            //
+            // The loop start is written INLINE rather than through a `windowStart`
+            // local: only that form is recognised as a rescan window, which is what
+            // keeps this on the stream classifier's primary path. See
+            // docs/ta_codegen_input_code.md.
+            //
+            // Reading the window is safe when outReal aliases inReal: the outputs
+            // written so far occupy [0, outIdx-1], and the window starts at
+            // startIdx-lookbackTotal+outIdx, which is >= outIdx.
+            barsSinceReseed -= 1;
+            if barsSinceReseed <= 0 {
+                barsSinceReseed = (8 * optInTimePeriod) as usize;
+                periodSub = 0.0 as f64;
+                periodSum = 0.0 as f64;
+                rw = 1;
+                for j in (inIdx - lookbackWin as usize)..(inIdx as usize) + 1 {
+                    tempReal = inReal[j];
+                    periodSub += tempReal;
+                    periodSum += tempReal * ((rw) as f64);
+                    rw += 1;
+                }
+                j = (inIdx as usize) + 1;
+            }
             // Save the trailing value for being substract at
             // the next iteration.
             // (must be saved here just in case outReal and
             //  inReal are the same buffer).
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
+            trailingValue = inReal[trailingIdx];
+            trailingIdx += 1;
             // Calculate the WMA for this price bar.
             outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = periodSum / divider;
             // Prepare the periodSum for the next iteration.
             periodSum -= periodSub;
+            inIdx += 1;
         }
         // Set output limits.
         (*outNBElement) = outIdx;
@@ -561,8 +788,16 @@ impl Core {
         let mut ring_trailingIdx_inReal: Vec<f64> = vec![0.0_f64; allocN_trailingIdx];
         ring_trailingIdx_inReal[..cap_trailingIdx as usize]
             .copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);
+        let cap_j: i64 = (lookbackWin + 1) as i64;
+        if cap_j < 1 || cap_j > historyLen as i64 {
+            return Err(RetCode::InternalError);
+        }
+        let mut win_j_inReal: Vec<f64> = vec![0.0_f64; cap_j as usize];
+        win_j_inReal.copy_from_slice(&inReal[historyLen - cap_j as usize..]);
         let state = WMA_StreamState {
             optInTimePeriod,
+            lookbackWin,
+            barsSinceReseed,
             periodSum,
             periodSub,
             trailingValue,
@@ -570,8 +805,11 @@ impl Core {
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,
+            winPos_j: 0_usize,
+            winCap_j: cap_j as usize,
+            win_j_inReal,
         };
-        Ok(WMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(WMA_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::WMA_Open`] (composition seam).
@@ -592,8 +830,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -616,12 +855,29 @@ impl Core {
 
     /// [`Core::WMA_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::WMA`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::WMA_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_WMA_OpenAndFill")]
     pub fn WMA_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(WMA_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.WMA_Lookback(optInTimePeriod)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.WMA_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -636,6 +892,14 @@ impl Core {
         self.WMA_OpenImpl(inReal, startIdx, optInTimePeriod, outBegIdx, outNBElement, outReal, 1)
     }
 
+}
+
+thread_local! {
+    /// `peek`'s reusable scratch handle (see `WMA_StreamState::restore_from`).
+    /// Taken for the duration of the step and put back after, so a
+    /// panicking step costs the scratch, never leaves it borrowed.
+    static WMA_PEEK_SCRATCH: std::cell::Cell<Option<Box<WMA_Stream>>> =
+        const { std::cell::Cell::new(None) };
 }
 
 #[allow(non_snake_case)]
@@ -658,7 +922,7 @@ impl WMA_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.WMA_step_impl(&mut self.state, inReal, &mut outReal);
+        Core::WMA_step_impl(&mut self.state, inReal, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -691,7 +955,7 @@ impl WMA_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.WMA_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            Core::WMA_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }
@@ -702,10 +966,8 @@ impl WMA_Stream {
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return (it is the same code, run
     /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
-    /// often removed outright by the optimizer, which is why nothing is
-    /// reused here, but that is not a guarantee: budget for a clone of the
-    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    /// run concurrently with each other. The copy it runs on is held per thread and reused,
+    /// so only the first peek of this function on a thread allocates.
     ///
     /// # Errors
     ///
@@ -716,8 +978,13 @@ impl WMA_Stream {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inReal)
+        WMA_PEEK_SCRATCH.with(|cell| {
+            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.clone()));
+            scratch.restore_from(self);
+            let value = scratch.update(inReal);
+            cell.set(Some(scratch));
+            value
+        })
     }
 
     /// The bars this stream has produced a value for, in the input series'

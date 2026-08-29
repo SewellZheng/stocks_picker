@@ -62,6 +62,10 @@ public partial class Core
     *                of two scratch buffers + three sma() calls. Enables streaming
     *                and is bit-identical to the prior three-SMA form (verified vs
     *                v0.6.4).
+    *  082326 MF,CC  Fix #253. Scale the High+Low cancellation test to its own
+    *                operands instead of the fixed TA_IS_ZERO band, which widened
+    *                the bands of any instrument quoted small enough to fall
+    *                under it.
     */
    /// <summary>
    /// Number of leading input bars <c>ACCBANDS</c> consumes before it can
@@ -121,7 +125,7 @@ public partial class Core
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outRealUpperBand.Overlaps(outRealMiddleBand) || (outRealUpperBand.IsEmpty && outRealMiddleBand.IsEmpty) || outRealUpperBand.Overlaps(outRealLowerBand) || (outRealUpperBand.IsEmpty && outRealLowerBand.IsEmpty) || outRealMiddleBand.Overlaps(outRealLowerBand) || (outRealMiddleBand.IsEmpty && outRealLowerBand.IsEmpty) ) {
+      if( outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
          return RetCode.BadParam ;
       }
       if( (outRealUpperBand.Overlaps(inHigh) && outRealUpperBand != inHigh) || (outRealUpperBand.Overlaps(inLow) && outRealUpperBand != inLow) || (outRealUpperBand.Overlaps(inClose) && outRealUpperBand != inClose) || (outRealMiddleBand.Overlaps(inHigh) && outRealMiddleBand != inHigh) || (outRealMiddleBand.Overlaps(inLow) && outRealMiddleBand != inLow) || (outRealMiddleBand.Overlaps(inClose) && outRealMiddleBand != inClose) || (outRealLowerBand.Overlaps(inHigh) && outRealLowerBand != inHigh) || (outRealLowerBand.Overlaps(inLow) && outRealLowerBand != inLow) || (outRealLowerBand.Overlaps(inClose) && outRealLowerBand != inClose) ) {
@@ -164,8 +168,17 @@ public partial class Core
        */
       i = trailingIdx;
       while( i < startIdx ) {
+         /* The band factor 4*(H-L)/(H+L) is a ratio of two prices, so it is
+          * scale-free -- but H+L is a sum that CANCELS when the two prices have
+          * opposite signs, and the factor then blows up on what is left of the
+          * operands' last bits. Test the sum against ITS OWN operands, not against
+          * a fixed band: an absolute threshold answers "cancelled" for every bar
+          * of an instrument quoted small enough to fall under it, and widened
+          * every band it touched (issue #253). Same test on all three sites, so
+          * the bar that enters a running sum is the one that later leaves it.
+          */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh[i]) + Math.Abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -184,7 +197,7 @@ public partial class Core
       while( i <= endIdx ) {
          /* Add the incoming bar to each running sum. */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh[i]) + Math.Abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -200,7 +213,7 @@ public partial class Core
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
          tempReal = inHigh[trailingIdx] + inLow[trailingIdx];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh[trailingIdx]) + Math.Abs(inLow[trailingIdx]))) ) {
             tempReal = 4 * (inHigh[trailingIdx] - inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= inHigh[trailingIdx] * (1 + tempReal);
             periodTotalLower -= inLow[trailingIdx] * (1 - tempReal);
@@ -256,7 +269,7 @@ public partial class Core
       } else if( optInTimePeriod < 2 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outRealUpperBand.Overlaps(outRealMiddleBand) || (outRealUpperBand.IsEmpty && outRealMiddleBand.IsEmpty) || outRealUpperBand.Overlaps(outRealLowerBand) || (outRealUpperBand.IsEmpty && outRealLowerBand.IsEmpty) || outRealMiddleBand.Overlaps(outRealLowerBand) || (outRealMiddleBand.IsEmpty && outRealLowerBand.IsEmpty) ) {
+      if( outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
          return RetCode.BadParam ;
       }
       lookbackTotal = SMA_Lookback(optInTimePeriod);
@@ -275,7 +288,7 @@ public partial class Core
       i = trailingIdx;
       while( i < startIdx ) {
          tempReal = (double)inHigh[i] + (double)inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs((double)inHigh[i]) + Math.Abs((double)inLow[i]))) ) {
             tempReal = 4 * ((double)inHigh[i] - (double)inLow[i]) / tempReal;
             periodTotalUpper += (double)inHigh[i] * (1 + tempReal);
             periodTotalLower += (double)inLow[i] * (1 - tempReal);
@@ -289,7 +302,7 @@ public partial class Core
       outIdx = 0;
       while( i <= endIdx ) {
          tempReal = (double)inHigh[i] + (double)inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs((double)inHigh[i]) + Math.Abs((double)inLow[i]))) ) {
             tempReal = 4 * ((double)inHigh[i] - (double)inLow[i]) / tempReal;
             periodTotalUpper += (double)inHigh[i] * (1 + tempReal);
             periodTotalLower += (double)inLow[i] * (1 - tempReal);
@@ -303,7 +316,7 @@ public partial class Core
          tempMiddle = periodTotalMiddle;
          tempLower = periodTotalLower;
          tempReal = (double)inHigh[trailingIdx] + (double)inLow[trailingIdx];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs((double)inHigh[trailingIdx]) + Math.Abs((double)inLow[trailingIdx]))) ) {
             tempReal = 4 * ((double)inHigh[trailingIdx] - (double)inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= (double)inHigh[trailingIdx] * (1 + tempReal);
             periodTotalLower -= (double)inLow[trailingIdx] * (1 - tempReal);
@@ -360,14 +373,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange ACCBANDS( int startIdx,
@@ -439,14 +454,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange ACCBANDS( int startIdx,
@@ -702,7 +719,7 @@ public partial class Core
       }
       /* Add the incoming bar to each running sum. */
       tempReal = inHigh + inLow;
-      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+      if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh) + Math.Abs(inLow))) ) {
          tempReal = 4 * (inHigh - inLow) / tempReal;
          sp.periodTotalUpper += inHigh * (1 + tempReal);
          sp.periodTotalLower += inLow * (1 - tempReal);
@@ -717,7 +734,7 @@ public partial class Core
       tempLower = sp.periodTotalLower;
       /* Remove the trailing bar from each running sum. */
       tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
-      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+      if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]) + Math.Abs(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]))) ) {
          tempReal = 4 * (sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] - sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]) / tempReal;
          sp.periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] * (1 + tempReal);
          sp.periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] * (1 - tempReal);
@@ -756,11 +773,14 @@ public partial class Core
       int lookbackTotal = 0;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 20;
@@ -809,8 +829,17 @@ public partial class Core
        */
       i = trailingIdx;
       while( i < startIdx ) {
+         /* The band factor 4*(H-L)/(H+L) is a ratio of two prices, so it is
+          * scale-free -- but H+L is a sum that CANCELS when the two prices have
+          * opposite signs, and the factor then blows up on what is left of the
+          * operands' last bits. Test the sum against ITS OWN operands, not against
+          * a fixed band: an absolute threshold answers "cancelled" for every bar
+          * of an instrument quoted small enough to fall under it, and widened
+          * every band it touched (issue #253). Same test on all three sites, so
+          * the bar that enters a running sum is the one that later leaves it.
+          */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh[i]) + Math.Abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -829,7 +858,7 @@ public partial class Core
       while( i <= endIdx ) {
          /* Add the incoming bar to each running sum. */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh[i]) + Math.Abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -845,7 +874,7 @@ public partial class Core
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
          tempReal = inHigh[trailingIdx] + inLow[trailingIdx];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh[trailingIdx]) + Math.Abs(inLow[trailingIdx]))) ) {
             tempReal = 4 * (inHigh[trailingIdx] - inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= inHigh[trailingIdx] * (1 + tempReal);
             periodTotalLower -= inLow[trailingIdx] * (1 - tempReal);
@@ -937,13 +966,17 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>ACCBANDS_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public ACCBANDS_Stream ACCBANDS_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ACCBANDS open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ACCBANDS open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("ACCBANDS open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("ACCBANDS open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("ACCBANDS", "open", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("ACCBANDS", "open", "inClose", inClose.Length, inHigh.Length);
       return ACCBANDS_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
 
@@ -955,7 +988,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - ACCBANDS_Lookback(...)</c> values
    /// and must not alias the inputs or each other — this path writes the outputs
    /// and then reads the input tail to seed its rings, so the batch tier's
-   /// in-place allowance does not carry over here.</para>
+   /// in-place allowance does not carry over here. Both are checked before
+   /// anything is written, so an undersized span is an <c>ArgumentException</c>
+   /// naming it rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="ACCBANDS_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -973,15 +1008,23 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>ACCBANDS_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public ACCBANDS_Stream ACCBANDS_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outRealUpperBand, Span<double> outRealMiddleBand, Span<double> outRealLowerBand )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ACCBANDS openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ACCBANDS openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("ACCBANDS openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("ACCBANDS openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("ACCBANDS", "openAndFill", inHigh.Length, ACCBANDS_Lookback(optInTimePeriod));
+      RequireHistoryLength("ACCBANDS", "openAndFill", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("ACCBANDS", "openAndFill", "inClose", inClose.Length, inHigh.Length);
+      RequireFillLength("ACCBANDS", "openAndFill", "outRealUpperBand", outRealUpperBand.Length, guardOutLen);
+      RequireFillLength("ACCBANDS", "openAndFill", "outRealMiddleBand", outRealMiddleBand.Length, guardOutLen);
+      RequireFillLength("ACCBANDS", "openAndFill", "outRealLowerBand", outRealLowerBand.Length, guardOutLen);
       if( outRealUpperBand.Overlaps(inHigh) || outRealUpperBand.Overlaps(inLow) || outRealUpperBand.Overlaps(inClose) || outRealMiddleBand.Overlaps(inHigh) || outRealMiddleBand.Overlaps(inLow) || outRealMiddleBand.Overlaps(inClose) || outRealLowerBand.Overlaps(inHigh) || outRealLowerBand.Overlaps(inLow) || outRealLowerBand.Overlaps(inClose) || outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
          throw StreamFailure("ACCBANDS", "openAndFill", RetCode.BadParam);
       }

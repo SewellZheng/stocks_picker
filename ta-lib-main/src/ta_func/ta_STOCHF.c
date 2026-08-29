@@ -62,6 +62,11 @@
  *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
  *  072026 MF,CC Fix #130. Never elect outFastD as the K scratch buffer: %D's
  *               in-place ma() destroyed the raw K before the final copy.
+ *  082326 MF,CC Fix #253. Scale that guard to the window's own extremes: the
+ *               fixed band zeroed the whole output for any instrument quoted
+ *               small enough to fall under it.
+ *  082726 MF,CC Drop the dead retCode block after the copy: the rejection is
+ *               already answered above it, and the shape reads like #269.
  */
 
 TA_LIB_API int TA_STOCHF_Lookback( int optInFastK_Period, int optInFastD_Period, TA_MAType optInFastD_MAType )
@@ -121,12 +126,6 @@ TA_LIB_API TA_RetCode TA_STOCHF( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
-   if( !inClose )
-      return TA_BAD_PARAM;
    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
@@ -138,6 +137,14 @@ TA_LIB_API TA_RetCode TA_STOCHF( int    startIdx,
    if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT || optInFastD_MAType == TA_MAType_DEFAULT )
       optInFastD_MAType = 0;
    else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outFastK )
       return TA_BAD_PARAM;
@@ -239,6 +246,8 @@ TA_LIB_API TA_RetCode TA_STOCHF( int    startIdx,
       tempBuffer = malloc((endIdx - today + 1) * sizeof(double));
       if( !tempBuffer )
       {
+         *outBegIdx= 0;
+         *outNBElement= 0;
          return TA_ALLOC_ERR;
       }
    }
@@ -291,11 +300,15 @@ TA_LIB_API TA_RetCode TA_STOCHF( int    startIdx,
          highest = tmp;
          diff = (highest - lowest) / 100.0;
       }
-      /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-       * a machine-flat window leaves a sub-epsilon residue that an exact check
-       * would divide into [0,100] noise (issue #107 / STOCHRSI).
+      /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+       * machine-flat window leaves a sub-epsilon residue that an exact check
+       * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+       * range against ITS OWN two extremes, not against a fixed band: the range
+       * carries the quote unit, so a constant put against it answers "flat" for
+       * every window of an instrument quoted below it and zeroed the whole
+       * output (issue #253).
        */
-      if( !TA_IS_ZERO(diff) )
+      if( !TA_IS_ZERO_SCALED(highest - lowest, fabs(highest) + fabs(lowest)) )
       {
          tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
       } else 
@@ -329,17 +342,9 @@ TA_LIB_API TA_RetCode TA_STOCHF( int    startIdx,
     * reused as scratch, so source and destination overlap (issue #94).
     */
    memmove(outFastK,&tempBuffer[lookbackFastD],(int)*outNBElement * sizeof(double));
-   /* Don't need K anymore, free it if it was allocated here. */
    if( bufferIsAllocated )
    {
       free(tempBuffer);
-   }
-   if( retCode != TA_SUCCESS )
-   {
-      /* Something wrong happen while processing %D? */
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      return retCode;
    }
    /* Note: Keep the outBegIdx relative to the
     *       caller input before returning.
@@ -383,12 +388,6 @@ TA_RetCode TA_S_STOCHF( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
-   if( !inClose )
-      return TA_BAD_PARAM;
    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
@@ -400,6 +399,14 @@ TA_RetCode TA_S_STOCHF( int    startIdx,
    if( (int)optInFastD_MAType == TA_INTEGER_DEFAULT || optInFastD_MAType == TA_MAType_DEFAULT )
       optInFastD_MAType = 0;
    else if( (int)optInFastD_MAType < TA_MATYPE_MIN || (int)optInFastD_MAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outFastK )
       return TA_BAD_PARAM;
@@ -439,6 +446,8 @@ TA_RetCode TA_S_STOCHF( int    startIdx,
       tempBuffer = malloc((endIdx - today + 1) * sizeof(double));
       if( !tempBuffer )
       {
+         *outBegIdx= 0;
+         *outNBElement= 0;
          return TA_ALLOC_ERR;
       }
    }
@@ -488,7 +497,7 @@ TA_RetCode TA_S_STOCHF( int    startIdx,
          highest = tmp;
          diff = (highest - lowest) / 100.0;
       }
-      if( !TA_IS_ZERO(diff) )
+      if( !TA_IS_ZERO_SCALED(highest - lowest, fabs(highest) + fabs(lowest)) )
       {
          tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
       } else 
@@ -513,12 +522,6 @@ TA_RetCode TA_S_STOCHF( int    startIdx,
    if( bufferIsAllocated )
    {
       free(tempBuffer);
-   }
-   if( retCode != TA_SUCCESS )
-   {
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      return retCode;
    }
    *outBegIdx= startIdx;
    return TA_SUCCESS;
@@ -636,11 +639,15 @@ static TA_RetCode TA_STOCHF_StepImpl( struct TA_STOCHF_Stream *sp, double inHigh
       sp->highest = tmp;
       sp->diff = (sp->highest - sp->lowest) / 100.0;
    }
-   /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-    * a machine-flat window leaves a sub-epsilon residue that an exact check
-    * would divide into [0,100] noise (issue #107 / STOCHRSI).
+   /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+    * machine-flat window leaves a sub-epsilon residue that an exact check
+    * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+    * range against ITS OWN two extremes, not against a fixed band: the range
+    * carries the quote unit, so a constant put against it answers "flat" for
+    * every window of an instrument quoted below it and zeroed the whole
+    * output (issue #253).
     */
-   if( !TA_IS_ZERO(sp->diff) )
+   if( !TA_IS_ZERO_SCALED(sp->highest - sp->lowest, fabs(sp->highest) + fabs(sp->lowest)) )
    {
       cur_tempBuffer = (sp->x_inClose[sp->today & sp->xMask] - sp->lowest) / sp->diff;
    } else 
@@ -678,9 +685,9 @@ static TA_RetCode TA_STOCHF_OpenImpl( struct TA_STOCHF_Stream **stream, const do
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outFastK || !outFastD ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outFastK || !outFastD ) return TA_BAD_PARAM;
    if( (int)optInFastK_Period == TA_INTEGER_DEFAULT )
       optInFastK_Period = 5;
    else if( (int)optInFastK_Period < 1 || (int)optInFastK_Period > 100000 )
@@ -884,11 +891,15 @@ static TA_RetCode TA_STOCHF_OpenImpl( struct TA_STOCHF_Stream **stream, const do
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
+         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+          * machine-flat window leaves a sub-epsilon residue that an exact check
+          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+          * range against ITS OWN two extremes, not against a fixed band: the range
+          * carries the quote unit, so a constant put against it answers "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output (issue #253).
           */
-         if( !TA_IS_ZERO(diff) )
+         if( !TA_IS_ZERO_SCALED(highest - lowest, fabs(highest) + fabs(lowest)) )
          {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else 
@@ -937,18 +948,9 @@ static TA_RetCode TA_STOCHF_OpenImpl( struct TA_STOCHF_Stream **stream, const do
        * reused as scratch, so source and destination overlap (issue #94).
        */
       memmove(sc_outFastK,&tempBuffer[lookbackFastD],(int)dummyNBElement * sizeof(double));
-      /* Don't need K anymore, free it if it was allocated here. */
       if( bufferIsAllocated )
       {
          free(tempBuffer);
-      }
-      if( retCode != TA_SUCCESS )
-      {
-         /* Something wrong happen while processing %D? */
-         dummyBegIdx = 0;
-         dummyNBElement = 0;
-         TA_MA_Close( sub0 ); if( !outStride ) TA_Free( sc_outFastK ); if( !outStride ) TA_Free( sc_outFastD );
-         return retCode;
       }
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
@@ -972,7 +974,7 @@ static TA_RetCode TA_STOCHF_OpenImpl( struct TA_STOCHF_Stream **stream, const do
       sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MA_Close( sub0 ); if( !outStride ) TA_Free( sc_outFastK ); if( !outStride ) TA_Free( sc_outFastD ); TA_STOCHF_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MA_Close( sub0 ); if( !outStride ) TA_Free( sc_outFastK ); if( !outStride ) TA_Free( sc_outFastD ); TA_STOCHF_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(386); }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
@@ -1031,9 +1033,9 @@ TA_LIB_API TA_RetCode TA_STOCHF_Open( TA_STOCHF_Stream **stream, const double in
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outFastK || !outFastD ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outFastK || !outFastD ) return TA_BAD_PARAM;
    return TA_STOCHF_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outFastK, outFastD );
 }
 
@@ -1041,10 +1043,9 @@ TA_LIB_API TA_RetCode TA_STOCHF_OpenAndFill( TA_STOCHF_Stream **stream, const do
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outFastK || !outFastD ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outFastK || !outFastD ) return TA_BAD_PARAM;
    if( (const void *)outFastK == (const void *)inHigh || (const void *)outFastK == (const void *)inLow || (const void *)outFastK == (const void *)inClose || (const void *)outFastD == (const void *)inHigh || (const void *)outFastD == (const void *)inLow || (const void *)outFastD == (const void *)inClose || (const void *)outFastK == (const void *)outFastD ) return TA_BAD_PARAM;
    return TA_STOCHF_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastK, outFastD );
 }

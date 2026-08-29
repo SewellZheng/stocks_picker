@@ -400,15 +400,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#EMA
     * @see Core#DEMA
@@ -423,9 +422,9 @@
                        double outReal[] )
    {
       requireIndexRange("T3", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, T3_Lookback(optInTimePeriod, optInVFactor));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("T3", startIdx, T3_Lookback(optInTimePeriod, optInVFactor));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("T3", "inReal", inReal, guardInLen);
       requireLength("T3", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -474,15 +473,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#EMA
     * @see Core#DEMA
@@ -497,9 +495,9 @@
                        double outReal[] )
    {
       requireIndexRange("T3", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, T3_Lookback(optInTimePeriod, optInVFactor));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("T3", startIdx, T3_Lookback(optInTimePeriod, optInVFactor));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("T3", "inReal", inReal, guardInLen);
       requireLength("T3", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -635,6 +633,8 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
+         requireArgument("T3 updateAndFill", "inReal", inReal);
+         requireArgument("T3 updateAndFill", "outReal", outReal);
          final int barCount = inReal.length;
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("T3 updateAndFill: BadParam", RetCode.BadParam);
@@ -715,7 +715,7 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -946,10 +946,15 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public T3_Stream T3_Open( double inReal[], int optInTimePeriod, double optInVFactor )
    {
+      requireArgument("T3 open", "inReal", inReal);
+      requireHistory("T3 open", inReal.length);
       return T3_OpenInternal(inReal, 0, optInTimePeriod, optInVFactor);
    }
    /**
@@ -957,12 +962,18 @@
     * to {@link Core#T3} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link T3_Stream#outRange()}.
     */
    public T3_Stream T3_OpenAndFill( double inReal[], int optInTimePeriod, double optInVFactor, double outReal[] )
    {
+      requireArgument("T3 openAndFill", "inReal", inReal);
+      requireHistory("T3 openAndFill", inReal.length);
+      int guardOutLen = openFillCount("T3 openAndFill", inReal.length, T3_Lookback(optInTimePeriod, optInVFactor));
+      requireLength("T3 openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
          throw new TaLibArgumentException("T3 openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

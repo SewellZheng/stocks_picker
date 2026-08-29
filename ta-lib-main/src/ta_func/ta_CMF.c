@@ -99,6 +99,10 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 20;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
@@ -107,9 +111,7 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 20;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -138,7 +140,7 @@ TA_LIB_API TA_RetCode TA_CMF( int    startIdx,
    {
       return TA_SUCCESS;
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(314);
    if( (int)optInTimePeriod > (int)(sizeof(local_mfv_flow)/sizeof(double)) )
    {
       mfv_flow = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -276,6 +278,10 @@ TA_RetCode TA_S_CMF( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 20;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
@@ -284,9 +290,7 @@ TA_RetCode TA_S_CMF( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 20;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -302,7 +306,7 @@ TA_RetCode TA_S_CMF( int    startIdx,
    {
       return TA_SUCCESS;
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(314);
    if( (int)optInTimePeriod > (int)(sizeof(local_mfv_flow)/sizeof(double)) )
    {
       mfv_flow = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -482,9 +486,9 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -537,7 +541,7 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
       {
          return TA_INSUFFICIENT_HISTORY;
       }
-      if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+      if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(314);
       if( (int)optInTimePeriod > (int)(sizeof(local_mfv_flow)/sizeof(double)) )
       {
          mfv_flow = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -647,7 +651,7 @@ static TA_RetCode TA_CMF_OpenImpl( struct TA_CMF_Stream **stream, const double i
       sp->mfv_Idx = mfv_Idx;
       sp->maxIdx_mfv = maxIdx_mfv;
       sp->cbSize_mfv = maxIdx_mfv + 1;
-      if( sp->cbSize_mfv < 1 || sp->cbSize_mfv > historyLen + 1 ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_mfv < 1 || sp->cbSize_mfv > historyLen + 1 ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(315); }
       sp->cb_mfv_flow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mfv );
       if( !sp->cb_mfv_flow ) { if( mfv_flow != &local_mfv_flow[0] ) TA_Free( mfv_flow ); if( mfv_volume != &local_mfv_volume[0] ) TA_Free( mfv_volume ); TA_CMF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_mfv_flow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mfv );
@@ -685,9 +689,9 @@ TA_LIB_API TA_RetCode TA_CMF_Open( TA_CMF_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_CMF_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -695,10 +699,9 @@ TA_LIB_API TA_RetCode TA_CMF_OpenAndFill( TA_CMF_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_CMF_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

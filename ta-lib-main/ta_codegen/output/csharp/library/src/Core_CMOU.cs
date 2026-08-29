@@ -54,6 +54,10 @@ public partial class Core
     *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
     *  071626 MF,CC  Initial version (#124).
+    *  082326 MF,CC  Fix #253. Recognize a flat window by counting bars, so the
+    *                0/0 is guarded exactly instead of against the fixed
+    *                TA_IS_ZERO band -- which zeroed the oscillator for any
+    *                instrument quoted small enough to fall under it.
     */
    /// <summary>
    /// Number of leading input bars <c>CMOU</c> consumes before it can produce
@@ -99,6 +103,7 @@ public partial class Core
       int trailingIdx = 0;
       int lookbackTotal = 0;
       int i = 0;
+      int nullRun = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
@@ -153,6 +158,13 @@ public partial class Core
       trailingValue = prevValue;
       upSum = 0.0;
       downSum = 0.0;
+      /* Consecutive changes of exactly zero, counted so that an empty window can
+       * be recognized exactly (the shape #244 needed for MFI). The sums cannot
+       * answer that question themselves once the window starts sliding: they are
+       * maintained by add-then-subtract, so an emptied window leaves them holding
+       * rounding residue of arbitrary sign rather than zero.
+       */
+      nullRun = 0;
       for( i = 0; i < optInTimePeriod; i += 1 ) {
          today += 1;
          tempReal = inReal[today];
@@ -163,10 +175,17 @@ public partial class Core
          } else if( diff < 0.0 ) {
             downSum -= diff;
          }
+         if( diff == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
       }
       /* Emit the first output (bar startIdx). Su+Sd is a sum of non-negative
        * magnitudes, so it is zero only for an exactly flat window; guard the 0/0
-       * with TA_IS_ZERO (as TA_CMO does for its own gain+loss) and emit 0.0.
+       * exactly and emit 0.0. Not against a fixed band: a price change carries the
+       * quote unit, so a constant put against the total zeroed the oscillator for
+       * any instrument quoted below it (issue #253).
        *
        * Scale-then-divide -- (100*(Su-Sd))/(Su+Sd), NOT the 100*((Su-Sd)/(Su+Sd))
        * order TA_CMO/RSI use -- so CMOU is BIT-IDENTICAL to the reference unsmoothed
@@ -175,7 +194,7 @@ public partial class Core
        */
       outIdx = 0;
       sum = upSum + downSum;
-      if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+      if( sum > 0.0 ) {
          outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
       } else {
          outReal[outIdx++] = 0.0;
@@ -206,8 +225,22 @@ public partial class Core
          } else if( diff < 0.0 ) {
             downSum -= diff;
          }
+         /* Once a whole period of flat bars has gone by, every change in the
+          * window is exactly zero, so both sums are known to be exactly zero and
+          * the residue can be dropped.
+          */
+         if( diff == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            upSum = 0.0;
+            downSum = 0.0;
+         }
          sum = upSum + downSum;
-         if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+         if( sum > 0.0 ) {
             outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
          } else {
             outReal[outIdx++] = 0.0;
@@ -233,6 +266,7 @@ public partial class Core
       int trailingIdx = 0;
       int lookbackTotal = 0;
       int i = 0;
+      int nullRun = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
@@ -266,6 +300,7 @@ public partial class Core
       trailingValue = prevValue;
       upSum = 0.0;
       downSum = 0.0;
+      nullRun = 0;
       for( i = 0; i < optInTimePeriod; i += 1 ) {
          today += 1;
          tempReal = (double)inReal[today];
@@ -276,10 +311,15 @@ public partial class Core
          } else if( diff < 0.0 ) {
             downSum -= diff;
          }
+         if( diff == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
       }
       outIdx = 0;
       sum = upSum + downSum;
-      if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+      if( sum > 0.0 ) {
          outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
       } else {
          outReal[outIdx++] = 0.0;
@@ -303,8 +343,18 @@ public partial class Core
          } else if( diff < 0.0 ) {
             downSum -= diff;
          }
+         if( diff == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            upSum = 0.0;
+            downSum = 0.0;
+         }
          sum = upSum + downSum;
-         if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+         if( sum > 0.0 ) {
             outReal[outIdx++] = 100.0 * (upSum - downSum) / sum;
          } else {
             outReal[outIdx++] = 0.0;
@@ -351,14 +401,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CMOU( int startIdx,
@@ -420,14 +472,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CMOU( int startIdx,
@@ -469,6 +523,7 @@ public partial class Core
    {
       internal Core core;
       internal int optInTimePeriod;
+      internal int nullRun;
       internal double upSum;
       internal double downSum;
       internal double prevValue;
@@ -497,6 +552,7 @@ public partial class Core
       {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
+         this.nullRun = other.nullRun;
          this.upSum = other.upSum;
          this.downSum = other.downSum;
          this.prevValue = other.prevValue;
@@ -514,6 +570,7 @@ public partial class Core
       {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
+         this.nullRun = other.nullRun;
          this.upSum = other.upSum;
          this.downSum = other.downSum;
          this.prevValue = other.prevValue;
@@ -641,8 +698,22 @@ public partial class Core
       } else if( diff < 0.0 ) {
          sp.downSum -= diff;
       }
+      /* Once a whole period of flat bars has gone by, every change in the
+       * window is exactly zero, so both sums are known to be exactly zero and
+       * the residue can be dropped.
+       */
+      if( diff == 0.0 ) {
+         sp.nullRun += 1;
+      } else {
+         sp.nullRun = 0;
+      }
+      if( sp.nullRun >= sp.optInTimePeriod ) {
+         sp.nullRun = sp.optInTimePeriod;
+         sp.upSum = 0.0;
+         sp.downSum = 0.0;
+      }
       sum = sp.upSum + sp.downSum;
-      if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+      if( sum > 0.0 ) {
          sp.cur_outReal = 100.0 * (sp.upSum - sp.downSum) / sum;
       } else {
          sp.cur_outReal = 0.0;
@@ -663,6 +734,7 @@ public partial class Core
       int trailingIdx = 0;
       int lookbackTotal = 0;
       int i = 0;
+      int nullRun = 0;
       double upSum = 0;
       double downSum = 0;
       double sum = 0;
@@ -673,7 +745,7 @@ public partial class Core
       int historyLen = inReal.Length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -721,6 +793,13 @@ public partial class Core
       trailingValue = prevValue;
       upSum = 0.0;
       downSum = 0.0;
+      /* Consecutive changes of exactly zero, counted so that an empty window can
+       * be recognized exactly (the shape #244 needed for MFI). The sums cannot
+       * answer that question themselves once the window starts sliding: they are
+       * maintained by add-then-subtract, so an emptied window leaves them holding
+       * rounding residue of arbitrary sign rather than zero.
+       */
+      nullRun = 0;
       for( i = 0; i < optInTimePeriod; i += 1 ) {
          today += 1;
          tempReal = inReal[today];
@@ -731,10 +810,17 @@ public partial class Core
          } else if( diff < 0.0 ) {
             downSum -= diff;
          }
+         if( diff == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
       }
       /* Emit the first output (bar startIdx). Su+Sd is a sum of non-negative
        * magnitudes, so it is zero only for an exactly flat window; guard the 0/0
-       * with TA_IS_ZERO (as TA_CMO does for its own gain+loss) and emit 0.0.
+       * exactly and emit 0.0. Not against a fixed band: a price change carries the
+       * quote unit, so a constant put against the total zeroed the oscillator for
+       * any instrument quoted below it (issue #253).
        *
        * Scale-then-divide -- (100*(Su-Sd))/(Su+Sd), NOT the 100*((Su-Sd)/(Su+Sd))
        * order TA_CMO/RSI use -- so CMOU is BIT-IDENTICAL to the reference unsmoothed
@@ -743,7 +829,7 @@ public partial class Core
        */
       outIdx = 0;
       sum = upSum + downSum;
-      if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+      if( sum > 0.0 ) {
          outReal[outIdx++ * outStride] = 100.0 * (upSum - downSum) / sum;
       } else {
          outReal[outIdx++ * outStride] = 0.0;
@@ -774,8 +860,22 @@ public partial class Core
          } else if( diff < 0.0 ) {
             downSum -= diff;
          }
+         /* Once a whole period of flat bars has gone by, every change in the
+          * window is exactly zero, so both sums are known to be exactly zero and
+          * the residue can be dropped.
+          */
+         if( diff == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod ) {
+            nullRun = optInTimePeriod;
+            upSum = 0.0;
+            downSum = 0.0;
+         }
          sum = upSum + downSum;
-         if( !((-0.00000000000001 < sum) && (sum < 0.00000000000001)) ) {
+         if( sum > 0.0 ) {
             outReal[outIdx++ * outStride] = 100.0 * (upSum - downSum) / sum;
          } else {
             outReal[outIdx++ * outStride] = 0.0;
@@ -793,6 +893,7 @@ public partial class Core
       double[] capRing_trailingIdx_inReal = new double[allocN_trailingIdx];
       inReal.Slice(historyLen - cap_trailingIdx, cap_trailingIdx).CopyTo(capRing_trailingIdx_inReal);
       sp.optInTimePeriod = optInTimePeriod;
+      sp.nullRun = nullRun;
       sp.upSum = upSum;
       sp.downSum = downSum;
       sp.prevValue = prevValue;
@@ -846,11 +947,13 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CMOU_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public CMOU_Stream CMOU_Open( ReadOnlySpan<double> inReal, int optInTimePeriod )
    {
-      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inReal.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "CMOU open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "CMOU open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
       return CMOU_OpenInternal(inReal, 0, optInTimePeriod);
    }
 
@@ -862,7 +965,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - CMOU_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="CMOU_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -874,13 +979,17 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CMOU_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public CMOU_Stream CMOU_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, Span<double> outReal )
    {
-      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inReal.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "CMOU openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "CMOU openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      int guardOutLen = OpenFillCount("CMOU", "openAndFill", inReal.Length, CMOU_Lookback(optInTimePeriod));
+      RequireFillLength("CMOU", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal) ) {
          throw StreamFailure("CMOU", "openAndFill", RetCode.BadParam);
       }

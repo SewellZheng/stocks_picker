@@ -62,6 +62,10 @@
  *                of two scratch buffers + three sma() calls. Enables streaming
  *                and is bit-identical to the prior three-SMA form (verified vs
  *                v0.6.4).
+ *  082326 MF,CC  Fix #253. Scale the High+Low cancellation test to its own
+ *                operands instead of the fixed TA_IS_ZERO band, which widened
+ *                the bands of any instrument quoted small enough to fall
+ *                under it.
  */
 
 TA_LIB_API int TA_ACCBANDS_Lookback( int optInTimePeriod )
@@ -102,15 +106,17 @@ TA_LIB_API TA_RetCode TA_ACCBANDS( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 20;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 20;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outRealUpperBand )
       return TA_BAD_PARAM;
@@ -161,8 +167,17 @@ TA_LIB_API TA_RetCode TA_ACCBANDS( int    startIdx,
    i = trailingIdx;
    while( i < startIdx )
    {
+      /* The band factor 4*(H-L)/(H+L) is a ratio of two prices, so it is
+       * scale-free -- but H+L is a sum that CANCELS when the two prices have
+       * opposite signs, and the factor then blows up on what is left of the
+       * operands' last bits. Test the sum against ITS OWN operands, not against
+       * a fixed band: an absolute threshold answers "cancelled" for every bar
+       * of an instrument quoted small enough to fall under it, and widened
+       * every band it touched (issue #253). Same test on all three sites, so
+       * the bar that enters a running sum is the one that later leaves it.
+       */
       tempReal = inHigh[i] + inLow[i];
-      if( !TA_IS_ZERO(tempReal) )
+      if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh[i]) + fabs(inLow[i])) )
       {
          tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
          periodTotalUpper += inHigh[i] * (1 + tempReal);
@@ -184,7 +199,7 @@ TA_LIB_API TA_RetCode TA_ACCBANDS( int    startIdx,
    {
       /* Add the incoming bar to each running sum. */
       tempReal = inHigh[i] + inLow[i];
-      if( !TA_IS_ZERO(tempReal) )
+      if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh[i]) + fabs(inLow[i])) )
       {
          tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
          periodTotalUpper += inHigh[i] * (1 + tempReal);
@@ -202,7 +217,7 @@ TA_LIB_API TA_RetCode TA_ACCBANDS( int    startIdx,
       tempLower = periodTotalLower;
       /* Remove the trailing bar from each running sum. */
       tempReal = inHigh[trailingIdx] + inLow[trailingIdx];
-      if( !TA_IS_ZERO(tempReal) )
+      if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh[trailingIdx]) + fabs(inLow[trailingIdx])) )
       {
          tempReal = 4 * (inHigh[trailingIdx] - inLow[trailingIdx]) / tempReal;
          periodTotalUpper -= inHigh[trailingIdx] * (1 + tempReal);
@@ -254,15 +269,17 @@ TA_RetCode TA_S_ACCBANDS( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 20;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 20;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outRealUpperBand )
       return TA_BAD_PARAM;
@@ -292,7 +309,7 @@ TA_RetCode TA_S_ACCBANDS( int    startIdx,
    while( i < startIdx )
    {
       tempReal = (double)inHigh[i] + (double)inLow[i];
-      if( !TA_IS_ZERO(tempReal) )
+      if( !TA_IS_ZERO_SCALED(tempReal, fabs((double)inHigh[i]) + fabs((double)inLow[i])) )
       {
          tempReal = 4 * ((double)inHigh[i] - (double)inLow[i]) / tempReal;
          periodTotalUpper += (double)inHigh[i] * (1 + tempReal);
@@ -309,7 +326,7 @@ TA_RetCode TA_S_ACCBANDS( int    startIdx,
    while( i <= endIdx )
    {
       tempReal = (double)inHigh[i] + (double)inLow[i];
-      if( !TA_IS_ZERO(tempReal) )
+      if( !TA_IS_ZERO_SCALED(tempReal, fabs((double)inHigh[i]) + fabs((double)inLow[i])) )
       {
          tempReal = 4 * ((double)inHigh[i] - (double)inLow[i]) / tempReal;
          periodTotalUpper += (double)inHigh[i] * (1 + tempReal);
@@ -325,7 +342,7 @@ TA_RetCode TA_S_ACCBANDS( int    startIdx,
       tempMiddle = periodTotalMiddle;
       tempLower = periodTotalLower;
       tempReal = (double)inHigh[trailingIdx] + (double)inLow[trailingIdx];
-      if( !TA_IS_ZERO(tempReal) )
+      if( !TA_IS_ZERO_SCALED(tempReal, fabs((double)inHigh[trailingIdx]) + fabs((double)inLow[trailingIdx])) )
       {
          tempReal = 4 * ((double)inHigh[trailingIdx] - (double)inLow[trailingIdx]) / tempReal;
          periodTotalUpper -= (double)inHigh[trailingIdx] * (1 + tempReal);
@@ -397,7 +414,7 @@ static void TA_ACCBANDS_StepImpl( struct TA_ACCBANDS_Stream *sp, double inHigh, 
    }
    /* Add the incoming bar to each running sum. */
    tempReal = inHigh + inLow;
-   if( !TA_IS_ZERO(tempReal) )
+   if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh) + fabs(inLow)) )
    {
       tempReal = 4 * (inHigh - inLow) / tempReal;
       sp->periodTotalUpper += inHigh * (1 + tempReal);
@@ -414,7 +431,7 @@ static void TA_ACCBANDS_StepImpl( struct TA_ACCBANDS_Stream *sp, double inHigh, 
    tempLower = sp->periodTotalLower;
    /* Remove the trailing bar from each running sum. */
    tempReal = sp->ring_trailingIdx_inHigh[sp->ringPos_trailingIdx] + sp->ring_trailingIdx_inLow[sp->ringPos_trailingIdx];
-   if( !TA_IS_ZERO(tempReal) )
+   if( !TA_IS_ZERO_SCALED(tempReal, fabs(sp->ring_trailingIdx_inHigh[sp->ringPos_trailingIdx]) + fabs(sp->ring_trailingIdx_inLow[sp->ringPos_trailingIdx])) )
    {
       tempReal = 4 * (sp->ring_trailingIdx_inHigh[sp->ringPos_trailingIdx] - sp->ring_trailingIdx_inLow[sp->ringPos_trailingIdx]) / tempReal;
       sp->periodTotalUpper -= sp->ring_trailingIdx_inHigh[sp->ringPos_trailingIdx] * (1 + tempReal);
@@ -448,9 +465,9 @@ static TA_RetCode TA_ACCBANDS_OpenImpl( struct TA_ACCBANDS_Stream **stream, cons
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 20;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -519,8 +536,17 @@ static TA_RetCode TA_ACCBANDS_OpenImpl( struct TA_ACCBANDS_Stream **stream, cons
       i = trailingIdx;
       while( i < startIdx )
       {
+         /* The band factor 4*(H-L)/(H+L) is a ratio of two prices, so it is
+          * scale-free -- but H+L is a sum that CANCELS when the two prices have
+          * opposite signs, and the factor then blows up on what is left of the
+          * operands' last bits. Test the sum against ITS OWN operands, not against
+          * a fixed band: an absolute threshold answers "cancelled" for every bar
+          * of an instrument quoted small enough to fall under it, and widened
+          * every band it touched (issue #253). Same test on all three sites, so
+          * the bar that enters a running sum is the one that later leaves it.
+          */
          tempReal = inHigh[i] + inLow[i];
-         if( !TA_IS_ZERO(tempReal) )
+         if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh[i]) + fabs(inLow[i])) )
          {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
@@ -542,7 +568,7 @@ static TA_RetCode TA_ACCBANDS_OpenImpl( struct TA_ACCBANDS_Stream **stream, cons
       {
          /* Add the incoming bar to each running sum. */
          tempReal = inHigh[i] + inLow[i];
-         if( !TA_IS_ZERO(tempReal) )
+         if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh[i]) + fabs(inLow[i])) )
          {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
@@ -560,7 +586,7 @@ static TA_RetCode TA_ACCBANDS_OpenImpl( struct TA_ACCBANDS_Stream **stream, cons
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
          tempReal = inHigh[trailingIdx] + inLow[trailingIdx];
-         if( !TA_IS_ZERO(tempReal) )
+         if( !TA_IS_ZERO_SCALED(tempReal, fabs(inHigh[trailingIdx]) + fabs(inLow[trailingIdx])) )
          {
             tempReal = 4 * (inHigh[trailingIdx] - inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= inHigh[trailingIdx] * (1 + tempReal);
@@ -590,7 +616,7 @@ static TA_RetCode TA_ACCBANDS_OpenImpl( struct TA_ACCBANDS_Stream **stream, cons
       sp->periodTotalMiddle = periodTotalMiddle;
       sp->periodTotalLower = periodTotalLower;
       sp->ringCap_trailingIdx = (int)(i - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_ACCBANDS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_ACCBANDS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(185); }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inHigh = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inHigh ) { TA_ACCBANDS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -639,9 +665,9 @@ TA_LIB_API TA_RetCode TA_ACCBANDS_Open( TA_ACCBANDS_Stream **stream, const doubl
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    return TA_ACCBANDS_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
 }
 
@@ -649,10 +675,9 @@ TA_LIB_API TA_RetCode TA_ACCBANDS_OpenAndFill( TA_ACCBANDS_Stream **stream, cons
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( (const void *)outRealUpperBand == (const void *)inHigh || (const void *)outRealUpperBand == (const void *)inLow || (const void *)outRealUpperBand == (const void *)inClose || (const void *)outRealMiddleBand == (const void *)inHigh || (const void *)outRealMiddleBand == (const void *)inLow || (const void *)outRealMiddleBand == (const void *)inClose || (const void *)outRealLowerBand == (const void *)inHigh || (const void *)outRealLowerBand == (const void *)inLow || (const void *)outRealLowerBand == (const void *)inClose || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
    return TA_ACCBANDS_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
 }

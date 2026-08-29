@@ -3,15 +3,18 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  112400 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
- *  062804 MF   Resolve div by zero bug on limit case.
+ *  112400 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  062804 MF    Resolve div by zero bug on limit case.
+ *  082326 MF,CC Fix #253. Test the gain+loss total exactly instead of against
+ *               the fixed TA_IS_ZERO band, which zeroed the index for any
+ *               instrument quoted small enough to fall under it.
  */
 
    /**
@@ -163,7 +166,7 @@
        */
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+         if( tempValue1 > 0.0 ) {
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
@@ -208,7 +211,7 @@
          prevLoss /= (double)optInTimePeriod;
          prevGain /= (double)optInTimePeriod;
          tempValue1 = prevGain + prevLoss;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+         if( tempValue1 > 0.0 ) {
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
@@ -291,7 +294,7 @@
       prevGain /= (double)optInTimePeriod;
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+         if( tempValue1 > 0.0 ) {
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
@@ -330,7 +333,7 @@
          prevLoss /= (double)optInTimePeriod;
          prevGain /= (double)optInTimePeriod;
          tempValue1 = prevGain + prevLoss;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+         if( tempValue1 > 0.0 ) {
             outReal[outIdx] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
@@ -384,15 +387,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CMO
     * @see Core#STOCHRSI
@@ -404,9 +406,9 @@
                         double outReal[] )
    {
       requireIndexRange("RSI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, RSI_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("RSI", startIdx, RSI_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("RSI", "inReal", inReal, guardInLen);
       requireLength("RSI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -462,15 +464,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CMO
     * @see Core#STOCHRSI
@@ -482,9 +483,9 @@
                         double outReal[] )
    {
       requireIndexRange("RSI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, RSI_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("RSI", startIdx, RSI_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("RSI", "inReal", inReal, guardInLen);
       requireLength("RSI", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -590,6 +591,8 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
+         requireArgument("RSI updateAndFill", "inReal", inReal);
+         requireArgument("RSI updateAndFill", "outReal", outReal);
          final int barCount = inReal.length;
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("RSI updateAndFill: BadParam", RetCode.BadParam);
@@ -655,7 +658,7 @@
       sp.prevLoss /= (double)sp.optInTimePeriod;
       sp.prevGain /= (double)sp.optInTimePeriod;
       tempValue1 = sp.prevGain + sp.prevLoss;
-      if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+      if( tempValue1 > 0.0 ) {
          sp.cur_outReal = 100.0 * (sp.prevGain / tempValue1);
       } else {
          sp.cur_outReal = 0.0;
@@ -677,7 +680,7 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -789,7 +792,7 @@
        */
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+         if( tempValue1 > 0.0 ) {
             outReal[outIdx * outStride] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
@@ -834,7 +837,7 @@
          prevLoss /= (double)optInTimePeriod;
          prevGain /= (double)optInTimePeriod;
          tempValue1 = prevGain + prevLoss;
-         if( !((-0.00000000000001 < tempValue1) && (tempValue1 < 0.00000000000001)) ) {
+         if( tempValue1 > 0.0 ) {
             outReal[outIdx * outStride] = 100.0 * (prevGain / tempValue1);
             outIdx = outIdx + 1;
          } else {
@@ -899,10 +902,15 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public RSI_Stream RSI_Open( double inReal[], int optInTimePeriod )
    {
+      requireArgument("RSI open", "inReal", inReal);
+      requireHistory("RSI open", inReal.length);
       return RSI_OpenInternal(inReal, 0, optInTimePeriod);
    }
    /**
@@ -910,12 +918,18 @@
     * to {@link Core#RSI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link RSI_Stream#outRange()}.
     */
    public RSI_Stream RSI_OpenAndFill( double inReal[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("RSI openAndFill", "inReal", inReal);
+      requireHistory("RSI openAndFill", inReal.length);
+      int guardOutLen = openFillCount("RSI openAndFill", inReal.length, RSI_Lookback(optInTimePeriod));
+      requireLength("RSI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal ) {
          throw new TaLibArgumentException("RSI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

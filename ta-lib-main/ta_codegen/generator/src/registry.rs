@@ -76,6 +76,13 @@ impl Registry {
         self.callee_out_names.get(key).map_or(&[][..], Vec::as_slice)
     }
 
+    /// Which of an indicator's outputs are `nullable` — index-aligned with
+    /// [`Self::callee_outputs`], empty if unknown. A cross-call may hand `NULL`
+    /// to a slot only where this is true (rule B6a).
+    pub(crate) fn callee_out_nullable(&self, key: &str) -> &[bool] {
+        self.callee_sigs.get(key).map_or(&[][..], |s| s.out_nullable.as_slice())
+    }
+
     /// The declared name of an indicator dir-name — what every backend spells
     /// verbatim, and what C prefixes with `TA_`.
     pub(crate) fn name_of(&self, key: &str) -> String {
@@ -97,24 +104,19 @@ impl Registry {
     ///
     /// Returns the original name unchanged if the indicator is not found.
     pub fn resolve_call(&self, func_name: &str, lang: Lang) -> String {
-        // Bare indicator names resolve to the guarded entry point.
+        // Bare indicator names resolve to the public entry point.
         //
         // This is safe structurally: a composite's lookback is *defined* as its
         // callee's lookback plus the extra history it needs, so a startIdx already
         // clamped to the composite's lookback lands exactly on the callee's.
         //
-        // C, Java and C# resolve it to the PUBLIC entry point, which is what C
-        // has always done (`TA_MA` is C's public API, declared in ta_func.h).
-        // RUST IS THE EXCEPTION: the bare name it gets back here is the public
-        // one, and `rust_lang::internal_callee` then appends `_Impl` itself,
-        // because its public tier is a thin `Result` adapter that adds no checks
-        // the body's asserts do not already make (see CLAUDE.md).
-        // Java used to route to the package-private `…_Impl` so the caller
-        // could pass the C-shaped MInteger out-params; the call sites now bind
-        // the returned `OutRange` instead (#236 step 3), which is what puts the
-        // callee's argument checks on the composed path. C# needs no change of
-        // name at all: its two tiers are overloads, and dropping the two `out
-        // int` arguments selects the public one.
+        // All four resolve it to the PUBLIC entry point, which is what C has
+        // always done (`TA_MA` is C's public API, declared in ta_func.h). Java
+        // (#236 step 3) and Rust (#267) bind the returned `OutRange` rather than
+        // C-shaped out-params, which is what puts the callee's argument checks on
+        // the composed path. C# needs no change of name at all: its two tiers are
+        // overloads, and dropping the two `out int` arguments selects the public
+        // one.
         if self.contains(func_name) {
             let name = self.name_of(func_name);
             return match lang {
@@ -213,13 +215,11 @@ mod tests {
         );
 
         // Bare indicator names resolve to the PUBLIC entry point — the one a
-        // user can reach — in every backend. Java used to route to the
-        // package-private `…_Impl` so the caller could hand the C-shaped
-        // MInteger out-params straight through; the call sites bind the returned
-        // OutRange instead since #236 step 3, which is what puts the callee's
-        // argument checks on the composed path. C# needs no name change at all:
-        // its two tiers are overloads, and dropping the two `out int` arguments
-        // is what selects the public one.
+        // user can reach — in every backend. Java's call sites bind the returned
+        // OutRange rather than C-shaped MInteger out-params (#236 step 3), which
+        // is what puts the callee's argument checks on the composed path. C#
+        // needs no name change at all: its two tiers are overloads, and dropping
+        // the two `out int` arguments is what selects the public one.
         assert_eq!(registry.resolve_call("ema", Lang::C), "TA_EMA");
         assert_eq!(registry.resolve_call("ema", Lang::Rust), "EMA");
         assert_eq!(registry.resolve_call("ema", Lang::Java), "EMA");

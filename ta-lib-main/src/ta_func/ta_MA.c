@@ -136,8 +136,6 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -146,9 +144,44 @@ TA_LIB_API TA_RetCode TA_MA( int    startIdx,
       optInMAType = 0;
    else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
       return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
+   /* Nothing to produce: the range is shorter than the lookback. Answer here
+    * rather than forwarding.
+    *
+    * The VALUE is the same either way: ma_lookback returns exactly the lookback
+    * the arm's callee computes for itself, from the same arguments the arm
+    * passes it, and every callee clamps startIdx to that lookback and yields
+    * 0,0 without reading. What changes is whose frame answers, and that is
+    * visible to one caller only - the zero-length no-I/O probe. It hands the
+    * body empty arrays on this range to check that nothing is read; forwarding
+    * makes the callee's PUBLIC input bound (endIdx + 1 elements, no
+    * sub-lookback escape) answer TA_BAD_PARAM before any array is reached, so
+    * the probe cannot tell "read nothing" from "never ran". ma was the last
+    * core withheld from that sweep for exactly this reason; apo, bbands, ppo,
+    * pvo and stddev already carried this guard. No legitimate caller is
+    * affected: ma's own public tier already requires endIdx + 1 input elements,
+    * and on this range the callee's OUTPUT bound is 0, so a caller sizing by
+    * the published formula was never rejected by it.
+    *
+    * It cannot mask a TA_BAD_PARAM. An optInMAType outside the enum is refused
+    * by the generated entry point above this guard. An in-range member with no
+    * arm here would reach ma_lookback's own default and get 0, and 0 > endIdx
+    * is false for every endIdx the entry point admits, so control still reaches
+    * the switch and still answers TA_BAD_PARAM. The identity path below is out
+    * of the guard's reach for the same reason - its lookback is 0.
+    */
+   if( TA_MA_Lookback(optInTimePeriod,optInMAType) > endIdx )
+   {
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      return TA_SUCCESS;
+   }
    /* No-smoothing identity: period 1 (every MA type) or the explicit
     * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
     */
@@ -225,8 +258,6 @@ TA_RetCode TA_S_MA( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -235,9 +266,19 @@ TA_RetCode TA_S_MA( int    startIdx,
       optInMAType = 0;
    else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
       return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
+   if( TA_MA_Lookback(optInTimePeriod,optInMAType) > endIdx )
+   {
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      return TA_SUCCESS;
+   }
    if( optInTimePeriod == 1 || optInMAType == TA_MAType_DISABLED )
    {
       nbElement = endIdx - startIdx + 1;
@@ -309,9 +350,9 @@ TA_RetCode TA_MA_OpenInternal( struct TA_MA_Stream **stream, const double inReal
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    (void)startIdx;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -432,9 +473,9 @@ TA_LIB_API TA_RetCode TA_MA_Open( TA_MA_Stream **stream, const double inReal[], 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_MA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInMAType, outReal );
 }
 
@@ -445,9 +486,9 @@ TA_LIB_API TA_RetCode TA_MA_OpenAndFill( TA_MA_Stream **stream, const double inR
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
@@ -580,9 +621,9 @@ TA_RetCode TA_MA_OpenAndFillInternal( struct TA_MA_Stream **stream, const double
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -753,7 +794,7 @@ TA_LIB_API TA_RetCode TA_MA_Update( TA_MA_Stream *stream, double inReal, double 
       break;
    default:
       /* Unreachable: Open rejects arms without a sub-stream. */
-      return TA_INTERNAL_ERROR;
+      return TA_INTERNAL_ERROR(343);
    }
    if( retCode != TA_SUCCESS ) return retCode;
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
@@ -793,7 +834,7 @@ TA_LIB_API TA_RetCode TA_MA_Peek( const TA_MA_Stream *stream, double inReal, dou
       return TA_HMA_Peek( (const TA_HMA_Stream *)stream->sub, inReal, outReal );
    default:
       /* Unreachable: Open rejects arms without a sub-stream. */
-      return TA_INTERNAL_ERROR;
+      return TA_INTERNAL_ERROR(344);
    }
 }
 
@@ -852,7 +893,7 @@ TA_LIB_API TA_RetCode TA_MA_UpdateAndFill( TA_MA_Stream *stream, const double in
          break;
       default:
          /* Unreachable: Open rejects arms without a sub-stream. */
-         return TA_INTERNAL_ERROR;
+         return TA_INTERNAL_ERROR(345);
       }
       if( retCode != TA_SUCCESS ) return retCode;
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;

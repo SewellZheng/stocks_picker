@@ -744,6 +744,7 @@ static ErrorNumber testTAFunction_ALL( void )
                                 "HT_DCPERIOD,HT_DCPHASE,HT_TRENDLINE,HT_TRENDMODE,MEDPRICE" );
    DO_TEST( test_func_ma,       "All Moving Averages,"
                                 "SMA,EMA,WMA,DEMA,TEMA,TRIMA,KAMA,MAMA,T3,MA" );
+   DO_TEST( test_func_wma,      "WMA,HMA/RESEED" );
    DO_TEST( test_func_per_hl,   "AROON,AROONOSC,CORREL,BETA,MIDPRICE" );
    DO_TEST( test_func_per_hlc,  "CCI,WILLR,ULTOSC,NATR,ACCBANDS,WAD" );
    DO_TEST( test_func_per_ohlc, "BOP,AVGPRICE" );
@@ -785,8 +786,13 @@ static ErrorNumber testTAFunction_ALL( void )
    DO_TEST( test_func_avgdev,   "AVGDEV" );
    DO_TEST( test_func_bbands,   "BBANDS" );
    DO_TEST( test_func_period_boundary, "PERIOD1/BOUNDARY" );
+   /* Corpus-wide, like the sweep above, so the tag names the property rather
+    * than a function list: changing the quote unit by a power of two must not
+    * change any answer (#253). */
+   DO_TEST( test_func_quote_unit, "QUOTE-UNIT/SCALE" );
    DO_TEST( test_func_mavp,     "MAVP/GROUPING" );
    DO_TEST( test_func_s_overflow, "MATH,ADD,SUB,MULT,DIV" );
+   DO_TEST( test_func_div_zero, "DIV,DIVZERO" );
    /* CDL* is a prefix claim: this one group covers every candlestick, so
     * naming any of them reaches it without the tag listing all 61. */
    DO_TEST( test_candlestick,   "All Candlesticks,CDL*" );

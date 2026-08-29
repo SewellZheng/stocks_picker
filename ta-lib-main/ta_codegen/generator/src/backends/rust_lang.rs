@@ -4,12 +4,13 @@ use std::collections::HashMap;
 use crate::candle_settings::{detect_candle_settings, emit_rust_unpacking};
 use crate::helper_registry::{hoist_block_helpers, try_inline_expr, HelperRegistry};
 use crate::ir::{
-    BinOp, CircBuf, CircBufLayout, EnumDef, Expr, FuncDef, LookbackExpr, OptInput, ParamType,
-    Statement, VarType,
+    BinOp, CircBuf, CircBufLayout, EnumDef, Expr, FuncDef, LookbackExpr, OptInput, Output,
+    ParamType, Statement, VarType,
 };
 use crate::parser::enums::lookup_variant;
 use crate::registry::Registry;
 use super::common::{contains_alloc_err_return, expr_directly_contains_candle_call, find_sizeof_type};
+use super::ir_cleanup;
 
 /// Words this backend cannot render as an identifier (see [`crate::naming`]):
 /// the strict keywords of every edition through 2024, plus the set reserved for
@@ -138,6 +139,12 @@ pub struct RustRenderCtx {
     /// keep pure-`Vec` storage, whose ownership the open path moves into the
     /// stream state struct.
     pub circbuf_hybrid_static: std::collections::HashMap<String, i64>,
+    /// Output parameters typed `Option<&mut [T]>` because their .yaml marks them
+    /// `nullable` (rule B6a). Every store into one is wrapped in an `if let
+    /// Some(..) = ..as_deref_mut()`, so a caller that passed `None` is skipped.
+    /// Populated for the batch bodies; the stream tier keeps its outputs
+    /// required and leaves this empty.
+    pub nullable_outputs: std::collections::HashSet<String>,
 }
 
 /// Locals that carry an enum value, mapped to their Rust type.
@@ -193,8 +200,8 @@ pub(crate) fn prune_enum_locals(
 /// The Rust type of an optional parameter.
 ///
 /// An `enum:` parameter is spelled as its enum, exactly as the YAML declares it
-/// and as C, Java and C# have always emitted it — the backend used to fold it in
-/// with `Integer` and hand callers a bare `i32`.
+/// and as C, Java and C# emit it — never folded in with `Integer`, which hands
+/// callers a bare `i32`.
 pub(crate) fn opt_param_type(t: &ParamType) -> String {
     match t {
         ParamType::Real => "f64".to_string(),
@@ -253,17 +260,17 @@ impl RustRenderCtx {
             matype_map: std::collections::HashMap::new(),
             enum_vars: std::collections::HashMap::new(),
             circbuf_hybrid_static: std::collections::HashMap::new(),
+            nullable_outputs: std::collections::HashSet::new(),
         }
     }
 
     /// Context for a `LookbackExpr::Code` body.
     ///
-    /// Issue #158: this used to be built empty, so every local in a lookback
-    /// body fell through to the naming heuristics — `expr_is_float_typed`
-    /// hard-codes `k` as a Real name (EMA's k factor), so `int k; k +=
-    /// optInTimePeriod;` in a lookback rendered an `as f64` RHS onto a `usize`
-    /// declaration and did not compile, while the same code named `j` did. The
-    /// declared IR type decides, exactly as it does for batch bodies.
+    /// Must carry the body's declarations (#158). Built empty, every local in a
+    /// lookback falls through to the naming heuristics — `expr_is_float_typed`
+    /// hard-codes `k` as a Real name, EMA's k factor — so the same code compiles
+    /// or does not depending on what its locals are called. The declared IR type
+    /// decides, exactly as it does for batch bodies.
     pub fn for_lookback(body: &[Statement]) -> Self {
         let mut index_vars = std::collections::HashSet::new();
         let mut real_vars = std::collections::HashSet::new();
@@ -549,7 +556,19 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
     // Java and C# backends assign the pointer/reference and need no rewrite,
     // and the stream tier keeps the untransformed `func` (it composes its own
     // scratch buffers). See [`ScratchElection`].
-    let elected = elect_output_scratch(func);
+    let mut elected = elect_output_scratch(func);
+    // A cross-call's rejection is answered by the `match` arm the renderer emits
+    // (#267), so the transcribed guard on the code it assigns is dead. Fold it
+    // out here, ahead of everything derived from the body below, so nothing
+    // downstream disagrees about which statements exist. `cross_call_split` is
+    // the same admission test the renderer uses -- see its doc for why it is not
+    // shared with Java and C#.
+    let admits = |f: &str, args: &[Expr]| cross_call_split(f, args, registry).is_some();
+    for body in [&mut elected.body, &mut elected.private_body] {
+        *body = ir_cleanup::drop_answered_cross_call_guards(body, &admits, None);
+        *body = ir_cleanup::drop_deallocation(body);
+        *body = ir_cleanup::drop_inert_guards(body);
+    }
     let func = &elected;
 
     out.push_str(
@@ -628,6 +647,7 @@ fn gen_impl_block(func: &FuncDef, enums: &HashMap<String, EnumDef>, registry: &R
         matype_map: build_matype_map(enums),
         enum_vars,
         circbuf_hybrid_static: collect_circbuf_static(&func.body),
+        nullable_outputs: super::common::nullable_output_names(func),
     };
 
     // `_private` holds the algorithm for the functions that declare one (Rust has
@@ -662,16 +682,16 @@ fn gen_lookback(
     // no-params signatures.
     let emit_lookback_return = |out: &mut String| match &func.lookback {
         Some(LookbackExpr::Literal(n)) => {
-            out.push_str(&format!("        return {n};\n"));
+            out.push_str(&format!("        return Ok({n});\n"));
         }
         Some(LookbackExpr::ParamMinus(param, offset)) => {
-            out.push_str(&format!("        return ({param} - {offset}) as usize;\n"));
+            out.push_str(&format!("        return Ok(({param} - {offset}) as usize);\n"));
         }
         Some(LookbackExpr::Code(stmts)) => {
             out.push_str(&render_lookback_code(stmts, func, enums, registry, helpers));
         }
         None => {
-            out.push_str("        return 0;\n");
+            out.push_str("        return Ok(0);\n");
         }
     };
 
@@ -685,7 +705,7 @@ fn gen_lookback(
 
         out.push_str("    #[inline]\n");
         out.push_str(&format!(
-            "    pub fn {}_Lookback(&self, {}) -> usize {{\n",
+            "    pub fn {}_Lookback(&self, {}) -> Result<usize, RetCode> {{\n",
             snake,
             params.join(", ")
         ));
@@ -698,7 +718,7 @@ fn gen_lookback(
         // Return lookback expression
         emit_lookback_return(&mut out);
     } else {
-        out.push_str(&format!("    pub fn {snake}_Lookback(&self) -> usize {{\n"));
+        out.push_str(&format!("    pub fn {snake}_Lookback(&self) -> Result<usize, RetCode> {{\n"));
         emit_lookback_return(&mut out);
     }
 
@@ -706,11 +726,15 @@ fn gen_lookback(
     out
 }
 
-/// The name a transcribed body calls a sibling indicator by.
+/// The name the LEGACY expression-position rendering calls a sibling indicator
+/// by — the C-shaped `<N>_Impl`.
 ///
-/// C's `TA_MA(...)` is the guarded entry point, which in Rust is now
-/// `MA_Impl` — the C-shaped one. A `_Private` callee already names a
-/// distinct function and is left alone.
+/// A transcribed body does not reach this: a cross-call is rewritten at
+/// statement level by [`render_cross_indicator_call`], which names the public
+/// tier (#267). What is left here is the fallback for a cross-call in
+/// expression position, a shape no definition in the corpus has (the same status
+/// Java's registry branch in `render_func_call` has had since #236 step 3), and
+/// the `_Private` carve-out, which already names a distinct function.
 fn internal_callee(name: &str) -> String {
     if name.ends_with("_Private") {
         name.to_string()
@@ -719,15 +743,36 @@ fn internal_callee(name: &str) -> String {
     }
 }
 
-/// Generate the batch entry point the crate actually exposes: a thin wrapper over
-/// `{snake}_Impl` returning `Result<OutRange, RetCode>`.
+/// Generate the batch entry point the crate actually exposes: the argument
+/// contract, then `{snake}_Impl`, returning `Result<OutRange, RetCode>`.
 ///
-/// This is the same two-tier shape Java and C# ship — their public `SMA` calls the
-/// code-returning one and turns a failure into an exception, returning `OutRange`
-/// otherwise. Here the exception is an `Err`, so the two values a caller wants
-/// (`begIdx`, `count`) come back by value and are unreachable on failure, which is
-/// exactly the guarantee C's "ignore the out-params unless TA_SUCCESS" rule states
-/// in prose and cannot enforce.
+/// This is the same two-tier shape Java and C# ship — their public `SMA` checks
+/// its arguments, calls the code-returning one and turns a failure into an
+/// exception, returning `OutRange` otherwise. Here the exception is an `Err`, so
+/// the two values a caller wants (`begIdx`, `count`) come back by value and are
+/// unreachable on failure, which is exactly the guarantee C's "ignore the
+/// out-params unless TA_SUCCESS" rule states in prose and cannot enforce.
+///
+/// **The buffer bounds live here, not in the body** (#265). `emit_bounds_asserts`
+/// stays where it is and states the same thing to LLVM, but an `assert!` is a
+/// panic, and a caller who handed a short slice deserves the code every other
+/// backend gives them. The two are consistent by construction: the output bound
+/// below is the same inequality the assert makes, and the input bound is
+/// strictly stronger — it drops the `_assertStart > endIdx ||` escape, so a
+/// short input is rejected on a sub-lookback range too, as in Java and C#.
+/// **Every cross-indicator call reaches this tier too** (#267), so the bound a
+/// re-based chain meets is this one, not the assert's — the same bound Java has
+/// applied at the identical call sites since #236 step 3. What the assert's
+/// escape is still for is a call the lookback clamp leaves nothing to compute,
+/// and the phantom-I/O sweep, which hands `<N>_Impl` zero-length slices on
+/// purpose.
+///
+/// **Order is the contract, not an implementation detail.** The index rules
+/// (B1, B2) first, then the parameters (B3, carried by the `<N>_Lookback` call's
+/// `?`), then the buffers (B4, B5) — `docs/error-handling-spec.md` 2.2, and the
+/// same order [`super::java::gen_argument_checks`] emits. Put the input bound at
+/// the top and `SMA(10, 9, ..)` answers `BadParam` where `test_index_range_xlang`
+/// requires `OutOfRangeEndIndex`.
 fn gen_public_entry(
     func: &FuncDef,
     snake: &str,
@@ -755,7 +800,7 @@ fn gen_public_entry(
     for opt in &func.optional_inputs {
         out.push_str(&format!("        {}: {},\n", opt.name, opt_param_type(&opt.param_type)));
     }
-    out.push_str(&gen_generic_output_params(func));
+    out.push_str(&gen_generic_output_params(func, false));
     out.push_str("    ) -> Result<OutRange, RetCode> {\n");
 
     let mut args: Vec<String> = vec!["startIdx".to_string(), "endIdx".to_string()];
@@ -764,6 +809,8 @@ fn gen_public_entry(
     args.push("&mut outBegIdx".to_string());
     args.push("&mut outNBElement".to_string());
     args.extend(func.outputs.iter().map(|o| o.name.clone()));
+
+    out.push_str(&gen_argument_checks(func, snake));
 
     out.push_str("        let mut outBegIdx: usize = 0;\n");
     out.push_str("        let mut outNBElement: usize = 0;\n");
@@ -782,16 +829,82 @@ fn gen_public_entry(
     out
 }
 
+/// The public tier's argument contract: rules B1/B2, then B3, then B4/B5.
+///
+/// The Rust transcription of [`super::java::gen_argument_checks`], down to the
+/// two guard widths. `guardInLen` is `endIdx + 1` **unconditionally** — `endIdx`
+/// past the end of the series the caller supplied is a caller bug on every
+/// range, and the only reason C answers it with `TA_SUCCESS` is that it has no
+/// size to check against. `guardOutLen` is the count actually produced, which on
+/// a range shorter than the lookback is `0`: no output space is owed, so any
+/// length will do, including none (rule N1).
+///
+/// B3 rides on `<N>_Lookback`'s `?`. Rule L2 makes the lookback's parameter
+/// decision the batch tier's own B3 decision on the same parameters, so one call
+/// buys the check and the clamp together — which is what Java's `clampedStart`
+/// does, and what puts B3 ahead of B4/B5.
+///
+/// No `requireArgument` counterpart: a Rust enum cannot be absent, so B4's
+/// presence half is the type system's, as it is in C#.
+fn gen_argument_checks(func: &FuncDef, snake: &str) -> String {
+    let mut out = String::new();
+    // B1/B2 first. `_Impl` states them again -- it is reachable on its own from
+    // a cross-indicator call -- but they have to be HERE, ahead of the buffer
+    // bounds, or a malformed range answers the wrong code. They also make
+    // `endIdx + 1` below non-overflowing.
+    out.push_str("        if startIdx > Self::MAX_INDEX {\n");
+    out.push_str("            return Err(RetCode::OutOfRangeStartIndex);\n");
+    out.push_str("        }\n");
+    out.push_str("        if endIdx > Self::MAX_INDEX || endIdx < startIdx {\n");
+    out.push_str("            return Err(RetCode::OutOfRangeEndIndex);\n");
+    out.push_str("        }\n");
+    if func.inputs.is_empty() && func.outputs.is_empty() {
+        return out;
+    }
+    let lb_args: Vec<String> = func.optional_inputs.iter().map(|o| o.name.clone()).collect();
+    out.push_str(&format!(
+        "        let _guardLb = self.{snake}_Lookback({})?;\n",
+        lb_args.join(", ")
+    ));
+    out.push_str(
+        "        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };\n",
+    );
+    for input in &func.inputs {
+        out.push_str(&format!(
+            "        if {}.len() < endIdx + 1 {{\n            return Err(RetCode::BadParam);\n        }}\n",
+            input.name
+        ));
+    }
+    if !func.outputs.is_empty() {
+        out.push_str(
+            "        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };\n",
+        );
+    }
+    for output in &func.outputs {
+        // A nullable output may be declined with `None` (rule B6a): nothing is
+        // written to it, so there is no capacity to owe. Supplied, it is bounded
+        // like any other -- "declined" is `None` and nothing else.
+        let cond = if output.is_nullable() {
+            format!("{}.as_deref().is_some_and(|o| o.len() < _guardOutLen)", output.name)
+        } else {
+            format!("{}.len() < _guardOutLen", output.name)
+        };
+        out.push_str(&format!(
+            "        if {cond} {{\n            return Err(RetCode::BadParam);\n        }}\n"
+        ));
+    }
+    out
+}
+
 /// Generate the guarded entry point — `{snake}_Impl`, crate-private. Validates
 /// params, then renders the algorithm inline (or delegates to `{snake}_Private`
 /// when the function declares one).
 ///
 /// This keeps C's shape — a `RetCode` plus `&mut outBegIdx` / `&mut outNBElement`
-/// — because that is what the transcribed bodies are written against: 19 of the 33
-/// cross-indicator call sites hand their own out-params straight to the callee and
-/// read them back, and four guards fold "success with zero output" into the same
-/// condition as the error, which `?` cannot express. Java (`SMA_Impl`) and C#
-/// (the `RetCode` overload) route cross-calls the same way. `gen_public_entry`
+/// — because that is what the transcribed bodies are written against, and it is
+/// where the FMA dispatch sits. It is not a cross-call target: a transcribed
+/// body reaches its sibling through the public tier
+/// ([`render_cross_indicator_call`]), as C, Java and C# do (#267). `gen_public_entry`
 /// wraps this into the `Result<OutRange, RetCode>` the crate actually exposes.
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 fn gen_guarded_func(
@@ -805,7 +918,7 @@ fn gen_guarded_func(
 
     // The public wrapper carries the documentation; this one gets a pointer to it.
     out.push_str(&format!(
-        "    /// C-shaped body behind [`Core::{snake}`]: a `RetCode` plus two out-params,\n    /// which is what the transcribed body and its cross-indicator callers expect.\n"
+        "    /// C-shaped body behind [`Core::{snake}`]: a `RetCode` plus two out-params,\n    /// which is what the transcribed body is written against. Since #267 its only\n    /// callers are that wrapper and the phantom-I/O sweep.\n"
     ));
     out.push_str(&format!("    pub(crate) fn {snake}_Impl(\n"));
     out.push_str("        &self,\n");
@@ -814,16 +927,15 @@ fn gen_guarded_func(
     out.push_str(&gen_generic_params(func));
     out.push_str("        outBegIdx: &mut usize,\n");
     out.push_str("        outNBElement: &mut usize,\n");
-    out.push_str(&gen_generic_output_params(func));
+    out.push_str(&gen_generic_output_params(func, true));
     out.push_str("    ) -> RetCode {\n");
 
     // Range check. `usize` makes C's two negative-index conditions
     // unrepresentable, so MAX_INDEX is what gives OutOfRangeStartIndex a
     // producer here at all. The end-index arm answers OutOfRangeEndIndex to
-    // match C and the crate's own abstract tier (#180; C6 of #179 -- every
-    // batch entry point used to answer OutOfRangeStartIndex for endIdx <
-    // startIdx, which no gate could see: the JSON-RPC server re-implements
-    // C's guard, so the crate's answer never reached the driver).
+    // match C and the crate's own abstract tier (#180; C6 of #179). No gate can
+    // see this arm: the JSON-RPC server re-implements C's guard, so the crate's
+    // own answer never reaches the driver.
     out.push_str("        if startIdx > Self::MAX_INDEX {\n");
     out.push_str("            return RetCode::OutOfRangeStartIndex;\n");
     out.push_str("        }\n");
@@ -836,6 +948,17 @@ fn gen_guarded_func(
         out.push_str(&gen_opt_param_validation(opt, "        ", false, enums));
     }
 
+    // The bounds-assert preamble: the LLVM proof that elides per-access bounds
+    // checks in a `#![forbid(unsafe_code)]` crate. `guard_empty_range` keeps a
+    // call that computes nothing from panicking.
+    //
+    // BEFORE the aliasing guard below, because the spec orders B5 (a buffer too
+    // short) ahead of B6 (two outputs are the same buffer) and a call that is
+    // both must report the first (#261). The two answer DIFFERENT things here --
+    // a panic against `BadParam` -- so, unlike two rules that share a code, the
+    // order is observable and owed.
+    out.push_str(&emit_bounds_asserts(func, snake, true));
+
     // Output-distinctness (issue #108): aliasing two different output buffers has
     // no correct result. The borrow checker already forbids a safe caller from
     // passing the same `&mut` slice twice, so this only guards the unsafe/FFI
@@ -845,21 +968,23 @@ fn gen_guarded_func(
         let mut pairs: Vec<String> = Vec::new();
         for i in 0..func.outputs.len() {
             for j in (i + 1)..func.outputs.len() {
-                pairs.push(format!(
-                    "{}.as_ptr() == {}.as_ptr()",
-                    func.outputs[i].name, func.outputs[j].name
-                ));
+                let (a, b) = (&func.outputs[i], &func.outputs[j]);
+                // Cross-typed pairs are skipped: `*const f64` and `*const i32`
+                // are not comparable, and safe code cannot lay a `&mut [f64]`
+                // over a `&mut [i32]` to begin with. All four backends now skip
+                // them — Appendix E of `docs/error-handling-spec.md`, #262.
+                if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
+                    continue;
+                }
+                pairs.push(alias_pair_expr(a, b));
             }
         }
-        out.push_str(&format!("        if {} {{\n", pairs.join(" || ")));
-        out.push_str("            return RetCode::BadParam;\n");
-        out.push_str("        }\n");
+        if !pairs.is_empty() {
+            out.push_str(&format!("        if {} {{\n", pairs.join(" || ")));
+            out.push_str("            return RetCode::BadParam;\n");
+            out.push_str("        }\n");
+        }
     }
-
-    // The bounds-assert preamble: the LLVM proof that elides per-access bounds
-    // checks in a `#![forbid(unsafe_code)]` crate. `guard_empty_range` keeps a
-    // call that computes nothing from panicking.
-    out.push_str(&emit_bounds_asserts(func, snake, true));
 
     if func.has_explicit_private {
         // The guarded body contains the pre-computation plus the delegation call
@@ -900,6 +1025,7 @@ fn gen_guarded_func(
             matype_map: build_matype_map(enums),
             enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
+            nullable_outputs: super::common::nullable_output_names(func),
         };
         let g_for_loop_vars = collect_for_loop_vars(&func.body);
         let g_var_inits: std::collections::HashMap<String, &Expr> = func
@@ -999,6 +1125,7 @@ fn gen_guarded_func(
             matype_map: build_matype_map(enums),
             enum_vars,
             circbuf_hybrid_static: collect_circbuf_static(&func.body),
+            nullable_outputs: super::common::nullable_output_names(func),
         };
 
         // Use the same full rendering as the `_private` body
@@ -1171,18 +1298,28 @@ fn gen_private_func(
 /// body — no `unsafe` needed. O(1) per call.
 ///
 /// Output arrays are sized by the caller for the elements actually written:
-/// `endIdx - max(startIdx, lookback) + 1`. Internal callers pass exactly-sized
-/// buffers with `startIdx` below the lookback (e.g. the re-based EMA chaining in
-/// TEMA/DEMA/T3 reached through MA/MACDEXT), so the bound uses the adjusted start.
-/// When the adjusted start exceeds `endIdx` the function writes nothing and any
-/// length is fine.
+/// `endIdx - max(startIdx, lookback) + 1`. A composed caller passes exactly-sized
+/// buffers with `startIdx` below the lookback (the re-based EMA chaining in
+/// TEMA/DEMA/T3 reached through MA/MACDEXT), so the bound uses the adjusted start
+/// — and since #267 that caller meets the same expression one tier up, in
+/// [`gen_argument_checks`], before it ever reaches here. When the adjusted start
+/// exceeds `endIdx` the function writes nothing and any length is fine.
 ///
 /// `guard_empty_range` makes the INPUT assertion take that same escape, and is set
-/// on the public guarded entry point only. A call whose lookback clamp pushes the
+/// on `<N>_Impl` only. A call whose lookback clamp pushes the
 /// start past `endIdx` returns `Success` with zero elements and touches neither
 /// array, so asserting on it would panic where the contract says success. On every
 /// call that *does* compute, the escape is false and the proof handed to LLVM is
 /// identical.
+///
+/// **This is not what a caller of the crate sees.** Since #265 the public entry
+/// point states the same bounds ahead of the call, as `RetCode::BadParam`
+/// ([`gen_argument_checks`]) — strictly stronger on the input side, since it
+/// takes no escape — so a `pub fn` call cannot reach these asserts with a slice
+/// they would reject. Since #267 a cross-indicator call enters that same public
+/// tier, so what still meets these asserts is `pub fn <N>` and the phantom-I/O
+/// sweep — they remain the LLVM proof, and a panic is the right answer to what
+/// would be a generator bug.
 fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> String {
     let mut out = String::new();
     let needs_start = guard_empty_range || !func.outputs.is_empty();
@@ -1190,7 +1327,7 @@ fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> 
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|o| o.name.clone()).collect();
         out.push_str(&format!(
-            "        let _assertLb = self.{snake}_Lookback({});\n",
+            "        let _assertLb = self.{snake}_Lookback({}).unwrap_or(usize::MAX);\n",
             lb_args.join(", ")
         ));
         out.push_str(
@@ -1198,25 +1335,32 @@ fn emit_bounds_asserts(func: &FuncDef, snake: &str, guard_empty_range: bool) -> 
         );
     }
     let escape = if guard_empty_range { "_assertStart > endIdx || " } else { "" };
-    // Only assert on inputs the body actually reads: asserting on a leg the
-    // algorithm ignores would reject a caller who legitimately passed a short or
-    // empty slice, while proving nothing to LLVM — which is the only reason the
-    // assert is here. Shared with the Java argument checks, which bound the same
-    // accesses (`backends::common::indexed_input_names`).
-    let indexed = super::common::indexed_input_names(func);
+    // EVERY declared input, including the seven candlestick legs whose body never
+    // indexes them (#260). For the legs the body DOES read the assert is the LLVM
+    // proof; for the seven it proves nothing and states B4/B5 instead — a `len()`
+    // compare in the entry block, outside every loop, on a call that is about to
+    // walk the series. Filtering them out bought that and cost the contract: a
+    // declared input a caller may omit is an exception list, and C never had one,
+    // so the same call was `TA_BAD_PARAM` there and a success here.
     for input in &func.inputs {
-        if !indexed.contains(&input.name) {
-            continue;
-        }
         out.push_str(&format!(
             "        assert!({escape}endIdx < {}.len());\n", input.name
         ));
     }
     for output in &func.outputs {
-        out.push_str(&format!(
-            "        assert!(_assertStart > endIdx || endIdx - _assertStart < {}.len());\n",
-            output.name
-        ));
+        // A declined output (`None`, rule B6a) has no capacity to bound: nothing
+        // is written to it, so B5 has nothing to say about it.
+        if output.is_nullable() {
+            out.push_str(&format!(
+                "        assert!(_assertStart > endIdx || {}.as_deref().is_none_or(|o| endIdx - _assertStart < o.len()));\n",
+                output.name
+            ));
+        } else {
+            out.push_str(&format!(
+                "        assert!(_assertStart > endIdx || endIdx - _assertStart < {}.len());\n",
+                output.name
+            ));
+        }
     }
     out
 }
@@ -1260,7 +1404,7 @@ fn gen_private_func_inner(
     }
     out.push_str("        outBegIdx: &mut usize,\n");
     out.push_str("        outNBElement: &mut usize,\n");
-    out.push_str(&gen_generic_output_params(func));
+    out.push_str(&gen_generic_output_params(func, true));
     out.push_str("    ) -> RetCode {\n");
 
     // Declare local variables (excluding loop iterators consumed by for-loops)
@@ -1473,15 +1617,88 @@ fn gen_generic_params(func: &FuncDef) -> String {
     out
 }
 
+/// The Rust type of one output parameter.
+///
+/// A `nullable` output (rule B6a) is `Option<&mut [T]>`. Rust can spell
+/// "declined" distinctly from "empty" and so it does, which leaves C# the only
+/// backend where the two collapse — Appendix F of `docs/error-handling-spec.md`.
+/// `None` means *compute it but do not write it out*: every store to that output
+/// is guarded and its capacity assert is skipped.
+fn output_param_type(output: &Output) -> String {
+    let elem = match output.param_type {
+        ParamType::Real => "f64",
+        ParamType::Integer | ParamType::Enum(_) | ParamType::Price(_) => "i32",
+    };
+    if output.is_nullable() {
+        format!("Option<&mut [{elem}]>")
+    } else {
+        format!("&mut [{elem}]")
+    }
+}
+
+/// If `target` stores into one of the `nullable` outputs (an `Option<&mut [T]>`
+/// the caller may pass `None` to decline — rule B6a), return its base name so
+/// the store can be wrapped in `if let Some(..) = ..as_deref_mut()`. Matches the
+/// array store `outX[i] = …` and the scalar store `outX = …`; the value side is
+/// never involved.
+fn nullable_target_base<'a>(
+    target: &Expr,
+    nullable: &'a std::collections::HashSet<String>,
+) -> Option<&'a String> {
+    let (Expr::ArrayAccess(name, _) | Expr::PointerDeref(name) | Expr::Var(name)) = target else {
+        return None;
+    };
+    nullable.get(name)
+}
+
+/// One term of the output-distinctness guard (#108): do these two outputs name
+/// the same buffer?
+///
+/// **Both operands must be non-empty.** Two zero-length slices cannot clobber
+/// each other, and every unallocated `Vec` hands out the same dangling aligned
+/// pointer — so a bare `as_ptr()` comparison rejected three separately allocated
+/// empty `Vec`s while accepting three zero-length subslices of one buffer, which
+/// is worse than either answer. A range shorter than the lookback produces
+/// nothing and needs no output space (rule N1), so those calls are legal and C
+/// and Java always accepted them (Appendix D item 11).
+///
+/// A nullable output contributes a term only when the caller supplied it: `None`
+/// is a declaration that nothing is written there, not a buffer that could alias.
+fn alias_pair_expr(a: &Output, b: &Output) -> String {
+    match (a.is_nullable(), b.is_nullable()) {
+        (false, false) => format!(
+            "(!{0}.is_empty() && !{1}.is_empty() && {0}.as_ptr() == {1}.as_ptr())",
+            a.name, b.name
+        ),
+        (true, false) => format!(
+            "{0}.as_deref().is_some_and(|a| !a.is_empty() && !{1}.is_empty() && a.as_ptr() == {1}.as_ptr())",
+            a.name, b.name
+        ),
+        (false, true) => format!(
+            "{1}.as_deref().is_some_and(|b| !{0}.is_empty() && !b.is_empty() && {0}.as_ptr() == b.as_ptr())",
+            a.name, b.name
+        ),
+        (true, true) => format!(
+            "{0}.as_deref().zip({1}.as_deref()).is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.as_ptr() == b.as_ptr())",
+            a.name, b.name
+        ),
+    }
+}
+
 /// Generate generic output parameter declarations for a function signature.
-fn gen_generic_output_params(func: &FuncDef) -> String {
+///
+/// `mut_binding` is for the entry points that render a body: a nullable output
+/// is re-borrowed with `as_deref_mut()` at every store, which needs a mutable
+/// binding. The forwarding wrappers, which only pass it on, leave it off.
+fn gen_generic_output_params(func: &FuncDef, mut_binding: bool) -> String {
     let mut out = String::new();
     for output in &func.outputs {
-        let param_type = match output.param_type {
-            ParamType::Real => "&mut [f64]",
-            ParamType::Integer | ParamType::Enum(_) | ParamType::Price(_) => "&mut [i32]",
-        };
-        out.push_str(&format!("        {}: {},\n", output.name, param_type));
+        let binding = if mut_binding && output.is_nullable() { "mut " } else { "" };
+        out.push_str(&format!(
+            "        {binding}{}: {},\n",
+            output.name,
+            output_param_type(output)
+        ));
     }
     out
 }
@@ -1489,7 +1706,7 @@ fn gen_generic_output_params(func: &FuncDef) -> String {
 /// Generate optional parameter validation code.
 fn gen_opt_param_validation(opt: &OptInput, pad: &str, is_lookback: bool, enums: &HashMap<String, EnumDef>) -> String {
     let err_return = if is_lookback {
-        "return usize::MAX;"
+        "return Err(RetCode::BadParam);"
     } else {
         "return RetCode::BadParam;"
     };
@@ -2668,6 +2885,27 @@ impl StatementEmitter for RustStmt<'_, '_> {
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn assign(&self, target: &Expr, value: &Expr, compound: bool, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        // `retCode = ma(..)` -- a cross-indicator call, which goes to the
+        // callee's PUBLIC entry point and answers a range or an `Err` (#267).
+        // The assigned code is `Success` by construction, and
+        // `ir_cleanup::drop_answered_cross_call_guards` folds the guard that
+        // follows out of the body. The assignment itself stays: 10 of those
+        // guards carry a live `|| count == 0` half that still reads it.
+        if !compound {
+            if let Expr::FuncCall(fname, cargs) = value {
+                if self.registry.contains(fname) {
+                    if let Some(block) = render_cross_indicator_call(
+                        fname, cargs, indent, self.ctx.result_error_returns, self.ctx,
+                        self.opt_real_params, self.registry, self.helpers, self.inline_counter,
+                    ) {
+                        let t = render_assign_target(
+                            target, self.ctx, self.opt_real_params, self.registry, self.helpers,
+                        );
+                        return format!("{block}{pad}{t} = RetCode::Success;\n");
+                    }
+                }
+            }
+        }
         // Split arr[idx++] = value into arr[idx] = value; idx += 1;
         // This enables LLVM auto-vectorization by exposing idx as a clean
         // linear induction variable (the block expression { let _v = idx; idx += 1; _v }
@@ -2750,17 +2988,17 @@ impl StatementEmitter for RustStmt<'_, '_> {
                             // Issue #158: the target's Rust type is classified
                             // POSITIVELY (declared IR type first, naming
                             // heuristics only for names no declaration covers).
-                            // It used to be a negative test — "not recognised as
-                            // index-ish, therefore f64" — which put an `as f64`
-                            // RHS on an integer local whose name happened not to
-                            // be on the hard-coded list.
+                            // Never a negative test — "not recognised as
+                            // index-ish, therefore f64" puts an `as f64` RHS on
+                            // any integer local whose name is off the hard-coded
+                            // list.
                             let target_ty = scalar_target_ty(tname, self.ctx, self.opt_real_params, self.helpers);
                             let rhs_wrapped = match target_ty {
                                 ScalarTy::F64 => {
                                     // `_ctx` and `renders_usize` rather than the
                                     // bare predicates: a sentinel local and a
                                     // usize⊕i32 BinOp both reach an f64 target
-                                    // as integers, and both used to arrive uncast.
+                                    // as integers, and neither may arrive uncast.
                                     if expr_is_untyped_integer(right)
                                         || expr_is_i32_typed_ctx(right, self.ctx)
                                         || (compound_rhs_renders_usize(right, self.ctx)
@@ -2977,6 +3215,21 @@ impl StatementEmitter for RustStmt<'_, '_> {
         } else {
             false
         };
+        // A store into a nullable output is wrapped: the parameter is
+        // `Option<&mut [T]>`, and `None` means the caller declined it (rule
+        // B6a). The `if let` shadows the parameter name with the slice, so
+        // `target_str` and the whole cast chain below render unchanged. The
+        // `outIdx` advance rides the non-nullable partner's write (see mama.c),
+        // so guarding this store is complete.
+        let (pad, close) = match nullable_target_base(target, &self.ctx.nullable_outputs) {
+            Some(base) => {
+                out.push_str(&format!(
+                    "{pad}if let Some({base}) = {base}.as_deref_mut() {{\n"
+                ));
+                (format!("{pad}    "), format!("{pad}}}\n"))
+            }
+            None => (pad, String::new()),
+        };
         if needs_to_vec {
             out.push_str(&format!("{pad}{target_str} = {value_str}.to_vec();\n"));
         } else if needs_sentinel_i32_cast {
@@ -2999,6 +3252,7 @@ impl StatementEmitter for RustStmt<'_, '_> {
         } else {
             out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
         }
+        out.push_str(&close);
         out
     }
 
@@ -3150,17 +3404,30 @@ impl StatementEmitter for RustStmt<'_, '_> {
 
     fn return_stmt(&self, value: &Option<Expr>, indent: usize) -> String {
         let pad = " ".repeat(indent);
+        // `return macd(..)` -- the tail-call form of a cross-indicator call
+        // (MACDEXT is the only one). Batch tier only: a stream Open maps its
+        // returns through `rust_stream::map_return_code` before this sees them,
+        // and a tail-call there would have no `Ok` value to answer with. None
+        // exists; if one ever does, it falls through to the `<N>_Impl` rendering
+        // and `rust_cross_calls_target_the_public_tier` fails on it.
+        if !self.ctx.result_error_returns {
+            if let Some(Expr::FuncCall(fname, cargs)) = value {
+                if self.registry.contains(fname) {
+                    if let Some(block) = render_cross_indicator_call(
+                        fname, cargs, indent, false, self.ctx, self.opt_real_params,
+                        self.registry, self.helpers, self.inline_counter,
+                    ) {
+                        return format!("{block}{pad}return RetCode::Success;\n");
+                    }
+                }
+            }
+        }
         match value {
             Some(expr) if self.ctx.is_lookback && is_negative_one(expr) => {
                 // The lookback bad-param contract: -1 in C, Java and C#; Rust's
-                // lookback returns `usize`, whose sentinel is usize::MAX.
-                // The parser desugars the unary minus to `0 - 1`, and in a usize
-                // return position that is a deny-by-default `arithmetic_overflow`
-                // ERROR in every profile -- the crate compiles at all only
-                // because lib.rs allows that lint crate-wide, and under the allow
-                // it wraps in release and panics in debug. Translate the contract
-                // here rather than leave it as arithmetic riding on the allow.
-                format!("{pad}return usize::MAX;\n")
+                // lookback returns `Result<usize, RetCode>`, so the same C-side
+                // `return -1;` becomes an `Err` here rather than a sentinel value.
+                format!("{pad}return Err(RetCode::BadParam);\n")
             }
             Some(expr) => {
                 let rendered = render_return_expr(expr, self.ctx, self.opt_real_params, self.registry, self.helpers);
@@ -3168,12 +3435,13 @@ impl StatementEmitter for RustStmt<'_, '_> {
                 let is_already_usize = matches!(expr, Expr::Var(ref n) if n == "retValue" || n == "lookbackTotal" || n == "emaLookback")
                     || expr_is_known_usize_ctx(expr, self.ctx)
                     || expr_returns_usize(expr);
-                if self.ctx.is_lookback && !is_already_usize
-                    && !matches!(expr, Expr::Var(ref n) if n == "SUCCESS" || n == "BadParam" || n.starts_with("RetCode"))
-                {
-                    format!("{pad}return ({rendered}) as usize;\n")
+                let needs_cast = self.ctx.is_lookback && !is_already_usize
+                    && !matches!(expr, Expr::Var(ref n) if n == "SUCCESS" || n == "BadParam" || n.starts_with("RetCode"));
+                let inner = if needs_cast { format!("({rendered}) as usize") } else { rendered };
+                if self.ctx.is_lookback {
+                    format!("{pad}return Ok({inner});\n")
                 } else {
-                    format!("{pad}return {rendered};\n")
+                    format!("{pad}return {inner};\n")
                 }
             }
             None => format!("{pad}return;\n"),
@@ -4221,10 +4489,11 @@ fn expr_is_i32_typed_ctx(expr: &Expr, ctx: &RustRenderCtx) -> bool {
     }
     match expr {
         Expr::Var(name) => ctx.sentinel_vars.contains(name),
-        // The same operator set `expr_is_i32_typed` folds over. It used to stop
-        // at the four arithmetic ones, so `lag & 3` — a signed local masked by a
-        // literal — was typed by nothing, and a usize target took no cast from
-        // the assign ladder while `head = lag` took one. Issue #165.
+        // The SAME operator set `expr_is_i32_typed` folds over — the shifts and
+        // the bitwise ones included, not just the four arithmetic. Stop at those
+        // four and `lag & 3` (a signed local masked by a literal) is typed by
+        // nothing, so a usize target takes no cast from the assign ladder, though
+        // the bare `head = lag` does. Issue #165.
         Expr::BinOp(
             left,
             BinOp::Add
@@ -4666,7 +4935,22 @@ fn render_func_call(
                 }
             })
             .collect();
-        format!("self.{}({})", rust_name, rendered_args.join(", "))
+        let call = format!("self.{}({})", rust_name, rendered_args.join(", "));
+        // The callee returns `Result<usize, RetCode>`. Inside another
+        // Result-returning body (a lookback body composing a callee's lookback,
+        // or the stream tier) the failure genuinely propagates with `?`.
+        // Inside the plain batch/`_Impl` tier (bare `RetCode`, no `?` available)
+        // the call sits at a point where the same parameters were already
+        // validated by this function's own prologue against an identical range,
+        // so `Err` is unreachable in practice. `unwrap_or(usize::MAX)` rather
+        // than an assert per call site: it yields the same sentinel a failing
+        // lookback reports, so the behaviour holds even if that ever stops
+        // being true.
+        if ctx.is_lookback || ctx.result_error_returns {
+            format!("{call}?")
+        } else {
+            format!("{call}.unwrap_or(usize::MAX)")
+        }
     } else if let Some(mf) = MathFn::from_name(fname) {
         // Math functions take priority over the indicator registry.
         // `atan(x)` in source means the C math function, not a cross-indicator call.
@@ -4729,8 +5013,14 @@ fn render_func_call(
                 }
             }
             StdlibFn::Free => {
-                // No-op in Rust (Vec/Box drops automatically)
-                String::new()
+                // Deallocation is removed from the IR before rendering, so this
+                // arm is the assertion that it was -- not a second way to make a
+                // `free` vanish, which could disagree with the pass.
+                unreachable!(
+                    "free() reached the Rust renderer: `ir_cleanup::drop_deallocation` \
+                     runs on every body this backend renders, so a `free` here means a \
+                     render path was added without the cleanup sequence"
+                )
             }
             StdlibFn::Memcpy | StdlibFn::Memmove => {
                 // memcpy/memmove(dst, src, count) → slice copy. When src and dst
@@ -4815,11 +5105,13 @@ fn render_func_call(
         // Cross-indicator call: use registry to resolve the function name.
         // Bare names (ema) → ema. Private names (ema_private) → ema_private.
         let resolved = registry.resolve_call(fname, crate::registry::Lang::Rust);
-        let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
+        let nullable = registry.callee_out_nullable(fname.trim_end_matches("_private"));
+        let (rendered_args, aliased) = render_cross_indicator_args(args, None, nullable, ctx, opt_real_params, registry, helpers);
         wrap_cross_indicator_call(format!("self.{}({})", internal_callee(&resolved), rendered_args.join(", ")), &aliased)
     } else if is_ta_function(fname) {
         let rust_name = fname.to_uppercase();
-        let (rendered_args, aliased) = render_cross_indicator_args(args, ctx, opt_real_params, registry, helpers);
+        let nullable = registry.callee_out_nullable(&fname.to_lowercase());
+        let (rendered_args, aliased) = render_cross_indicator_args(args, None, nullable, ctx, opt_real_params, registry, helpers);
         wrap_cross_indicator_call(format!("self.{}({})", internal_callee(&rust_name), rendered_args.join(", ")), &aliased)
     } else {
         let rendered_args: Vec<String> = args
@@ -4827,6 +5119,130 @@ fn render_func_call(
             .map(|a| render_expr(a, ctx, opt_real_params, registry, helpers))
             .collect();
         format!("{}({})", fname, rendered_args.join(", "))
+    }
+}
+
+/// Emit a cross-indicator call to the callee's PUBLIC entry point (#267).
+///
+/// The Rust twin of [`super::java::render_cross_indicator_call`], and it exists
+/// for the same reason: the C source is written in C's idiom -- `retCode = ma(
+/// .., &beg, &nb, buf ); if( retCode != TA_SUCCESS ) return retCode;` -- so a
+/// literal transcription needs a callee that answers a code through
+/// out-parameters. C never did: `ta_APO.c` calls `TA_MA`, which IS C's public
+/// API. All four backends now do the same, which is what puts the callee's
+/// argument checks on the composed path.
+///
+/// One difference from Java, and it is the whole difference: Java's public tier
+/// throws, so the caller's `retCode` is `Success` by construction and nothing
+/// needs writing out. Rust's answers `Err(RetCode)`, and `?` is unavailable in
+/// the 33 sites inside `<N>_Impl`, which returns a bare `RetCode` -- so the error
+/// arm is spelled at every site, as `return _e` there and as `return Err(_e)` at
+/// the three inside a `Result`-returning `<N>_OpenImpl` (`err_returns_result`).
+/// `retCode` is still assigned `Success` afterwards. The guard that used to read
+/// it is folded away by `ir_cleanup::drop_answered_cross_call_guards`, but 10
+/// of the sites fold "success with zero output" into the same conditional
+/// (`if retCode != Success || *outNBElement == 0`); the surviving half still
+/// reads the variable, and dropping the store would need a liveness analysis
+/// that `MA`'s ten dispatch arms defeat.
+///
+/// The two out-parameter arguments are dropped from the call and bound from the
+/// returned [`OutRange`] instead. They are found by ARITHMETIC, as in Java --
+/// the callee's signature is `(startIdx, endIdx, inputs.., opts.., outBegIdx,
+/// outNBElement, outputs..)` and the registry knows how many outputs it declares
+/// -- not by `find_output_boundary`'s scan, which cannot see the difference
+/// between an out-meta pair and a pair of `&scalar` outputs. Returns `None` when
+/// that arithmetic does not hold, so a shape this does not understand falls
+/// through to the old rendering rather than being silently mis-sliced.
+/// Where a cross-indicator call's out-meta pair sits in its argument list, and
+/// the admission test for the whole rewrite: `None` means this shape is not
+/// understood, the call falls through to `render_func_call`, and the caller's
+/// `retCode` then really does carry the callee's code.
+///
+/// The renderer and [`ir_cleanup::drop_answered_cross_call_guards`] must agree
+/// about that, which is the only reason this is a function rather than inline:
+/// a pass that folded a guard the renderer had declined would swallow a live
+/// rejection. The bound is `n_out + 4`, not Java's `n_out + 2` -- do not share
+/// this across backends.
+pub(super) fn cross_call_split(
+    fname: &str,
+    args: &[Expr],
+    registry: &Registry,
+) -> Option<usize> {
+    let n_out = registry.callee_outputs(fname).len();
+    if n_out == 0 || args.len() < n_out + 4 {
+        return None;
+    }
+    let split = args.len() - n_out - 2;
+    // Both out-meta arguments are either `&local` or a pointer parameter passed
+    // straight through. Anything else means the arity arithmetic landed
+    // somewhere it should not have.
+    if !args[split..split + 2]
+        .iter()
+        .all(|a| matches!(a, Expr::AddressOf(_) | Expr::Var(_)))
+    {
+        return None;
+    }
+    Some(split)
+}
+
+fn render_cross_indicator_call(
+    fname: &str,
+    args: &[Expr],
+    indent: usize,
+    err_returns_result: bool,
+    ctx: &RustRenderCtx,
+    opt_real_params: &[String],
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) -> Option<String> {
+    let split = cross_call_split(fname, args, registry)?;
+
+    let pad = " ".repeat(indent);
+    let public = registry.resolve_call(fname, crate::registry::Lang::Rust);
+    let nullable = registry.callee_out_nullable(fname);
+    let (rendered_args, aliased) = render_cross_indicator_args(
+        args, Some(split), nullable, ctx, opt_real_params, registry, helpers,
+    );
+    let call = wrap_cross_indicator_call(
+        format!("self.{public}({})", rendered_args.join(", ")),
+        &aliased,
+    );
+    // The aliasing shim is a block expression; parenthesize it so it cannot be
+    // read as the `match` arm list.
+    let scrutinee = if aliased.is_empty() { call } else { format!("({call})") };
+
+    let n = counter.get();
+    counter.set(n + 1);
+    let tmp = format!("_xr{n}");
+    let err = if err_returns_result { "return Err(_e)" } else { "return _e" };
+    let beg = out_meta_target(&args[split], ctx, opt_real_params, registry, helpers);
+    let nb = out_meta_target(&args[split + 1], ctx, opt_real_params, registry, helpers);
+    Some(format!(
+        "{pad}let {tmp} = match {scrutinee} {{ Ok(_r) => _r, Err(_e) => {err} }};\n\
+         {pad}{beg} = {tmp}.beg_idx;\n\
+         {pad}{nb} = {tmp}.count;\n"
+    ))
+}
+
+/// The assignment target an out-parameter argument names. `&fastBeg` is a local
+/// `usize`; `outNBElement` passed straight through is the caller's own `&mut
+/// usize` parameter and needs the deref. Only an rvalue READ of one goes through
+/// [`render_expr`], which is why this cannot.
+fn out_meta_target(
+    arg: &Expr,
+    ctx: &RustRenderCtx,
+    opt_real_params: &[String],
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    match arg {
+        Expr::AddressOf(inner) => match inner.as_ref() {
+            Expr::Var(n) => n.clone(),
+            other => render_expr(other, ctx, opt_real_params, registry, helpers),
+        },
+        Expr::Var(n) => format!("(*{n})"),
+        other => render_expr(other, ctx, opt_real_params, registry, helpers),
     }
 }
 
@@ -4845,15 +5261,26 @@ fn render_func_call(
 /// avoids both `unsafe` and a full input clone.
 fn render_cross_indicator_args(
     args: &[Expr],
+    out_meta: Option<usize>,
+    callee_out_nullable: &[bool],
     ctx: &RustRenderCtx,
     opt_real_params: &[String],
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> (Vec<String>, Vec<String>) {
-    // Find the outBegIdx/outNBElement boundary: two consecutive AddressOf args.
-    // Everything after the second one is output slice/array position.
-    // Don't use last AddressOf because outputs can also be AddressOf (e.g., &prevATR for scalar T).
-    let output_start = find_output_boundary(args);
+    // `out_meta` is the index of the callee's `outBegIdx` argument when the call
+    // goes to the PUBLIC entry point (#267): the two out-meta arguments are
+    // DROPPED -- the public tier returns the range -- and the outputs start two
+    // slots later, which keeps every `callee_out_nullable` ordinal correct.
+    //
+    // `None` is the legacy expression-position rendering, which still targets
+    // `<N>_Impl` and still passes them. Nothing in the corpus reaches it (the
+    // 36 cross-calls are all statements, and `rust_cross_calls_target_the_public_tier`
+    // pins that); it is kept, like Java's, for a shape neither emitter has met.
+    // There the boundary has to be found by scanning for two consecutive
+    // AddressOf args -- not the LAST AddressOf, because outputs can be AddressOf
+    // too (`&prevATR` for a scalar T).
+    let output_start = out_meta.map_or_else(|| find_output_boundary(args), |i| i + 2);
 
     // Collect output variable names for aliasing detection
     let output_vars: Vec<&str> = args[output_start..].iter()
@@ -4874,15 +5301,19 @@ fn render_cross_indicator_args(
         }
     }
 
-    // Detect duplicate AddressOf vars (e.g., &tempInt used for both outBegIdx and outNBElement)
+    // Detect duplicate AddressOf vars (e.g., &tempInt used for both outBegIdx and
+    // outNBElement). Only the legacy rendering needs this: on the public path
+    // both of those arguments are dropped, and SAR/SAREXT -- the only calls that
+    // pass the same scalar twice -- become two sequential writes to it instead.
     let mut seen_address_of: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Track which args need a pre-declared dummy (second mutable borrow of same var)
     let mut dup_vars: Vec<(usize, String)> = Vec::new();
-    for (i, arg) in args.iter().enumerate() {
-        if let Expr::AddressOf(inner) = arg {
-            if let Expr::Var(name) = inner.as_ref() {
-                if !seen_address_of.insert(name.clone()) {
-                    dup_vars.push((i, name.clone()));
+    if out_meta.is_none() {
+        for (i, arg) in args.iter().enumerate() {
+            if let Expr::AddressOf(inner) = arg {
+                if let Expr::Var(name) = inner.as_ref() {
+                    if !seen_address_of.insert(name.clone()) {
+                        dup_vars.push((i, name.clone()));
+                    }
                 }
             }
         }
@@ -4890,23 +5321,46 @@ fn render_cross_indicator_args(
 
     let rendered = args.iter()
         .enumerate()
+        .filter(|(i, _)| out_meta.is_none_or(|m| *i != m && *i != m + 1))
         .map(|(i, arg)| {
             let is_output = i >= output_start;
-            // In-place aliasing: borrow the input immutably and redirect the output to the
-            // scratch buffer that `render_func_call` swaps back after the call.
-            if let Expr::Var(name) = arg {
-                if aliased_vars.contains(name) {
-                    if is_output {
-                        return format!("&mut _{name}_alias[..]");
+            let rendered = {
+                // In-place aliasing: borrow the input immutably and redirect the output to the
+                // scratch buffer that `render_func_call` swaps back after the call.
+                if let Expr::Var(name) = arg {
+                    if aliased_vars.contains(name) {
+                        if is_output {
+                            format!("&mut _{name}_alias[..]")
+                        } else {
+                            format!("&{name}")
+                        }
+                    } else if dup_vars.iter().any(|(idx, _)| *idx == i) {
+                        // Duplicate &mut borrow: the pre-declared dummy variable.
+                        "&mut _dup_out".to_string()
+                    } else {
+                        render_cross_indicator_arg(arg, i, is_output, ctx, opt_real_params, registry, helpers)
                     }
-                    return format!("&{name}");
+                } else if dup_vars.iter().any(|(idx, _)| *idx == i) {
+                    "&mut _dup_out".to_string()
+                } else {
+                    render_cross_indicator_arg(arg, i, is_output, ctx, opt_real_params, registry, helpers)
                 }
+            };
+            // A `nullable` callee output takes an `Option<&mut [T]>` (rule B6a):
+            // `NULL` already rendered as `None`, and anything else is a buffer
+            // the caller does supply. This wraps EVERY way an output argument can
+            // be rendered, the scratch-buffer and dummy redirections included --
+            // it sat on the fall-through path alone at first, so a nullable slot
+            // reached by either of those would have emitted a bare `&mut [T]`
+            // where an `Option` is wanted (unreachable today: MAMA is the only
+            // nullable callee and MA hands it `NULL`).
+            if is_output
+                && callee_out_nullable.get(i - output_start).copied().unwrap_or(false)
+                && rendered != "None"
+            {
+                return format!("Some({rendered})");
             }
-            // Detect duplicate &mut borrows: use the pre-declared dummy variable
-            if let Some((_, _)) = dup_vars.iter().find(|(idx, _)| *idx == i) {
-                return "&mut _dup_out".to_string();
-            }
-            render_cross_indicator_arg(arg, i, is_output, ctx, opt_real_params, registry, helpers)
+            rendered
         })
         .collect();
     (rendered, aliased_vars)
@@ -4957,15 +5411,12 @@ pub(crate) fn render_cross_indicator_arg(
             let rendered = render_expr(inner, ctx, opt_real_params, registry, helpers);
             format!("&mut {rendered}")
         }
-        // NULL in an output position: a nullable output the caller discards (MA
-        // passes NULL for MAMA's FAMA — issue #125). Rust slices aren't nullable,
-        // so materialize a throwaway buffer spanning the output range; the callee
-        // fills it and it drops at end of statement. Real outputs only (the sole
-        // use); mirrors the discard buffer the C source used before nullable
-        // outputs landed.
-        Expr::Var(name) if is_output_position && name == "NULL" => {
-            "&mut vec![0.0_f64; (endIdx - startIdx + 1) as usize][..]".to_string()
-        }
+        // NULL in an output position: a nullable output the caller declines (MA
+        // passes NULL for MAMA's FAMA — issue #125). The callee's parameter is
+        // `Option<&mut [T]>`, so this is `None` and nothing is allocated --
+        // never a throwaway buffer spanning the output range, the "unchecked
+        // malloc-dummy-discard" #125 removed from C and #262 from the rest.
+        Expr::Var(name) if is_output_position && name == "NULL" => "None".to_string(),
         // Vec<T> local variables: &name for input position, &mut name[..] for output position
         Expr::Var(name) if ctx.vec_vars.contains(name) || is_vec_local_var(name) => {
             if is_output_position {

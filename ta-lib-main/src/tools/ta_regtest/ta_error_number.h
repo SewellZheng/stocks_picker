@@ -230,6 +230,7 @@ typedef enum
   TA_ABS_TST_FAIL_HOLDER_CONTRACT       = 623,
   TA_ABS_TST_FAIL_HOLDER_CONTRACT_VACUOUS = 624,
   TA_ABS_TST_FAIL_INDEX_RANGE           = 625,
+  TA_ABS_TST_FAIL_HOLDER_NOT_REUSABLE   = 626,
 
   /* Error code related to internal tests. */
   TA_INTERNAL_CIRC_BUFF_FAIL_0      = 700,
@@ -355,6 +356,9 @@ typedef enum
   TA_SV_BEGIDX_MISMATCH              = 1301,
   TA_SV_NBELEMENT_MISMATCH           = 1302,
   TA_SV_OUTPUT_MISMATCH              = 1303,
+  TA_SV_LOOKBACK_PARITY_MISMATCH     = 1304,  /* issue #256: one server's own
+                                                  lookback tier disagrees with its
+                                                  own batch tier */
 
   /* Single-precision (TA_S_) vector-arithmetic overflow guard (PR #33) */
   TA_S_OVERFLOW_BAD_RETCODE          = 1400,
@@ -426,11 +430,15 @@ typedef enum
   TA_STREAM_FINITE_SETUP_FAILED      = 1594,
   TA_STREAM_FINITE_VACUOUS           = 1595,
 
-  /* Streaming short-history rejection (rule S6 / TA_INSUFFICIENT_HISTORY). */
+  /* Streaming short-history rejection (rule S7 / TA_INSUFFICIENT_HISTORY). */
   TA_STREAM_SHORT_HISTORY_WRONG_CODE = 1596,
   TA_STREAM_SHORT_HISTORY_ACCEPTED   = 1597,
   TA_STREAM_SHORT_HISTORY_CONTROL    = 1598,
   TA_STREAM_SHORT_HISTORY_VACUOUS    = 1599,
+
+  /* Streaming empty-history rejection (rule S1 / TA_OUT_OF_RANGE_START_INDEX). */
+  TA_STREAM_EMPTY_HISTORY_WRONG_CODE = 1607,
+  TA_STREAM_EMPTY_HISTORY_VACUOUS    = 1608,
 
   /* Streaming UpdateAndFill: n bars in one call, and its partial commit. */
   TA_STREAM_UFILL_ACCEPTED_BAD_BAR   = 1601,
@@ -439,6 +447,28 @@ typedef enum
   TA_STREAM_UFILL_WROTE_PAST_COMMIT  = 1604,
   TA_STREAM_UFILL_SETUP_FAILED       = 1605,
   TA_STREAM_UFILL_VACUOUS            = 1606,
+
+  /* DIV's documented zero-divisor result (issue #249). */
+  TA_DIVZERO_BAD_RETCODE             = 1610,
+  TA_DIVZERO_BAD_SHAPE               = 1611,
+  TA_DIVZERO_BAD_VALUE               = 1612,
+  TA_DIVZERO_FLAG_MISSING            = 1613,
+  TA_DIVZERO_VACUOUS                 = 1614,
+
+  /* Quote-unit (power-of-two rescale) invariance, corpus-wide (#253). */
+  TA_QUOTE_UNIT_NOT_INVARIANT        = 1620,
+  TA_QUOTE_UNIT_NO_DEGREE            = 1621,
+  TA_QUOTE_UNIT_SHAPE_MOVED          = 1622,
+  TA_QUOTE_UNIT_CALL_FAILED          = 1623,
+  TA_QUOTE_UNIT_OUT_OF_RANGE         = 1624,
+  TA_QUOTE_UNIT_VACUOUS              = 1625,
+
+  /* Batch tier rule B4: a required argument was not supplied. */
+  TA_BATCH_ARG_WRONG_CODE            = 1630,
+  TA_BATCH_ARG_CONTROL               = 1631,
+  TA_BATCH_ARG_VACUOUS               = 1632,
+  /* Rule B6a: declining a nullable output changed what the call produced. */
+  TA_BATCH_ARG_NULLABLE_DIVERGED     = 1633,
 
   /* --function= named something no test group covers, on a run that had
    * nothing else to do. Reported rather than passed silently. */

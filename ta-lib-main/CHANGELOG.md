@@ -34,21 +34,18 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - TA_MAType_DEFAULT — selects that parameter's documented MA type (#182)
 
 ### Faster
+- ~8x: MACD, MACDFIX and MACDEXT (when MA type is EMA).
 - ~3x to 7x: DEMA, TEMA and TRIX
-- ~8x: MACD and MACDFIX
-- ~8x: MACDEXT when MA types are EMA.
-- ~2.4x: ACCBANDS
-- ~2x: SQRT (#192). Thanks @kevinlincg !
+- ~2x: ACCBANDS, MFI (#244), SQRT (#192). Thanks @kevinlincg !
 - ~1.6x to 15x: MIN, MAX, MINMAX, MIDPOINT, MIDPRICE and WILLR (#147). Thanks @kevinlincg !
 - ~40%: ULTOSC (#154). Thanks @dexhunter !
 - ~30%: MAVP (#143). Thanks @dexhunter !
 - ~27% Apple, ~8% GCC: MIN, MAX, MINMAX, MININDEX, MAXINDEX, MINMAXINDEX, MIDPOINT, MIDPRICE, AROON, AROONOSC and WILLR (#128). Thanks @dexhunter !
-- ~2.2x: MFI (#244)
 - ~20%: VAR, STDDEV, BBANDS
-- ~25-30%: STDDEV when `optInNbDev` is not 1.0 — dropping the zero test from the loop lets it vectorize (#243)
 - ~10%: ATR and NATR
 
 ### Changed
+- (#262) API (Rust, Java, C#): an output the library marks *nullable* can now be declined, as C has always allowed. `MAMA`'s `outFAMA` is the only one — pass `None` in Rust (its parameter is now `Option<&mut [f64]>`), `null` in Java, an empty span in C#. Declining skips the write, not the calculation: the other outputs are unchanged. It also removes the throwaway buffer those three languages allocated on every `MA` (and `BBANDS`, `STOCH`, …) call with an MA type of MAMA. (#270) The streaming API honours the same declination, at `OpenAndFill` and at `UpdateAndFill`, and the choice is made per call — it need not match what the handle was opened with. In Rust a nullable output is `Option<&mut [f64]>` at both, as it is in the batch API.
 - (#133) BBANDS default `optInTimePeriod` changed from 5 to 20, as intended by John Bollinger.
 - (#120) PPO and APO now default `optInMAType` to EMA (was SMA), matching Gerald Appel's original PPO/MACD definition. Pass `TA_MAType_SMA` explicitly to keep the previous behavior.
 - (#96) Fused multiply-add and other floating-point re-ordering produce minor output differences; an intentional modernization.
@@ -75,27 +72,19 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#7) CCI returned a spurious value when all prices over the period were identical; Thanks @trufanov-nok for identifying and resolving this!
 - (#57) Missing TA_GetVersionString function in Windows DLL. Thanks @Youngv !
 - (#98) TRIX and NATR returned wrong values when startIdx > lookback. NATR additionally left output slots unwritten for any bar with a zero close.
-- (#98) A non-zero unstable period changed IMI's summation window.
+- (#98) A non-zero unstable period settings changed IMI's summation window. Fine with default settings.
 - (#107) MFI and STOCHRSI could return a wrong value when floating-point rounding left a near-zero result that was then compared exactly against zero. Thanks @Caleblgx, @trufanov-nok and @mrjbq7 !
 - (#4,#14) MFI and IMI are no longer flagged as having an unstable period. Thanks @mw66 and @wony-zheng !
 - (#99) BBANDS with `TA_MAType_MAMA` and a period >= 34 returned a misaligned middle band.
 - (#77) CMake shared library now links libm directly, so it declares its own math-library dependency instead of relying on the consuming program to provide it. Thanks @BwL1289 !
-- (#102) Fixed ULTOSC and CDL3INSIDE performance regression (only in 0.7.1)
+- (#102) Fixed ULTOSC and CDL3INSIDE performance (regression only in 0.7.1)
 - (#112) IMI returned NaN on an all-flat window (every bar `close == open`); now returns 50.0.
 - (#202) VAR no longer returns a tiny negative variance on a flat stretch, where the calculation cancels to either side of zero; it now returns 0.0 instead.
-- (#243) STDDEV and BBANDS returned exactly 0 for a standard deviation that was small but
-  plainly non-zero — all three Bollinger bands landing on the middle band, with no
-  indication anything had been suppressed. The zero test was a fixed 1e-14 applied to the
-  variance, a *squared* quantity, so it triggered on any finely quoted series (a $100.00
-  instrument on a 1e-8 tick reaches it). It is now relative to the window's own scale and
-  lives in VAR, which was already returning the right answer there. VAR additionally
-  returns a bit-exact 0 — rather than a ~1e-44 rounding residue — for a window that sits
-  entirely inside a flat stretch entered mid-series.
-- (#244) MFI returned 0 instead of the index whenever the money flow over the window
-  summed to less than 1.0 — a threshold on a price times a volume, so any instrument
-  quoted small enough reaches it, whether from a low price or from small volumes. The
-  index is a ratio and no longer depends on the size of the money flow at all. MFI also
-  no longer returns a value a few ulp outside 0-100.
+- (#243) STDDEV and BBANDS returned exactly 0 for a standard deviation that was small but non-zero. In rare cases, was making the bands "collapse" on the middle line.
+- (#244) MFI returned 0 instead of the index whenever the window summed to less than 1.0. Also, no longer returns values slightly outside 0-100 (clamps the epsilon errors).
+- (#253) Fix many TA_IS_ZERO vs TA_IS_ZERO_SCALED choices. Numerically better for edge cases, like very small inputs (<10e-8) or mostly flat input prices.
+- (#262) Rust and C# rejected a call whose output buffers were separately allocated but empty, treating them as one buffer. A range shorter than the indicator's lookback produces no values and needs no output space, so that call is a success in C and Java; all four now agree. In the streaming API the same relaxation makes Rust's `OpenAndFill` fault on a zero-length output instead of returning `TA_BAD_PARAM`, which is what Java and C# have always done — the fill always has at least one value to write, so there is no legitimate empty output there.
+- Batch API: a NULL `outBegIdx` or `outNBElement` crashed instead of being rejected; every function now returns `TA_BAD_PARAM`.
 
 ## [0.7.1] 2026-07-03
 ### Added

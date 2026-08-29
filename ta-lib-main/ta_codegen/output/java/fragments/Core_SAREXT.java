@@ -15,6 +15,8 @@
  *  092103 MF    Some changes related on first round of tests
  *  092303 PP    Minor bug fixes.
  *  122104 MF,CF Fix#1089506 for out-of-bound access to ep_temp.
+ *  082726 MF,CC Answer a rejected minus_dm before reading ep_temp, not after:
+ *               the read was of an uninitialised local.
  */
 
    /**
@@ -276,11 +278,6 @@
             isLong = 0;
          } else {
             isLong = 1;
-         }
-         if( retCode != RetCode.Success ) {
-            outBegIdx.value = 0;
-            outNBElement.value = 0;
-            return retCode ;
          }
       } else if( optInStartValue > 0 ) {
          /* Start Long */
@@ -553,11 +550,6 @@
          } else {
             isLong = 1;
          }
-         if( retCode != RetCode.Success ) {
-            outBegIdx.value = 0;
-            outNBElement.value = 0;
-            return retCode ;
-         }
       } else if( optInStartValue > 0 ) {
          isLong = 1;
       } else {
@@ -718,15 +710,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SAR
     * @see Core#MINUS_DM
@@ -746,9 +737,9 @@
                            double outReal[] )
    {
       requireIndexRange("SAREXT", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("SAREXT", startIdx, SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SAREXT", "inHigh", inHigh, guardInLen);
       requireLength("SAREXT", "inLow", inLow, guardInLen);
       requireLength("SAREXT", "outReal", outReal, guardOutLen);
@@ -807,15 +798,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SAR
     * @see Core#MINUS_DM
@@ -835,9 +825,9 @@
                            double outReal[] )
    {
       requireIndexRange("SAREXT", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("SAREXT", startIdx, SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SAREXT", "inHigh", inHigh, guardInLen);
       requireLength("SAREXT", "inLow", inLow, guardInLen);
       requireLength("SAREXT", "outReal", outReal, guardOutLen);
@@ -977,6 +967,9 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double outReal[] ) {
+         requireArgument("SAREXT updateAndFill", "inHigh", inHigh);
+         requireArgument("SAREXT updateAndFill", "inLow", inLow);
+         requireArgument("SAREXT updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow )
             throw new TaLibArgumentException("SAREXT updateAndFill: BadParam", RetCode.BadParam);
@@ -1163,11 +1156,14 @@
       double[] ep_temp = new double[1];
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInStartValue == REAL_DEFAULT ) {
          optInStartValue = 0e0;
@@ -1323,11 +1319,6 @@
             isLong = 0;
          } else {
             isLong = 1;
-         }
-         if( retCode != RetCode.Success ) {
-            outBegIdx.value = 0;
-            outNBElement.value = 0;
-            return retCode ;
          }
       } else if( optInStartValue > 0 ) {
          /* Start Long */
@@ -1554,10 +1545,17 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public SAREXT_Stream SAREXT_Open( double inHigh[], double inLow[], double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort )
    {
+      requireArgument("SAREXT open", "inHigh", inHigh);
+      requireHistory("SAREXT open", inHigh.length);
+      requireArgument("SAREXT open", "inLow", inLow);
+      requireHistoryLength("SAREXT open", "inLow", inLow.length, inHigh.length);
       return SAREXT_OpenInternal(inHigh, inLow, 0, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
    }
    /**
@@ -1565,12 +1563,20 @@
     * to {@link Core#SAREXT} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link SAREXT_Stream#outRange()}.
     */
    public SAREXT_Stream SAREXT_OpenAndFill( double inHigh[], double inLow[], double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort, double outReal[] )
    {
+      requireArgument("SAREXT openAndFill", "inHigh", inHigh);
+      requireHistory("SAREXT openAndFill", inHigh.length);
+      requireArgument("SAREXT openAndFill", "inLow", inLow);
+      int guardOutLen = openFillCount("SAREXT openAndFill", inHigh.length, SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort));
+      requireHistoryLength("SAREXT openAndFill", "inLow", inLow.length, inHigh.length);
+      requireLength("SAREXT openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
          throw new TaLibArgumentException("SAREXT openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

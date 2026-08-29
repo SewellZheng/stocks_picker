@@ -90,12 +90,18 @@ pub fn guarded_docs(
         b.tag(&format!("param {}", opt.name), &param_doc(opt, doc, enums));
     }
     for out in &func.outputs {
+        // A nullable output may be declined; the signature alone does not say
+        // what `null` means there, so the parameter line does.
+        let sizing = if out.is_nullable() {
+            "Pass {@code null} to decline it: it is still computed where the \
+             algorithm needs it, but nothing is written out. Supplied, it must \
+             hold at least {@code endIdx - startIdx + 1} values."
+        } else {
+            "Must hold at least {@code endIdx - startIdx + 1} values."
+        };
         b.tag(
             &format!("param {}", out.name),
-            &format!(
-                "{} Must hold at least {{@code endIdx - startIdx + 1}} values.",
-                output_desc(out, doc)
-            ),
+            &format!("{} {sizing}", output_desc(out, doc)),
         );
     }
 
@@ -112,17 +118,13 @@ pub fn guarded_docs(
     b.tag(
         "throws IllegalArgumentException",
         "if an optional parameter is outside its documented range, two outputs share \
-         one array, or an array is too short for the range requested — an input this \
-         function <i>reads</i> that does not reach {@code endIdx}, or an output that \
-         cannot hold the values produced. Checked before anything is written, so a \
-         rejected call leaves every buffer untouched.",
-    );
-    b.tag(
-        "throws NullPointerException",
-        "if an input this function reads, or any output, is null. A few candlestick \
-         patterns declare an OHLC series they never index; those are neither \
-         length-checked nor null-checked, because rejecting them would refuse a call \
-         the algorithm can answer.",
+         one array, or an array is absent or too short for the range requested — any \
+         input this function <i>declares</i> that does not reach {@code endIdx}, or an \
+         output that cannot hold the values produced. Declared, not read: a few \
+         candlestick patterns take an OHLC series they never index, and it is required \
+         all the same. An output this function documents as declinable is the one \
+         exception: {@code null} is how you decline it. Checked before anything is \
+         written, so a rejected call leaves every buffer untouched.",
     );
 
     if !doc.see_also.is_empty() {

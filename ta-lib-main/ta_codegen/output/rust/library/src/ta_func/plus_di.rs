@@ -48,6 +48,7 @@
  *  AM       Adrian Michel
  *  MIF      Mirek Fontan (mira@fontan.cz)
  *  CF       Christo Fogelberg
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
@@ -58,6 +59,9 @@
  *  082303 MF    Fix #792298. Remove rounding. Bug reported by AM.
  *  062704 MF    Fix #965557. Div by zero bug reported by MIF.
  *  122204 MF,CF Fix #1090231. Issues when period is 1.
+ *  082326 MF,CC Fix #253. Test the true range exactly instead of against the
+ *               fixed TA_IS_ZERO band, which zeroed the index for any
+ *               instrument quoted small enough to fall under it.
  */
 
 // Import types from parent module
@@ -77,23 +81,26 @@ impl Core {
     ///
     /// * `optInTimePeriod` — Wilder smoothing period (default 14, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn PLUS_DI_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn PLUS_DI_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInTimePeriod > 1 {
-            return (optInTimePeriod + self.unstable_period[FuncUnstId::PLUS_DI as usize]) as usize;
+            return Ok((optInTimePeriod + self.unstable_period[FuncUnstId::PLUS_DI as usize]) as usize);
         } else {
-            return (1) as usize;
+            return Ok((1) as usize);
         }
     }
     /// C-shaped body behind [`Core::PLUS_DI`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn PLUS_DI_Impl(
         &self,
         startIdx: usize,
@@ -117,7 +124,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.PLUS_DI_Lookback(optInTimePeriod);
+        let _assertLb = self.PLUS_DI_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -281,7 +288,7 @@ impl Core {
                     }
                     _true_range_0 = range_0;
                     tempReal = _true_range_0;
-                    if (tempReal).abs() < 1e-14 {
+                    if tempReal <= 0.0 {
                         outReal[outIdx] = 0.0 as f64;
                         outIdx += 1;
                     } else {
@@ -376,7 +383,13 @@ impl Core {
         }
         // Now start to write the output in
         // the caller provided outReal.
-        if !((prevTR).abs() < 1e-14) {
+        // prevTR is a running sum of true ranges: non-negative by construction and
+        // built only by adding, so it carries no cancellation residue and reaches
+        // zero only for a window whose every range is exactly zero. Test it exactly.
+        // A true range carries the quote unit, so the fixed TA_IS_ZERO band it used
+        // to be compared against was a constant in some arbitrary unit, and zeroed
+        // the index for any instrument quoted below it (issue #253).
+        if prevTR > 0.0 {
             outReal[0] = (100.0 * (prevPlusDM / prevTR));
         } else {
             outReal[0] = 0.0;
@@ -416,7 +429,7 @@ impl Core {
             prevTR = prevTR - prevTR / ((optInTimePeriod) as f64) + tempReal;
             prevClose = inClose[today];
             // Calculate the DI. The value is rounded (see Wilder book).
-            if !((prevTR).abs() < 1e-14) {
+            if prevTR > 0.0 {
                 outReal[outIdx] = (100.0 * (prevPlusDM / prevTR));
                 outIdx += 1;
             } else {
@@ -472,11 +485,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -522,6 +533,27 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.PLUS_DI_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.PLUS_DI_Impl(
@@ -553,7 +585,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_PLUS_DI_Stream")]
 pub struct PLUS_DI_Stream {
-    core: Core,
     state: PLUS_DI_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -564,7 +595,6 @@ impl PLUS_DI_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `PLUS_DI_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -602,7 +632,7 @@ impl PLUS_DI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn PLUS_DI_step_impl(&self, sp: &mut PLUS_DI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
+    fn PLUS_DI_step_impl(sp: &mut PLUS_DI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
         if sp.optInTimePeriod <= 1 {
             let mut tempReal: f64 = 0.0_f64;
             let mut diffP: f64 = 0.0_f64;
@@ -629,7 +659,7 @@ impl Core {
                 }
                 _true_range_0 = range_0;
                 tempReal = _true_range_0;
-                if (tempReal).abs() < 1e-14 {
+                if tempReal <= 0.0 {
                     (*outReal) = 0.0 as f64;
                 } else {
                     (*outReal) = diffP / tempReal;
@@ -674,7 +704,7 @@ impl Core {
             sp.prevTR = sp.prevTR - sp.prevTR / ((sp.optInTimePeriod) as f64) + tempReal;
             sp.prevClose = inClose;
             // Calculate the DI. The value is rounded (see Wilder book).
-            if !((sp.prevTR).abs() < 1e-14) {
+            if sp.prevTR > 0.0 {
                 (*outReal) = (100.0 * (sp.prevPlusDM / sp.prevTR));
             } else {
                 (*outReal) = 0.0;
@@ -687,8 +717,8 @@ impl Core {
     pub(crate) fn PLUS_DI_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<PLUS_DI_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -696,6 +726,9 @@ impl Core {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -865,7 +898,7 @@ impl Core {
                     }
                     _true_range_2 = range_2;
                     tempReal = _true_range_2;
-                    if (tempReal).abs() < 1e-14 {
+                    if tempReal <= 0.0 {
                         outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0 as f64;
                     } else {
                         outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = diffP / tempReal;
@@ -886,7 +919,7 @@ impl Core {
                 prevPlusDM,
                 prevTR,
             };
-            Ok(PLUS_DI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+            Ok(PLUS_DI_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         } else {
             let mut today: usize = 0_usize;
             let mut lookbackTotal: usize = 0_usize;
@@ -1089,7 +1122,13 @@ impl Core {
             }
             // Now start to write the output in
             // the caller provided outReal.
-            if !((prevTR).abs() < 1e-14) {
+            // prevTR is a running sum of true ranges: non-negative by construction and
+            // built only by adding, so it carries no cancellation residue and reaches
+            // zero only for a window whose every range is exactly zero. Test it exactly.
+            // A true range carries the quote unit, so the fixed TA_IS_ZERO band it used
+            // to be compared against was a constant in some arbitrary unit, and zeroed
+            // the index for any instrument quoted below it (issue #253).
+            if prevTR > 0.0 {
                 outReal[(0 * outStride) as usize] = (100.0 * (prevPlusDM / prevTR));
             } else {
                 outReal[(0 * outStride) as usize] = 0.0;
@@ -1129,7 +1168,7 @@ impl Core {
                 prevTR = prevTR - prevTR / ((optInTimePeriod) as f64) + tempReal;
                 prevClose = inClose[today];
                 // Calculate the DI. The value is rounded (see Wilder book).
-                if !((prevTR).abs() < 1e-14) {
+                if prevTR > 0.0 {
                     outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (100.0 * (prevPlusDM / prevTR));
                 } else {
                     outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0;
@@ -1146,7 +1185,7 @@ impl Core {
                 prevPlusDM,
                 prevTR,
             };
-            Ok(PLUS_DI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+            Ok(PLUS_DI_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         }
     }
 
@@ -1168,8 +1207,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1196,12 +1236,32 @@ impl Core {
 
     /// [`Core::PLUS_DI_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::PLUS_DI`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::PLUS_DI_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_PLUS_DI_OpenAndFill")]
     pub fn PLUS_DI_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(PLUS_DI_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.PLUS_DI_Lookback(optInTimePeriod)?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.PLUS_DI_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -1238,7 +1298,7 @@ impl PLUS_DI_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.PLUS_DI_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        Core::PLUS_DI_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1271,7 +1331,7 @@ impl PLUS_DI_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.PLUS_DI_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
+            Core::PLUS_DI_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

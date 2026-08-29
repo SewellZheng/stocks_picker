@@ -45,15 +45,18 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  112400 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
- *  062804 MF   Resolve div by zero bug on limit case.
+ *  112400 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  062804 MF    Resolve div by zero bug on limit case.
+ *  082326 MF,CC Fix #253. Test the gain+loss total exactly instead of against
+ *               the fixed TA_IS_ZERO band, which zeroed the index for any
+ *               instrument quoted small enough to fall under it.
  */
 
 // Import types from parent module
@@ -73,24 +76,27 @@ impl Core {
     ///
     /// * `optInTimePeriod` — Lookback for the gain/loss averaging (default 14, range 2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn RSI_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn RSI_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         let mut retValue: usize = 0_usize;
         retValue = (optInTimePeriod + self.unstable_period[FuncUnstId::RSI as usize]) as usize;
         if self.compatibility == Compatibility::Metastock {
             retValue = retValue - 1;
         }
-        return retValue;
+        return Ok(retValue);
     }
     /// C-shaped body behind [`Core::RSI`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn RSI_Impl(
         &self,
         startIdx: usize,
@@ -112,7 +118,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.RSI_Lookback(optInTimePeriod);
+        let _assertLb = self.RSI_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -142,7 +148,7 @@ impl Core {
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = (self.RSI_Lookback(optInTimePeriod) as usize) as usize;
+        lookbackTotal = (self.RSI_Lookback(optInTimePeriod).unwrap_or(usize::MAX) as usize) as usize;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -212,8 +218,16 @@ impl Core {
             tempValue1 = prevLoss / (optInTimePeriod as f64);
             tempValue2 = prevGain / (optInTimePeriod as f64);
             // Write the output.
+            //
+            // Both halves are averages of non-negative magnitudes, so the total is
+            // zero only when every change since the seed was exactly zero -- test it
+            // exactly, do not compare it to a fixed band.  A gain carries the quote
+            // unit, so any constant put against it is a constant in some arbitrary
+            // unit, and zeroes a healthy oscillator for an instrument quoted below it
+            // (issue #253).  Wilder's smoothing only ever adds non-negative terms, so
+            // unlike a sliding sum this total cannot hold cancellation residue.
             tempValue1 = tempValue2 + tempValue1;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
                 outIdx = outIdx + 1;
             } else {
@@ -265,7 +279,7 @@ impl Core {
         // The second equation is used here for speed optimization.
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[outIdx] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
@@ -308,7 +322,7 @@ impl Core {
             prevLoss /= optInTimePeriod as f64;
             prevGain /= optInTimePeriod as f64;
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[outIdx] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
@@ -371,11 +385,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -412,6 +424,21 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.RSI_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.RSI_Impl(
@@ -441,7 +468,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_RSI_Stream")]
 pub struct RSI_Stream {
-    core: Core,
     state: RSI_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -452,7 +478,6 @@ impl RSI_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `RSI_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -486,7 +511,7 @@ impl RSI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn RSI_step_impl(&self, sp: &mut RSI_StreamState, inReal: f64, outReal: &mut f64) {
+    fn RSI_step_impl(sp: &mut RSI_StreamState, inReal: f64, outReal: &mut f64) {
         let mut tempValue1: f64 = 0.0_f64;
         let mut tempValue2: f64 = 0.0_f64;
         if sp.optInTimePeriod == 1 {
@@ -506,7 +531,7 @@ impl Core {
         sp.prevLoss /= sp.optInTimePeriod as f64;
         sp.prevGain /= sp.optInTimePeriod as f64;
         tempValue1 = sp.prevGain + sp.prevLoss;
-        if !((tempValue1).abs() < 1e-14) {
+        if tempValue1 > 0.0 {
             (*outReal) = 100.0 * (sp.prevGain / tempValue1);
         } else {
             (*outReal) = 0.0;
@@ -519,7 +544,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<RSI_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -540,7 +565,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
-            let fillLb: usize = self.RSI_Lookback(optInTimePeriod);
+            let fillLb: usize = self.RSI_Lookback(optInTimePeriod)?;
             let fillLb = if startIdx > fillLb { startIdx } else { fillLb };
             if historyLen < fillLb + 1 {
                 return Err(RetCode::InsufficientHistory);
@@ -562,7 +587,7 @@ impl Core {
                     fillIdx += 1;
                 }
             }
-            return Ok(RSI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
+            return Ok(RSI_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
         }
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
@@ -589,7 +614,7 @@ impl Core {
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = (self.RSI_Lookback(optInTimePeriod) as usize) as usize;
+        lookbackTotal = (self.RSI_Lookback(optInTimePeriod)? as usize) as usize;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -640,8 +665,16 @@ impl Core {
             tempValue1 = prevLoss / (optInTimePeriod as f64);
             tempValue2 = prevGain / (optInTimePeriod as f64);
             // Write the output.
+            //
+            // Both halves are averages of non-negative magnitudes, so the total is
+            // zero only when every change since the seed was exactly zero -- test it
+            // exactly, do not compare it to a fixed band.  A gain carries the quote
+            // unit, so any constant put against it is a constant in some arbitrary
+            // unit, and zeroes a healthy oscillator for an instrument quoted below it
+            // (issue #253).  Wilder's smoothing only ever adds non-negative terms, so
+            // unlike a sliding sum this total cannot hold cancellation residue.
             tempValue1 = tempValue2 + tempValue1;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[(outIdx * outStride) as usize] = 100.0 * (tempValue2 / tempValue1);
                 outIdx = outIdx + 1;
             } else {
@@ -693,7 +726,7 @@ impl Core {
         // The second equation is used here for speed optimization.
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[(outIdx * outStride) as usize] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
@@ -736,7 +769,7 @@ impl Core {
             prevLoss /= optInTimePeriod as f64;
             prevGain /= optInTimePeriod as f64;
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[(outIdx * outStride) as usize] = 100.0 * (prevGain / tempValue1);
                 outIdx = outIdx + 1;
             } else {
@@ -754,7 +787,7 @@ impl Core {
             prevLoss,
             prevValue,
         };
-        Ok(RSI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(RSI_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::RSI_Open`] (composition seam).
@@ -775,8 +808,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -799,12 +833,29 @@ impl Core {
 
     /// [`Core::RSI_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::RSI`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::RSI_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_RSI_OpenAndFill")]
     pub fn RSI_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(RSI_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.RSI_Lookback(optInTimePeriod)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.RSI_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -841,7 +892,7 @@ impl RSI_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.RSI_step_impl(&mut self.state, inReal, &mut outReal);
+        Core::RSI_step_impl(&mut self.state, inReal, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -874,7 +925,7 @@ impl RSI_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.RSI_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            Core::RSI_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

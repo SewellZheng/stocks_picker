@@ -2,6 +2,7 @@ use ta_codegen_lib::backends;
 use ta_codegen_lib::emit::{copy_if_changed, write_if_changed};
 use ta_codegen_lib::formatter;
 use ta_codegen_lib::helper_registry::HelperRegistry;
+use ta_codegen_lib::internal_error_ids;
 use ta_codegen_lib::ir;
 use ta_codegen_lib::naming;
 use ta_codegen_lib::parser;
@@ -80,7 +81,8 @@ fn main() {
         }
         "build" => {
             let backend_filter = find_arg(&args, &["--backend"]);
-            build_servers(backend_filter.as_deref());
+            let servers_only = args.iter().any(|a| a == "--servers-only");
+            build_servers(backend_filter.as_deref(), servers_only);
         }
         "format" => {
             let func_filter = find_arg(&args, &["--func", "--function"]);
@@ -100,6 +102,7 @@ fn main() {
             eprintln!("  generate-servers  Only the JSON-RPC servers (narrowing, for `build`)");
             eprintln!("  generate-bench   Only the direct-call C benchmark binary source");
             eprintln!("  build            Compile generated server source into executables");
+            eprintln!("                   --servers-only skips the C benchmark binaries");
             eprintln!("  format           Re-indent the ta_codegen/input/ C source of truth");
             eprintln!("  stream-census    Report the IR-derived streamability per function");
             eprintln!("                   (--seed-yaml writes `streaming: true` for clean functions)");
@@ -566,29 +569,44 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
     };
 
     // Phase 2: Generate output for each backend
+    //
+    // The C backend hands every internal-error guard it emits a site id from
+    // this ledger, so it has to be in memory before the first C file and back
+    // on disk after the last. See `internal_error_ids`.
+    let site_ids_path = root.join("ta_codegen/input/internal_error_ids.yaml");
+    internal_error_ids::load(&site_ids_path);
     for func_def in &generated_funcs {
         for backend in &backends_to_run {
             generate_backend(func_def, backend, &enums, &registry, &helper_registry, &out_base);
         }
     }
+    // Prune only when this run actually re-emitted every C file: any other run
+    // leaves most keys unasked-for, and dropping those would free ids that are
+    // still live in the tree.
+    internal_error_ids::save(
+        &site_ids_path,
+        func_filter.is_none() && backends_to_run.contains(&"c"),
+    );
 
     // Drop per-function files for indicators that no longer exist. Only when
     // generating all functions (no filter), so a --func run cannot remove files
     // for functions it is not regenerating.
     //
-    // Ordering is load-bearing at both ends. It sits BELOW Phase 1, which only
-    // parses and validates: every gate that can `process::exit` (naming, docs,
-    // the per-function streaming gate) runs while the tree is still intact. It
-    // used to sit above Phase 1, and a gate firing there aborted with 174 files
-    // per backend already deleted, `src/ta_func/*.c` among them -- a rejected
-    // input left the shipped library gutted. And it sits ABOVE the server
-    // generation, which splices per-function fragments off disk: a fragment for
-    // a dropped indicator has to be gone before anything reads that directory.
+    // Ordering is load-bearing on three sides; do not move this call. It sits:
     //
-    // It also sits below Phase 2 rather than above it, which is what lets an
-    // unchanged file keep its mtime -- see `emit::write_if_changed`. Deleting
-    // first and rewriting told cargo, CMake and the gcc server build that all
-    // 175 indicators had changed on every run.
+    // BELOW Phase 1, which only parses and validates, so every gate that can
+    // `process::exit` (naming, docs, the per-function streaming gate) runs while
+    // the tree is still intact. Above it, a gate that fires aborts with every
+    // per-function file already deleted, `src/ta_func/*.c` among them, leaving
+    // the shipped library gutted on a merely rejected input.
+    //
+    // ABOVE the server generation, which splices per-function fragments off
+    // disk: a fragment for a dropped indicator has to be gone before anything
+    // reads that directory.
+    //
+    // BELOW Phase 2, which is what lets an unchanged file keep its mtime -- see
+    // `emit::write_if_changed`. Deleting first and rewriting tells cargo, CMake
+    // and the gcc server build that every indicator changed on every run.
     if func_filter.is_none() {
         for backend in &backends_to_run {
             remove_stale_generated_files(&out_base, backend, &generated_funcs);
@@ -674,6 +692,11 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // Generate the four-variant dispatcher ta_regtest's variant-parity gate
         // drives (issue #137). A header, so neither source list needs an entry.
         backends::variant_frame::generate(all_funcs, &enums, &root);
+
+        // Generate the in-process streaming dispatcher (issue #256's L2/L3):
+        // TA_<N>_Open / _OpenAndFill / _Close, native C types only, compiled
+        // straight into ta_regtest — never a separate server process.
+        backends::stream_frame::generate(all_funcs, &root);
 
         // Take over gen_code's two remaining C-side scalar generators:
         //   - the FuncUnstId enum (GENCODE SECTION 1) in the public header ta_defs.h
@@ -1056,7 +1079,12 @@ fn verify_hand_maintained_funcunstid(
     }
 }
 
-fn build_servers(backend_filter: Option<&str>) {
+/// `servers_only` skips the two C benchmark binaries. They are the only extra
+/// artifacts any backend arm builds, they are two more whole-library `-flto`
+/// compiles (~3x the C server alone), and they share this function's `failures`
+/// counter -- so a caller that wants a server to talk to would otherwise pay for
+/// them and fail on a break that has nothing to do with it.
+fn build_servers(backend_filter: Option<&str>, servers_only: bool) {
     let root = repo_root();
     let backends_to_build: Vec<&str> = match backend_filter {
         Some(b) => b.split(',').map(|s| s.trim()).collect(),
@@ -1123,7 +1151,7 @@ fn build_servers(backend_filter: Option<&str>) {
                 }
                 // Also build direct-call benchmark binary if source exists
                 let bench_src = out_base.join("c/tools/ta_bench_cg.c");
-                if bench_src.exists() {
+                if bench_src.exists() && !servers_only {
                     print!("  Building C bench... ");
                     let bench_dst = bin_dir.join("ta_bench_cg");
                     let bench_inc_c = out_base.join("c/tools");
@@ -1155,7 +1183,7 @@ fn build_servers(backend_filter: Option<&str>) {
                 }
                 // Also build the streaming benchmark binary if source exists
                 let sbench_src = out_base.join("c/tools/ta_bench_stream.c");
-                if sbench_src.exists() {
+                if sbench_src.exists() && !servers_only {
                     print!("  Building C stream bench... ");
                     let sbench_dst = bin_dir.join("ta_bench_stream");
                     let bench_inc_c = out_base.join("c/tools");
@@ -1202,10 +1230,8 @@ fn build_servers(backend_filter: Option<&str>) {
                 std::fs::create_dir_all(&class_dir).ok();
                 // The server's ta_abstract RPCs answer from the SHIPPED registry
                 // (io.github.talib.metadata), so the library's sources are on the
-                // source path. Before that they came from a server-private table
-                // and the abstract gate never touched what ships (issue #164) --
-                // the reason #162's Java half went unseen while its C# twin, whose
-                // server does bind through the shipped FunctionCall, was caught.
+                // source path. Never a server-private table: the abstract gate
+                // would then never touch what ships (issue #164).
                 // The main source root only: under the Maven layout the test
                 // package lives in a sibling root, so it is not on the server's
                 // source path at all.
@@ -1369,7 +1395,7 @@ fn build_java_library(root: &Path, bin_dir: &Path) -> bool {
     // (a class directory javac would not refresh, and a stale server binary).
     // The jar is the artifact; it gets built from nothing, every time.
     //
-    // Tests are skipped here, not run: the five suites are junit-free `main()`
+    // Tests are skipped here, not run: the suites are junit-free `main()`
     // classes, so surefire discovers them and executes zero methods. They are
     // compiled and run below, against the jar. (The Maven-native way to bind
     // tests to the packaged artifact is maven-failsafe-plugin, which uses the
@@ -1472,11 +1498,11 @@ fn build_java_library(root: &Path, bin_dir: &Path) -> bool {
     collect_java_sources(&src_root, &mut sources, &mut junit_skipped);
     sources.sort();
     junit_skipped.sort();
-    // A junit-importing suite used to be dropped from `sources` with an informational
-    // line, so it was neither compiled nor run and the build stayed green -- the exact
-    // AllTests vacuity the discovery below exists to prevent, reachable again now that
-    // Maven could supply a junit dependency in one line. Fail instead: either add the
-    // dependency and run it, or do not ship the file.
+    // Do NOT drop a junit-importing suite from `sources` with an informational
+    // line: it is then neither compiled nor run and the build stays green -- the
+    // exact AllTests vacuity the discovery below exists to prevent. Fail instead:
+    // either add the dependency (Maven supplies it in one line) and run the
+    // suite, or do not ship the file.
     if !junit_skipped.is_empty() {
         println!(
             "  Building Java tests... FAILED ({} junit-dependent file(s) would be \
@@ -2229,17 +2255,29 @@ fn csharp_test_tfms(test_dir: &Path) -> Vec<String> {
 
 /// The hand-written Rust library sources that ship inside the generated crate,
 /// copied verbatim from `ta_codegen/generator/templates/rust/`. `types.rs` holds
-/// `Core`/`CoreBuilder` and its API tests (issue #144); `scratch_election.rs` is
-/// a `#[cfg(test)]`-only module holding the value gate for the batch bodies'
-/// scratch-buffer election (issue #146). Both are listed in the Rust backend's
-/// `clean_keep`, so `generate` never deletes them.
+/// `Core`/`CoreBuilder` and its API tests (issue #144); the rest are
+/// `#[cfg(test)]`-only modules — DIV's zero-divisor result (issue #249), the
+/// batch bodies' scratch-buffer election (issue #146), the streaming tier's
+/// non-finite input rejection, and a handle's `OutRange` against batch (issue
+/// #241). All are listed in the Rust backend's `clean_keep`, so `generate` never
+/// deletes them.
 const RUST_TEMPLATE_MODULES: &[&str] =
-    &["types", "scratch_election", "stream_finite", "stream_out_range"];
+    &["types", "div_zero", "scratch_election", "stream_finite", "stream_out_range"];
 
 /// Of [`RUST_TEMPLATE_MODULES`], the ones that exist only for `cargo test` and so
 /// are declared `#[cfg(test)]` in the generated `mod.rs`.
 const RUST_TEST_ONLY_MODULES: &[&str] =
-    &["scratch_election", "stream_finite", "stream_out_range"];
+    &["div_zero", "scratch_election", "stream_finite", "stream_out_range"];
+
+/// `#[cfg(test)]` modules that `generate` WRITES into `src/ta_func/` rather than
+/// copying from `templates/rust/` — the phantom-I/O sweep, whose two probes per
+/// indicator and their ~970 call sites are emitted from the IR
+/// (`backends::rust_phantom_io`).
+///
+/// In `src/` rather than `tests/` because it probes `<N>_Impl`, which is
+/// `pub(crate)` (#265). Also listed in the Rust backend's `clean_keep`, or the
+/// stale-file sweep deletes it for naming no indicator.
+const RUST_GENERATED_TEST_MODULES: &[&str] = &["no_phantom_io"];
 
 /// Version of the `ta-lib-dispatch` support crate — deliberately decoupled from
 /// the repo `VERSION` the other three members track, because it changes only
@@ -2710,6 +2748,14 @@ pub use types::*;
             "\n// Hand-written test-only modules (not generated; see templates/rust/).\n",
         );
         for module in RUST_TEST_ONLY_MODULES {
+            mod_rs.push_str(&format!("#[cfg(test)]\nmod {module};\n"));
+        }
+    }
+
+    // Generated test-only modules.
+    if !RUST_GENERATED_TEST_MODULES.is_empty() {
+        mod_rs.push_str("\n// Generated test-only modules.\n");
+        for module in RUST_GENERATED_TEST_MODULES {
             mod_rs.push_str(&format!("#[cfg(test)]\nmod {module};\n"));
         }
     }

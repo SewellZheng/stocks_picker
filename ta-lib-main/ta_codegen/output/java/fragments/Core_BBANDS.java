@@ -337,7 +337,7 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+      if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return retCode ;
       }
@@ -348,10 +348,6 @@
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
        * begIdx than the moving average did - as with TA_MAType_MAMA (constant
        * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
@@ -568,7 +564,7 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+      if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
          return retCode ;
       }
@@ -577,10 +573,6 @@
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outNBElement.value = 0;
-         return retCode ;
-      }
       if( (int)outBegIdx.value > maBegIdx ) {
          shiftIdx = (int)outBegIdx.value - maBegIdx;
       } else {
@@ -656,15 +648,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MA
     * @see Core#STDDEV
@@ -683,9 +674,9 @@
    {
       requireIndexRange("BBANDS", startIdx, endIdx);
       requireArgument("BBANDS", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("BBANDS", startIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BBANDS", "inReal", inReal, guardInLen);
       requireLength("BBANDS", "outRealUpperBand", outRealUpperBand, guardOutLen);
       requireLength("BBANDS", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
@@ -754,15 +745,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MA
     * @see Core#STDDEV
@@ -781,9 +771,9 @@
    {
       requireIndexRange("BBANDS", startIdx, endIdx);
       requireArgument("BBANDS", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("BBANDS", startIdx, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BBANDS", "inReal", inReal, guardInLen);
       requireLength("BBANDS", "outRealUpperBand", outRealUpperBand, guardOutLen);
       requireLength("BBANDS", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
@@ -932,6 +922,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] ) {
+         requireArgument("BBANDS updateAndFill", "inReal", inReal);
+         requireArgument("BBANDS updateAndFill", "outRealUpperBand", outRealUpperBand);
+         requireArgument("BBANDS updateAndFill", "outRealMiddleBand", outRealMiddleBand);
+         requireArgument("BBANDS updateAndFill", "outRealLowerBand", outRealLowerBand);
          final int barCount = inReal.length;
          if( outRealUpperBand.length < barCount || outRealMiddleBand.length < barCount || outRealLowerBand.length < barCount || (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand )
             throw new TaLibArgumentException("BBANDS updateAndFill: BadParam", RetCode.BadParam);
@@ -1031,7 +1025,7 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1097,9 +1091,9 @@
        * sub-call's own startIdx (the seeding point). */
       MA_Stream sub0 = MA_OpenAndFillInternal(inReal, startIdx, optInTimePeriod, optInMAType, outBegIdx, outNBElement, tempBuffer1);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
+      if( (int)outNBElement.value == 0 ) {
          outNBElement.value = 0;
-         return retCode ;
+         return RetCode.InsufficientHistory ;
       }
       /* Remember where the moving average begins, to realign it below. */
       maBegIdx = (int)outBegIdx.value;
@@ -1108,10 +1102,6 @@
        * sub-call's own startIdx (the seeding point). */
       STDDEV_Stream sub1 = STDDEV_OpenAndFillInternal(inReal, (int)outBegIdx.value, optInTimePeriod, 1.0, outBegIdx, outNBElement, tempBuffer2);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* When the standard deviation (lookback optInTimePeriod-1) clamps to a later
        * begIdx than the moving average did - as with TA_MAType_MAMA (constant
        * lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
@@ -1207,10 +1197,16 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public BBANDS_Stream BBANDS_Open( double inReal[], int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType )
    {
+      requireArgument("BBANDS open", "inReal", inReal);
+      requireHistory("BBANDS open", inReal.length);
+      requireArgument("BBANDS open", "optInMAType", optInMAType);
       return BBANDS_OpenInternal(inReal, 0, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
    }
    /**
@@ -1218,12 +1214,21 @@
     * to {@link Core#BBANDS} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link BBANDS_Stream#outRange()}.
     */
    public BBANDS_Stream BBANDS_OpenAndFill( double inReal[], int optInTimePeriod, double optInNbDevUp, double optInNbDevDn, MAType optInMAType, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
+      requireArgument("BBANDS openAndFill", "inReal", inReal);
+      requireHistory("BBANDS openAndFill", inReal.length);
+      requireArgument("BBANDS openAndFill", "optInMAType", optInMAType);
+      int guardOutLen = openFillCount("BBANDS openAndFill", inReal.length, BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType));
+      requireLength("BBANDS openAndFill", "outRealUpperBand", outRealUpperBand, guardOutLen);
+      requireLength("BBANDS openAndFill", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
+      requireLength("BBANDS openAndFill", "outRealLowerBand", outRealLowerBand, guardOutLen);
       if( (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
          throw new TaLibArgumentException("BBANDS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

@@ -54,6 +54,8 @@
  *  010802 MF     Template creation.
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  122104 MF,CF  Fix#1089506 for out-of-bound access to ep_temp.
+ *  082726 MF,CC  Answer a rejected minus_dm before reading ep_temp, not after:
+ *                the read was of an uninitialised local.
  */
 
 // Import types from parent module
@@ -75,26 +77,29 @@ impl Core {
     ///   (default 0.02, minimum 0)
     /// * `optInMaximum` — Ceiling on the acceleration factor (default 0.2, minimum 0)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Real parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Real parameters accept
     /// [`Core::REAL_DEFAULT`] to select their default value.
     #[inline]
-    pub fn SAR_Lookback(&self, mut optInAcceleration: f64, mut optInMaximum: f64) -> usize {
+    pub fn SAR_Lookback(&self, mut optInAcceleration: f64, mut optInMaximum: f64) -> Result<usize, RetCode> {
         if optInAcceleration == Self::REAL_DEFAULT {
             optInAcceleration = 2e-2;
         } else if !((optInAcceleration >= 0e0) && (optInAcceleration <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInMaximum == Self::REAL_DEFAULT {
             optInMaximum = 2e-1;
         } else if !((optInMaximum >= 0e0) && (optInMaximum <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         // SAR always sacrify one price bar to establish the
         // initial extreme price.
-        return (1) as usize;
+        return Ok((1) as usize);
     }
     /// C-shaped body behind [`Core::SAR`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn SAR_Impl(
         &self,
         startIdx: usize,
@@ -157,7 +162,7 @@ impl Core {
         } else if !((optInMaximum >= 0e0) && (optInMaximum <= Self::REAL_MAX)) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.SAR_Lookback(optInAcceleration, optInMaximum);
+        let _assertLb = self.SAR_Lookback(optInAcceleration, optInMaximum).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -240,17 +245,14 @@ impl Core {
         // Identify if the initial direction is long or short.
         // (ep is just used as a temp buffer here, the name
         //  of the parameter is not significant).
-        let mut _dup_out: usize = 0_usize;
-        retCode = self.MINUS_DM_Impl(startIdx, startIdx, inHigh, inLow, 1, &mut tempInt, &mut _dup_out, &mut ep_temp);
+        let _xr0 = match self.MINUS_DM(startIdx, startIdx, inHigh, inLow, 1, &mut ep_temp) { Ok(_r) => _r, Err(_e) => return _e };
+        tempInt = _xr0.beg_idx;
+        tempInt = _xr0.count;
+        retCode = RetCode::Success;
         if ep_temp[0] > 0_f64 {
             isLong = 0;
         } else {
             isLong = 1;
-        }
-        if retCode != RetCode::Success {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return retCode;
         }
         (*outBegIdx) = startIdx;
         outIdx = 0;
@@ -426,11 +428,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -472,6 +472,24 @@ impl Core {
         optInMaximum: f64,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.SAR_Lookback(optInAcceleration, optInMaximum)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.SAR_Impl(
@@ -503,7 +521,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_SAR_Stream")]
 pub struct SAR_Stream {
-    core: Core,
     state: SAR_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -514,7 +531,6 @@ impl SAR_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `SAR_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -556,7 +572,7 @@ impl SAR_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn SAR_step_impl(&self, sp: &mut SAR_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
+    fn SAR_step_impl(sp: &mut SAR_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
         let mut prevHigh: f64 = 0.0_f64;
         let mut prevLow: f64 = 0.0_f64;
         prevLow = sp.newLow;
@@ -673,8 +689,8 @@ impl Core {
     pub(crate) fn SAR_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInAcceleration: f64, mut optInMaximum: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<SAR_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inLow.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -687,6 +703,9 @@ impl Core {
         if optInMaximum == Self::REAL_DEFAULT {
             optInMaximum = 2e-1;
         } else if !((optInMaximum >= 0e0) && (optInMaximum <= Self::REAL_MAX)) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -776,17 +795,14 @@ impl Core {
         // Identify if the initial direction is long or short.
         // (ep is just used as a temp buffer here, the name
         //  of the parameter is not significant).
-        let mut _dup_out: usize = 0_usize;
-        retCode = self.MINUS_DM_Impl(startIdx, startIdx, inHigh, inLow, 1, &mut tempInt, &mut _dup_out, &mut ep_temp);
+        let _xr0 = match self.MINUS_DM(startIdx, startIdx, inHigh, inLow, 1, &mut ep_temp) { Ok(_r) => _r, Err(_e) => return Err(_e) };
+        tempInt = _xr0.beg_idx;
+        tempInt = _xr0.count;
+        retCode = RetCode::Success;
         if ep_temp[0] > 0_f64 {
             isLong = 0;
         } else {
             isLong = 1;
-        }
-        if retCode != RetCode::Success {
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return Err(retCode);
         }
         (*outBegIdx) = startIdx;
         outIdx = 0;
@@ -928,7 +944,7 @@ impl Core {
             ep,
             sar,
         };
-        Ok(SAR_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(SAR_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::SAR_Open`] (composition seam).
@@ -949,8 +965,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -974,12 +991,32 @@ impl Core {
 
     /// [`Core::SAR_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::SAR`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::SAR_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_SAR_OpenAndFill")]
     pub fn SAR_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], mut optInAcceleration: f64, mut optInMaximum: f64, outReal: &mut [f64],
     ) -> Result<(SAR_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.SAR_Lookback(optInAcceleration, optInMaximum)?;
+        if inLow.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.SAR_OpenAndFillInternal(inHigh, inLow, 0, optInAcceleration, optInMaximum, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -1016,7 +1053,7 @@ impl SAR_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.SAR_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
+        Core::SAR_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1049,7 +1086,7 @@ impl SAR_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.SAR_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
+            Core::SAR_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

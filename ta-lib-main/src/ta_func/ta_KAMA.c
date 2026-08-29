@@ -63,6 +63,10 @@
  *                KAMA math at period=1 would be a fixed-alpha EMA
  *                (efficiency ratio is always 1), which would disagree
  *                with TA_MA's period-1 copy, so identity is explicit.
+ *  082326 MF,CC  Fix #253. Recognize a flat window by counting bars and drop
+ *                the fixed TA_IS_ZERO band beside the efficiency ratio, which
+ *                forced the fastest adaptation on any instrument quoted small
+ *                enough to fall under it.
  */
 
 TA_LIB_API int TA_KAMA_Lookback( int optInTimePeriod )
@@ -99,6 +103,7 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
    int outIdx;
    int lookbackTotal;
    int trailingIdx;
+   int nullRun;
    double trailingValue;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
@@ -106,11 +111,13 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -167,6 +174,14 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
     * the lookback period.
     */
    sumROC1 = 0.0;
+   /* Consecutive 1-day changes of exactly zero, counted so that a flat window
+    * can be recognized exactly (the shape #244 needed for MFI). sumROC1 cannot
+    * answer that question itself once the window starts sliding: it is
+    * maintained by add-then-subtract, so a window that has gone flat leaves it
+    * holding rounding residue of arbitrary sign rather than zero, and the
+    * efficiency ratio then divides that residue into itself.
+    */
+   nullRun = 0;
    today = startIdx - lookbackTotal;
    trailingIdx = today;
    i = optInTimePeriod;
@@ -175,6 +190,13 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
       tempReal = inReal[today++];
       tempReal -= inReal[today];
       sumROC1 += fabs(tempReal);
+      if( tempReal == 0.0 )
+      {
+         nullRun += 1;
+      } else 
+      {
+         nullRun = 0;
+      }
    }
    /* At this point sumROC1 represent the
     * summation of the 1-day price difference
@@ -190,8 +212,16 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
     * and outReal can be pointers to the same buffer.
     */
    trailingValue = tempReal2;
-   /* Calculate the efficiency ratio */
-   if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+   /* Calculate the efficiency ratio.
+    *
+    * The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
+    * both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
+    * sit beside it was not -- it declared the window flat, and forced the
+    * fastest adaptation, for every window of an instrument quoted below it
+    * (issue #253). A genuinely flat window is now recognized by the exact bar
+    * count above instead.
+    */
+   if( sumROC1 <= periodROC )
    {
       tempReal = 1.0;
    } else 
@@ -222,12 +252,30 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
        */
       sumROC1 -= fabs(trailingValue - tempReal2);
       sumROC1 += fabs(tempReal - inReal[today - 1]);
+      /* Once a whole window of flat bars has gone by, every 1-day change it
+       * spans is exactly zero, so the sum is known to be exactly zero and the
+       * residue can be dropped. That is what lets the efficiency ratio be
+       * decided by `sumROC1 <= periodROC` alone: a window that flat has
+       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       */
+      if( tempReal - inReal[today - 1] == 0.0 )
+      {
+         nullRun += 1;
+      } else 
+      {
+         nullRun = 0;
+      }
+      if( nullRun >= optInTimePeriod )
+      {
+         nullRun = optInTimePeriod;
+         sumROC1 = 0.0;
+      }
       /* Save the trailing value. Do this because inReal
        * and outReal can be pointers to the same buffer.
        */
       trailingValue = tempReal2;
       /* Calculate the efficiency ratio */
-      if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+      if( sumROC1 <= periodROC )
       {
          tempReal = 1.0;
       } else 
@@ -258,12 +306,30 @@ TA_LIB_API TA_RetCode TA_KAMA( int    startIdx,
        */
       sumROC1 -= fabs(trailingValue - tempReal2);
       sumROC1 += fabs(tempReal - inReal[today - 1]);
+      /* Once a whole window of flat bars has gone by, every 1-day change it
+       * spans is exactly zero, so the sum is known to be exactly zero and the
+       * residue can be dropped. That is what lets the efficiency ratio be
+       * decided by `sumROC1 <= periodROC` alone: a window that flat has
+       * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+       */
+      if( tempReal - inReal[today - 1] == 0.0 )
+      {
+         nullRun += 1;
+      } else 
+      {
+         nullRun = 0;
+      }
+      if( nullRun >= optInTimePeriod )
+      {
+         nullRun = optInTimePeriod;
+         sumROC1 = 0.0;
+      }
       /* Save the trailing value. Do this because inReal
        * and outReal can be pointers to the same buffer.
        */
       trailingValue = tempReal2;
       /* Calculate the efficiency ratio */
-      if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+      if( sumROC1 <= periodROC )
       {
          tempReal = 1.0;
       } else 
@@ -304,6 +370,7 @@ TA_RetCode TA_S_KAMA( int    startIdx,
    int outIdx;
    int lookbackTotal;
    int trailingIdx;
+   int nullRun;
    double trailingValue;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
@@ -311,11 +378,13 @@ TA_RetCode TA_S_KAMA( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -357,6 +426,7 @@ TA_RetCode TA_S_KAMA( int    startIdx,
       return TA_SUCCESS;
    }
    sumROC1 = 0.0;
+   nullRun = 0;
    today = startIdx - lookbackTotal;
    trailingIdx = today;
    i = optInTimePeriod;
@@ -365,13 +435,20 @@ TA_RetCode TA_S_KAMA( int    startIdx,
       tempReal = (double)inReal[today++];
       tempReal -= (double)inReal[today];
       sumROC1 += fabs(tempReal);
+      if( tempReal == 0.0 )
+      {
+         nullRun += 1;
+      } else 
+      {
+         nullRun = 0;
+      }
    }
    prevKAMA = (double)inReal[today - 1];
    tempReal = (double)inReal[today];
    tempReal2 = (double)inReal[trailingIdx++];
    periodROC = tempReal - tempReal2;
    trailingValue = tempReal2;
-   if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+   if( sumROC1 <= periodROC )
    {
       tempReal = 1.0;
    } else 
@@ -388,8 +465,20 @@ TA_RetCode TA_S_KAMA( int    startIdx,
       periodROC = tempReal - tempReal2;
       sumROC1 -= fabs(trailingValue - tempReal2);
       sumROC1 += fabs(tempReal - (double)inReal[today - 1]);
+      if( tempReal - (double)inReal[today - 1] == 0.0 )
+      {
+         nullRun += 1;
+      } else 
+      {
+         nullRun = 0;
+      }
+      if( nullRun >= optInTimePeriod )
+      {
+         nullRun = optInTimePeriod;
+         sumROC1 = 0.0;
+      }
       trailingValue = tempReal2;
-      if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+      if( sumROC1 <= periodROC )
       {
          tempReal = 1.0;
       } else 
@@ -410,8 +499,20 @@ TA_RetCode TA_S_KAMA( int    startIdx,
       periodROC = tempReal - tempReal2;
       sumROC1 -= fabs(trailingValue - tempReal2);
       sumROC1 += fabs(tempReal - (double)inReal[today - 1]);
+      if( tempReal - (double)inReal[today - 1] == 0.0 )
+      {
+         nullRun += 1;
+      } else 
+      {
+         nullRun = 0;
+      }
+      if( nullRun >= optInTimePeriod )
+      {
+         nullRun = optInTimePeriod;
+         sumROC1 = 0.0;
+      }
       trailingValue = tempReal2;
-      if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+      if( sumROC1 <= periodROC )
       {
          tempReal = 1.0;
       } else 
@@ -439,6 +540,7 @@ struct TA_KAMA_Stream {
    double constDiff;
    double sumROC1;
    double prevKAMA;
+   int nullRun;
    double trailingValue;
    double lag1_inReal;
    int ringPos_trailingIdx;
@@ -481,12 +583,30 @@ static void TA_KAMA_StepImpl( struct TA_KAMA_Stream *sp, double inReal, double *
     */
    sp->sumROC1 -= fabs(sp->trailingValue - tempReal2);
    sp->sumROC1 += fabs(tempReal - sp->lag1_inReal);
+   /* Once a whole window of flat bars has gone by, every 1-day change it
+    * spans is exactly zero, so the sum is known to be exactly zero and the
+    * residue can be dropped. That is what lets the efficiency ratio be
+    * decided by `sumROC1 <= periodROC` alone: a window that flat has
+    * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+    */
+   if( tempReal - sp->lag1_inReal == 0.0 )
+   {
+      sp->nullRun += 1;
+   } else 
+   {
+      sp->nullRun = 0;
+   }
+   if( sp->nullRun >= sp->optInTimePeriod )
+   {
+      sp->nullRun = sp->optInTimePeriod;
+      sp->sumROC1 = 0.0;
+   }
    /* Save the trailing value. Do this because inReal
     * and outReal can be pointers to the same buffer.
     */
    sp->trailingValue = tempReal2;
    /* Calculate the efficiency ratio */
-   if( sp->sumROC1 <= periodROC || TA_IS_ZERO(sp->sumROC1) )
+   if( sp->sumROC1 <= periodROC )
    {
       tempReal = 1.0;
    } else 
@@ -519,9 +639,9 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 30;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -591,6 +711,7 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
       int outIdx;
       int lookbackTotal;
       int trailingIdx;
+      int nullRun = 0;
       double trailingValue = 0.0;
       /* Default return values */
       *outBegIdx= 0;
@@ -617,6 +738,14 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
        * the lookback period.
        */
       sumROC1 = 0.0;
+      /* Consecutive 1-day changes of exactly zero, counted so that a flat window
+       * can be recognized exactly (the shape #244 needed for MFI). sumROC1 cannot
+       * answer that question itself once the window starts sliding: it is
+       * maintained by add-then-subtract, so a window that has gone flat leaves it
+       * holding rounding residue of arbitrary sign rather than zero, and the
+       * efficiency ratio then divides that residue into itself.
+       */
+      nullRun = 0;
       today = startIdx - lookbackTotal;
       trailingIdx = today;
       i = optInTimePeriod;
@@ -625,6 +754,13 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
          tempReal = inReal[today++];
          tempReal -= inReal[today];
          sumROC1 += fabs(tempReal);
+         if( tempReal == 0.0 )
+         {
+            nullRun += 1;
+         } else 
+         {
+            nullRun = 0;
+         }
       }
       /* At this point sumROC1 represent the
        * summation of the 1-day price difference
@@ -640,8 +776,16 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
        * and outReal can be pointers to the same buffer.
        */
       trailingValue = tempReal2;
-      /* Calculate the efficiency ratio */
-      if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+      /* Calculate the efficiency ratio.
+       *
+       * The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
+       * both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
+       * sit beside it was not -- it declared the window flat, and forced the
+       * fastest adaptation, for every window of an instrument quoted below it
+       * (issue #253). A genuinely flat window is now recognized by the exact bar
+       * count above instead.
+       */
+      if( sumROC1 <= periodROC )
       {
          tempReal = 1.0;
       } else 
@@ -672,12 +816,30 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
           */
          sumROC1 -= fabs(trailingValue - tempReal2);
          sumROC1 += fabs(tempReal - inReal[today - 1]);
+         /* Once a whole window of flat bars has gone by, every 1-day change it
+          * spans is exactly zero, so the sum is known to be exactly zero and the
+          * residue can be dropped. That is what lets the efficiency ratio be
+          * decided by `sumROC1 <= periodROC` alone: a window that flat has
+          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          */
+         if( tempReal - inReal[today - 1] == 0.0 )
+         {
+            nullRun += 1;
+         } else 
+         {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod )
+         {
+            nullRun = optInTimePeriod;
+            sumROC1 = 0.0;
+         }
          /* Save the trailing value. Do this because inReal
           * and outReal can be pointers to the same buffer.
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+         if( sumROC1 <= periodROC )
          {
             tempReal = 1.0;
          } else 
@@ -708,12 +870,30 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
           */
          sumROC1 -= fabs(trailingValue - tempReal2);
          sumROC1 += fabs(tempReal - inReal[today - 1]);
+         /* Once a whole window of flat bars has gone by, every 1-day change it
+          * spans is exactly zero, so the sum is known to be exactly zero and the
+          * residue can be dropped. That is what lets the efficiency ratio be
+          * decided by `sumROC1 <= periodROC` alone: a window that flat has
+          * periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+          */
+         if( tempReal - inReal[today - 1] == 0.0 )
+         {
+            nullRun += 1;
+         } else 
+         {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod )
+         {
+            nullRun = optInTimePeriod;
+            sumROC1 = 0.0;
+         }
          /* Save the trailing value. Do this because inReal
           * and outReal can be pointers to the same buffer.
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC || TA_IS_ZERO(sumROC1) )
+         if( sumROC1 <= periodROC )
          {
             tempReal = 1.0;
          } else 
@@ -740,9 +920,10 @@ static TA_RetCode TA_KAMA_OpenImpl( struct TA_KAMA_Stream **stream, const double
       sp->constDiff = constDiff;
       sp->sumROC1 = sumROC1;
       sp->prevKAMA = prevKAMA;
+      sp->nullRun = nullRun;
       sp->trailingValue = trailingValue;
       sp->ringCap_trailingIdx = (int)(today - trailingIdx);
-      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_KAMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingIdx < 0 || sp->ringCap_trailingIdx > historyLen ) { TA_KAMA_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(338); }
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inReal ) { TA_KAMA_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -778,9 +959,9 @@ TA_LIB_API TA_RetCode TA_KAMA_Open( TA_KAMA_Stream **stream, const double inReal
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_KAMA_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -788,10 +969,9 @@ TA_LIB_API TA_RetCode TA_KAMA_OpenAndFill( TA_KAMA_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_KAMA_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

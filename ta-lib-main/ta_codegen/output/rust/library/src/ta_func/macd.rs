@@ -80,24 +80,26 @@ impl Core {
     /// * `optInSlowPeriod` — Period of the slow EMA (default 26, range 2..=100000)
     /// * `optInSignalPeriod` — Smoothing period of the signal line (default 9, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn MACD_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> usize {
+    pub fn MACD_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> Result<usize, RetCode> {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
             optInFastPeriod = 12;
         } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 26;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSignalPeriod) as i32) == (i32::MIN) {
             optInSignalPeriod = 9;
         } else if (((optInSignalPeriod) as i32) < 1) || (((optInSignalPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         let mut tempInteger: usize = 0_usize;
         // The lookback is driven by the signal line output.
@@ -112,10 +114,11 @@ impl Core {
             optInSlowPeriod = optInFastPeriod;
             optInFastPeriod = (tempInteger) as i32;
         }
-        return (self.EMA_Lookback(optInSlowPeriod) + self.EMA_Lookback(optInSignalPeriod)) as usize;
+        return Ok((self.EMA_Lookback(optInSlowPeriod)? + self.EMA_Lookback(optInSignalPeriod)?) as usize);
     }
     /// C-shaped body behind [`Core::MACD`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn MACD_Impl(
         &self,
         startIdx: usize,
@@ -189,15 +192,15 @@ impl Core {
         } else if (((optInSignalPeriod) as i32) < 1) || (((optInSignalPeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        if outMACD.as_ptr() == outMACDSignal.as_ptr() || outMACD.as_ptr() == outMACDHist.as_ptr() || outMACDSignal.as_ptr() == outMACDHist.as_ptr() {
-            return RetCode::BadParam;
-        }
-        let _assertLb = self.MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        let _assertLb = self.MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outMACD.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outMACDSignal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outMACDHist.len());
+        if (!outMACD.is_empty() && !outMACDSignal.is_empty() && outMACD.as_ptr() == outMACDSignal.as_ptr()) || (!outMACD.is_empty() && !outMACDHist.is_empty() && outMACD.as_ptr() == outMACDHist.as_ptr()) || (!outMACDSignal.is_empty() && !outMACDHist.is_empty() && outMACDSignal.as_ptr() == outMACDHist.as_ptr()) {
+            return RetCode::BadParam;
+        }
         let mut startIdx = startIdx;
         let mut prevFast: f64 = 0.0_f64;
         let mut prevSlow: f64 = 0.0_f64;
@@ -244,11 +247,11 @@ impl Core {
         // each other. The MACD line oscillates through zero, so it leaves that
         // window on ordinary data; hence the explicit arm at each step.
         signalK = 2.0 / ((optInSignalPeriod + 1) as f64);
-        lookbackSignal = self.EMA_Lookback(optInSignalPeriod);
+        lookbackSignal = self.EMA_Lookback(optInSignalPeriod).unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         lookbackTotal = lookbackSignal;
-        lookbackTotal += self.EMA_Lookback(optInSlowPeriod);
+        lookbackTotal += self.EMA_Lookback(optInSlowPeriod).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -422,11 +425,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -471,6 +472,27 @@ impl Core {
         outMACDSignal: &mut [f64],
         outMACDHist: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outMACD.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outMACDSignal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outMACDHist.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.MACD_Impl(
@@ -504,7 +526,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MACD_Stream")]
 pub struct MACD_Stream {
-    core: Core,
     state: MACD_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -515,7 +536,6 @@ impl MACD_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `MACD_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -559,7 +579,7 @@ impl MACD_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn MACD_step_impl(&self, sp: &mut MACD_StreamState, inReal: f64, outMACD: &mut f64, outMACDSignal: &mut f64, outMACDHist: &mut f64) {
+    fn MACD_step_impl(sp: &mut MACD_StreamState, inReal: f64, outMACD: &mut f64, outMACDSignal: &mut f64, outMACDHist: &mut f64) {
         let mut macdValue: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         tempReal = inReal;
@@ -582,7 +602,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64], outStride: usize,
     ) -> Result<MACD_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -657,11 +677,11 @@ impl Core {
         // each other. The MACD line oscillates through zero, so it leaves that
         // window on ordinary data; hence the explicit arm at each step.
         signalK = 2.0 / ((optInSignalPeriod + 1) as f64);
-        lookbackSignal = self.EMA_Lookback(optInSignalPeriod);
+        lookbackSignal = self.EMA_Lookback(optInSignalPeriod)?;
         // Move up the start index if there is not
         // enough initial data.
         lookbackTotal = lookbackSignal;
-        lookbackTotal += self.EMA_Lookback(optInSlowPeriod);
+        lookbackTotal += self.EMA_Lookback(optInSlowPeriod)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -800,7 +820,7 @@ impl Core {
             fastK,
             signalK,
         };
-        Ok(MACD_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(MACD_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::MACD_Open`] (composition seam).
@@ -823,8 +843,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -849,19 +870,42 @@ impl Core {
 
     /// [`Core::MACD_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::MACD`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::MACD_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_MACD_OpenAndFill")]
     pub fn MACD_OpenAndFill(
         &self, inReal: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64],
     ) -> Result<(MACD_Stream, OutRange), RetCode> {
-        if outMACD.as_ptr() == outMACDSignal.as_ptr() {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.MACD_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outMACD.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outMACD.as_ptr() == outMACDHist.as_ptr() {
+        if outMACDSignal.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outMACDSignal.as_ptr() == outMACDHist.as_ptr() {
+        if outMACDHist.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if !outMACD.is_empty() && !outMACDSignal.is_empty() && outMACD.as_ptr() == outMACDSignal.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if !outMACD.is_empty() && !outMACDHist.is_empty() && outMACD.as_ptr() == outMACDHist.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if !outMACDSignal.is_empty() && !outMACDHist.is_empty() && outMACDSignal.as_ptr() == outMACDHist.as_ptr() {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -902,7 +946,7 @@ impl MACD_Stream {
         let mut outMACD: f64 = 0.0_f64;
         let mut outMACDSignal: f64 = 0.0_f64;
         let mut outMACDHist: f64 = 0.0_f64;
-        self.core.MACD_step_impl(&mut self.state, inReal, &mut outMACD, &mut outMACDSignal, &mut outMACDHist);
+        Core::MACD_step_impl(&mut self.state, inReal, &mut outMACD, &mut outMACDSignal, &mut outMACDHist);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -935,7 +979,7 @@ impl MACD_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.MACD_step_impl(&mut self.state, inReal[i], &mut outMACD[i], &mut outMACDSignal[i], &mut outMACDHist[i]);
+            Core::MACD_step_impl(&mut self.state, inReal[i], &mut outMACD[i], &mut outMACDSignal[i], &mut outMACDHist[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

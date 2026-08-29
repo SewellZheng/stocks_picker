@@ -57,6 +57,8 @@
  *  092103 MF    Some changes related on first round of tests
  *  092303 PP    Minor bug fixes.
  *  122104 MF,CF Fix#1089506 for out-of-bound access to ep_temp.
+ *  082726 MF,CC Answer a rejected minus_dm before reading ep_temp, not after:
+ *               the read was of an uninitialised local.
  */
 
 // Import types from parent module
@@ -89,56 +91,59 @@ impl Core {
     /// * `optInAccelerationMaxShort` — Cap on the short acceleration factor (default 0.2, minimum
     ///   0)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Real parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Real parameters accept
     /// [`Core::REAL_DEFAULT`] to select their default value.
     #[inline]
-    pub fn SAREXT_Lookback(&self, mut optInStartValue: f64, mut optInOffsetOnReverse: f64, mut optInAccelerationInitLong: f64, mut optInAccelerationLong: f64, mut optInAccelerationMaxLong: f64, mut optInAccelerationInitShort: f64, mut optInAccelerationShort: f64, mut optInAccelerationMaxShort: f64) -> usize {
+    pub fn SAREXT_Lookback(&self, mut optInStartValue: f64, mut optInOffsetOnReverse: f64, mut optInAccelerationInitLong: f64, mut optInAccelerationLong: f64, mut optInAccelerationMaxLong: f64, mut optInAccelerationInitShort: f64, mut optInAccelerationShort: f64, mut optInAccelerationMaxShort: f64) -> Result<usize, RetCode> {
         if optInStartValue == Self::REAL_DEFAULT {
             optInStartValue = 0e0;
         } else if !((optInStartValue >= Self::REAL_MIN) && (optInStartValue <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInOffsetOnReverse == Self::REAL_DEFAULT {
             optInOffsetOnReverse = 0e0;
         } else if !((optInOffsetOnReverse >= 0e0) && (optInOffsetOnReverse <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInAccelerationInitLong == Self::REAL_DEFAULT {
             optInAccelerationInitLong = 2e-2;
         } else if !((optInAccelerationInitLong >= 0e0) && (optInAccelerationInitLong <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInAccelerationLong == Self::REAL_DEFAULT {
             optInAccelerationLong = 2e-2;
         } else if !((optInAccelerationLong >= 0e0) && (optInAccelerationLong <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInAccelerationMaxLong == Self::REAL_DEFAULT {
             optInAccelerationMaxLong = 2e-1;
         } else if !((optInAccelerationMaxLong >= 0e0) && (optInAccelerationMaxLong <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInAccelerationInitShort == Self::REAL_DEFAULT {
             optInAccelerationInitShort = 2e-2;
         } else if !((optInAccelerationInitShort >= 0e0) && (optInAccelerationInitShort <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInAccelerationShort == Self::REAL_DEFAULT {
             optInAccelerationShort = 2e-2;
         } else if !((optInAccelerationShort >= 0e0) && (optInAccelerationShort <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInAccelerationMaxShort == Self::REAL_DEFAULT {
             optInAccelerationMaxShort = 2e-1;
         } else if !((optInAccelerationMaxShort >= 0e0) && (optInAccelerationMaxShort <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         // SAR always sacrifices one price bar to establish the
         // initial extreme price.
-        return (1) as usize;
+        return Ok((1) as usize);
     }
     /// C-shaped body behind [`Core::SAREXT`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn SAREXT_Impl(
         &self,
         startIdx: usize,
@@ -249,7 +254,7 @@ impl Core {
         } else if !((optInAccelerationMaxShort >= 0e0) && (optInAccelerationMaxShort <= Self::REAL_MAX)) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
+        let _assertLb = self.SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -365,17 +370,14 @@ impl Core {
             // Identify if the initial direction is long or short.
             // (ep is just used as a temp buffer here, the name
             //  of the parameter is not significant).
-            let mut _dup_out: usize = 0_usize;
-            retCode = self.MINUS_DM_Impl(startIdx, startIdx, inHigh, inLow, 1, &mut tempInt, &mut _dup_out, &mut ep_temp);
+            let _xr0 = match self.MINUS_DM(startIdx, startIdx, inHigh, inLow, 1, &mut ep_temp) { Ok(_r) => _r, Err(_e) => return _e };
+            tempInt = _xr0.beg_idx;
+            tempInt = _xr0.count;
+            retCode = RetCode::Success;
             if ep_temp[0] > 0_f64 {
                 isLong = 0;
             } else {
                 isLong = 1;
-            }
-            if retCode != RetCode::Success {
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
-                return retCode;
             }
         } else if optInStartValue > 0_f64 {
             // Start Long
@@ -584,11 +586,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -633,6 +633,24 @@ impl Core {
         optInAccelerationMaxShort: f64,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.SAREXT_Impl(
@@ -670,7 +688,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_SAREXT_Stream")]
 pub struct SAREXT_Stream {
-    core: Core,
     state: SAREXT_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -681,7 +698,6 @@ impl SAREXT_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `SAREXT_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -737,7 +753,7 @@ impl SAREXT_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn SAREXT_step_impl(&self, sp: &mut SAREXT_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
+    fn SAREXT_step_impl(sp: &mut SAREXT_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
         let mut prevHigh: f64 = 0.0_f64;
         let mut prevLow: f64 = 0.0_f64;
         prevLow = sp.newLow;
@@ -860,8 +876,8 @@ impl Core {
     pub(crate) fn SAREXT_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInStartValue: f64, mut optInOffsetOnReverse: f64, mut optInAccelerationInitLong: f64, mut optInAccelerationLong: f64, mut optInAccelerationMaxLong: f64, mut optInAccelerationInitShort: f64, mut optInAccelerationShort: f64, mut optInAccelerationMaxShort: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<SAREXT_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inLow.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -904,6 +920,9 @@ impl Core {
         if optInAccelerationMaxShort == Self::REAL_DEFAULT {
             optInAccelerationMaxShort = 2e-1;
         } else if !((optInAccelerationMaxShort >= 0e0) && (optInAccelerationMaxShort <= Self::REAL_MAX)) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -1026,17 +1045,14 @@ impl Core {
             // Identify if the initial direction is long or short.
             // (ep is just used as a temp buffer here, the name
             //  of the parameter is not significant).
-            let mut _dup_out: usize = 0_usize;
-            retCode = self.MINUS_DM_Impl(startIdx, startIdx, inHigh, inLow, 1, &mut tempInt, &mut _dup_out, &mut ep_temp);
+            let _xr0 = match self.MINUS_DM(startIdx, startIdx, inHigh, inLow, 1, &mut ep_temp) { Ok(_r) => _r, Err(_e) => return Err(_e) };
+            tempInt = _xr0.beg_idx;
+            tempInt = _xr0.count;
+            retCode = RetCode::Success;
             if ep_temp[0] > 0_f64 {
                 isLong = 0;
             } else {
                 isLong = 1;
-            }
-            if retCode != RetCode::Success {
-                (*outBegIdx) = 0;
-                (*outNBElement) = 0;
-                return Err(retCode);
             }
         } else if optInStartValue > 0_f64 {
             // Start Long
@@ -1209,7 +1225,7 @@ impl Core {
             ep,
             sar,
         };
-        Ok(SAREXT_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(SAREXT_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::SAREXT_Open`] (composition seam).
@@ -1230,8 +1246,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1255,12 +1272,32 @@ impl Core {
 
     /// [`Core::SAREXT_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::SAREXT`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::SAREXT_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_SAREXT_OpenAndFill")]
     pub fn SAREXT_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], mut optInStartValue: f64, mut optInOffsetOnReverse: f64, mut optInAccelerationInitLong: f64, mut optInAccelerationLong: f64, mut optInAccelerationMaxLong: f64, mut optInAccelerationInitShort: f64, mut optInAccelerationShort: f64, mut optInAccelerationMaxShort: f64, outReal: &mut [f64],
     ) -> Result<(SAREXT_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.SAREXT_Lookback(optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort)?;
+        if inLow.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.SAREXT_OpenAndFillInternal(inHigh, inLow, 0, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -1297,7 +1334,7 @@ impl SAREXT_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.SAREXT_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
+        Core::SAREXT_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1330,7 +1367,7 @@ impl SAREXT_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.SAREXT_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
+            Core::SAREXT_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

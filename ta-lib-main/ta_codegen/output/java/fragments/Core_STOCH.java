@@ -16,6 +16,11 @@
  *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
  *  072026 MF,CC Fix #130. Never elect outSlowD as the K scratch buffer: %D's
  *               in-place ma() destroyed the smoothed K before the final copy.
+ *  082326 MF,CC Fix #253. Scale that guard to the window's own extremes: the
+ *               fixed band zeroed the whole output for any instrument quoted
+ *               small enough to fall under it.
+ *  082726 MF,CC Fix #269. Answer a rejected %D ma() before the copy, not after:
+ *               the stale *outNBElement overran outSlowK by lookbackDSlow.
  */
 
    /**
@@ -268,11 +273,15 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
+         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+          * machine-flat window leaves a sub-epsilon residue that an exact check
+          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+          * range against ITS OWN two extremes, not against a fixed band: the range
+          * carries the quote unit, so a constant put against it answers "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output (issue #253).
           */
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -289,9 +298,7 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
+      if( (int)outNBElement.value == 0 ) {
          /* Something wrong happen? No further data? */
          outBegIdx.value = 0;
          outNBElement.value = 0;
@@ -313,15 +320,6 @@
        * reused as scratch, so source and destination overlap (issue #94).
        */
       System.arraycopy(tempBuffer, lookbackDSlow, outSlowK, 0, (int)outNBElement.value * 1);
-      /* Don't need K anymore, free it if it was allocated here. */
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         /* Something wrong happen while processing %D? */
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
        */
@@ -454,7 +452,7 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
             tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -466,9 +464,7 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
+      if( (int)outNBElement.value == 0 ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return retCode ;
@@ -478,13 +474,6 @@
       outNBElement.value = _xr1.count();
       retCode = RetCode.Success;
       System.arraycopy(tempBuffer, lookbackDSlow, outSlowK, 0, (int)outNBElement.value * 1);
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       outBegIdx.value = startIdx;
       return RetCode.Success ;
    }
@@ -540,15 +529,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#STOCHF
     * @see Core#STOCHRSI
@@ -570,9 +558,9 @@
       requireIndexRange("STOCH", startIdx, endIdx);
       requireArgument("STOCH", "optInSlowK_MAType", optInSlowK_MAType);
       requireArgument("STOCH", "optInSlowD_MAType", optInSlowD_MAType);
-      int guardStart = clampedStart(startIdx, endIdx, STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("STOCH", startIdx, STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("STOCH", "inHigh", inHigh, guardInLen);
       requireLength("STOCH", "inLow", inLow, guardInLen);
       requireLength("STOCH", "inClose", inClose, guardInLen);
@@ -641,15 +629,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#STOCHF
     * @see Core#STOCHRSI
@@ -671,9 +658,9 @@
       requireIndexRange("STOCH", startIdx, endIdx);
       requireArgument("STOCH", "optInSlowK_MAType", optInSlowK_MAType);
       requireArgument("STOCH", "optInSlowD_MAType", optInSlowD_MAType);
-      int guardStart = clampedStart(startIdx, endIdx, STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("STOCH", startIdx, STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("STOCH", "inHigh", inHigh, guardInLen);
       requireLength("STOCH", "inLow", inLow, guardInLen);
       requireLength("STOCH", "inClose", inClose, guardInLen);
@@ -870,6 +857,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outSlowK[], double outSlowD[] ) {
+         requireArgument("STOCH updateAndFill", "inHigh", inHigh);
+         requireArgument("STOCH updateAndFill", "inLow", inLow);
+         requireArgument("STOCH updateAndFill", "inClose", inClose);
+         requireArgument("STOCH updateAndFill", "outSlowK", outSlowK);
+         requireArgument("STOCH updateAndFill", "outSlowD", outSlowD);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outSlowK.length < barCount || outSlowD.length < barCount || (Object)outSlowK == (Object)inHigh || (Object)outSlowK == (Object)inLow || (Object)outSlowK == (Object)inClose || (Object)outSlowD == (Object)inHigh || (Object)outSlowD == (Object)inLow || (Object)outSlowD == (Object)inClose || (Object)outSlowK == (Object)outSlowD )
             throw new TaLibArgumentException("STOCH updateAndFill: BadParam", RetCode.BadParam);
@@ -983,11 +975,15 @@
          sp.highest = tmp;
          sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
-      /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-       * a machine-flat window leaves a sub-epsilon residue that an exact check
-       * would divide into [0,100] noise (issue #107 / STOCHRSI).
+      /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+       * machine-flat window leaves a sub-epsilon residue that an exact check
+       * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+       * range against ITS OWN two extremes, not against a fixed band: the range
+       * carries the quote unit, so a constant put against it answers "flat" for
+       * every window of an instrument quoted below it and zeroed the whole
+       * output (issue #253).
        */
-      if( !((-0.00000000000001 < sp.diff) && (sp.diff < 0.00000000000001)) ) {
+      if( !(Math.abs(sp.highest - sp.lowest) <= 0.00000000000001 * (Math.abs(sp.highest) + Math.abs(sp.lowest))) ) {
          cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / sp.diff;
       } else {
          cur_tempBuffer = 0.0;
@@ -1021,11 +1017,14 @@
       int bufferIsAllocated = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInFastK_Period == Integer.MIN_VALUE ) {
          optInFastK_Period = 5;
@@ -1187,11 +1186,15 @@
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
+         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+          * machine-flat window leaves a sub-epsilon residue that an exact check
+          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+          * range against ITS OWN two extremes, not against a fixed band: the range
+          * carries the quote unit, so a constant put against it answers "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output (issue #253).
           */
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -1211,13 +1214,11 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement.value == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
+      if( (int)outNBElement.value == 0 ) {
          /* Something wrong happen? No further data? */
          outBegIdx.value = 0;
          outNBElement.value = 0;
-         return retCode ;
+         return RetCode.InsufficientHistory ;
       }
       /* Calculate the %D which is simply a moving average of
        * the already smoothed %K.
@@ -1235,15 +1236,6 @@
        * reused as scratch, so source and destination overlap (issue #94).
        */
       System.arraycopy(tempBuffer, lookbackDSlow, sc_outSlowK, 0, (int)outNBElement.value * 1);
-      /* Don't need K anymore, free it if it was allocated here. */
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         /* Something wrong happen while processing %D? */
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
        */
@@ -1341,10 +1333,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public STOCH_Stream STOCH_Open( double inHigh[], double inLow[], double inClose[], int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType )
    {
+      requireArgument("STOCH open", "inHigh", inHigh);
+      requireHistory("STOCH open", inHigh.length);
+      requireArgument("STOCH open", "optInSlowK_MAType", optInSlowK_MAType);
+      requireArgument("STOCH open", "optInSlowD_MAType", optInSlowD_MAType);
+      requireArgument("STOCH open", "inLow", inLow);
+      requireArgument("STOCH open", "inClose", inClose);
+      requireHistoryLength("STOCH open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("STOCH open", "inClose", inClose.length, inHigh.length);
       return STOCH_OpenInternal(inHigh, inLow, inClose, 0, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
    }
    /**
@@ -1352,12 +1355,25 @@
     * to {@link Core#STOCH} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link STOCH_Stream#outRange()}.
     */
    public STOCH_Stream STOCH_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInFastK_Period, int optInSlowK_Period, MAType optInSlowK_MAType, int optInSlowD_Period, MAType optInSlowD_MAType, double outSlowK[], double outSlowD[] )
    {
+      requireArgument("STOCH openAndFill", "inHigh", inHigh);
+      requireHistory("STOCH openAndFill", inHigh.length);
+      requireArgument("STOCH openAndFill", "optInSlowK_MAType", optInSlowK_MAType);
+      requireArgument("STOCH openAndFill", "optInSlowD_MAType", optInSlowD_MAType);
+      requireArgument("STOCH openAndFill", "inLow", inLow);
+      requireArgument("STOCH openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("STOCH openAndFill", inHigh.length, STOCH_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType));
+      requireHistoryLength("STOCH openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("STOCH openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("STOCH openAndFill", "outSlowK", outSlowK, guardOutLen);
+      requireLength("STOCH openAndFill", "outSlowD", outSlowD, guardOutLen);
       if( (Object)outSlowK == (Object)inHigh || (Object)outSlowK == (Object)inLow || (Object)outSlowK == (Object)inClose || (Object)outSlowD == (Object)inHigh || (Object)outSlowD == (Object)inLow || (Object)outSlowD == (Object)inClose || (Object)outSlowK == (Object)outSlowD ) {
          throw new TaLibArgumentException("STOCH openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

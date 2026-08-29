@@ -47,13 +47,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  112605 MF   Initial coding.
+ *  112605 MF    Initial coding.
+ *  082326 MF,CC Fix #253. Test the bar range exactly instead of against the
+ *               fixed TA_IS_ZERO_OR_NEG band, which zeroed the output for any
+ *               instrument quoted small enough to fall under it.
  */
 
 TA_LIB_API int TA_BOP_Lookback( void )
@@ -88,6 +91,8 @@ TA_LIB_API TA_RetCode TA_BOP( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -95,8 +100,14 @@ TA_LIB_API TA_RetCode TA_BOP( int    startIdx,
    outIdx = 0;
    for( i = startIdx; i <= endIdx; i += 1 )
    {
+      /* BOP is a fraction of the bar's own range, so it is scale-free and the
+       * divisor only has to be positive. An exact test, not the fixed
+       * TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
+       * and that band zeroed the output for any instrument quoted below it
+       * (issue #253).
+       */
       tempReal = inHigh[i] - inLow[i];
-      if( TA_IS_ZERO_OR_NEG(tempReal) )
+      if( tempReal <= 0.0 )
       {
          outReal[outIdx++] = 0.0;
       } else 
@@ -136,6 +147,8 @@ TA_RetCode TA_S_BOP( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -143,7 +156,7 @@ TA_RetCode TA_S_BOP( int    startIdx,
    for( i = startIdx; i <= endIdx; i += 1 )
    {
       tempReal = (double)inHigh[i] - (double)inLow[i];
-      if( TA_IS_ZERO_OR_NEG(tempReal) )
+      if( tempReal <= 0.0 )
       {
          outReal[outIdx++] = 0.0;
       } else 
@@ -171,8 +184,14 @@ static void TA_BOP_StepImpl( struct TA_BOP_Stream *sp, double inOpen, double inH
    double tempReal;
 
    (void)sp;
+   /* BOP is a fraction of the bar's own range, so it is scale-free and the
+    * divisor only has to be positive. An exact test, not the fixed
+    * TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
+    * and that band zeroed the output for any instrument quoted below it
+    * (issue #253).
+    */
    tempReal = inHigh - inLow;
-   if( TA_IS_ZERO_OR_NEG(tempReal) )
+   if( tempReal <= 0.0 )
    {
       *outReal= 0.0;
    } else 
@@ -190,9 +209,9 @@ static TA_RetCode TA_BOP_OpenImpl( struct TA_BOP_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -213,8 +232,14 @@ static TA_RetCode TA_BOP_OpenImpl( struct TA_BOP_Stream **stream, const double i
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 )
       {
+         /* BOP is a fraction of the bar's own range, so it is scale-free and the
+          * divisor only has to be positive. An exact test, not the fixed
+          * TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
+          * and that band zeroed the output for any instrument quoted below it
+          * (issue #253).
+          */
          tempReal = inHigh[i] - inLow[i];
-         if( TA_IS_ZERO_OR_NEG(tempReal) )
+         if( tempReal <= 0.0 )
          {
             outReal[outIdx++ * outStride] = 0.0;
          } else 
@@ -255,9 +280,9 @@ TA_LIB_API TA_RetCode TA_BOP_Open( TA_BOP_Stream **stream, const double inOpen[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_BOP_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outReal );
 }
 
@@ -265,10 +290,9 @@ TA_LIB_API TA_RetCode TA_BOP_OpenAndFill( TA_BOP_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inOpen || (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_BOP_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal );
 }

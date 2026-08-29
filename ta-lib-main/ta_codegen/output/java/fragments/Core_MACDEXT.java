@@ -207,21 +207,11 @@
       outBegIdx1.value = _xr1.begIdx();
       outNbElement1.value = _xr1.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Calculate the fast MA. */
       OutRange _xr2 = MA(tempInteger, endIdx, inReal, optInFastPeriod, optInFastMAType, fastMABuffer);
       outBegIdx2.value = _xr2.begIdx();
       outNbElement2.value = _xr2.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Parano tests. Will be removed eventually. */
       if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
          outBegIdx.value = 0;
@@ -242,11 +232,6 @@
       outBegIdx2.value = _xr3.begIdx();
       outNbElement2.value = _xr3.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Calculate the histogram. */
       for( i = 0; i < outNbElement2.value; i += 1 ) {
          outMACDHist[i] = outMACD[i] - outMACDSignal[i];
@@ -354,20 +339,10 @@
       outBegIdx1.value = _xr1.begIdx();
       outNbElement1.value = _xr1.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       OutRange _xr2 = MA(tempInteger, endIdx, inReal, optInFastPeriod, optInFastMAType, fastMABuffer);
       outBegIdx2.value = _xr2.begIdx();
       outNbElement2.value = _xr2.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
          outBegIdx.value = 0;
          outNBElement.value = 0;
@@ -381,11 +356,6 @@
       outBegIdx2.value = _xr3.begIdx();
       outNbElement2.value = _xr3.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       for( i = 0; i < outNbElement2.value; i += 1 ) {
          outMACDHist[i] = outMACD[i] - outMACDSignal[i];
       }
@@ -447,15 +417,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MACD
     * @see Core#MACDFIX
@@ -481,9 +450,9 @@
       requireArgument("MACDEXT", "optInFastMAType", optInFastMAType);
       requireArgument("MACDEXT", "optInSlowMAType", optInSlowMAType);
       requireArgument("MACDEXT", "optInSignalMAType", optInSignalMAType);
-      int guardStart = clampedStart(startIdx, endIdx, MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MACDEXT", startIdx, MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MACDEXT", "inReal", inReal, guardInLen);
       requireLength("MACDEXT", "outMACD", outMACD, guardOutLen);
       requireLength("MACDEXT", "outMACDSignal", outMACDSignal, guardOutLen);
@@ -553,15 +522,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MACD
     * @see Core#MACDFIX
@@ -587,9 +555,9 @@
       requireArgument("MACDEXT", "optInFastMAType", optInFastMAType);
       requireArgument("MACDEXT", "optInSlowMAType", optInSlowMAType);
       requireArgument("MACDEXT", "optInSignalMAType", optInSignalMAType);
-      int guardStart = clampedStart(startIdx, endIdx, MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MACDEXT", startIdx, MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MACDEXT", "inReal", inReal, guardInLen);
       requireLength("MACDEXT", "outMACD", outMACD, guardOutLen);
       requireLength("MACDEXT", "outMACDSignal", outMACDSignal, guardOutLen);
@@ -751,6 +719,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outMACD[], double outMACDSignal[], double outMACDHist[] ) {
+         requireArgument("MACDEXT updateAndFill", "inReal", inReal);
+         requireArgument("MACDEXT updateAndFill", "outMACD", outMACD);
+         requireArgument("MACDEXT updateAndFill", "outMACDSignal", outMACDSignal);
+         requireArgument("MACDEXT updateAndFill", "outMACDHist", outMACDHist);
          final int barCount = inReal.length;
          if( outMACD.length < barCount || outMACDSignal.length < barCount || outMACDHist.length < barCount || (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist )
             throw new TaLibArgumentException("MACDEXT updateAndFill: BadParam", RetCode.BadParam);
@@ -847,7 +819,7 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -937,21 +909,11 @@
        * sub-call's own startIdx (the seeding point). */
       MA_Stream sub0 = MA_OpenAndFillInternal(inReal, tempInteger, optInSlowPeriod, optInSlowMAType, outBegIdx1, outNbElement1, slowMABuffer);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Calculate the fast MA. */
       /* Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MA_Stream sub1 = MA_OpenAndFillInternal(inReal, tempInteger, optInFastPeriod, optInFastMAType, outBegIdx2, outNbElement2, fastMABuffer);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Parano tests. Will be removed eventually. */
       if( outBegIdx1.value != tempInteger || outBegIdx2.value != tempInteger || outNbElement1.value != outNbElement2.value || outNbElement1.value != endIdx - startIdx + 1 + lookbackSignal ) {
          outBegIdx.value = 0;
@@ -972,11 +934,6 @@
        * sub-call's own startIdx (the seeding point). */
       MA_Stream sub2 = MA_OpenAndFillInternal(java.util.Arrays.copyOfRange(fastMABuffer, 0, (outNbElement1.value - 1) + 1), 0, optInSignalPeriod, optInSignalMAType, outBegIdx2, outNbElement2, sc_outMACDSignal);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       /* Calculate the histogram. */
       for( i = 0; i < outNbElement2.value; i += 1 ) {
          sc_outMACDHist[i] = sc_outMACD[i] - sc_outMACDSignal[i];
@@ -1052,10 +1009,18 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public MACDEXT_Stream MACDEXT_Open( double inReal[], int optInFastPeriod, MAType optInFastMAType, int optInSlowPeriod, MAType optInSlowMAType, int optInSignalPeriod, MAType optInSignalMAType )
    {
+      requireArgument("MACDEXT open", "inReal", inReal);
+      requireHistory("MACDEXT open", inReal.length);
+      requireArgument("MACDEXT open", "optInFastMAType", optInFastMAType);
+      requireArgument("MACDEXT open", "optInSlowMAType", optInSlowMAType);
+      requireArgument("MACDEXT open", "optInSignalMAType", optInSignalMAType);
       return MACDEXT_OpenInternal(inReal, 0, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
    }
    /**
@@ -1063,12 +1028,23 @@
     * to {@link Core#MACDEXT} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link MACDEXT_Stream#outRange()}.
     */
    public MACDEXT_Stream MACDEXT_OpenAndFill( double inReal[], int optInFastPeriod, MAType optInFastMAType, int optInSlowPeriod, MAType optInSlowMAType, int optInSignalPeriod, MAType optInSignalMAType, double outMACD[], double outMACDSignal[], double outMACDHist[] )
    {
+      requireArgument("MACDEXT openAndFill", "inReal", inReal);
+      requireHistory("MACDEXT openAndFill", inReal.length);
+      requireArgument("MACDEXT openAndFill", "optInFastMAType", optInFastMAType);
+      requireArgument("MACDEXT openAndFill", "optInSlowMAType", optInSlowMAType);
+      requireArgument("MACDEXT openAndFill", "optInSignalMAType", optInSignalMAType);
+      int guardOutLen = openFillCount("MACDEXT openAndFill", inReal.length, MACDEXT_Lookback(optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType));
+      requireLength("MACDEXT openAndFill", "outMACD", outMACD, guardOutLen);
+      requireLength("MACDEXT openAndFill", "outMACDSignal", outMACDSignal, guardOutLen);
+      requireLength("MACDEXT openAndFill", "outMACDHist", outMACDHist, guardOutLen);
       if( (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist ) {
          throw new TaLibArgumentException("MACDEXT openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

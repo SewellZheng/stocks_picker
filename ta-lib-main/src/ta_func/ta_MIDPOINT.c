@@ -103,11 +103,13 @@ TA_LIB_API TA_RetCode TA_MIDPOINT( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -159,7 +161,7 @@ TA_LIB_API TA_RetCode TA_MIDPOINT( int    startIdx,
    outIdx = 0;
    today = startIdx;
    trailingIdx = startIdx - nbInitialElementNeeded;
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(353);
    if( (int)optInTimePeriod > (int)(sizeof(local_sufHighest)/sizeof(double)) )
    {
       sufHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -172,7 +174,7 @@ TA_LIB_API TA_RetCode TA_MIDPOINT( int    startIdx,
    {
       sufHighest = &local_sufHighest[0];
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(354);
    if( (int)optInTimePeriod > (int)(sizeof(local_preHighest)/sizeof(double)) )
    {
       preHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -186,7 +188,7 @@ TA_LIB_API TA_RetCode TA_MIDPOINT( int    startIdx,
    {
       preHighest = &local_preHighest[0];
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(355);
    if( (int)optInTimePeriod > (int)(sizeof(local_sufLowest)/sizeof(double)) )
    {
       sufLowest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -201,7 +203,7 @@ TA_LIB_API TA_RetCode TA_MIDPOINT( int    startIdx,
    {
       sufLowest = &local_sufLowest[0];
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(356);
    if( (int)optInTimePeriod > (int)(sizeof(local_preLowest)/sizeof(double)) )
    {
       preLowest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -355,11 +357,13 @@ TA_RetCode TA_S_MIDPOINT( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -378,7 +382,7 @@ TA_RetCode TA_S_MIDPOINT( int    startIdx,
    outIdx = 0;
    today = startIdx;
    trailingIdx = startIdx - nbInitialElementNeeded;
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(353);
    if( (int)optInTimePeriod > (int)(sizeof(local_sufHighest)/sizeof(double)) )
    {
       sufHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -391,7 +395,7 @@ TA_RetCode TA_S_MIDPOINT( int    startIdx,
    {
       sufHighest = &local_sufHighest[0];
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(354);
    if( (int)optInTimePeriod > (int)(sizeof(local_preHighest)/sizeof(double)) )
    {
       preHighest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -405,7 +409,7 @@ TA_RetCode TA_S_MIDPOINT( int    startIdx,
    {
       preHighest = &local_preHighest[0];
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(355);
    if( (int)optInTimePeriod > (int)(sizeof(local_sufLowest)/sizeof(double)) )
    {
       sufLowest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -420,7 +424,7 @@ TA_RetCode TA_S_MIDPOINT( int    startIdx,
    {
       sufLowest = &local_sufLowest[0];
    }
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(356);
    if( (int)optInTimePeriod > (int)(sizeof(local_preLowest)/sizeof(double)) )
    {
       preLowest = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -630,9 +634,9 @@ static TA_RetCode TA_MIDPOINT_OpenImpl( struct TA_MIDPOINT_Stream **stream, cons
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -782,7 +786,7 @@ static TA_RetCode TA_MIDPOINT_OpenImpl( struct TA_MIDPOINT_Stream **stream, cons
       sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MIDPOINT_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_MIDPOINT_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(357); }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
@@ -822,9 +826,9 @@ TA_LIB_API TA_RetCode TA_MIDPOINT_Open( TA_MIDPOINT_Stream **stream, const doubl
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_MIDPOINT_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -832,10 +836,9 @@ TA_LIB_API TA_RetCode TA_MIDPOINT_OpenAndFill( TA_MIDPOINT_Stream **stream, cons
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_MIDPOINT_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

@@ -110,10 +110,6 @@ TA_LIB_API TA_RetCode TA_AC( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -125,6 +121,12 @@ TA_LIB_API TA_RetCode TA_AC( int    startIdx,
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
       optInSignalPeriod = 5;
    else if( (int)optInSignalPeriod < 2 || (int)optInSignalPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -174,7 +176,7 @@ TA_LIB_API TA_RetCode TA_AC( int    startIdx,
       return TA_SUCCESS;
    }
    /* Allocate a circular buffer equal to the requested signal period. */
-   if( optInSignalPeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInSignalPeriod < 1 ) return TA_INTERNAL_ERROR(181);
    if( (int)optInSignalPeriod > (int)(sizeof(local_oscBuffer)/sizeof(double)) )
    {
       oscBuffer = TA_Malloc( sizeof(double)*optInSignalPeriod );
@@ -323,10 +325,6 @@ TA_RetCode TA_S_AC( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -338,6 +336,12 @@ TA_RetCode TA_S_AC( int    startIdx,
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
       optInSignalPeriod = 5;
    else if( (int)optInSignalPeriod < 2 || (int)optInSignalPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -353,7 +357,7 @@ TA_RetCode TA_S_AC( int    startIdx,
       *outNBElement= 0;
       return TA_SUCCESS;
    }
-   if( optInSignalPeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInSignalPeriod < 1 ) return TA_INTERNAL_ERROR(181);
    if( (int)optInSignalPeriod > (int)(sizeof(local_oscBuffer)/sizeof(double)) )
    {
       oscBuffer = TA_Malloc( sizeof(double)*optInSignalPeriod );
@@ -546,9 +550,9 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -631,7 +635,7 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
          return TA_INSUFFICIENT_HISTORY;
       }
       /* Allocate a circular buffer equal to the requested signal period. */
-      if( optInSignalPeriod < 1 ) return TA_INTERNAL_ERROR(137);
+      if( optInSignalPeriod < 1 ) return TA_INTERNAL_ERROR(181);
       if( (int)optInSignalPeriod > (int)(sizeof(local_oscBuffer)/sizeof(double)) )
       {
          oscBuffer = TA_Malloc( sizeof(double)*optInSignalPeriod );
@@ -757,7 +761,7 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       sp->oscBuffer_Idx = oscBuffer_Idx;
       sp->maxIdx_oscBuffer = maxIdx_oscBuffer;
       sp->ringCap_trailingFastIdx = (int)(i - trailingFastIdx);
-      if( sp->ringCap_trailingFastIdx < 0 || sp->ringCap_trailingFastIdx > historyLen ) { TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingFastIdx < 0 || sp->ringCap_trailingFastIdx > historyLen ) { TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(182); }
       { size_t allocN = (size_t)(sp->ringCap_trailingFastIdx > 0 ? sp->ringCap_trailingFastIdx : 1);
         sp->ring_trailingFastIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingFastIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -770,7 +774,7 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       }
       sp->ringPos_trailingFastIdx = 0;
       sp->ringCap_trailingSlowIdx = (int)(i - trailingSlowIdx);
-      if( sp->ringCap_trailingSlowIdx < 0 || sp->ringCap_trailingSlowIdx > historyLen ) { TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingSlowIdx < 0 || sp->ringCap_trailingSlowIdx > historyLen ) { TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(183); }
       { size_t allocN = (size_t)(sp->ringCap_trailingSlowIdx > 0 ? sp->ringCap_trailingSlowIdx : 1);
         sp->ring_trailingSlowIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingSlowIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -783,7 +787,7 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       }
       sp->ringPos_trailingSlowIdx = 0;
       sp->cbSize_oscBuffer = maxIdx_oscBuffer + 1;
-      if( sp->cbSize_oscBuffer < 1 || sp->cbSize_oscBuffer > historyLen + 1 ) { if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_oscBuffer < 1 || sp->cbSize_oscBuffer > historyLen + 1 ) { if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(184); }
       sp->cb_oscBuffer = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_oscBuffer );
       if( !sp->cb_oscBuffer ) { if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_oscBuffer = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_oscBuffer );
@@ -816,9 +820,9 @@ TA_LIB_API TA_RetCode TA_AC_Open( TA_AC_Stream **stream, const double inHigh[], 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_AC_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outReal );
 }
 
@@ -826,10 +830,9 @@ TA_LIB_API TA_RetCode TA_AC_OpenAndFill( TA_AC_Stream **stream, const double inH
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_AC_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outReal );
 }

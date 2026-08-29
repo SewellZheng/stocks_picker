@@ -39,15 +39,28 @@ include/ta_func.h        (generated public header)
 (which holds only the indicator definitions) and out of `output/` (100% generated):
 - `templates/rust/types.rs` — the `Core` / `RetCode` / `CoreBuilder` / `CandleSettings`
   scaffolding, copied verbatim into the Rust crate (`output/rust/library/src/ta_func/types.rs`).
-- `templates/rust/scratch_election.rs` — the value gate for the scratch-buffer
-  election (issue #146), copied verbatim and declared `#[cfg(test)]` in the
-  generated `mod.rs`, so it never ships in a release build. Run by
-  `cargo test --lib -p ta-lib`.
+- Four more, each copied verbatim and declared `#[cfg(test)]` in the generated
+  `mod.rs`, so none ships in a release build. The nightly runs them with
+  `cargo test --tests -p ta-lib`, which is the only thing that runs them —
+  `clippy --all-targets` compiles the test target without executing it, and
+  `--tests` rather than `--lib` because it must also reach `library/tests/`:
+  `templates/rust/scratch_election.rs` (the scratch-buffer election value gate,
+  issue #146), `stream_finite.rs` (the streaming tier's non-finite input
+  rejection), `stream_out_range.rs` (a handle's `OutRange` against batch, issue
+  #241) and `div_zero.rs` (DIV's zero-divisor result, issue #249).
 
-Both Rust templates are listed in `main.rs`'s `RUST_TEMPLATE_MODULES` (and the
+Every Rust template is listed in `main.rs`'s `RUST_TEMPLATE_MODULES` (and the
 test-only ones in `RUST_TEST_ONLY_MODULES`) and in `RustBackend::clean_keep`, so
 `generate` copies them in and never deletes them. Adding another one means
 touching all three.
+
+A fifth `#[cfg(test)]` module is **generated, not copied**: the phantom-I/O sweep,
+`src/ta_func/no_phantom_io.rs`, emitted by `backends/rust_phantom_io.rs`. It lives
+in `src/` rather than `tests/` because it probes `<N>_Impl`, which is
+`pub(crate)` (#265). Its own list is `RUST_GENERATED_TEST_MODULES`, and it is in
+`clean_keep` too — the only entry there that is not a template, since the
+stale-file sweep would otherwise delete a `.rs` in `src/ta_func/` that names no
+indicator.
 - `templates/c/ta_retcode.c.template` — spliced with `src/ta_common/ta_retcode.csv`
   (`backends/retcode.rs`) → `src/ta_common/ta_retcode.c`.
 - `templates/c/ta_abstract_serve.c` — hand-written abstract-serve handlers `#include`d
@@ -61,11 +74,12 @@ touching all three.
 | `ir` | Intermediate representation (`FuncDef`, `ParamType`, `Statement`, `Expr`, etc.) |
 | `backends/c.rs` | Generates C indicator implementations (guarded `TA_<N>` / `TA_S_<N>`, plus `TA_<N>_Private` where declared) |
 | `backends/rust_lang.rs` | Generates Rust indicator implementations (concrete `f64`, guarded `<N>` plus `<N>_Private` where declared) |
-| `backends/rust_doc.rs` | Renders each function's canonical `<name>.md` as rustdoc on the generated Rust methods (summary/formula/notes, `# Arguments` with YAML numbers injected, `# Errors`/`# Panics`, a runnable doctest, `#[doc(alias)]`, intra-doc `# See also` links) |
+| `backends/rust_doc.rs` | Renders each function's canonical `<name>.md` as rustdoc on the generated Rust methods (summary/formula/notes, `# Arguments` with YAML numbers injected, `# Errors`, a runnable doctest, `#[doc(alias)]`, intra-doc `# See also` links) |
 | `backends/java.rs` | Generates Java Core class methods |
+| `backends/ir_cleanup.rs` | Backend-selected IR cleanup, between the streaming decision and rendering. Each ported backend states its own explicit sequence — answered cross-call guards, deallocation, then inert guards. C states none. Every pass is length-preserving, because the stream emitters address the body by index |
 | `backends/csharp.rs` | Generates the shipped C# indicators — one `Core_<NAME>.cs` (`public partial class Core`) per function; XML docs via `csharp_doc.rs`, condition folding shared with Java via `compat_fold.rs` |
 | `backends/{c,rust,java,csharp}_stream.rs` | The four streaming emitters — one per backend, each rendering the *same* backend-neutral analysis from `streaming.rs` (`StreamPlan`, `StreamModel`, `build_transition`, the `NameMap` trait) into its own language. Adding a fifth means writing only the new emitter: the neutral layer and the other three stay untouched, which is what keeps them byte-frozen by construction while it lands. **The `NameMap` prefixes are shared on purpose** — `fma::stream_base` strips exactly `sp->`, `sp.` and `cur_` to decide integer-vs-float typing, so a backend that invents its own spelling silently changes which sites fuse `a*b+c`, i.e. ~1 ULP with nothing pointing at the cause |
-| `backends/csharp_metadata.rs` | Generates the shipped C# introspection registry (`TALib.Metadata` under `csharp/library/src/metadata/`): the vocabularies, the model records, `FunctionCall`, and one factory per function carrying its two dispatch thunks. The C# JSON-RPC server answers the `ta_abstract` RPCs out of *this* registry — its csproj compiles the library sources — so `test_abstract.c` proves the shipped artifact, not a test-only copy |
+| `backends/csharp_metadata.rs` | Generates the shipped C# introspection registry (`TALib.Metadata` under `csharp/library/src/metadata/`) **and, into the test project, `NoPhantomIoBinder.g.cs` — the phantom-I/O probe's own `<N>_Impl` call sites, which is what keeps that probe's corpus complete under `regen-check` (#265)**: the vocabularies, the model records, `FunctionCall`, and one factory per function carrying its two dispatch thunks. The C# JSON-RPC server answers the `ta_abstract` RPCs out of *this* registry — its csproj compiles the library sources — so `test_abstract.c` proves the shipped artifact, not a test-only copy |
 | `backends/abstract_rows.rs` | **The backend-neutral `ta_abstract` row model.** One derivation of every function's metadata (flags, price bundling, parameter domains, unstable-period id), rendered by `rust_abstract`, `java_abstract` (server table), `java_metadata` (shipped registry) and `csharp_metadata`. Sum-typed `OptDomain` + closed `Group`/`InputKind`/`OutputKind` enums, so a renderer cannot silently mis-tag a domain. **C and `func_api_xml` deliberately do NOT render from it** — see below |
 | `backends/ta_abstract_c.rs` | Generates `ta_abstract` introspection layer (tables, frames, group index, runtime API) |
 | `backends/price_bundle.rs` | Folds the expanded price components back into the single `TA_Input_Price` descriptor (`inPriceHLC` + flags). Shared by the C, Rust and Java abstract backends — that name and flags word are **public ABI** (wrappers read them; ta-lib-python renders them as `{'prices': [...]}`), so they are derived once, from the YAML declaration carried on each `Input` as a `PriceRef`, never re-inferred from argument names |
@@ -116,9 +130,9 @@ cd ta_codegen/generator && cargo clippy          # Strict pedantic lints enabled
 Tests are in `tests/backend_suite.rs` and `tests/integration_test.rs` — they verify IR-to-backend rendering, expression types, function signatures, and function variants across all backends.
 
 Value gates that need the *generated* library live in the crate itself, as
-`#[cfg(test)]` modules copied from `templates/rust/` (see
-`RUST_TEMPLATE_MODULES`); run them with `cargo test --lib -p ta-lib` in
-`ta_codegen/output/rust/`.
+`#[cfg(test)]` modules — four copied from `templates/rust/` (see
+`RUST_TEMPLATE_MODULES`) and one emitted (`RUST_GENERATED_TEST_MODULES`); run
+them with `cargo test --tests -p ta-lib` in `ta_codegen/output/rust/`.
 
 ## Cross-Language Testing Architecture
 
@@ -276,17 +290,26 @@ is concrete-`f64` only.
 | Variant | Purpose |
 |---------|---------|
 | `pub fn <N>_Lookback(...) -> usize` | Lookback (first valid output index) |
-| `pub fn <N>(...) -> Result<OutRange, RetCode>` | The batch API. A thin generated wrapper with no out-params: it calls `<N>_Impl` and turns `Success` into `Ok(OutRange { beg_idx, count })`. Same two-tier shape Java (`<N>_Impl` + `OutRange`) and C# (`internal RetCode <N>_Impl` + `public OutRange <N>`) already ship |
-| `pub(crate) fn <N>_Impl(...) -> RetCode` | The body: validates params and the index range, pre-computes optimization values, delegates. Keeps C's shape — a code plus `&mut outBegIdx` / `&mut outNBElement` — because that is what the transcribed bodies are written against, and it is where the FMA dispatch sits |
+| `pub fn <N>(...) -> Result<OutRange, RetCode>` | The batch API, and the tier that owns the argument contract (#265): B1/B2, then B3 via `<N>_Lookback(..)?`, then every input and output length-checked, before it calls `<N>_Impl` and turns `Success` into `Ok(OutRange { beg_idx, count })`. Same two-tier shape Java (`<N>_Impl` + `OutRange`) and C# (`internal RetCode <N>_Impl` + `public OutRange <N>`) already ship |
+| `pub(crate) fn <N>_Impl(...) -> RetCode` | The body: validates params and the index range, pre-computes optimization values, delegates. Keeps C's shape — a code plus `&mut outBegIdx` / `&mut outNBElement` — because that is what the transcribed bodies are written against, and it is where the FMA dispatch sits. Not a cross-call target since #267 |
 | `fn <N>_Private(...)` | Only where the definition declares one. Extra pre-computed params, no validation prologue — its only caller is the `_Impl` body above it. No shipped indicator declares one; the construct is carried by the `SYNTH4` gate fixture (`input_synth/README.md`) |
 
-Cross-indicator calls target **`<N>_Impl`**, never the public wrapper: 19 of the
-33 call sites hand the callee their own `&mut outBegIdx` / `&mut outNBElement`
-and read them back, and four fold "success with zero output" into the same
-conditional as the error, which `?` cannot express. **Rust alone** — since #236
-step 3 Java and C# route a cross-call to the callee's *public* tier, which is
-what C has always done. `<N>_Impl` carries the bounds-assert preamble; that
-preamble takes an empty-range escape so a call computing nothing cannot panic.
+Cross-indicator calls target the **public** wrapper, as in C, Java and C# (#267).
+`?` is unavailable — the caller is `<N>_Impl`, which returns a bare `RetCode`, or
+a `Result`-returning `<N>_OpenImpl` at three of the sites —
+so `render_cross_indicator_call` drops the two out-meta arguments, binds the
+returned range to a `_xrN` local with a `match`, assigns both out-params from it,
+and then sets `retCode = RetCode::Success`. The `if( retCode != SUCCESS )` that
+followed can no longer be taken and is folded out by
+`ir_cleanup::drop_answered_cross_call_guards`; 22 of the 36 sites hand the
+callee the caller's own `&mut outBegIdx` / `&mut outNBElement` and read them
+back, and 10 fold "success with zero output" into the same conditional, so that
+half survives alone and keeps the assignment live.
+
+`<N>_Impl` still carries the bounds-assert preamble, and it still takes an
+empty-range escape so a call computing nothing cannot panic. What changed is who
+meets it: only `pub fn <N>` and the phantom-I/O sweep now, so the preamble is the
+LLVM proof and the sweep's target rather than the cross-call path's guard.
 
 `rust_doc::guarded_docs` is the rustdoc for the **public** wrapper, so its
 `# Arguments` list must match that signature — not the `_Impl` one.

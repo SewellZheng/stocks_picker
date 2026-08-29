@@ -104,6 +104,8 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
 
@@ -244,6 +246,8 @@ TA_RetCode TA_S_CDLRISEFALL3METHODS( int    startIdx,
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -432,9 +436,9 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -563,7 +567,7 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
       memcpy( sp->BodyPeriodTotal, BodyPeriodTotal, sizeof( sp->BodyPeriodTotal ) );
       sp->ringLag_BodyLongTrailingIdx = (int)(i - BodyLongTrailingIdx);
       sp->ringCap_BodyLongTrailingIdx = sp->ringLag_BodyLongTrailingIdx + 5;
-      if( sp->ringLag_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringLag_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(287); }
       { size_t allocN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
         sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -577,7 +581,7 @@ static TA_RetCode TA_CDLRISEFALL3METHODS_OpenImpl( struct TA_CDLRISEFALL3METHODS
       sp->ringPos_BodyLongTrailingIdx = historyLen % sp->ringCap_BodyLongTrailingIdx;
       sp->ringLag_BodyShortTrailingIdx = (int)(i - BodyShortTrailingIdx);
       sp->ringCap_BodyShortTrailingIdx = sp->ringLag_BodyShortTrailingIdx + 4;
-      if( sp->ringLag_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringLag_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(288); }
       { size_t allocN = (size_t)(sp->ringCap_BodyShortTrailingIdx > 0 ? sp->ringCap_BodyShortTrailingIdx : 1);
         sp->ring_BodyShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyShortTrailingIdx_derived ) { TA_CDLRISEFALL3METHODS_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -631,9 +635,9 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_Open( TA_CDLRISEFALL3METHODS_Stream
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLRISEFALL3METHODS_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
 
@@ -641,10 +645,9 @@ TA_LIB_API TA_RetCode TA_CDLRISEFALL3METHODS_OpenAndFill( TA_CDLRISEFALL3METHODS
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLRISEFALL3METHODS_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
 }

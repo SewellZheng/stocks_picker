@@ -89,8 +89,8 @@ public class TaCodegenServe {
     static string FormatArray(double[] arr, int count) {
         var parts = new string[count];
         for (int i = 0; i < count; i++)
-            parts[i] = arr[i].ToString();
-        return "[" + string.Join(",", parts) + "]";
+            parts[i] = BitConverter.DoubleToInt64Bits(arr[i]).ToString("x16");
+        return "\"" + string.Concat(parts) + "\"";
     }
 
     static string FormatIntArray(int[] arr, int count) {
@@ -1135,9 +1135,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.AC_OpenAndFill(fz_h, fz_l, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AC_OpenAndFill(fz_h, fz_l, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AC_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -1363,25 +1365,28 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 2 aliases output 0 */ }
                 try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, f1, f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 aliases output 1 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN), f2); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, ovD.AsSpan(0, svN), f1, ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (offset) */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, ovD.AsSpan(0, svN), f1, ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (same start, longer) */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (offset) */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (same start, longer) */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1), f1, f2); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN), f1, f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, fz_h.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, f0, ovIn.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
-                try { _ = c2.ACCBANDS_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, f0, f1, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ACCBANDS_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, f0, f1, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -1596,9 +1601,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ACOS_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ACOS_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ACOS_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -1790,9 +1797,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.AD_OpenAndFill(fz_h, fz_l, fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AD_OpenAndFill(fz_h, fz_l, fz_c, fz_v, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AD_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -1980,9 +1989,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal0 */ }
                 try { _ = c2.ADD_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal1 */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ADD_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ADD_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -2177,9 +2188,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.ADOSC_OpenAndFill(fz_h, fz_l, fz_c, fz_v, optInFastPeriod, optInSlowPeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ADOSC_OpenAndFill(fz_h, fz_l, fz_c, fz_v, optInFastPeriod, optInSlowPeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ADOSC_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, fz_v, optInFastPeriod, optInSlowPeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -2378,9 +2391,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.ADX_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ADX_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ADX_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -2579,9 +2594,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.ADXR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ADXR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ADXR_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -2778,9 +2795,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.AO_OpenAndFill(fz_h, fz_l, optInFastPeriod, optInSlowPeriod, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AO_OpenAndFill(fz_h, fz_l, optInFastPeriod, optInSlowPeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AO_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInFastPeriod, optInSlowPeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -2993,9 +3012,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.APO_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInMAType, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.APO_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInMAType, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.APO_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInSlowPeriod, optInMAType, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -3202,15 +3223,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inLow */ }
                 try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_h.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.AROON_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInTimePeriod, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.AROON_OpenAndFill(fz_h, fz_l, optInTimePeriod, f0, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AROON_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInTimePeriod, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -3417,9 +3441,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.AROONOSC_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AROONOSC_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AROONOSC_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -3612,9 +3638,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ASIN_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ASIN_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ASIN_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -3800,9 +3828,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ATAN_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ATAN_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ATAN_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -3994,9 +4024,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.ATR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ATR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ATR_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -4190,9 +4222,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.AVGDEV_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AVGDEV_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AVGDEV_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -4391,9 +4425,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.AVGPRICE_OpenAndFill(fz_o, fz_h, fz_l, fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_o, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.AVGPRICE_OpenAndFill(fz_o, fz_h, fz_l, fz_c, fz_o.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.AVGPRICE_OpenAndFill(ovIn.AsSpan(0, svN), fz_h, fz_l, fz_c, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -4624,25 +4660,28 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 2 aliases output 0 */ }
                 try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, f1, f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 aliases output 1 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN), f2); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, ovD.AsSpan(0, svN), f1, ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (offset) */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, ovD.AsSpan(0, svN), f1, ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (same start, longer) */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (offset) */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (same start, longer) */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, fz_c.AsSpan(1, svN - 1), f1, f2); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, ovIn.AsSpan(1, svN), f1, f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, fz_c.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, ovIn.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
-                try { _ = c2.BBANDS_OpenAndFill(fz_c, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, f1, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.BBANDS_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, f0, f1, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -4860,9 +4899,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal0 */ }
                 try { _ = c2.BETA_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal1 */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.BETA_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.BETA_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -5061,9 +5102,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.BOP_OpenAndFill(fz_o, fz_h, fz_l, fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_o, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.BOP_OpenAndFill(fz_o, fz_h, fz_l, fz_c, fz_o.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.BOP_OpenAndFill(ovIn.AsSpan(0, svN), fz_h, fz_l, fz_c, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -5254,9 +5297,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.CCI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.CCI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.CCI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -18693,9 +18738,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.CEIL_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.CEIL_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.CEIL_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -18888,9 +18935,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.CMF_OpenAndFill(fz_h, fz_l, fz_c, fz_v, optInTimePeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.CMF_OpenAndFill(fz_h, fz_l, fz_c, fz_v, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.CMF_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, fz_v, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -19085,9 +19134,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.CMO_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.CMO_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.CMO_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = (svCompat == 1) ? 1 : 0;
@@ -19281,9 +19332,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.CMOU_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.CMOU_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.CMOU_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -19479,9 +19532,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal0 */ }
                 try { _ = c2.CORREL_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal1 */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.CORREL_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.CORREL_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -19674,9 +19729,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.COS_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.COS_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.COS_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -19862,9 +19919,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.COSH_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.COSH_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.COSH_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -20052,9 +20111,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.DEMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.DEMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.DEMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -20249,9 +20310,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal0 */ }
                 try { _ = c2.DIV_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal1 */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.DIV_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.DIV_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -20443,9 +20506,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.DX_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.DX_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.DX_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -20641,9 +20706,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.EFI_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.EFI_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.EFI_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -20838,9 +20905,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.EMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.EMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.EMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -21033,9 +21102,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.EXP_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.EXP_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.EXP_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -21221,9 +21292,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.FLOOR_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.FLOOR_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.FLOOR_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -21410,9 +21483,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.HMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.HMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -21606,9 +21681,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.HT_DCPERIOD_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.HT_DCPERIOD_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_DCPERIOD_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -21795,9 +21872,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.HT_DCPHASE_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.HT_DCPHASE_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_DCPHASE_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -21993,15 +22072,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inReal */ }
                 try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.HT_PHASOR_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.HT_PHASOR_OpenAndFill(fz_c, f0, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_PHASOR_OpenAndFill(ovIn.AsSpan(0, svN), f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -22207,15 +22289,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inReal */ }
                 try { _ = c2.HT_SINE_OpenAndFill(fz_c, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.HT_SINE_OpenAndFill(fz_c, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_SINE_OpenAndFill(fz_c, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.HT_SINE_OpenAndFill(fz_c, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.HT_SINE_OpenAndFill(fz_c, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.HT_SINE_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.HT_SINE_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.HT_SINE_OpenAndFill(fz_c, f0, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_SINE_OpenAndFill(ovIn.AsSpan(0, svN), f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -22412,9 +22497,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.HT_TRENDLINE_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.HT_TRENDLINE_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.HT_TRENDLINE_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -22787,9 +22874,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inOpen */ }
                 try { _ = c2.IMI_OpenAndFill(fz_o, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_o, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.IMI_OpenAndFill(fz_o, fz_c, optInTimePeriod, fz_o.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.IMI_OpenAndFill(ovIn.AsSpan(0, svN), fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -22984,9 +23073,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.KAMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.KAMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.KAMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -23180,9 +23271,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.LINEARREG_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.LINEARREG_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.LINEARREG_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -23376,9 +23469,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.LINEARREG_ANGLE_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.LINEARREG_ANGLE_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.LINEARREG_ANGLE_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -23572,9 +23667,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.LINEARREG_INTERCEPT_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.LINEARREG_INTERCEPT_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.LINEARREG_INTERCEPT_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -23768,9 +23865,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.LINEARREG_SLOPE_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.LINEARREG_SLOPE_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.LINEARREG_SLOPE_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -23963,9 +24062,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.LN_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.LN_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.LN_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -24151,9 +24252,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.LOG10_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.LOG10_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.LOG10_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -24358,9 +24461,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.MA_OpenAndFill(fz_c, optInTimePeriod, optInMAType, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MA_OpenAndFill(fz_c, optInTimePeriod, optInMAType, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInMAType, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -24577,25 +24682,28 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 2 aliases output 0 */ }
                 try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, f1, f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 aliases output 1 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN), f2); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovD.AsSpan(0, svN), f1, ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (offset) */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovD.AsSpan(0, svN), f1, ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (same start, longer) */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (offset) */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (same start, longer) */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, fz_c.AsSpan(1, svN - 1), f1, f2); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovIn.AsSpan(1, svN), f1, f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, fz_c.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, ovIn.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
-                try { _ = c2.MACD_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, f1, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACD_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, f1, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -24859,25 +24967,28 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 2 aliases output 0 */ }
                 try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, f1, f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 aliases output 1 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN), f2); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, ovD.AsSpan(0, svN), f1, ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (offset) */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, ovD.AsSpan(0, svN), f1, ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (same start, longer) */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (offset) */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (same start, longer) */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, fz_c.AsSpan(1, svN - 1), f1, f2); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, ovIn.AsSpan(1, svN), f1, f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, fz_c.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, ovIn.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
-                try { _ = c2.MACDEXT_OpenAndFill(fz_c, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, f1, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACDEXT_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, f0, f1, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -25114,25 +25225,28 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 2 aliases output 0 */ }
                 try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, f1, f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 aliases output 1 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN), f2); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, ovD.AsSpan(0, svN), f1, ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (offset) */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0.AsSpan(0, svN - 1), f1, f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, ovD.AsSpan(0, svN), f1, ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/2 partially overlap (same start, longer) */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (offset) */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, f1.AsSpan(0, svN - 1), f1.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 1/2 partially overlap (same start, longer) */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, fz_c.AsSpan(1, svN - 1), f1, f2); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(ovIn.AsSpan(0, svN), optInSignalPeriod, ovIn.AsSpan(1, svN), f1, f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, fz_c.AsSpan(1, svN - 1), f2); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(ovIn.AsSpan(0, svN), optInSignalPeriod, f0, ovIn.AsSpan(1, svN), f2); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
-                try { _ = c2.MACDFIX_OpenAndFill(fz_c, optInSignalPeriod, f0, f1, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MACDFIX_OpenAndFill(ovIn.AsSpan(0, svN), optInSignalPeriod, f0, f1, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 2 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -25359,15 +25473,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inReal */ }
                 try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, fz_c.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.MAMA_OpenAndFill(ovIn.AsSpan(0, svN), optInFastLimit, optInSlowLimit, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.MAMA_OpenAndFill(fz_c, optInFastLimit, optInSlowLimit, f0, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MAMA_OpenAndFill(ovIn.AsSpan(0, svN), optInFastLimit, optInSlowLimit, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -25567,9 +25684,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.MARKETFI_OpenAndFill(fz_h, fz_l, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MARKETFI_OpenAndFill(fz_h, fz_l, fz_v, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MARKETFI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -25778,9 +25897,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
                 try { _ = c2.MAVP_OpenAndFill(fz_c, fz_v, optInMinPeriod, optInMaxPeriod, optInMAType, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inPeriods */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MAVP_OpenAndFill(fz_c, fz_v, optInMinPeriod, optInMaxPeriod, optInMAType, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MAVP_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, optInMinPeriod, optInMaxPeriod, optInMAType, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -25974,9 +26095,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.MAX_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MAX_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MAX_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -26362,9 +26485,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.MEDPRICE_OpenAndFill(fz_h, fz_l, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MEDPRICE_OpenAndFill(fz_h, fz_l, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MEDPRICE_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -26557,9 +26682,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.MFI_OpenAndFill(fz_h, fz_l, fz_c, fz_v, optInTimePeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MFI_OpenAndFill(fz_h, fz_l, fz_c, fz_v, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MFI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, fz_v, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -26753,9 +26880,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.MIDPOINT_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MIDPOINT_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MIDPOINT_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -26951,9 +27080,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.MIDPRICE_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MIDPRICE_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MIDPRICE_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -27147,9 +27278,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.MIN_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MIN_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MIN_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -27543,15 +27676,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inReal */ }
                 try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.MINMAX_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.MINMAX_OpenAndFill(fz_c, optInTimePeriod, f0, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MINMAX_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -27761,11 +27897,12 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.MINMAXINDEX_OpenAndFill(fz_c, optInTimePeriod, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                int[] ovI = new int[svN + 1];
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MINMAXINDEX_OpenAndFill(fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MINMAXINDEX_OpenAndFill(fz_c, optInTimePeriod, ovI.AsSpan(0, svN), ovI.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.MINMAXINDEX_OpenAndFill(fz_c, optInTimePeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.MINMAXINDEX_OpenAndFill(fz_c, optInTimePeriod, ovI.AsSpan(0, svN), ovI.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -27974,9 +28111,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.MINUS_DI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MINUS_DI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MINUS_DI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -28173,9 +28312,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.MINUS_DM_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MINUS_DM_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MINUS_DM_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -28369,9 +28510,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.MOM_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MOM_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MOM_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -28566,9 +28709,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal0 */ }
                 try { _ = c2.MULT_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal1 */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.MULT_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.MULT_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -28760,9 +28905,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.NATR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.NATR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.NATR_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -28957,9 +29104,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.NVI_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.NVI_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.NVI_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -29147,9 +29296,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
                 try { _ = c2.OBV_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.OBV_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.OBV_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -29341,9 +29492,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.PLUS_DI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.PLUS_DI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.PLUS_DI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -29540,9 +29693,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.PLUS_DM_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.PLUS_DM_OpenAndFill(fz_h, fz_l, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.PLUS_DM_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -29755,9 +29910,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.PPO_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInMAType, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.PPO_OpenAndFill(fz_c, optInFastPeriod, optInSlowPeriod, optInMAType, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.PPO_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInSlowPeriod, optInMAType, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -29952,9 +30109,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.PVI_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.PVI_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.PVI_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -30160,9 +30319,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.PVO_OpenAndFill(fz_v, optInFastPeriod, optInSlowPeriod, optInMAType, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_v, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.PVO_OpenAndFill(fz_v, optInFastPeriod, optInSlowPeriod, optInMAType, fz_v.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.PVO_OpenAndFill(ovIn.AsSpan(0, svN), optInFastPeriod, optInSlowPeriod, optInMAType, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -30358,9 +30519,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inOpen */ }
                 try { _ = c2.QSTICK_OpenAndFill(fz_o, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_o, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.QSTICK_OpenAndFill(fz_o, fz_c, optInTimePeriod, fz_o.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.QSTICK_OpenAndFill(ovIn.AsSpan(0, svN), fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -30554,9 +30717,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ROC_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ROC_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ROC_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -30750,9 +30915,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ROCP_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ROCP_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ROCP_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -30946,9 +31113,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ROCR_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ROCR_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ROCR_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -31142,9 +31311,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.ROCR100_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ROCR100_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ROCR100_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -31339,9 +31510,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.RSI_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.RSI_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.RSI_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = (svCompat == 1) ? 1 : 0;
@@ -31538,9 +31711,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.SAR_OpenAndFill(fz_h, fz_l, optInAcceleration, optInMaximum, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SAR_OpenAndFill(fz_h, fz_l, optInAcceleration, optInMaximum, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SAR_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInAcceleration, optInMaximum, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -31736,9 +31911,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inHigh */ }
                 try { _ = c2.SAREXT_OpenAndFill(fz_h, fz_l, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, fz_l); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SAREXT_OpenAndFill(fz_h, fz_l, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SAREXT_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -31924,9 +32101,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.SIN_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SIN_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SIN_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -32112,9 +32291,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.SINH_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SINH_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SINH_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -32301,9 +32482,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.SMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -32518,15 +32701,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inClose */ }
                 try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, fz_h.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.SMI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.SMI_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SMI_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -32730,9 +32916,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.SQRT_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SQRT_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SQRT_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -32920,9 +33108,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.STDDEV_OpenAndFill(fz_c, optInTimePeriod, optInNbDev, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.STDDEV_OpenAndFill(fz_c, optInTimePeriod, optInNbDev, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STDDEV_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInNbDev, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -33157,15 +33347,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inClose */ }
                 try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, fz_h.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.STOCH_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.STOCH_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, f0, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STOCH_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -33408,15 +33601,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inClose */ }
                 try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, fz_h.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.STOCHF_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.STOCHF_OpenAndFill(fz_h, fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STOCHF_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -33653,15 +33849,18 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 1 aliases input inReal */ }
                 try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0, f0); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 aliases output 0 */ }
+                double[] ovD = new double[svN + 1];
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0.AsSpan(0, svN - 1), f0.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ovD.AsSpan(0, svN), ovD.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (offset) */ }
-                try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0.AsSpan(0, svN - 1), f0.AsSpan(0, svN)); fillOk = false; }
+                try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ovD.AsSpan(0, svN), ovD.AsSpan(0, svN + 1)); fillOk = false; }
                 catch (ArgumentException) { /* expected: outputs 0/1 partially overlap (same start, longer) */ }
-                try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, fz_c.AsSpan(1, svN - 1), f1); fillOk = false; }
+                try { _ = c2.STOCHRSI_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, ovIn.AsSpan(1, svN), f1); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
-                try { _ = c2.STOCHRSI_OpenAndFill(fz_c, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.STOCHRSI_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, f0, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 1 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = (svCompat == 1) ? 1 : 0;
@@ -33867,9 +34066,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal0 */ }
                 try { _ = c2.SUB_OpenAndFill(fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal1 */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SUB_OpenAndFill(fz_c, fz_v, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SUB_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -34056,9 +34257,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.SUM_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.SUM_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.SUM_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -34254,9 +34457,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.T3_OpenAndFill(fz_c, optInTimePeriod, optInVFactor, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.T3_OpenAndFill(fz_c, optInTimePeriod, optInVFactor, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.T3_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInVFactor, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -34449,9 +34654,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.TAN_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TAN_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TAN_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -34637,9 +34844,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.TANH_OpenAndFill(fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TANH_OpenAndFill(fz_c, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TANH_OpenAndFill(ovIn.AsSpan(0, svN), ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -34827,9 +35036,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.TEMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TEMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TEMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -35026,9 +35237,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.TRANGE_OpenAndFill(fz_h, fz_l, fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TRANGE_OpenAndFill(fz_h, fz_l, fz_c, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TRANGE_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -35215,9 +35428,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.TRIMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TRIMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TRIMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -35412,9 +35627,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.TRIX_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TRIX_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TRIX_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -35608,9 +35825,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.TSF_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TSF_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TSF_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -35807,9 +36026,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.TYPPRICE_OpenAndFill(fz_h, fz_l, fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.TYPPRICE_OpenAndFill(fz_h, fz_l, fz_c, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.TYPPRICE_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -36002,9 +36223,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.ULTOSC_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.ULTOSC_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.ULTOSC_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -36199,9 +36422,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.VAR_OpenAndFill(fz_c, optInTimePeriod, optInNbDev, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.VAR_OpenAndFill(fz_c, optInTimePeriod, optInNbDev, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.VAR_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, optInNbDev, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -36400,9 +36625,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
                 try { _ = c2.VWAP_OpenAndFill(fz_h, fz_l, fz_c, fz_v, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.VWAP_OpenAndFill(fz_h, fz_l, fz_c, fz_v, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.VWAP_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, fz_v, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -36591,9 +36818,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
                 try { _ = c2.VWMA_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_v); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inVolume */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.VWMA_OpenAndFill(fz_c, fz_v, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.VWMA_OpenAndFill(ovIn.AsSpan(0, svN), fz_v, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -36790,9 +37019,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.WAD_OpenAndFill(fz_h, fz_l, fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.WAD_OpenAndFill(fz_h, fz_l, fz_c, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.WAD_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -36982,9 +37213,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.WCLPRICE_OpenAndFill(fz_h, fz_l, fz_c, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.WCLPRICE_OpenAndFill(fz_h, fz_l, fz_c, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.WCLPRICE_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -37175,9 +37408,11 @@ public class TaCodegenServe {
                 catch (ArgumentException) { /* expected: output 0 aliases input inLow */ }
                 try { _ = c2.WILLR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inClose */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_h, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.WILLR_OpenAndFill(fz_h, fz_l, fz_c, optInTimePeriod, fz_h.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.WILLR_OpenAndFill(ovIn.AsSpan(0, svN), fz_l, fz_c, optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -37371,9 +37606,11 @@ public class TaCodegenServe {
                    then every same-typed output pair. Each must throw. */
                 try { _ = c2.WMA_OpenAndFill(fz_c, optInTimePeriod, fz_c); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 aliases input inReal */ }
+                double[] ovIn = new double[svN + 1];
+                Array.Copy(fz_c, ovIn, svN);
                 /* R2b: PARTIAL overlap -- only spans can express it, and it is
                    the only shape that separates Overlaps from identity. */
-                try { _ = c2.WMA_OpenAndFill(fz_c, optInTimePeriod, fz_c.AsSpan(1, svN - 1)); fillOk = false; }
+                try { _ = c2.WMA_OpenAndFill(ovIn.AsSpan(0, svN), optInTimePeriod, ovIn.AsSpan(1, svN)); fillOk = false; }
                 catch (ArgumentException) { /* expected: output 0 partially overlaps an input */ }
             } catch (ArgumentException) { fillOk = false; }
             int seedShift = 0;
@@ -38371,8 +38608,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -38382,6 +38618,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         int optInSignalPeriod = GetInt(p, "optInSignalPeriod", 0);
@@ -38417,6 +38655,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AC_Impl(startIdx, endIdx, inHigh, inLow, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0);
@@ -38433,6 +38672,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AC_Open(_warm_inHigh, _warm_inLow, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AC_Stream _wh = core.AC_OpenAndFill(_warm_inHigh, _warm_inLow, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -38481,8 +38739,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -38495,6 +38752,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -38530,6 +38790,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ACCBANDS_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
@@ -38546,6 +38807,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ACCBANDS_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ACCBANDS_Stream _wh = core.ACCBANDS_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0, outArr1, outArr2);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -38600,14 +38880,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -38640,6 +38920,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ACOS_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -38656,6 +38937,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ACOS_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ACOS_Stream _wh = core.ACOS_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -38702,8 +39002,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -38719,6 +39018,10 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -38751,6 +39054,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AD_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
@@ -38767,6 +39071,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AD_Open(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AD_Stream _wh = core.AD_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -38819,8 +39142,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -38830,6 +39152,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -38862,6 +39186,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ADD_Impl(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
@@ -38878,6 +39203,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ADD_Open(_warm_inReal0, _warm_inReal1);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ADD_Stream _wh = core.ADD_OpenAndFill(_warm_inReal0, _warm_inReal1, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -38926,8 +39270,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -38943,6 +39286,10 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -38977,6 +39324,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ADOSC_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInFastPeriod, optInSlowPeriod, out outBegIdx, out outNBElement, outArr0);
@@ -38993,6 +39341,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ADOSC_Open(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, optInFastPeriod, optInSlowPeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ADOSC_Stream _wh = core.ADOSC_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, optInFastPeriod, optInSlowPeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39045,8 +39412,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -39059,6 +39425,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["ADX"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -39093,6 +39462,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ADX_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -39109,6 +39479,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ADX_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ADX_Stream _wh = core.ADX_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39159,8 +39548,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -39173,6 +39561,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -39206,6 +39597,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ADXR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -39222,6 +39614,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ADXR_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ADXR_Stream _wh = core.ADXR_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39272,8 +39683,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -39283,6 +39693,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -39317,6 +39729,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AO_Impl(startIdx, endIdx, inHigh, inLow, optInFastPeriod, optInSlowPeriod, out outBegIdx, out outNBElement, outArr0);
@@ -39333,6 +39746,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AO_Open(_warm_inHigh, _warm_inLow, optInFastPeriod, optInSlowPeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AO_Stream _wh = core.AO_OpenAndFill(_warm_inHigh, _warm_inLow, optInFastPeriod, optInSlowPeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39381,14 +39813,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
@@ -39424,6 +39856,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.APO_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
@@ -39440,6 +39873,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.APO_Open(_warm_inReal, optInFastPeriod, optInSlowPeriod, optInMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.APO_Stream _wh = core.APO_OpenAndFill(_warm_inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39486,8 +39938,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -39497,6 +39948,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -39531,6 +39984,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AROON_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -39547,6 +40001,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AROON_Open(_warm_inHigh, _warm_inLow, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AROON_Stream _wh = core.AROON_OpenAndFill(_warm_inHigh, _warm_inLow, optInTimePeriod, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39597,8 +40070,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -39608,6 +40080,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -39641,6 +40115,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AROONOSC_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -39657,6 +40132,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AROONOSC_Open(_warm_inHigh, _warm_inLow, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AROONOSC_Stream _wh = core.AROONOSC_OpenAndFill(_warm_inHigh, _warm_inLow, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39705,14 +40199,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -39745,6 +40239,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ASIN_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -39761,6 +40256,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ASIN_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ASIN_Stream _wh = core.ASIN_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39807,14 +40321,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -39847,6 +40361,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ATAN_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -39863,6 +40378,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ATAN_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ATAN_Stream _wh = core.ATAN_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -39909,8 +40443,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -39923,6 +40456,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["ATR"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -39957,6 +40493,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ATR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -39973,6 +40510,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ATR_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ATR_Stream _wh = core.ATR_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40023,14 +40579,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -40064,6 +40620,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AVGDEV_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -40080,6 +40637,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AVGDEV_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AVGDEV_Stream _wh = core.AVGDEV_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40126,8 +40702,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -40143,6 +40718,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -40175,6 +40754,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.AVGPRICE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -40191,6 +40771,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.AVGPRICE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.AVGPRICE_Stream _wh = core.AVGPRICE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40243,14 +40842,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         double optInNbDevUp = GetDouble(p, "optInNbDevUp", 0.0);
         double optInNbDevDn = GetDouble(p, "optInNbDevDn", 0.0);
@@ -40289,6 +40888,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.BBANDS_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
@@ -40305,6 +40905,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.BBANDS_Open(_warm_inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.BBANDS_Stream _wh = core.BBANDS_OpenAndFill(_warm_inReal, optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType, outArr0, outArr1, outArr2);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40355,8 +40974,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -40366,6 +40984,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -40399,6 +41019,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.BETA_Impl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -40415,6 +41036,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.BETA_Open(_warm_inReal0, _warm_inReal1, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.BETA_Stream _wh = core.BETA_OpenAndFill(_warm_inReal0, _warm_inReal1, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40463,8 +41103,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -40480,6 +41119,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -40512,6 +41155,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.BOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -40528,6 +41172,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.BOP_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.BOP_Stream _wh = core.BOP_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40580,8 +41243,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -40594,6 +41256,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -40627,6 +41292,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CCI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -40643,6 +41309,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CCI_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CCI_Stream _wh = core.CCI_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40693,8 +41378,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -40710,6 +41394,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -40742,6 +41430,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL2CROWS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -40758,6 +41447,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL2CROWS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL2CROWS_Stream _wh = core.CDL2CROWS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40810,8 +41518,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -40827,6 +41534,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -40859,6 +41570,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL3BLACKCROWS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -40875,6 +41587,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL3BLACKCROWS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL3BLACKCROWS_Stream _wh = core.CDL3BLACKCROWS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -40927,8 +41658,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -40944,6 +41674,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -40976,6 +41710,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL3INSIDE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -40992,6 +41727,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL3INSIDE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL3INSIDE_Stream _wh = core.CDL3INSIDE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41044,8 +41798,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41061,6 +41814,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41093,6 +41850,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL3LINESTRIKE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41109,6 +41867,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL3LINESTRIKE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL3LINESTRIKE_Stream _wh = core.CDL3LINESTRIKE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41161,8 +41938,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41178,6 +41954,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41210,6 +41990,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL3OUTSIDE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41226,6 +42007,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL3OUTSIDE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL3OUTSIDE_Stream _wh = core.CDL3OUTSIDE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41278,8 +42078,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41295,6 +42094,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41327,6 +42130,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL3STARSINSOUTH_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41343,6 +42147,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL3STARSINSOUTH_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL3STARSINSOUTH_Stream _wh = core.CDL3STARSINSOUTH_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41395,8 +42218,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41412,6 +42234,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41444,6 +42270,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDL3WHITESOLDIERS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41460,6 +42287,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDL3WHITESOLDIERS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDL3WHITESOLDIERS_Stream _wh = core.CDL3WHITESOLDIERS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41512,8 +42358,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41529,6 +42374,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -41562,6 +42411,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLABANDONEDBABY_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -41578,6 +42428,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLABANDONEDBABY_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLABANDONEDBABY_Stream _wh = core.CDLABANDONEDBABY_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41630,8 +42499,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41647,6 +42515,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41679,6 +42551,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLADVANCEBLOCK_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41695,6 +42568,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLADVANCEBLOCK_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLADVANCEBLOCK_Stream _wh = core.CDLADVANCEBLOCK_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41747,8 +42639,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41764,6 +42655,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41796,6 +42691,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLBELTHOLD_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41812,6 +42708,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLBELTHOLD_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLBELTHOLD_Stream _wh = core.CDLBELTHOLD_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41864,8 +42779,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41881,6 +42795,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -41913,6 +42831,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLBREAKAWAY_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -41929,6 +42848,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLBREAKAWAY_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLBREAKAWAY_Stream _wh = core.CDLBREAKAWAY_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -41981,8 +42919,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -41998,6 +42935,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42030,6 +42971,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLCLOSINGMARUBOZU_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42046,6 +42988,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLCLOSINGMARUBOZU_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLCLOSINGMARUBOZU_Stream _wh = core.CDLCLOSINGMARUBOZU_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42098,8 +43059,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42115,6 +43075,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42147,6 +43111,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLCONCEALBABYSWALL_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42163,6 +43128,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLCONCEALBABYSWALL_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLCONCEALBABYSWALL_Stream _wh = core.CDLCONCEALBABYSWALL_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42215,8 +43199,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42232,6 +43215,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42264,6 +43251,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLCOUNTERATTACK_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42280,6 +43268,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLCOUNTERATTACK_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLCOUNTERATTACK_Stream _wh = core.CDLCOUNTERATTACK_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42332,8 +43339,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42349,6 +43355,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -42382,6 +43392,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLDARKCLOUDCOVER_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -42398,6 +43409,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLDARKCLOUDCOVER_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLDARKCLOUDCOVER_Stream _wh = core.CDLDARKCLOUDCOVER_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42450,8 +43480,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42467,6 +43496,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42499,6 +43532,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLDOJI_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42515,6 +43549,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLDOJI_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLDOJI_Stream _wh = core.CDLDOJI_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42567,8 +43620,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42584,6 +43636,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42616,6 +43672,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLDOJISTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42632,6 +43689,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLDOJISTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLDOJISTAR_Stream _wh = core.CDLDOJISTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42684,8 +43760,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42701,6 +43776,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42733,6 +43812,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLDRAGONFLYDOJI_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42749,6 +43829,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLDRAGONFLYDOJI_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLDRAGONFLYDOJI_Stream _wh = core.CDLDRAGONFLYDOJI_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42801,8 +43900,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42818,6 +43916,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -42850,6 +43952,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLENGULFING_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -42866,6 +43969,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLENGULFING_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLENGULFING_Stream _wh = core.CDLENGULFING_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -42918,8 +44040,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -42935,6 +44056,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -42968,6 +44093,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLEVENINGDOJISTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -42984,6 +44110,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLEVENINGDOJISTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLEVENINGDOJISTAR_Stream _wh = core.CDLEVENINGDOJISTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43036,8 +44181,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43053,6 +44197,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -43086,6 +44234,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLEVENINGSTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -43102,6 +44251,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLEVENINGSTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLEVENINGSTAR_Stream _wh = core.CDLEVENINGSTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43154,8 +44322,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43171,6 +44338,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43203,6 +44374,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLGAPSIDESIDEWHITE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43219,6 +44391,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLGAPSIDESIDEWHITE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLGAPSIDESIDEWHITE_Stream _wh = core.CDLGAPSIDESIDEWHITE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43271,8 +44462,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43288,6 +44478,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43320,6 +44514,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLGRAVESTONEDOJI_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43336,6 +44531,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLGRAVESTONEDOJI_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLGRAVESTONEDOJI_Stream _wh = core.CDLGRAVESTONEDOJI_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43388,8 +44602,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43405,6 +44618,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43437,6 +44654,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHAMMER_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43453,6 +44671,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHAMMER_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHAMMER_Stream _wh = core.CDLHAMMER_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43505,8 +44742,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43522,6 +44758,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43554,6 +44794,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHANGINGMAN_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43570,6 +44811,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHANGINGMAN_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHANGINGMAN_Stream _wh = core.CDLHANGINGMAN_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43622,8 +44882,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43639,6 +44898,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43671,6 +44934,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHARAMI_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43687,6 +44951,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHARAMI_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHARAMI_Stream _wh = core.CDLHARAMI_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43739,8 +45022,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43756,6 +45038,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43788,6 +45074,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHARAMICROSS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43804,6 +45091,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHARAMICROSS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHARAMICROSS_Stream _wh = core.CDLHARAMICROSS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43856,8 +45162,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43873,6 +45178,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -43905,6 +45214,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHIGHWAVE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -43921,6 +45231,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHIGHWAVE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHIGHWAVE_Stream _wh = core.CDLHIGHWAVE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -43973,8 +45302,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -43990,6 +45318,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44022,6 +45354,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHIKKAKE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44038,6 +45371,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHIKKAKE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHIKKAKE_Stream _wh = core.CDLHIKKAKE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44090,8 +45442,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44107,6 +45458,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44139,6 +45494,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHIKKAKEMOD_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44155,6 +45511,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHIKKAKEMOD_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHIKKAKEMOD_Stream _wh = core.CDLHIKKAKEMOD_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44207,8 +45582,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44224,6 +45598,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44256,6 +45634,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLHOMINGPIGEON_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44272,6 +45651,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLHOMINGPIGEON_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLHOMINGPIGEON_Stream _wh = core.CDLHOMINGPIGEON_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44324,8 +45722,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44341,6 +45738,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44373,6 +45774,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLIDENTICAL3CROWS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44389,6 +45791,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLIDENTICAL3CROWS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLIDENTICAL3CROWS_Stream _wh = core.CDLIDENTICAL3CROWS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44441,8 +45862,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44458,6 +45878,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44490,6 +45914,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLINNECK_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44506,6 +45931,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLINNECK_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLINNECK_Stream _wh = core.CDLINNECK_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44558,8 +46002,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44575,6 +46018,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44607,6 +46054,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLINVERTEDHAMMER_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44623,6 +46071,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLINVERTEDHAMMER_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLINVERTEDHAMMER_Stream _wh = core.CDLINVERTEDHAMMER_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44675,8 +46142,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44692,6 +46158,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44724,6 +46194,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLKICKING_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44740,6 +46211,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLKICKING_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLKICKING_Stream _wh = core.CDLKICKING_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44792,8 +46282,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44809,6 +46298,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44841,6 +46334,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLKICKINGBYLENGTH_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44857,6 +46351,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLKICKINGBYLENGTH_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLKICKINGBYLENGTH_Stream _wh = core.CDLKICKINGBYLENGTH_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -44909,8 +46422,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -44926,6 +46438,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -44958,6 +46474,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLLADDERBOTTOM_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -44974,6 +46491,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLLADDERBOTTOM_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLLADDERBOTTOM_Stream _wh = core.CDLLADDERBOTTOM_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45026,8 +46562,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45043,6 +46578,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -45075,6 +46614,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLLONGLEGGEDDOJI_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -45091,6 +46631,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLLONGLEGGEDDOJI_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLLONGLEGGEDDOJI_Stream _wh = core.CDLLONGLEGGEDDOJI_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45143,8 +46702,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45160,6 +46718,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -45192,6 +46754,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLLONGLINE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -45208,6 +46771,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLLONGLINE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLLONGLINE_Stream _wh = core.CDLLONGLINE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45260,8 +46842,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45277,6 +46858,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -45309,6 +46894,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLMARUBOZU_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -45325,6 +46911,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLMARUBOZU_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLMARUBOZU_Stream _wh = core.CDLMARUBOZU_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45377,8 +46982,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45394,6 +46998,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -45426,6 +47034,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLMATCHINGLOW_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -45442,6 +47051,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLMATCHINGLOW_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLMATCHINGLOW_Stream _wh = core.CDLMATCHINGLOW_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45494,8 +47122,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45511,6 +47138,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -45544,6 +47175,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLMATHOLD_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -45560,6 +47192,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLMATHOLD_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLMATHOLD_Stream _wh = core.CDLMATHOLD_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45612,8 +47263,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45629,6 +47279,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -45662,6 +47316,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLMORNINGDOJISTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -45678,6 +47333,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLMORNINGDOJISTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLMORNINGDOJISTAR_Stream _wh = core.CDLMORNINGDOJISTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45730,8 +47404,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45747,6 +47420,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         double optInPenetration = GetDouble(p, "optInPenetration", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -45780,6 +47457,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLMORNINGSTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, optInPenetration, out outBegIdx, out outNBElement, outArr0);
@@ -45796,6 +47474,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLMORNINGSTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLMORNINGSTAR_Stream _wh = core.CDLMORNINGSTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, optInPenetration, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45848,8 +47545,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45865,6 +47561,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -45897,6 +47597,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLONNECK_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -45913,6 +47614,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLONNECK_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLONNECK_Stream _wh = core.CDLONNECK_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -45965,8 +47685,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -45982,6 +47701,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46014,6 +47737,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLPIERCING_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46030,6 +47754,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLPIERCING_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLPIERCING_Stream _wh = core.CDLPIERCING_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46082,8 +47825,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46099,6 +47841,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46131,6 +47877,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLRICKSHAWMAN_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46147,6 +47894,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLRICKSHAWMAN_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLRICKSHAWMAN_Stream _wh = core.CDLRICKSHAWMAN_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46199,8 +47965,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46216,6 +47981,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46248,6 +48017,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLRISEFALL3METHODS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46264,6 +48034,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLRISEFALL3METHODS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLRISEFALL3METHODS_Stream _wh = core.CDLRISEFALL3METHODS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46316,8 +48105,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46333,6 +48121,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46365,6 +48157,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLSEPARATINGLINES_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46381,6 +48174,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLSEPARATINGLINES_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLSEPARATINGLINES_Stream _wh = core.CDLSEPARATINGLINES_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46433,8 +48245,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46450,6 +48261,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46482,6 +48297,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLSHOOTINGSTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46498,6 +48314,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLSHOOTINGSTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLSHOOTINGSTAR_Stream _wh = core.CDLSHOOTINGSTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46550,8 +48385,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46567,6 +48401,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46599,6 +48437,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLSHORTLINE_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46615,6 +48454,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLSHORTLINE_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLSHORTLINE_Stream _wh = core.CDLSHORTLINE_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46667,8 +48525,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46684,6 +48541,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46716,6 +48577,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLSPINNINGTOP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46732,6 +48594,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLSPINNINGTOP_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLSPINNINGTOP_Stream _wh = core.CDLSPINNINGTOP_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46784,8 +48665,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46801,6 +48681,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46833,6 +48717,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLSTALLEDPATTERN_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46849,6 +48734,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLSTALLEDPATTERN_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLSTALLEDPATTERN_Stream _wh = core.CDLSTALLEDPATTERN_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -46901,8 +48805,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -46918,6 +48821,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -46950,6 +48857,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLSTICKSANDWICH_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -46966,6 +48874,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLSTICKSANDWICH_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLSTICKSANDWICH_Stream _wh = core.CDLSTICKSANDWICH_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47018,8 +48945,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47035,6 +48961,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47067,6 +48997,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLTAKURI_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47083,6 +49014,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLTAKURI_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLTAKURI_Stream _wh = core.CDLTAKURI_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47135,8 +49085,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47152,6 +49101,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47184,6 +49137,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLTASUKIGAP_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47200,6 +49154,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLTASUKIGAP_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLTASUKIGAP_Stream _wh = core.CDLTASUKIGAP_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47252,8 +49225,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47269,6 +49241,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47301,6 +49277,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLTHRUSTING_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47317,6 +49294,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLTHRUSTING_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLTHRUSTING_Stream _wh = core.CDLTHRUSTING_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47369,8 +49365,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47386,6 +49381,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47418,6 +49417,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLTRISTAR_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47434,6 +49434,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLTRISTAR_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLTRISTAR_Stream _wh = core.CDLTRISTAR_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47486,8 +49505,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47503,6 +49521,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47535,6 +49557,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLUNIQUE3RIVER_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47551,6 +49574,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLUNIQUE3RIVER_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLUNIQUE3RIVER_Stream _wh = core.CDLUNIQUE3RIVER_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47603,8 +49645,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47620,6 +49661,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47652,6 +49697,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLUPSIDEGAP2CROWS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47668,6 +49714,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLUPSIDEGAP2CROWS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLUPSIDEGAP2CROWS_Stream _wh = core.CDLUPSIDEGAP2CROWS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47720,8 +49785,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inHigh;
         double[] inLow;
@@ -47737,6 +49801,10 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47769,6 +49837,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CDLXSIDEGAP3METHODS_Impl(startIdx, endIdx, inOpen, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -47785,6 +49854,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CDLXSIDEGAP3METHODS_Open(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CDLXSIDEGAP3METHODS_Stream _wh = core.CDLXSIDEGAP3METHODS_OpenAndFill(_warm_inOpen, _warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47837,14 +49925,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -47877,6 +49965,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CEIL_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -47893,6 +49982,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CEIL_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CEIL_Stream _wh = core.CEIL_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -47939,8 +50047,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -47956,6 +50063,10 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -47989,6 +50100,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CMF_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48005,6 +50117,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CMF_Open(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CMF_Stream _wh = core.CMF_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48057,14 +50188,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["CMO"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -48099,6 +50230,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CMO_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48115,6 +50247,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CMO_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CMO_Stream _wh = core.CMO_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48161,14 +50312,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -48202,6 +50353,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CMOU_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48218,6 +50370,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CMOU_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CMOU_Stream _wh = core.CMOU_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48264,8 +50435,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -48275,6 +50445,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -48308,6 +50480,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.CORREL_Impl(startIdx, endIdx, inReal0, inReal1, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48324,6 +50497,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.CORREL_Open(_warm_inReal0, _warm_inReal1, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.CORREL_Stream _wh = core.CORREL_OpenAndFill(_warm_inReal0, _warm_inReal1, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48372,14 +50564,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -48412,6 +50604,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.COS_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -48428,6 +50621,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.COS_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.COS_Stream _wh = core.COS_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48474,14 +50686,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -48514,6 +50726,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.COSH_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -48530,6 +50743,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.COSH_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.COSH_Stream _wh = core.COSH_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48576,14 +50808,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -48617,6 +50849,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.DEMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48633,6 +50866,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.DEMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.DEMA_Stream _wh = core.DEMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48679,8 +50931,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -48690,6 +50941,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -48722,6 +50975,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.DIV_Impl(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
@@ -48738,6 +50992,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.DIV_Open(_warm_inReal0, _warm_inReal1);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.DIV_Stream _wh = core.DIV_OpenAndFill(_warm_inReal0, _warm_inReal1, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48786,8 +51059,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -48800,6 +51072,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["DX"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -48834,6 +51109,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.DX_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48850,6 +51126,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.DX_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.DX_Stream _wh = core.DX_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -48900,8 +51195,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inClose;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -48911,6 +51205,8 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -48944,6 +51240,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.EFI_Impl(startIdx, endIdx, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -48960,6 +51257,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.EFI_Open(_warm_inClose, _warm_inVolume, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.EFI_Stream _wh = core.EFI_OpenAndFill(_warm_inClose, _warm_inVolume, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49008,14 +51324,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["EMA"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -49050,6 +51366,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.EMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -49066,6 +51383,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.EMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.EMA_Stream _wh = core.EMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49112,14 +51448,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -49152,6 +51488,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.EXP_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -49168,6 +51505,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.EXP_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.EXP_Stream _wh = core.EXP_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49214,14 +51570,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -49254,6 +51610,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.FLOOR_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -49270,6 +51627,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.FLOOR_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.FLOOR_Stream _wh = core.FLOOR_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49316,14 +51692,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49357,6 +51733,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -49373,6 +51750,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HMA_Stream _wh = core.HMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49419,14 +51815,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         core.unstablePeriod[(int)FunctionCatalog.Default["HT_DCPERIOD"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49460,6 +51856,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HT_DCPERIOD_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -49476,6 +51873,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HT_DCPERIOD_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HT_DCPERIOD_Stream _wh = core.HT_DCPERIOD_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49522,14 +51938,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         core.unstablePeriod[(int)FunctionCatalog.Default["HT_DCPHASE"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49563,6 +51979,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HT_DCPHASE_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -49579,6 +51996,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HT_DCPHASE_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HT_DCPHASE_Stream _wh = core.HT_DCPHASE_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49625,14 +52061,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         core.unstablePeriod[(int)FunctionCatalog.Default["HT_PHASOR"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49667,6 +52103,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HT_PHASOR_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -49683,6 +52120,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HT_PHASOR_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HT_PHASOR_Stream _wh = core.HT_PHASOR_OpenAndFill(_warm_inReal, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49731,14 +52187,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         core.unstablePeriod[(int)FunctionCatalog.Default["HT_SINE"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49773,6 +52229,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HT_SINE_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -49789,6 +52246,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HT_SINE_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HT_SINE_Stream _wh = core.HT_SINE_OpenAndFill(_warm_inReal, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49837,14 +52313,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         core.unstablePeriod[(int)FunctionCatalog.Default["HT_TRENDLINE"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49878,6 +52354,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HT_TRENDLINE_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -49894,6 +52371,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HT_TRENDLINE_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HT_TRENDLINE_Stream _wh = core.HT_TRENDLINE_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -49940,14 +52436,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         core.unstablePeriod[(int)FunctionCatalog.Default["HT_TRENDMODE"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -49981,6 +52477,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.HT_TRENDMODE_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -49997,6 +52494,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.HT_TRENDMODE_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.HT_TRENDMODE_Stream _wh = core.HT_TRENDMODE_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50043,8 +52559,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inClose;
         if (use_preloaded != 0 && refN > 0) {
@@ -50054,6 +52569,8 @@ public class TaCodegenServe {
             inOpen = GetDoubleArray(p, "inOpen");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -50087,6 +52604,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.IMI_Impl(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -50103,6 +52621,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.IMI_Open(_warm_inOpen, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.IMI_Stream _wh = core.IMI_OpenAndFill(_warm_inOpen, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50151,14 +52688,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["KAMA"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -50193,6 +52730,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.KAMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -50209,6 +52747,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.KAMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.KAMA_Stream _wh = core.KAMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50255,14 +52812,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -50296,6 +52853,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.LINEARREG_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -50312,6 +52870,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.LINEARREG_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.LINEARREG_Stream _wh = core.LINEARREG_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50358,14 +52935,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -50399,6 +52976,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.LINEARREG_ANGLE_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -50415,6 +52993,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.LINEARREG_ANGLE_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.LINEARREG_ANGLE_Stream _wh = core.LINEARREG_ANGLE_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50461,14 +53058,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -50502,6 +53099,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.LINEARREG_INTERCEPT_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -50518,6 +53116,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.LINEARREG_INTERCEPT_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.LINEARREG_INTERCEPT_Stream _wh = core.LINEARREG_INTERCEPT_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50564,14 +53181,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -50605,6 +53222,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.LINEARREG_SLOPE_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -50621,6 +53239,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.LINEARREG_SLOPE_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.LINEARREG_SLOPE_Stream _wh = core.LINEARREG_SLOPE_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50667,14 +53304,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -50707,6 +53344,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.LN_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -50723,6 +53361,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.LN_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.LN_Stream _wh = core.LN_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50769,14 +53426,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -50809,6 +53466,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.LOG10_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -50825,6 +53483,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.LOG10_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.LOG10_Stream _wh = core.LOG10_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50871,14 +53548,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -50913,6 +53590,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MA_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
@@ -50929,6 +53607,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MA_Open(_warm_inReal, optInTimePeriod, optInMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MA_Stream _wh = core.MA_OpenAndFill(_warm_inReal, optInTimePeriod, optInMAType, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -50975,14 +53672,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         int optInSignalPeriod = GetInt(p, "optInSignalPeriod", 0);
@@ -51020,6 +53717,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MACD_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
@@ -51036,6 +53734,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MACD_Open(_warm_inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MACD_Stream _wh = core.MACD_OpenAndFill(_warm_inReal, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outArr0, outArr1, outArr2);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51086,14 +53803,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         MAType optInFastMAType = (MAType)GetInt(p, "optInFastMAType", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
@@ -51134,6 +53851,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MACDEXT_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
@@ -51150,6 +53868,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MACDEXT_Open(_warm_inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MACDEXT_Stream _wh = core.MACDEXT_OpenAndFill(_warm_inReal, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, outArr0, outArr1, outArr2);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51200,14 +53937,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInSignalPeriod = GetInt(p, "optInSignalPeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -51243,6 +53980,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MACDFIX_Impl(startIdx, endIdx, inReal, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1, outArr2);
@@ -51259,6 +53997,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MACDFIX_Open(_warm_inReal, optInSignalPeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MACDFIX_Stream _wh = core.MACDFIX_OpenAndFill(_warm_inReal, optInSignalPeriod, outArr0, outArr1, outArr2);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51309,14 +54066,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         double optInFastLimit = GetDouble(p, "optInFastLimit", 0.0);
         double optInSlowLimit = GetDouble(p, "optInSlowLimit", 0.0);
         core.unstablePeriod[(int)FunctionCatalog.Default["MAMA"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
@@ -51353,6 +54110,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -51369,6 +54127,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MAMA_Open(_warm_inReal, optInFastLimit, optInSlowLimit);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MAMA_Stream _wh = core.MAMA_OpenAndFill(_warm_inReal, optInFastLimit, optInSlowLimit, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51417,8 +54194,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inVolume;
@@ -51431,6 +54207,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -51463,6 +54242,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MARKETFI_Impl(startIdx, endIdx, inHigh, inLow, inVolume, out outBegIdx, out outNBElement, outArr0);
@@ -51479,6 +54259,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MARKETFI_Open(_warm_inHigh, _warm_inLow, _warm_inVolume);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MARKETFI_Stream _wh = core.MARKETFI_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inVolume, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51529,8 +54328,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -51540,6 +54338,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         int optInMinPeriod = GetInt(p, "optInMinPeriod", 0);
         int optInMaxPeriod = GetInt(p, "optInMaxPeriod", 0);
         MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
@@ -51575,6 +54375,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MAVP_Impl(startIdx, endIdx, inReal0, inReal1, optInMinPeriod, optInMaxPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
@@ -51591,6 +54392,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MAVP_Open(_warm_inReal0, _warm_inReal1, optInMinPeriod, optInMaxPeriod, optInMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MAVP_Stream _wh = core.MAVP_OpenAndFill(_warm_inReal0, _warm_inReal1, optInMinPeriod, optInMaxPeriod, optInMAType, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51639,14 +54459,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -51680,6 +54500,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MAX_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -51696,6 +54517,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MAX_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MAX_Stream _wh = core.MAX_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51742,14 +54582,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -51783,6 +54623,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MAXINDEX_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -51799,6 +54640,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MAXINDEX_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MAXINDEX_Stream _wh = core.MAXINDEX_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51845,8 +54705,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -51856,6 +54715,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -51888,6 +54749,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MEDPRICE_Impl(startIdx, endIdx, inHigh, inLow, out outBegIdx, out outNBElement, outArr0);
@@ -51904,6 +54766,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MEDPRICE_Open(_warm_inHigh, _warm_inLow);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MEDPRICE_Stream _wh = core.MEDPRICE_OpenAndFill(_warm_inHigh, _warm_inLow, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -51952,8 +54833,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -51969,6 +54849,10 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52002,6 +54886,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MFI_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52018,6 +54903,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MFI_Open(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MFI_Stream _wh = core.MFI_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52070,14 +54974,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52111,6 +55015,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MIDPOINT_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52127,6 +55032,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MIDPOINT_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MIDPOINT_Stream _wh = core.MIDPOINT_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52173,8 +55097,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -52184,6 +55107,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52217,6 +55142,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MIDPRICE_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52233,6 +55159,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MIDPRICE_Open(_warm_inHigh, _warm_inLow, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MIDPRICE_Stream _wh = core.MIDPRICE_OpenAndFill(_warm_inHigh, _warm_inLow, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52281,14 +55226,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52322,6 +55267,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MIN_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52338,6 +55284,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MIN_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MIN_Stream _wh = core.MIN_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52384,14 +55349,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52425,6 +55390,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MININDEX_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52441,6 +55407,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MININDEX_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MININDEX_Stream _wh = core.MININDEX_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52487,14 +55472,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52529,6 +55514,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MINMAX_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -52545,6 +55531,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MINMAX_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MINMAX_Stream _wh = core.MINMAX_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52593,14 +55598,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52635,6 +55640,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MINMAXINDEX_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -52651,6 +55657,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MINMAXINDEX_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MINMAXINDEX_Stream _wh = core.MINMAXINDEX_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52699,8 +55724,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -52713,6 +55737,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["MINUS_DI"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -52747,6 +55774,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MINUS_DI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52763,6 +55791,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MINUS_DI_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MINUS_DI_Stream _wh = core.MINUS_DI_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52813,8 +55860,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -52824,6 +55870,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["MINUS_DM"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -52858,6 +55906,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MINUS_DM_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52874,6 +55923,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MINUS_DM_Open(_warm_inHigh, _warm_inLow, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MINUS_DM_Stream _wh = core.MINUS_DM_OpenAndFill(_warm_inHigh, _warm_inLow, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -52922,14 +55990,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -52963,6 +56031,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MOM_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -52979,6 +56048,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MOM_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MOM_Stream _wh = core.MOM_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53025,8 +56113,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -53036,6 +56123,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -53068,6 +56157,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.MULT_Impl(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
@@ -53084,6 +56174,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.MULT_Open(_warm_inReal0, _warm_inReal1);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.MULT_Stream _wh = core.MULT_OpenAndFill(_warm_inReal0, _warm_inReal1, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53132,8 +56241,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -53146,6 +56254,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["NATR"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -53180,6 +56291,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.NATR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -53196,6 +56308,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.NATR_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.NATR_Stream _wh = core.NATR_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53246,8 +56377,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inClose;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -53257,6 +56387,8 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -53289,6 +56421,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.NVI_Impl(startIdx, endIdx, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
@@ -53305,6 +56438,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.NVI_Open(_warm_inClose, _warm_inVolume);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.NVI_Stream _wh = core.NVI_OpenAndFill(_warm_inClose, _warm_inVolume, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53353,8 +56505,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -53364,6 +56515,8 @@ public class TaCodegenServe {
             inReal = GetDoubleArray(p, "inReal");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -53396,6 +56549,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.OBV_Impl(startIdx, endIdx, inReal, inVolume, out outBegIdx, out outNBElement, outArr0);
@@ -53412,6 +56566,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.OBV_Open(_warm_inReal, _warm_inVolume);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.OBV_Stream _wh = core.OBV_OpenAndFill(_warm_inReal, _warm_inVolume, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53460,8 +56633,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -53474,6 +56646,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["PLUS_DI"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -53508,6 +56683,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.PLUS_DI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -53524,6 +56700,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.PLUS_DI_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.PLUS_DI_Stream _wh = core.PLUS_DI_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53574,8 +56769,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -53585,6 +56779,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["PLUS_DM"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -53619,6 +56815,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.PLUS_DM_Impl(startIdx, endIdx, inHigh, inLow, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -53635,6 +56832,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.PLUS_DM_Open(_warm_inHigh, _warm_inLow, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.PLUS_DM_Stream _wh = core.PLUS_DM_OpenAndFill(_warm_inHigh, _warm_inLow, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53683,14 +56899,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
@@ -53726,6 +56942,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.PPO_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
@@ -53742,6 +56959,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.PPO_Open(_warm_inReal, optInFastPeriod, optInSlowPeriod, optInMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.PPO_Stream _wh = core.PPO_OpenAndFill(_warm_inReal, optInFastPeriod, optInSlowPeriod, optInMAType, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53788,8 +57024,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inClose;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -53799,6 +57034,8 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -53831,6 +57068,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.PVI_Impl(startIdx, endIdx, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
@@ -53847,6 +57085,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.PVI_Open(_warm_inClose, _warm_inVolume);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.PVI_Stream _wh = core.PVI_OpenAndFill(_warm_inClose, _warm_inVolume, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -53895,14 +57152,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
             inVolume = new double[refN]; Array.Copy(refVolume, inVolume, refN);
         } else {
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
         MAType optInMAType = (MAType)GetInt(p, "optInMAType", 0);
@@ -53938,6 +57195,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.PVO_Impl(startIdx, endIdx, inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, out outBegIdx, out outNBElement, outArr0);
@@ -53954,6 +57212,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.PVO_Open(_warm_inVolume, optInFastPeriod, optInSlowPeriod, optInMAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.PVO_Stream _wh = core.PVO_OpenAndFill(_warm_inVolume, optInFastPeriod, optInSlowPeriod, optInMAType, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54000,8 +57277,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inOpen;
         double[] inClose;
         if (use_preloaded != 0 && refN > 0) {
@@ -54011,6 +57287,8 @@ public class TaCodegenServe {
             inOpen = GetDoubleArray(p, "inOpen");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inOpen = bench_mode == 0 ? default : inOpen.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -54044,6 +57322,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.QSTICK_Impl(startIdx, endIdx, inOpen, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -54060,6 +57339,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.QSTICK_Open(_warm_inOpen, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.QSTICK_Stream _wh = core.QSTICK_OpenAndFill(_warm_inOpen, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54108,14 +57406,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -54149,6 +57447,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ROC_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -54165,6 +57464,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ROC_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ROC_Stream _wh = core.ROC_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54211,14 +57529,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -54252,6 +57570,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ROCP_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -54268,6 +57587,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ROCP_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ROCP_Stream _wh = core.ROCP_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54314,14 +57652,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -54355,6 +57693,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ROCR_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -54371,6 +57710,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ROCR_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ROCR_Stream _wh = core.ROCR_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54417,14 +57775,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -54458,6 +57816,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ROCR100_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -54474,6 +57833,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ROCR100_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ROCR100_Stream _wh = core.ROCR100_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54520,14 +57898,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         core.unstablePeriod[(int)FunctionCatalog.Default["RSI"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -54562,6 +57940,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.RSI_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -54578,6 +57957,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.RSI_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.RSI_Stream _wh = core.RSI_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54624,8 +58022,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -54635,6 +58032,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         double optInAcceleration = GetDouble(p, "optInAcceleration", 0.0);
         double optInMaximum = GetDouble(p, "optInMaximum", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -54669,6 +58068,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SAR_Impl(startIdx, endIdx, inHigh, inLow, optInAcceleration, optInMaximum, out outBegIdx, out outNBElement, outArr0);
@@ -54685,6 +58085,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SAR_Open(_warm_inHigh, _warm_inLow, optInAcceleration, optInMaximum);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SAR_Stream _wh = core.SAR_OpenAndFill(_warm_inHigh, _warm_inLow, optInAcceleration, optInMaximum, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54733,8 +58152,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         if (use_preloaded != 0 && refN > 0) {
@@ -54744,6 +58162,8 @@ public class TaCodegenServe {
             inHigh = GetDoubleArray(p, "inHigh");
             inLow = GetDoubleArray(p, "inLow");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
         double optInStartValue = GetDouble(p, "optInStartValue", 0.0);
         double optInOffsetOnReverse = GetDouble(p, "optInOffsetOnReverse", 0.0);
         double optInAccelerationInitLong = GetDouble(p, "optInAccelerationInitLong", 0.0);
@@ -54784,6 +58204,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SAREXT_Impl(startIdx, endIdx, inHigh, inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, out outBegIdx, out outNBElement, outArr0);
@@ -54800,6 +58221,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SAREXT_Open(_warm_inHigh, _warm_inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SAREXT_Stream _wh = core.SAREXT_OpenAndFill(_warm_inHigh, _warm_inLow, optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54848,14 +58288,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -54888,6 +58328,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SIN_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -54904,6 +58345,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SIN_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SIN_Stream _wh = core.SIN_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -54950,14 +58410,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -54990,6 +58450,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SINH_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -55006,6 +58467,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SINH_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SINH_Stream _wh = core.SINH_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55052,14 +58532,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -55093,6 +58573,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -55109,6 +58590,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SMA_Stream _wh = core.SMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55155,8 +58655,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -55169,6 +58668,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         int optInFastPeriod = GetInt(p, "optInFastPeriod", 0);
         int optInSlowPeriod = GetInt(p, "optInSlowPeriod", 0);
@@ -55206,6 +58708,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SMI_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -55222,6 +58725,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SMI_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SMI_Stream _wh = core.SMI_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55274,14 +58796,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -55314,6 +58836,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SQRT_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -55330,6 +58853,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SQRT_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SQRT_Stream _wh = core.SQRT_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55376,14 +58918,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         double optInNbDev = GetDouble(p, "optInNbDev", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -55418,6 +58960,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.STDDEV_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
@@ -55434,6 +58977,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.STDDEV_Open(_warm_inReal, optInTimePeriod, optInNbDev);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.STDDEV_Stream _wh = core.STDDEV_OpenAndFill(_warm_inReal, optInTimePeriod, optInNbDev, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55480,8 +59042,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -55494,6 +59055,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInFastK_Period = GetInt(p, "optInFastK_Period", 0);
         int optInSlowK_Period = GetInt(p, "optInSlowK_Period", 0);
         MAType optInSlowK_MAType = (MAType)GetInt(p, "optInSlowK_MAType", 0);
@@ -55532,6 +59096,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.STOCH_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -55548,6 +59113,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.STOCH_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.STOCH_Stream _wh = core.STOCH_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55600,8 +59184,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -55614,6 +59197,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInFastK_Period = GetInt(p, "optInFastK_Period", 0);
         int optInFastD_Period = GetInt(p, "optInFastD_Period", 0);
         MAType optInFastD_MAType = (MAType)GetInt(p, "optInFastD_MAType", 0);
@@ -55650,6 +59236,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.STOCHF_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -55666,6 +59253,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.STOCHF_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.STOCHF_Stream _wh = core.STOCHF_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55718,14 +59324,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         int optInFastK_Period = GetInt(p, "optInFastK_Period", 0);
         int optInFastD_Period = GetInt(p, "optInFastD_Period", 0);
@@ -55763,6 +59369,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.STOCHRSI_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, outArr0, outArr1);
@@ -55779,6 +59386,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.STOCHRSI_Open(_warm_inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.STOCHRSI_Stream _wh = core.STOCHRSI_OpenAndFill(_warm_inReal, optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outArr0, outArr1);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55827,8 +59453,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal0;
         double[] inReal1;
         if (use_preloaded != 0 && refN > 0) {
@@ -55838,6 +59463,8 @@ public class TaCodegenServe {
             inReal0 = GetDoubleArray(p, "inReal0");
             inReal1 = GetDoubleArray(p, "inReal1");
         }
+        ReadOnlySpan<double> _warm_inReal0 = bench_mode == 0 ? default : inReal0.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inReal1 = bench_mode == 0 ? default : inReal1.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -55870,6 +59497,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SUB_Impl(startIdx, endIdx, inReal0, inReal1, out outBegIdx, out outNBElement, outArr0);
@@ -55886,6 +59514,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SUB_Open(_warm_inReal0, _warm_inReal1);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SUB_Stream _wh = core.SUB_OpenAndFill(_warm_inReal0, _warm_inReal1, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -55934,14 +59581,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -55975,6 +59622,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.SUM_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -55991,6 +59639,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.SUM_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.SUM_Stream _wh = core.SUM_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56037,14 +59704,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         double optInVFactor = GetDouble(p, "optInVFactor", 0.0);
         core.unstablePeriod[(int)FunctionCatalog.Default["T3"].UnstableId!.Value] = GetInt(p, "unstablePeriod", 0);
@@ -56080,6 +59747,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.T3_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInVFactor, out outBegIdx, out outNBElement, outArr0);
@@ -56096,6 +59764,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.T3_Open(_warm_inReal, optInTimePeriod, optInVFactor);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.T3_Stream _wh = core.T3_OpenAndFill(_warm_inReal, optInTimePeriod, optInVFactor, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56142,14 +59829,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -56182,6 +59869,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TAN_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -56198,6 +59886,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TAN_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TAN_Stream _wh = core.TAN_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56244,14 +59951,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -56284,6 +59991,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TANH_Impl(startIdx, endIdx, inReal, out outBegIdx, out outNBElement, outArr0);
@@ -56300,6 +60008,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TANH_Open(_warm_inReal);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TANH_Stream _wh = core.TANH_OpenAndFill(_warm_inReal, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56346,14 +60073,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -56387,6 +60114,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TEMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -56403,6 +60131,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TEMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TEMA_Stream _wh = core.TEMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56449,8 +60196,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -56463,6 +60209,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -56495,6 +60244,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TRANGE_Impl(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -56511,6 +60261,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TRANGE_Open(_warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TRANGE_Stream _wh = core.TRANGE_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56561,14 +60330,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -56602,6 +60371,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TRIMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -56618,6 +60388,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TRIMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TRIMA_Stream _wh = core.TRIMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56664,14 +60453,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -56705,6 +60494,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TRIX_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -56721,6 +60511,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TRIX_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TRIX_Stream _wh = core.TRIX_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56767,14 +60576,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -56808,6 +60617,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TSF_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -56824,6 +60634,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TSF_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TSF_Stream _wh = core.TSF_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56870,8 +60699,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -56884,6 +60712,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -56916,6 +60747,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.TYPPRICE_Impl(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -56932,6 +60764,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.TYPPRICE_Open(_warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.TYPPRICE_Stream _wh = core.TYPPRICE_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -56982,8 +60833,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -56996,6 +60846,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod1 = GetInt(p, "optInTimePeriod1", 0);
         int optInTimePeriod2 = GetInt(p, "optInTimePeriod2", 0);
         int optInTimePeriod3 = GetInt(p, "optInTimePeriod3", 0);
@@ -57031,6 +60884,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.ULTOSC_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, out outBegIdx, out outNBElement, outArr0);
@@ -57047,6 +60901,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.ULTOSC_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.ULTOSC_Stream _wh = core.ULTOSC_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57097,14 +60970,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         double optInNbDev = GetDouble(p, "optInNbDev", 0.0);
         // The output buffers are sized to the count the call actually PRODUCES --
@@ -57139,6 +61012,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.VAR_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInNbDev, out outBegIdx, out outNBElement, outArr0);
@@ -57155,6 +61029,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.VAR_Open(_warm_inReal, optInTimePeriod, optInNbDev);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.VAR_Stream _wh = core.VAR_OpenAndFill(_warm_inReal, optInTimePeriod, optInNbDev, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57201,8 +61094,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -57218,6 +61110,10 @@ public class TaCodegenServe {
             inClose = GetDoubleArray(p, "inClose");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -57250,6 +61146,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.VWAP_Impl(startIdx, endIdx, inHigh, inLow, inClose, inVolume, out outBegIdx, out outNBElement, outArr0);
@@ -57266,6 +61163,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.VWAP_Open(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.VWAP_Stream _wh = core.VWAP_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, _warm_inVolume, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57318,8 +61234,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         double[] inVolume;
         if (use_preloaded != 0 && refN > 0) {
@@ -57329,6 +61244,8 @@ public class TaCodegenServe {
             inReal = GetDoubleArray(p, "inReal");
             inVolume = GetDoubleArray(p, "inVolume");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inVolume = bench_mode == 0 ? default : inVolume.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -57362,6 +61279,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.VWMA_Impl(startIdx, endIdx, inReal, inVolume, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -57378,6 +61296,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.VWMA_Open(_warm_inReal, _warm_inVolume, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.VWMA_Stream _wh = core.VWMA_OpenAndFill(_warm_inReal, _warm_inVolume, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57426,8 +61363,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -57440,6 +61376,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -57472,6 +61411,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.WAD_Impl(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -57488,6 +61428,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.WAD_Open(_warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.WAD_Stream _wh = core.WAD_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57538,8 +61497,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -57552,6 +61510,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
         // never below one. Not to the width of the requested range: that is the bound the
@@ -57584,6 +61545,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.WCLPRICE_Impl(startIdx, endIdx, inHigh, inLow, inClose, out outBegIdx, out outNBElement, outArr0);
@@ -57600,6 +61562,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.WCLPRICE_Open(_warm_inHigh, _warm_inLow, _warm_inClose);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.WCLPRICE_Stream _wh = core.WCLPRICE_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57650,8 +61631,7 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inHigh;
         double[] inLow;
         double[] inClose;
@@ -57664,6 +61644,9 @@ public class TaCodegenServe {
             inLow = GetDoubleArray(p, "inLow");
             inClose = GetDoubleArray(p, "inClose");
         }
+        ReadOnlySpan<double> _warm_inHigh = bench_mode == 0 ? default : inHigh.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inLow = bench_mode == 0 ? default : inLow.AsSpan(0, endIdx + 1);
+        ReadOnlySpan<double> _warm_inClose = bench_mode == 0 ? default : inClose.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -57697,6 +61680,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.WILLR_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -57713,6 +61697,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.WILLR_Open(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.WILLR_Stream _wh = core.WILLR_OpenAndFill(_warm_inHigh, _warm_inLow, _warm_inClose, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }
@@ -57763,14 +61766,14 @@ public class TaCodegenServe {
         int use_preloaded = GetInt(p, "use_preloaded", 0);
         int bench_iters = GetInt(p, "iters", 1);
         if (bench_iters < 1) bench_iters = 1;
-        if (GetInt(p, "bench_mode", 0) != 0)
-            return "{\"retCode\":0,\"timing_ns\":0,\"unsupported_mode\":1}";
+        int bench_mode = GetInt(p, "bench_mode", 0);
         double[] inReal;
         if (use_preloaded != 0 && refN > 0) {
             inReal = new double[refN]; Array.Copy(refClose, inReal, refN);
         } else {
             inReal = GetDoubleArray(p, "inReal");
         }
+        ReadOnlySpan<double> _warm_inReal = bench_mode == 0 ? default : inReal.AsSpan(0, endIdx + 1);
         int optInTimePeriod = GetInt(p, "optInTimePeriod", 0);
         // The output buffers are sized to the count the call actually PRODUCES --
         // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
@@ -57804,6 +61807,7 @@ public class TaCodegenServe {
         long _t0 = 0;
         for (int _bi = 0; _bi <= bench_iters; _bi++) {
             if (_bi == 1) _t0 = GetNanoTime();
+            if (bench_mode == 0) {
             if (GetInt(p, "timed", 0) != 0) {
                 try {
                     rc = core.WMA_Impl(startIdx, endIdx, inReal, optInTimePeriod, out outBegIdx, out outNBElement, outArr0);
@@ -57820,6 +61824,25 @@ public class TaCodegenServe {
                     rc = RetCode.Success;
                 } catch (Exception _e) when (_e is ITaLibFailure) {
                     rc = ((ITaLibFailure)_e).RetCode;
+                    outBegIdx = 0;
+                    outNBElement = 0;
+                }
+            }
+            } else if (bench_mode == 1) {
+                try {
+                    core.WMA_Open(_warm_inReal, optInTimePeriod);
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
+                }
+            } else {
+                try {
+                    Core.WMA_Stream _wh = core.WMA_OpenAndFill(_warm_inReal, optInTimePeriod, outArr0);
+                    outBegIdx = _wh.OutRange.BegIdx;
+                    outNBElement = _wh.OutRange.Count;
+                    rc = RetCode.Success;
+                } catch (Exception _e3) when (_e3 is ITaLibFailure) {
+                    rc = ((ITaLibFailure)_e3).RetCode;
                     outBegIdx = 0;
                     outNBElement = 0;
                 }

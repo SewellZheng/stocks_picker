@@ -68,12 +68,13 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::AD`]: the number of leading input values consumed before the
     /// first output value can be produced.
-    pub fn AD_Lookback(&self) -> usize {
+    pub fn AD_Lookback(&self) -> Result<usize, RetCode> {
         // This function have no lookback needed.
-        return (0) as usize;
+        return Ok((0) as usize);
     }
     /// C-shaped body behind [`Core::AD`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn AD_Impl(
         &self,
         startIdx: usize,
@@ -92,7 +93,7 @@ impl Core {
         if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        let _assertLb = self.AD_Lookback();
+        let _assertLb = self.AD_Lookback().unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -176,11 +177,9 @@ impl Core {
     /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -223,6 +222,30 @@ impl Core {
         inVolume: &[f64],
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.AD_Lookback()?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inVolume.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.AD_Impl(
@@ -254,7 +277,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_AD_Stream")]
 pub struct AD_Stream {
-    core: Core,
     state: AD_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -265,7 +287,6 @@ impl AD_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `AD_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -293,7 +314,7 @@ impl AD_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn AD_step_impl(&self, sp: &mut AD_StreamState, inHigh: f64, inLow: f64, inClose: f64, inVolume: f64, outReal: &mut f64) {
+    fn AD_step_impl(sp: &mut AD_StreamState, inHigh: f64, inLow: f64, inClose: f64, inVolume: f64, outReal: &mut f64) {
         let mut high: f64 = 0.0_f64;
         let mut low: f64 = 0.0_f64;
         let mut close: f64 = 0.0_f64;
@@ -313,11 +334,14 @@ impl Core {
     pub(crate) fn AD_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<AD_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inVolume.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
@@ -374,7 +398,7 @@ impl Core {
         let state = AD_StreamState {
             ad,
         };
-        Ok(AD_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(AD_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::AD_Open`] (composition seam).
@@ -395,8 +419,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -426,12 +451,32 @@ impl Core {
 
     /// [`Core::AD_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::AD`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::AD_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_AD_OpenAndFill")]
     pub fn AD_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], outReal: &mut [f64],
     ) -> Result<(AD_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.AD_Lookback()?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.AD_OpenAndFillInternal(inHigh, inLow, inClose, inVolume, 0, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -468,7 +513,7 @@ impl AD_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.AD_step_impl(&mut self.state, inHigh, inLow, inClose, inVolume, &mut outReal);
+        Core::AD_step_impl(&mut self.state, inHigh, inLow, inClose, inVolume, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -501,7 +546,7 @@ impl AD_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() || !inVolume[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.AD_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], inVolume[i], &mut outReal[i]);
+            Core::AD_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], inVolume[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

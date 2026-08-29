@@ -120,6 +120,17 @@ pub(crate) struct JavaRenderCtx<'a> {
     /// `optInMAType == TA_MAType_*` comparisons render; stream bodies dispatch
     /// MA-type structurally and leave this empty.
     pub(crate) matype_map: HashMap<String, String>,
+    /// Output parameters the caller may decline with `null` because their .yaml
+    /// marks them `nullable` (rule B6a). Every store into one is wrapped in an
+    /// `if( outX != null )`. Populated for the batch bodies AND for the stream
+    /// open body, since rule B6a reads the same at both tiers.
+    pub(crate) nullable_outputs: &'a HashSet<String>,
+    /// Emit `lastCur_<out> = <value>;` beside every guarded store into a
+    /// nullable output. Only the streaming open body wants it: its handle
+    /// caches the last value of every output, and a declined one leaves no
+    /// array to read it back from. The batch bodies have no such capture, so
+    /// they leave this false and the shadow is never declared there.
+    pub(crate) nullable_shadow: bool,
 }
 
 /// Build the `TA_MAType_*` → `MAType.<Pascal>` map the [`ExprEmitter::var`] hook
@@ -692,14 +703,16 @@ fn body_name(base: &str) -> String {
 /// half written and with no `OutRange` to say how far the call got.
 ///
 /// The bound is the one the Rust backend already asserts and the cross-language
-/// harness already verifies (`rust_lang::emit_bounds_asserts`): every input the
-/// body indexes must reach `endIdx`, and every output must hold the values
-/// actually produced — `endIdx - max(startIdx, lookback) + 1`, the produced
-/// count, not the width of the requested range.
+/// harness already verifies (`rust_lang::emit_bounds_asserts`): every DECLARED
+/// input must reach `endIdx`, and every output must hold the values actually
+/// produced — `endIdx - max(startIdx, lookback) + 1`, the produced count, not the
+/// width of the requested range. Declared, not indexed: seven candlestick legs are
+/// never read by their body, and exempting those made the same call `TA_BAD_PARAM`
+/// in C and a success here (#260).
 ///
-/// `clampedStart` is `max(startIdx, lookback)`, or `-1` when the core will reject
-/// the call itself — the one case that must not be pre-empted, because the core
-/// owns that diagnosis.
+/// `clampedStart` is `max(startIdx, lookback)`; it throws the parameter rejection
+/// when the lookback signals one, which rule L2 makes exactly the batch tier's own
+/// B3 decision on the same parameters.
 ///
 /// The `_assertStart > endIdx ||` escape in front of the Rust asserts is applied
 /// to the OUTPUT bound only. A range shorter than the lookback produces no values,
@@ -716,20 +729,12 @@ fn body_name(base: &str) -> String {
 /// A null array is rejected either way — the length check is conditional, the
 /// contract that an argument exists is not.
 ///
-/// **Order.** `requireIndexRange` comes first, then the presence of any non-buffer
-/// argument, then the buffer checks: the specification evaluates B1/B2 before
-/// B3, and this wrapper used to run the presence check ahead of both, so an
-/// absent buffer pre-empted an out-of-range index (open item 3). The null enum
-/// check (item 4) has to sit ahead of the `_Lookback` call below, because that is
-/// where a null one is first dereferenced.
+/// **Order.** The index rules (B1, B2), then the optional parameters (B3), then
+/// the buffers (B4, B5). A null enum is a parameter out of its domain, and its
+/// check has to sit ahead of the `_Lookback` call below, because that is where a
+/// null one is first dereferenced.
 fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
-    let indexed = super::common::indexed_input_names(func);
-    let inputs: Vec<&str> = func
-        .inputs
-        .iter()
-        .filter(|i| indexed.contains(&i.name))
-        .map(|i| i.name.as_str())
-        .collect();
+    let inputs: Vec<&str> = func.inputs.iter().map(|i| i.name.as_str()).collect();
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -750,15 +755,15 @@ fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
     let lb_args: Vec<String> = func.optional_inputs.iter().map(|o| o.name.clone()).collect();
     let _ = writeln!(
         out,
-        "      int guardStart = clampedStart(startIdx, endIdx, {base_name}_Lookback({}));",
+        "      int guardStart = clampedStart(\"{base_name}\", startIdx, {base_name}_Lookback({}));",
         lb_args.join(", ")
     );
     if !inputs.is_empty() {
-        out.push_str("      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;\n");
+        out.push_str("      int guardInLen = endIdx + 1;\n");
     }
     if !func.outputs.is_empty() {
         out.push_str(
-            "      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;\n",
+            "      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;\n",
         );
     }
     for name in inputs {
@@ -769,10 +774,20 @@ fn gen_argument_checks(func: &FuncDef, base_name: &str) -> String {
     }
     for output in &func.outputs {
         let name = &output.name;
-        let _ = writeln!(
-            out,
-            "      requireLength(\"{base_name}\", \"{name}\", {name}, guardOutLen);"
-        );
+        // A nullable output may be declined with `null` (rule B6a): the writes
+        // to it are guarded, so there is no length to require. Supplied, it is
+        // bounded like any other — "declined" is `null` and nothing else.
+        if output.is_nullable() {
+            let _ = writeln!(
+                out,
+                "      if( {name} != null ) requireLength(\"{base_name}\", \"{name}\", {name}, guardOutLen);"
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "      requireLength(\"{base_name}\", \"{name}\", {name}, guardOutLen);"
+            );
+        }
     }
     out
 }
@@ -1010,6 +1025,16 @@ fn gen_func_inner(
         &body_stripped
     };
 
+    // The transcribed guard on a cross-call this backend answers by throwing is
+    // dead (#267). Fold it before anything below is derived from the body; the
+    // pass is length-preserving, so the caller's indices into this slice stay valid.
+    // This backend's cleanup sequence, explicit so a pass can be made
+    // conditional later. C states none: every one of these would be wrong there.
+    let admits = |f: &str, a: &[Expr]| cross_call_split(f, a, registry).is_some();
+    let folded = super::ir_cleanup::drop_answered_cross_call_guards(body, &admits, None);
+    let folded = super::ir_cleanup::drop_deallocation(&folded);
+    let folded = super::ir_cleanup::drop_inert_guards(&folded);
+    let body: &[Statement] = &folded;
     // Pre-scan for variables used in AddressOf contexts (need MInteger wrapping)
     let mut address_of_vars = collect_address_of_vars(body);
 
@@ -1114,19 +1139,46 @@ fn gen_func_inner(
         out.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
         // Output-distinctness (issue #108): aliasing two different output arrays
         // has no correct result, so reject it. Input == output stays allowed.
+        // A nullable operand is guarded non-null first — a declined output
+        // aliases nothing, and two nulls would otherwise compare equal and
+        // spuriously reject (rule B6a).
+        //
+        // Cross-typed pairs are skipped: `double[] == int[]` is "incomparable
+        // types" and does not compile, and the two can never be one object
+        // anyway. C# has always skipped them and C and Rust now do — Appendix E
+        // of docs/error-handling-spec.md, #262.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {
                 for j in (i + 1)..func.outputs.len() {
-                    pairs.push(format!(
-                        "{} == {}",
-                        func.outputs[i].name, func.outputs[j].name
-                    ));
+                    let (a, b) = (&func.outputs[i], &func.outputs[j]);
+                    if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
+                        continue;
+                    }
+                    let mut guard = String::new();
+                    if a.is_nullable() {
+                        let _ = write!(guard, "{} != null && ", a.name);
+                    }
+                    if b.is_nullable() {
+                        let _ = write!(guard, "{} != null && ", b.name);
+                    }
+                    pairs.push(format!("{guard}{} == {}", a.name, b.name));
                 }
             }
-            out.push_str(&format!("      if( {} ) {{\n", pairs.join(" || ")));
-            out.push_str("         return RetCode.BadParam ;\n");
-            out.push_str("      }\n");
+            // Parenthesise a guarded term when the `||` join could make its
+            // `&&` ambiguous to a reader — see the C emitter's note.
+            if pairs.len() > 1 {
+                for p in &mut pairs {
+                    if p.contains(" && ") {
+                        *p = format!("({p})");
+                    }
+                }
+            }
+            if !pairs.is_empty() {
+                out.push_str(&format!("      if( {} ) {{\n", pairs.join(" || ")));
+                out.push_str("         return RetCode.BadParam ;\n");
+                out.push_str("      }\n");
+            }
         }
     }
 
@@ -1143,6 +1195,7 @@ fn gen_func_inner(
     // backends fuse identical sites. The index-param seeds never affect a fusion
     // decision (never float operands), so one seed set is used uniformly.
     let fma_sets = fma::build_fma_var_sets(body, &func.outputs, &fma::INDEX_PARAM_SEEDS);
+    let nullable_outputs = super::common::nullable_output_names(func);
     let ctx = JavaRenderCtx {
         single_precision,
         address_of_vars: &address_of_vars,
@@ -1150,6 +1203,8 @@ fn gen_func_inner(
         float_input_params: &float_input_params,
         inline_counter: &inline_counter,
         fma: Some(&fma_sets),
+        nullable_outputs: &nullable_outputs,
+        nullable_shadow: false,
         matype_map: build_matype_map(enums),
     };
 
@@ -1301,10 +1356,13 @@ pub fn render_statement(
     double_address_of_vars: &HashSet<String>,
     float_input_params: &HashSet<String>,
 ) -> String {
+    let no_nullable = HashSet::new();
     let ctx = JavaRenderCtx {
         single_precision,
         address_of_vars,
         double_address_of_vars,
+        nullable_outputs: &no_nullable,
+        nullable_shadow: false,
         float_input_params,
         inline_counter,
         // Auxiliary entry (no body available to derive fusion sets); fusion for
@@ -1540,8 +1598,21 @@ impl StatementEmitter for JavaStmt<'_> {
         }
 
         let target_str = render_assign_target(target, self.ctx, self.registry, self.helpers);
-        let value_str = render_expr(&new_value, self.ctx, self.registry, self.helpers);
-        out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
+        let value_str = render_assign_value(&new_value, self.ctx, self.registry, self.helpers);
+        // Writing into a nullable output — guard it so a `null` (declined)
+        // output is skipped (rule B6a). The `outIdx` advance rides the
+        // non-nullable partner's write (see mama.c), so guarding this store is
+        // complete.
+        if let Some(base) = nullable_target_base(target, self.ctx.nullable_outputs) {
+            if self.ctx.nullable_shadow {
+                out.push_str(&format!("{pad}lastCur_{base} = {value_str};\n"));
+            }
+            out.push_str(&format!(
+                "{pad}if( {base} != null )\n{pad}   {target_str} = {value_str};\n"
+            ));
+        } else {
+            out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
+        }
         out
     }
 
@@ -1868,6 +1939,18 @@ pub(crate) fn render_java_switch_label(label: &str, enums: &HashMap<String, Enum
     }
 }
 
+/// If `target` stores into one of the `nullable` outputs (a `double outX[]` the
+/// caller may pass `null` to decline — rule B6a), return its base name so the
+/// store can be wrapped in `if( outX != null )`. Matches the array store
+/// `outX[i] = …` and the scalar store `outX = …`; the value side is never
+/// involved.
+fn nullable_target_base<'a>(target: &Expr, nullable: &'a HashSet<String>) -> Option<&'a String> {
+    let (Expr::ArrayAccess(name, _) | Expr::PointerDeref(name) | Expr::Var(name)) = target else {
+        return None;
+    };
+    nullable.get(name)
+}
+
 fn render_assign_target(
     expr: &Expr,
     ctx: &JavaRenderCtx,
@@ -2122,6 +2205,8 @@ impl ExprEmitter for JavaExpr<'_> {
             single_precision: self.ctx.single_precision,
             address_of_vars: &empty,
             double_address_of_vars: &empty,
+            nullable_outputs: self.ctx.nullable_outputs,
+            nullable_shadow: false,
             float_input_params: self.ctx.float_input_params,
             inline_counter: self.ctx.inline_counter,
             // Carry the fusion sets so any a*b+c inside the address-of expression
@@ -2176,6 +2261,46 @@ impl ExprEmitter for JavaExpr<'_> {
         let e = if matches!(else_expr, Expr::Ternary(..)) { format!("({e})") } else { e };
         format!("{c} ? {t} : {e}")
     }
+}
+
+
+/// Render `value` as the whole right-hand side of an assignment.
+///
+/// Identical to [`render_expr`] except that a `cond ? 1 : 0` keeps its ternary
+/// form instead of collapsing to the bare condition. The collapse is only valid
+/// where a boolean is wanted, and the destination of an assignment never is: C
+/// has no booleans, so every such destination is an `int`, and
+/// `outInteger[i] = a > b;` does not compile in Java or C#.
+///
+/// Nothing in the corpus reached this. Its four `? 1 : 0` are all
+/// `return (...) ? 1 : 0;` inside helper predicates, inlined into an `if` — a
+/// boolean position, where the collapse is right. A synthetic fixture storing a
+/// flag is what found it (#262). A collapsible ternary nested INSIDE a larger
+/// right-hand side is still collapsed and would still be wrong; that shape is
+/// equally unreachable today, and catching it needs the render context this
+/// deliberately does without.
+pub(crate) fn render_assign_value(
+    value: &Expr,
+    ctx: &JavaRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    if let Expr::Ternary(cond, then_expr, else_expr) = value {
+        if bool_ternary_collapse(then_expr, else_expr).is_some() && !is_int_bitwise(cond) {
+            let c = render_expr(cond, ctx, registry, helpers);
+            let c = if matches!(cond.as_ref(), Expr::BinOp(..) | Expr::Ternary(..)) {
+                format!("({c})")
+            } else {
+                c
+            };
+            return format!(
+                "{c} ? {} : {}",
+                render_expr(then_expr, ctx, registry, helpers),
+                render_expr(else_expr, ctx, registry, helpers)
+            );
+        }
+    }
+    render_expr(value, ctx, registry, helpers)
 }
 
 pub(crate) fn render_expr(
@@ -2403,8 +2528,14 @@ fn render_func_call(
                 }
             }
             StdlibFn::Free => {
-                // No-op in Java (garbage collector handles deallocation)
-                String::new()
+                // Deallocation is removed from the IR before rendering, so this
+                // arm is the assertion that it was -- not a second way to make a
+                // `free` vanish, which could disagree with the pass.
+                unreachable!(
+                    "free() reached the Java renderer: `ir_cleanup::drop_deallocation` \
+                     runs on every body this backend renders, so a `free` here means a \
+                     render path was added without the cleanup sequence"
+                )
             }
             StdlibFn::Memcpy | StdlibFn::Memmove => {
                 // memcpy/memmove(dst, src, count) → System.arraycopy(src, srcOff, dst, dstOff, count)
@@ -2447,14 +2578,13 @@ fn render_func_call(
         let rendered: Vec<String> = args
             .iter()
             .map(|a| match a {
-                // NULL for a nullable output the caller discards (MA passing NULL
-                // for MAMA's FAMA — issue #125). Java arrays are nullable, but the
-                // callee writes into it unconditionally, so materialize a throwaway
-                // spanning the output range (mirrors the discard buffer the C
-                // source used before nullable outputs). NULL appears only here.
-                Expr::Var(n) if n == "NULL" => {
-                    "new double[(int)(endIdx - startIdx + 1)]".to_string()
-                }
+                // NULL for a nullable output the caller declines (MA passing NULL
+                // for MAMA's FAMA — issue #125). Java arrays are nullable and the
+                // callee's stores are guarded, so this is a plain `null` and
+                // nothing is allocated -- never a throwaway buffer spanning the
+                // output range, the discard #125 removed from C and #262 from
+                // the rest. NULL appears only here.
+                Expr::Var(n) if n == "NULL" => "null".to_string(),
                 _ => render_expr(a, ctx, registry, helpers),
             })
             .collect();
@@ -2466,11 +2596,11 @@ fn render_func_call(
 ///
 /// The C source is written in C's idiom -- `retCode = ma( .., &beg, &nb, buf );
 /// if( retCode != TA_SUCCESS ) return retCode;` -- and the transcription is
-/// literal, so every backend needed a callee that answered a code through
-/// out-parameters. C never did: `ta_APO.c` calls `TA_MA`, which IS C's public
-/// API. The managed backends now do the same, which is what puts the callee's
-/// argument checks on the composed path -- the one place a scratch buffer sized
-/// by the CALLER meets a bound computed from the CALLEE's lookback.
+/// literal, so the rendering has to bridge that to a callee that throws. Doing
+/// it against the PUBLIC entry point, as `ta_APO.c` calling `TA_MA` already
+/// does, is what puts the callee's argument checks on the composed path -- the
+/// one place a scratch buffer sized by the CALLER meets a bound computed from
+/// the CALLEE's lookback.
 ///
 /// The two out-parameter arguments are dropped from the call and bound from the
 /// returned range instead. They are found positionally: the callee's signature
@@ -2479,9 +2609,30 @@ fn render_func_call(
 /// arithmetic does not hold, so a shape this does not understand falls through
 /// to the old rendering rather than being silently mis-sliced.
 ///
-/// The enclosing `if( retCode != Success )` is left standing and becomes dead:
-/// the body stays a literal transcription of its C source, and several of those
-/// tests also carry a `|| count == 0` half that is still live.
+/// The enclosing `if( retCode != Success )` is folded out of the body by
+/// `ir_cleanup::drop_answered_cross_call_guards`. The assignment stays: some of
+/// those tests carry a `|| count == 0` half that survives and still reads it.
+/// Where a cross-indicator call's out-meta pair sits, and the admission test for
+/// the whole rewrite: `None` means this shape is not understood and the call
+/// falls through to the plain renderer, where the caller's `retCode` really does
+/// carry the callee's code.
+///
+/// The renderer and `drop_answered_cross_call_guards` must agree about that, or
+/// a folded guard would swallow a live rejection. The bound is `n_out + 2` here
+/// and `n_out + 4` in Rust, which also applies a shape check -- an argument list
+/// in the gap is admitted here and declined there, so do not share this.
+pub(super) fn cross_call_split(
+    fname: &str,
+    args: &[Expr],
+    registry: &Registry,
+) -> Option<usize> {
+    let n_out = registry.callee_outputs(fname).len();
+    if n_out == 0 || args.len() < n_out + 2 {
+        return None;
+    }
+    Some(args.len() - n_out - 2)
+}
+
 fn render_cross_indicator_call(
     fname: &str,
     args: &[Expr],
@@ -2490,20 +2641,18 @@ fn render_cross_indicator_call(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> Option<String> {
-    let n_out = registry.callee_outputs(fname).len();
-    if n_out == 0 || args.len() < n_out + 2 {
-        return None;
-    }
-    let split = args.len() - n_out - 2;
+    let split = cross_call_split(fname, args, registry)?;
     let pad = " ".repeat(indent);
     let public = registry.resolve_call(fname, Lang::Java);
 
     let mut call_args: Vec<String> = Vec::new();
     for a in args[..split].iter().chain(args[split + 2..].iter()) {
         call_args.push(match a {
-            // NULL for a nullable output the caller discards (#125): the callee
-            // writes it unconditionally, so materialize a throwaway.
-            Expr::Var(n) if n == "NULL" => "new double[(int)(endIdx - startIdx + 1)]".to_string(),
+            // NULL for a nullable output the caller declines (#125): the callee
+            // skips its stores and its public tier skips the length check, so
+            // this is a plain `null` (rule B6a, #262) -- never a throwaway buffer
+            // allocated on every call.
+            Expr::Var(n) if n == "NULL" => "null".to_string(),
             _ => render_expr(a, ctx, registry, helpers),
         });
     }
@@ -2585,10 +2734,13 @@ fn render_lookback_code(
     let double_address_of_vars = HashSet::new();
     // Lookback bodies are always double-precision; no float input params needed
     let float_input_params: HashSet<String> = HashSet::new();
+    let no_nullable = HashSet::new();
     let ctx = JavaRenderCtx {
         single_precision: false,
         address_of_vars: &address_of_vars,
         double_address_of_vars: &double_address_of_vars,
+        nullable_outputs: &no_nullable,
+        nullable_shadow: false,
         float_input_params: &float_input_params,
         inline_counter: &inline_counter,
         // Lookback bodies are pure integer index arithmetic — no float multiply-add.

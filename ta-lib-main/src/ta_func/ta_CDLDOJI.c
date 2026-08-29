@@ -96,6 +96,8 @@ TA_LIB_API TA_RetCode TA_CDLDOJI( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
 
@@ -189,6 +191,8 @@ TA_RetCode TA_S_CDLDOJI( int    startIdx,
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -289,9 +293,9 @@ static TA_RetCode TA_CDLDOJI_OpenImpl( struct TA_CDLDOJI_Stream **stream, const 
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -374,7 +378,7 @@ static TA_RetCode TA_CDLDOJI_OpenImpl( struct TA_CDLDOJI_Stream **stream, const 
       memset( sp, 0, sizeof(*sp) );
       sp->BodyDojiPeriodTotal = BodyDojiPeriodTotal;
       sp->ringCap_BodyDojiTrailingIdx = (int)(i - BodyDojiTrailingIdx);
-      if( sp->ringCap_BodyDojiTrailingIdx < 0 || sp->ringCap_BodyDojiTrailingIdx > historyLen ) { TA_CDLDOJI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_BodyDojiTrailingIdx < 0 || sp->ringCap_BodyDojiTrailingIdx > historyLen ) { TA_CDLDOJI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(224); }
       { size_t allocN = (size_t)(sp->ringCap_BodyDojiTrailingIdx > 0 ? sp->ringCap_BodyDojiTrailingIdx : 1);
         sp->ring_BodyDojiTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyDojiTrailingIdx_derived ) { TA_CDLDOJI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -412,9 +416,9 @@ TA_LIB_API TA_RetCode TA_CDLDOJI_Open( TA_CDLDOJI_Stream **stream, const double 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLDOJI_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
 
@@ -422,10 +426,9 @@ TA_LIB_API TA_RetCode TA_CDLDOJI_OpenAndFill( TA_CDLDOJI_Stream **stream, const 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLDOJI_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
 }

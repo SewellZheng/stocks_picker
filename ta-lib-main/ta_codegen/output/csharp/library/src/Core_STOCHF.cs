@@ -62,6 +62,11 @@ public partial class Core
     *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
     *  072026 MF,CC Fix #130. Never elect outFastD as the K scratch buffer: %D's
     *               in-place ma() destroyed the raw K before the final copy.
+    *  082326 MF,CC Fix #253. Scale that guard to the window's own extremes: the
+    *               fixed band zeroed the whole output for any instrument quoted
+    *               small enough to fall under it.
+    *  082726 MF,CC Drop the dead retCode block after the copy: the rejection is
+    *               already answered above it, and the shape reads like #269.
     */
    /// <summary>
    /// Number of leading input bars <c>STOCHF</c> consumes before it can produce
@@ -158,7 +163,7 @@ public partial class Core
       } else if( (int)optInFastD_MAType < MATypes.Min || (int)optInFastD_MAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( outFastK.Overlaps(outFastD) || (outFastK.IsEmpty && outFastD.IsEmpty) ) {
+      if( outFastK.Overlaps(outFastD) ) {
          return RetCode.BadParam ;
       }
       if( (outFastK.Overlaps(inHigh) && outFastK != inHigh) || (outFastK.Overlaps(inLow) && outFastK != inLow) || (outFastK.Overlaps(inClose) && outFastK != inClose) || (outFastD.Overlaps(inHigh) && outFastD != inHigh) || (outFastD.Overlaps(inLow) && outFastD != inLow) || (outFastD.Overlaps(inClose) && outFastD != inClose) ) {
@@ -292,11 +297,15 @@ public partial class Core
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
+         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+          * machine-flat window leaves a sub-epsilon residue that an exact check
+          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+          * range against ITS OWN two extremes, not against a fixed band: the range
+          * carries the quote unit, so a constant put against it answers "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output (issue #253).
           */
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
+         if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -311,9 +320,7 @@ public partial class Core
       outBegIdx = _xr0.BegIdx;
       outNBElement = _xr0.Count;
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
+      if( (int)outNBElement == 0 ) {
          /* Something wrong happen? No further data? */
          outBegIdx = 0;
          outNBElement = 0;
@@ -328,15 +335,6 @@ public partial class Core
        * reused as scratch, so source and destination overlap (issue #94).
        */
       tempBuffer.Slice(lookbackFastD, (int)outNBElement * 1).CopyTo(outFastK.Slice(0));
-      /* Don't need K anymore, free it if it was allocated here. */
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         /* Something wrong happen while processing %D? */
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
        */
@@ -395,7 +393,7 @@ public partial class Core
       } else if( (int)optInFastD_MAType < MATypes.Min || (int)optInFastD_MAType > MATypes.Max ) {
          return RetCode.BadParam;
       }
-      if( outFastK.Overlaps(outFastD) || (outFastK.IsEmpty && outFastD.IsEmpty) ) {
+      if( outFastK.Overlaps(outFastD) ) {
          return RetCode.BadParam ;
       }
       lookbackK = optInFastK_Period - 1;
@@ -457,7 +455,7 @@ public partial class Core
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
+         if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
             tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -469,21 +467,12 @@ public partial class Core
       outBegIdx = _xr0.BegIdx;
       outNBElement = _xr0.Count;
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
+      if( (int)outNBElement == 0 ) {
          outBegIdx = 0;
          outNBElement = 0;
          return retCode ;
       }
       tempBuffer.Slice(lookbackFastD, (int)outNBElement * 1).CopyTo(outFastK.Slice(0));
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
       outBegIdx = startIdx;
       return RetCode.Success ;
    }
@@ -533,14 +522,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange STOCHF( int startIdx,
@@ -620,14 +611,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange STOCHF( int startIdx,
@@ -943,11 +936,15 @@ public partial class Core
          sp.highest = tmp;
          sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
-      /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-       * a machine-flat window leaves a sub-epsilon residue that an exact check
-       * would divide into [0,100] noise (issue #107 / STOCHRSI).
+      /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+       * machine-flat window leaves a sub-epsilon residue that an exact check
+       * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+       * range against ITS OWN two extremes, not against a fixed band: the range
+       * carries the quote unit, so a constant put against it answers "flat" for
+       * every window of an instrument quoted below it and zeroed the whole
+       * output (issue #253).
        */
-      if( !((-0.00000000000001 < sp.diff) && (sp.diff < 0.00000000000001)) ) {
+      if( !(Math.Abs(sp.highest - sp.lowest) <= 0.00000000000001 * (Math.Abs(sp.highest) + Math.Abs(sp.lowest))) ) {
          cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / sp.diff;
       } else {
          cur_tempBuffer = 0.0;
@@ -982,11 +979,14 @@ public partial class Core
       int bufferIsAllocated = 0;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
       }
       if( optInFastK_Period == int.MinValue ) {
          optInFastK_Period = 5;
@@ -1141,11 +1141,15 @@ public partial class Core
             highest = tmp;
             diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-          * a machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI).
+         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+          * machine-flat window leaves a sub-epsilon residue that an exact check
+          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+          * range against ITS OWN two extremes, not against a fixed band: the range
+          * carries the quote unit, so a constant put against it answers "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output (issue #253).
           */
-         if( !((-0.00000000000001 < diff) && (diff < 0.00000000000001)) ) {
+         if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
             tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
          } else {
             tempBuffer[outIdx++] = 0.0;
@@ -1163,13 +1167,11 @@ public partial class Core
       tempBuffer.Slice(0, subLen0).CopyTo(subSrc0_0);
       MA_Stream sub0 = MA_OpenAndFillInternal(subSrc0_0, 0, optInFastD_Period, optInFastD_MAType, out outBegIdx, out outNBElement, sc_outFastD);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success || (int)outNBElement == 0 ) {
-         if( (bufferIsAllocated) != 0 ) {
-         }
+      if( (int)outNBElement == 0 ) {
          /* Something wrong happen? No further data? */
          outBegIdx = 0;
          outNBElement = 0;
-         return retCode ;
+         return RetCode.InsufficientHistory ;
       }
       /* Copy tempBuffer into the caller buffer.
        * (Calculation could not be done directly in the
@@ -1180,15 +1182,6 @@ public partial class Core
        * reused as scratch, so source and destination overlap (issue #94).
        */
       tempBuffer.Slice(lookbackFastD, (int)outNBElement * 1).CopyTo(sc_outFastK.Slice(0));
-      /* Don't need K anymore, free it if it was allocated here. */
-      if( (bufferIsAllocated) != 0 ) {
-      }
-      if( retCode != RetCode.Success ) {
-         /* Something wrong happen while processing %D? */
-         outBegIdx = 0;
-         outNBElement = 0;
-         return retCode ;
-      }
       /* Note: Keep the outBegIdx relative to the
        *       caller input before returning.
        */
@@ -1284,13 +1277,17 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>STOCHF_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public STOCHF_Stream STOCHF_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "STOCHF open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "STOCHF open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("STOCHF open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("STOCHF open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("STOCHF", "open", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("STOCHF", "open", "inClose", inClose.Length, inHigh.Length);
       return STOCHF_OpenInternal(inHigh, inLow, inClose, 0, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
    }
 
@@ -1302,7 +1299,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - STOCHF_Lookback(...)</c> values
    /// and must not alias the inputs or each other — this path writes the outputs
    /// and then reads the input tail to seed its rings, so the batch tier's
-   /// in-place allowance does not carry over here.</para>
+   /// in-place allowance does not carry over here. Both are checked before
+   /// anything is written, so an undersized span is an <c>ArgumentException</c>
+   /// naming it rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="STOCHF_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -1322,15 +1321,22 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>STOCHF_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public STOCHF_Stream STOCHF_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInFastK_Period, int optInFastD_Period, MAType optInFastD_MAType, Span<double> outFastK, Span<double> outFastD )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "STOCHF openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "STOCHF openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("STOCHF openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("STOCHF openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("STOCHF", "openAndFill", inHigh.Length, STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType));
+      RequireHistoryLength("STOCHF", "openAndFill", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("STOCHF", "openAndFill", "inClose", inClose.Length, inHigh.Length);
+      RequireFillLength("STOCHF", "openAndFill", "outFastK", outFastK.Length, guardOutLen);
+      RequireFillLength("STOCHF", "openAndFill", "outFastD", outFastD.Length, guardOutLen);
       if( outFastK.Overlaps(inHigh) || outFastK.Overlaps(inLow) || outFastK.Overlaps(inClose) || outFastD.Overlaps(inHigh) || outFastD.Overlaps(inLow) || outFastD.Overlaps(inClose) || outFastK.Overlaps(outFastD) ) {
          throw StreamFailure("STOCHF", "openAndFill", RetCode.BadParam);
       }

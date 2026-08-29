@@ -52,6 +52,9 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  082026 MF,CC  Initial version (#238).
+ *  082326 MF,CC  Fix #253. Test the smoothed range exactly instead of against
+ *                the fixed TA_IS_ZERO band, which zeroed the oscillator for
+ *                any instrument quoted small enough to fall under it.
  */
 
 // Import types from parent module
@@ -76,39 +79,42 @@ impl Core {
     ///   25, range 2..=100000)
     /// * `optInSignalPeriod` — Smoothing period of the signal line (default 9, range 2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn SMI_Lookback(&self, mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> usize {
+    pub fn SMI_Lookback(&self, mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 13;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInFastPeriod) as i32) == (i32::MIN) {
             optInFastPeriod = 2;
         } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 25;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSignalPeriod) as i32) == (i32::MIN) {
             optInSignalPeriod = 9;
         } else if (((optInSignalPeriod) as i32) < 2) || (((optInSignalPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         // One high/low window, then the three EMA warm-ups the pipeline stacks on
         // top of it: slow smooths the raw momentum, fast smooths that, and signal
         // smooths the finished SMI line. Every term is exactly the lookback of the
         // function it comes from, so none of them is restated here -- which is also
         // what makes SMI inherit TA_FUNC_UNST_EMA from its callee.
-        return (((optInTimePeriod - 1) as usize) + self.EMA_Lookback(optInSlowPeriod) + self.EMA_Lookback(optInFastPeriod) + self.EMA_Lookback(optInSignalPeriod)) as usize;
+        return Ok((((optInTimePeriod - 1) as usize) + self.EMA_Lookback(optInSlowPeriod)? + self.EMA_Lookback(optInFastPeriod)? + self.EMA_Lookback(optInSignalPeriod)?) as usize);
     }
     /// C-shaped body behind [`Core::SMI`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn SMI_Impl(
         &self,
         startIdx: usize,
@@ -193,16 +199,16 @@ impl Core {
         } else if (((optInSignalPeriod) as i32) < 2) || (((optInSignalPeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        if outSMI.as_ptr() == outSMISignal.as_ptr() {
-            return RetCode::BadParam;
-        }
-        let _assertLb = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        let _assertLb = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outSMI.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outSMISignal.len());
+        if (!outSMI.is_empty() && !outSMISignal.is_empty() && outSMI.as_ptr() == outSMISignal.as_ptr()) {
+            return RetCode::BadParam;
+        }
         let mut startIdx = startIdx;
         let mut kSlow: f64 = 0.0_f64;
         let mut kFast: f64 = 0.0_f64;
@@ -236,7 +242,7 @@ impl Core {
         let mut nBar: usize = 0_usize;
         let mut nFast: usize = 0_usize;
         let mut nSignal: usize = 0_usize;
-        lookbackTotal = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        lookbackTotal = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -268,8 +274,8 @@ impl Core {
         kSlow = 2.0 / ((optInSlowPeriod + 1) as f64);
         kFast = 2.0 / ((optInFastPeriod + 1) as f64);
         kSignal = 2.0 / ((optInSignalPeriod + 1) as f64);
-        lookbackSlow = self.EMA_Lookback(optInSlowPeriod);
-        lookbackFast = self.EMA_Lookback(optInFastPeriod);
+        lookbackSlow = self.EMA_Lookback(optInSlowPeriod).unwrap_or(usize::MAX);
+        lookbackFast = self.EMA_Lookback(optInFastPeriod).unwrap_or(usize::MAX);
         emaSlowNum = 0.0;
         emaSlowDen = 0.0;
         emaFastNum = 0.0;
@@ -369,7 +375,7 @@ impl Core {
             if nBar >= lookbackSlow + lookbackFast {
                 nSignal = nBar - lookbackSlow - lookbackFast;
                 halfDen = 0.5 * emaFastDen;
-                if !((halfDen).abs() < 1e-14) {
+                if halfDen > 0.0 {
                     smiValue = 100.0 * emaFastNum / halfDen;
                 } else {
                     smiValue = 0.0;
@@ -432,13 +438,18 @@ impl Core {
             emaSlowDen = (den - emaSlowDen as f64).mul_add(kSlow, emaSlowDen);
             emaFastNum = (emaSlowNum - emaFastNum as f64).mul_add(kFast, emaFastNum);
             emaFastDen = (emaSlowDen - emaFastDen as f64).mul_add(kFast, emaFastDen);
-            // Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-            // window leaves a sub-epsilon residue that an exact check would divide
-            // into noise (issue #107 / STOCHRSI). A window whose bars are all
-            // H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-            // CCI (#7) and IMI (#112) convention.
+            // The denominator is an EMA of an EMA of the high-low range: every term
+            // is non-negative and every weight is positive, so it carries no
+            // cancellation residue and is zero only when every range that reached it
+            // was exactly zero -- 0/0, since a window of H == L bars makes num zero
+            // too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+            // convention. Test it exactly: the range carries the quote unit, so the
+            // fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+            // instrument quoted below it (issue #253). Issue #107's machine-flat
+            // window is caught by the exact test as well, since the residue an
+            // EMA leaves there is zero, not sub-epsilon.
             halfDen = 0.5 * emaFastDen;
-            if !((halfDen).abs() < 1e-14) {
+            if halfDen > 0.0 {
                 smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                 smiValue = 0.0;
@@ -520,11 +531,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -577,6 +586,30 @@ impl Core {
         outSMI: &mut [f64],
         outSMISignal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outSMI.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outSMISignal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.SMI_Impl(
@@ -612,7 +645,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_SMI_Stream")]
 pub struct SMI_Stream {
-    core: Core,
     state: SMI_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -623,7 +655,6 @@ impl SMI_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `SMI_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -695,7 +726,7 @@ impl SMI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn SMI_step_impl(&self, sp: &mut SMI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outSMI: &mut f64, outSMISignal: &mut f64) {
+    fn SMI_step_impl(sp: &mut SMI_StreamState, inHigh: f64, inLow: f64, inClose: f64, outSMI: &mut f64, outSMISignal: &mut f64) {
         let mut tmp: f64 = 0.0_f64;
         let mut num: f64 = 0.0_f64;
         let mut den: f64 = 0.0_f64;
@@ -752,13 +783,18 @@ impl Core {
         sp.emaSlowDen = (den - sp.emaSlowDen as f64).mul_add(sp.kSlow, sp.emaSlowDen);
         sp.emaFastNum = (sp.emaSlowNum - sp.emaFastNum as f64).mul_add(sp.kFast, sp.emaFastNum);
         sp.emaFastDen = (sp.emaSlowDen - sp.emaFastDen as f64).mul_add(sp.kFast, sp.emaFastDen);
-        // Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-        // window leaves a sub-epsilon residue that an exact check would divide
-        // into noise (issue #107 / STOCHRSI). A window whose bars are all
-        // H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-        // CCI (#7) and IMI (#112) convention.
+        // The denominator is an EMA of an EMA of the high-low range: every term
+        // is non-negative and every weight is positive, so it carries no
+        // cancellation residue and is zero only when every range that reached it
+        // was exactly zero -- 0/0, since a window of H == L bars makes num zero
+        // too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+        // convention. Test it exactly: the range carries the quote unit, so the
+        // fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+        // instrument quoted below it (issue #253). Issue #107's machine-flat
+        // window is caught by the exact test as well, since the residue an
+        // EMA leaves there is zero, not sub-epsilon.
         halfDen = 0.5 * sp.emaFastDen;
-        if !((halfDen).abs() < 1e-14) {
+        if halfDen > 0.0 {
             smiValue = 100.0 * sp.emaFastNum / halfDen;
         } else {
             smiValue = 0.0;
@@ -775,8 +811,8 @@ impl Core {
     pub(crate) fn SMI_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outSMI: &mut [f64], outSMISignal: &mut [f64], outStride: usize,
     ) -> Result<SMI_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -799,6 +835,9 @@ impl Core {
         if ((optInSignalPeriod) as i32) == (i32::MIN) {
             optInSignalPeriod = 9;
         } else if (((optInSignalPeriod) as i32) < 2) || (((optInSignalPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -843,7 +882,7 @@ impl Core {
         let mut nBar: usize = 0_usize;
         let mut nFast: usize = 0_usize;
         let mut nSignal: usize = 0_usize;
-        lookbackTotal = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
+        lookbackTotal = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -875,8 +914,8 @@ impl Core {
         kSlow = 2.0 / ((optInSlowPeriod + 1) as f64);
         kFast = 2.0 / ((optInFastPeriod + 1) as f64);
         kSignal = 2.0 / ((optInSignalPeriod + 1) as f64);
-        lookbackSlow = self.EMA_Lookback(optInSlowPeriod);
-        lookbackFast = self.EMA_Lookback(optInFastPeriod);
+        lookbackSlow = self.EMA_Lookback(optInSlowPeriod)?;
+        lookbackFast = self.EMA_Lookback(optInFastPeriod)?;
         emaSlowNum = 0.0;
         emaSlowDen = 0.0;
         emaFastNum = 0.0;
@@ -976,7 +1015,7 @@ impl Core {
             if nBar >= lookbackSlow + lookbackFast {
                 nSignal = nBar - lookbackSlow - lookbackFast;
                 halfDen = 0.5 * emaFastDen;
-                if !((halfDen).abs() < 1e-14) {
+                if halfDen > 0.0 {
                     smiValue = 100.0 * emaFastNum / halfDen;
                 } else {
                     smiValue = 0.0;
@@ -1039,13 +1078,18 @@ impl Core {
             emaSlowDen = (den - emaSlowDen as f64).mul_add(kSlow, emaSlowDen);
             emaFastNum = (emaSlowNum - emaFastNum as f64).mul_add(kFast, emaFastNum);
             emaFastDen = (emaSlowDen - emaFastDen as f64).mul_add(kFast, emaFastDen);
-            // Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-            // window leaves a sub-epsilon residue that an exact check would divide
-            // into noise (issue #107 / STOCHRSI). A window whose bars are all
-            // H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-            // CCI (#7) and IMI (#112) convention.
+            // The denominator is an EMA of an EMA of the high-low range: every term
+            // is non-negative and every weight is positive, so it carries no
+            // cancellation residue and is zero only when every range that reached it
+            // was exactly zero -- 0/0, since a window of H == L bars makes num zero
+            // too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+            // convention. Test it exactly: the range carries the quote unit, so the
+            // fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+            // instrument quoted below it (issue #253). Issue #107's machine-flat
+            // window is caught by the exact test as well, since the residue an
+            // EMA leaves there is zero, not sub-epsilon.
             halfDen = 0.5 * emaFastDen;
-            if !((halfDen).abs() < 1e-14) {
+            if halfDen > 0.0 {
                 smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                 smiValue = 0.0;
@@ -1105,7 +1149,7 @@ impl Core {
             x_inLow,
             x_inClose,
         };
-        Ok(SMI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(SMI_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::SMI_Open`] (composition seam).
@@ -1127,8 +1171,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1156,13 +1201,36 @@ impl Core {
 
     /// [`Core::SMI_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::SMI`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::SMI_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_SMI_OpenAndFill")]
     pub fn SMI_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32, outSMI: &mut [f64], outSMISignal: &mut [f64],
     ) -> Result<(SMI_Stream, OutRange), RetCode> {
-        if outSMI.as_ptr() == outSMISignal.as_ptr() {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod)?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outSMI.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outSMISignal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if !outSMI.is_empty() && !outSMISignal.is_empty() && outSMI.as_ptr() == outSMISignal.as_ptr() {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -1210,7 +1278,7 @@ impl SMI_Stream {
         }
         let mut outSMI: f64 = 0.0_f64;
         let mut outSMISignal: f64 = 0.0_f64;
-        self.core.SMI_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outSMI, &mut outSMISignal);
+        Core::SMI_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outSMI, &mut outSMISignal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1243,7 +1311,7 @@ impl SMI_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.SMI_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outSMI[i], &mut outSMISignal[i]);
+            Core::SMI_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outSMI[i], &mut outSMISignal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

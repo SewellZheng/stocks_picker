@@ -54,8 +54,8 @@ Examples:
 ## The shared numerical-reference battery (issue #251)
 
 `ta_test_reference.{h,c}` holds what `test_stddev.c`, `test_correl.c`,
-`test_beta.c`, `test_bbands.c` and `test_linearreg.c` used to carry a private
-copy of each: the external datasets (NIST StRD Norris and NumAcc1-4,
+`test_beta.c`, `test_bbands.c`, `test_linearreg.c` and `test_wma.c` used to
+carry a private copy of each: the external datasets (NIST StRD Norris and NumAcc1-4,
 Wilkinson's "nasty.dat", the pandas rolling-window adversarial arrays), the
 trusted oracles, and one random-number generator. `test_reference.c`
 (`--function=REFERENCE`) is the battery checking itself and belongs to no
@@ -95,6 +95,7 @@ library mutation cannot reach an oracle-vs-golden comparison):
 | suite | resolution | first leg to fire |
 |---|---|---|
 | `LINEARREG` | 1e-15 | #251 Wilkinson |
+| `WMA` | 1e-12 | #255 Wilkinson goldens (W1) |
 | `CORREL` | 1e-15 | #242 range invariant, then the #251 goldens at 1e-14 |
 | `BBANDS` | 1e-15 | #117 SMA fast-path equivalence |
 | `STDDEV`/`VAR` | 1e-12 | #118 NIST NumAcc1 |
@@ -186,7 +187,7 @@ hand a finite-window function the loose convergence tolerance and hide a real bu
 
 | Class | Tolerance | Who |
 |-------|-----------|-----|
-| `TA_STABLE_EXACT` | bit-exact (`==`) | fresh-recomputed finite window (IMI, price transforms, MOM/ROC, MIN/MAX/MIDPOINT/WILLR/AROON, AVGDEV, vector math). **LINEARREG/TSF left this class in #103** — they now carry SumY/SumXY in an O(1) recurrence and sit at EPSILON; see the note in `test_codegen.c` `stability_class()` and issue #254 |
+| `TA_STABLE_EXACT` | bit-exact (`==`) | fresh-recomputed finite window (IMI, price transforms, MOM/ROC, MIN/MAX/MIDPOINT/WILLR/AROON, AVGDEV, vector math). **LINEARREG/TSF left this class in #103** — they carry SumY/SumXY in an O(1) recurrence and sit at EPSILON. #254 re-anchored those sums (every `32*period` bars, and when a large value leaves the window), which is what makes the EPSILON class true at *any* call length rather than only on the 252-bar corpus; they stay at EPSILON because the re-anchor points are counted from each call's own start. See `test_codegen.c` `stability_class()` |
 | `TA_STABLE_EPSILON` | `1e-10` absolute | running-accumulator finite window + **default** (SMA, WMA, STDDEV, CORREL, CCI, ULTOSC, MFI, …) |
 | `TA_STABLE_CONVERGING` | warm-up envelope (`0.5/temp`, ignore-first-N), relative to the larger magnitude floored at 0.2 | recursive/IIR — anything in `UNSTABLE_MAP` |
 | `TA_STABLE_SKIP` | not compared | `get_integer_tolerance() == TA_DO_NOT_COMPARE` — the `TA_FUNC_FLG_PATH_DEP`-flagged set (#127): AD, ADOSC, OBV, NVI, PVI, SAR, SAREXT |
@@ -440,7 +441,15 @@ correctness path omits it and still gets the values.
 
 ### Driving a server by hand
 
-Three traps, each of which costs a debugging cycle:
+Four traps, each of which costs a debugging cycle:
+
+**A real output array is a hex STRING, not a JSON number array.**
+`"outReal":"3ff0000000000000c000..."` — concatenated 16-hex-char groups, one per
+`double`'s IEEE-754 bits, the same encoding an input array may be sent in
+(#115). Every backend writes it (#257/#258); `json.loads` gives you a `str`, and
+`bytes.fromhex(s)` + `struct.unpack` is the read side. Integer outputs are
+still `[1,0,-1]`. A server answering `[...]` for a real output is either a
+third-party oracle bridge or a regression.
 
 **Arguments are NESTED under `"params"`** — `{"method":"TA_X","params":{...}}`
 (`server_verify.c:210` and every sibling builder). The Rust server reads
@@ -763,10 +772,6 @@ recorded in the data header:
   `wide-periods` case (`maxPeriod` 200): under the default 30 every bar of `high`
   clamps to 30, so MAVP's grouping / counting-sort path never runs and its rows
   were byte-identical to `SMA(30)` and `EMA(35)`.
-- `ta_064_serve` is shadow-patched to emit lossless hex floats. The ordinary
-  `ta_codegen_serve_c` emits `%.15g`, which is lossy and silently costs ~1 ULP —
-  it looked like a real divergence in 75 functions until the transport was the
-  suspect rather than the arithmetic. Only the former is safe to freeze from.
 
 **Maintenance.** The generator was a one-off and is not in the tree — the value
 is the frozen table and its exception comments, which are hand-maintained from
@@ -811,7 +816,8 @@ Architecture (see `fuzz_data.h` + the fuzz block in `test_codegen.c`):
   an FMA on one side only.
 - **Outputs by hash:** the server returns a 64-bit FNV hash of the raw output
   bytes. On any mismatch the driver re-issues that one case with
-  `"full_output":1` (exact `%a` hex arrays) to pinpoint the diverging element.
+  `"full_output":1` (the ordinary array response, exact since #257/#258) to
+  pinpoint the diverging element.
 - **Coverage:** every function × 7 data shapes × 3 seeds × 3 sizes ×
   parameter vectors (boundary periods, MA-type lists, real-param bounds) × 3
   subranges ≈ 118k comparisons in ~17s.
@@ -869,12 +875,14 @@ An opt-in mode (`ta_regtest --xlang-hash`) that proves each **generated language
 server** computes **bit-identical** outputs to the **shipped in-process C
 library**, with **zero tolerance** (the sole carve-out is the transcendental
 calls of Java and C# — see below). It is the strong form of the cross-language `--codegen`
-check, which can only compare at `1e-6` (`CODEGEN_EPSILON`) because its
-inputs/outputs cross the JSON-RPC boundary as lossy `%.15g`. `--xlang-hash`
-routes around that boundary two ways — full-precision inputs (a seed both sides
-regenerate, or lossless hex-of-IEEE-bits) and outputs compared by a full-precision
-FNV hash — so a ~1e-10 FMA-fusion-site divergence that `1e-6` cannot see becomes a
-hard failure.
+check, which can only compare at `1e-6` (`CODEGEN_EPSILON`) because its INPUTS
+cross the JSON-RPC boundary as lossy `%.15g` — so the two sides compute on
+subtly different numbers, which no output-side fidelity can undo. (Outputs are
+lossless on every path since #257/#258; that half of the gap is closed.)
+`--xlang-hash` routes around the input boundary two ways — full-precision inputs
+(a seed both sides regenerate, or lossless hex-of-IEEE-bits) and outputs
+compared by a full-precision FNV hash — so a ~1e-10 FMA-fusion-site divergence
+that `1e-6` cannot see becomes a hard failure.
 
 Build + run everything with `scripts/build.py xlang-hash`. Both CI nightlies
 (dev + main) run it as a gate (`xlang-hash` job). Needs cmake + gcc + cargo, plus
@@ -1008,9 +1016,9 @@ the driver core in `test_codegen.c` (`codegen_output_hash` /
 The hard-coded tests validate **in-process C vs the expected constants** at a
 legitimate tolerance. `server_verify` runs the *transitive* check: feed the same
 inputs to another language and compare to what C computed — which must be
-**exact** (same algorithm + same inputs ⇒ same bits). A `1e-6` re-compare there
-would be strictly weaker than "C == server, then C == expected ⇒ server ==
-expected", so the old `SV_EPSILON` was deleted.
+**exact** (same algorithm + same inputs ⇒ same bits). Do not give it a
+tolerance: a `1e-6` re-compare would be strictly weaker than "C == server, then
+C == expected ⇒ server == expected".
 
 - **Lossless input.** Inputs are serialized as **hex-of-IEEE-bits** strings (one
   16-hex group per double, via `to_bits`/`from_bits` — no float-parse rounding,

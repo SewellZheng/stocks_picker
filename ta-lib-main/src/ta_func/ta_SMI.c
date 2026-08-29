@@ -54,6 +54,9 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  082026 MF,CC  Initial version (#238).
+ *  082326 MF,CC  Fix #253. Test the smoothed range exactly instead of against
+ *                the fixed TA_IS_ZERO band, which zeroed the oscillator for
+ *                any instrument quoted small enough to fall under it.
  */
 
 TA_LIB_API int TA_SMI_Lookback( int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
@@ -136,12 +139,6 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
-   if( !inClose )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 13;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -157,6 +154,14 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
       optInSignalPeriod = 9;
    else if( (int)optInSignalPeriod < 2 || (int)optInSignalPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outSMI )
       return TA_BAD_PARAM;
@@ -320,7 +325,7 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
       {
          nSignal = nBar - lookbackSlow - lookbackFast;
          halfDen = 0.5 * emaFastDen;
-         if( !TA_IS_ZERO(halfDen) )
+         if( halfDen > 0.0 )
          {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else 
@@ -397,14 +402,19 @@ TA_LIB_API TA_RetCode TA_SMI( int    startIdx,
       emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
       emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
       emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
-      /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-       * window leaves a sub-epsilon residue that an exact check would divide
-       * into noise (issue #107 / STOCHRSI). A window whose bars are all
-       * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-       * CCI (#7) and IMI (#112) convention.
+      /* The denominator is an EMA of an EMA of the high-low range: every term
+       * is non-negative and every weight is positive, so it carries no
+       * cancellation residue and is zero only when every range that reached it
+       * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+       * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+       * convention. Test it exactly: the range carries the quote unit, so the
+       * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+       * instrument quoted below it (issue #253). Issue #107's machine-flat
+       * window is caught by the exact test as well, since the residue an
+       * EMA leaves there is zero, not sub-epsilon.
        */
       halfDen = 0.5 * emaFastDen;
-      if( !TA_IS_ZERO(halfDen) )
+      if( halfDen > 0.0 )
       {
          smiValue = 100.0 * emaFastNum / halfDen;
       } else 
@@ -475,12 +485,6 @@ TA_RetCode TA_S_SMI( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
-   if( !inClose )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 13;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -496,6 +500,14 @@ TA_RetCode TA_S_SMI( int    startIdx,
    if( (int)optInSignalPeriod == TA_INTEGER_DEFAULT )
       optInSignalPeriod = 9;
    else if( (int)optInSignalPeriod < 2 || (int)optInSignalPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outSMI )
       return TA_BAD_PARAM;
@@ -619,7 +631,7 @@ TA_RetCode TA_S_SMI( int    startIdx,
       {
          nSignal = nBar - lookbackSlow - lookbackFast;
          halfDen = 0.5 * emaFastDen;
-         if( !TA_IS_ZERO(halfDen) )
+         if( halfDen > 0.0 )
          {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else 
@@ -694,7 +706,7 @@ TA_RetCode TA_S_SMI( int    startIdx,
       emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
       emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
       halfDen = 0.5 * emaFastDen;
-      if( !TA_IS_ZERO(halfDen) )
+      if( halfDen > 0.0 )
       {
          smiValue = 100.0 * emaFastNum / halfDen;
       } else 
@@ -832,14 +844,19 @@ static void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double inHigh, double inL
    sp->emaSlowDen = fma(den - sp->emaSlowDen, sp->kSlow, sp->emaSlowDen);
    sp->emaFastNum = fma(sp->emaSlowNum - sp->emaFastNum, sp->kFast, sp->emaFastNum);
    sp->emaFastDen = fma(sp->emaSlowDen - sp->emaFastDen, sp->kFast, sp->emaFastDen);
-   /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-    * window leaves a sub-epsilon residue that an exact check would divide
-    * into noise (issue #107 / STOCHRSI). A window whose bars are all
-    * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-    * CCI (#7) and IMI (#112) convention.
+   /* The denominator is an EMA of an EMA of the high-low range: every term
+    * is non-negative and every weight is positive, so it carries no
+    * cancellation residue and is zero only when every range that reached it
+    * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+    * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+    * convention. Test it exactly: the range carries the quote unit, so the
+    * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+    * instrument quoted below it (issue #253). Issue #107's machine-flat
+    * window is caught by the exact test as well, since the residue an
+    * EMA leaves there is zero, not sub-epsilon.
     */
    halfDen = 0.5 * sp->emaFastDen;
-   if( !TA_IS_ZERO(halfDen) )
+   if( halfDen > 0.0 )
    {
       smiValue = 100.0 * sp->emaFastNum / halfDen;
    } else 
@@ -863,9 +880,9 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 13;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -1082,7 +1099,7 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
          {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !TA_IS_ZERO(halfDen) )
+            if( halfDen > 0.0 )
             {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else 
@@ -1159,14 +1176,19 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
          emaSlowDen = fma(den - emaSlowDen, kSlow, emaSlowDen);
          emaFastNum = fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
-         /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-          * window leaves a sub-epsilon residue that an exact check would divide
-          * into noise (issue #107 / STOCHRSI). A window whose bars are all
-          * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-          * CCI (#7) and IMI (#112) convention.
+         /* The denominator is an EMA of an EMA of the high-low range: every term
+          * is non-negative and every weight is positive, so it carries no
+          * cancellation residue and is zero only when every range that reached it
+          * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+          * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+          * convention. Test it exactly: the range carries the quote unit, so the
+          * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+          * instrument quoted below it (issue #253). Issue #107's machine-flat
+          * window is caught by the exact test as well, since the residue an
+          * EMA leaves there is zero, not sub-epsilon.
           */
          halfDen = 0.5 * emaFastDen;
-         if( !TA_IS_ZERO(halfDen) )
+         if( halfDen > 0.0 )
          {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else 
@@ -1206,7 +1228,7 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
       sp->i = i;
       sp->today = today;
       sp->xCap = (int)(today - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_SMI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_SMI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(384); }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
@@ -1258,9 +1280,9 @@ TA_LIB_API TA_RetCode TA_SMI_Open( TA_SMI_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
    return TA_SMI_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outSMI, outSMISignal );
 }
 
@@ -1268,10 +1290,9 @@ TA_LIB_API TA_RetCode TA_SMI_OpenAndFill( TA_SMI_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
    if( (const void *)outSMI == (const void *)inHigh || (const void *)outSMI == (const void *)inLow || (const void *)outSMI == (const void *)inClose || (const void *)outSMISignal == (const void *)inHigh || (const void *)outSMISignal == (const void *)inLow || (const void *)outSMISignal == (const void *)inClose || (const void *)outSMI == (const void *)outSMISignal ) return TA_BAD_PARAM;
    return TA_SMI_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod, outBegIdx, outNBElement, outSMI, outSMISignal );
 }

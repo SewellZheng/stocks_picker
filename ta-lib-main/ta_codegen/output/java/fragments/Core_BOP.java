@@ -3,13 +3,16 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
- *
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  112605 MF   Initial coding.
+ *  112605 MF    Initial coding.
+ *  082326 MF,CC Fix #253. Test the bar range exactly instead of against the
+ *               fixed TA_IS_ZERO_OR_NEG band, which zeroed the output for any
+ *               instrument quoted small enough to fall under it.
  */
 
    /**
@@ -48,8 +51,14 @@
       /* BOP = (Close - Open)/(High - Low) */
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 ) {
+         /* BOP is a fraction of the bar's own range, so it is scale-free and the
+          * divisor only has to be positive. An exact test, not the fixed
+          * TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
+          * and that band zeroed the output for any instrument quoted below it
+          * (issue #253).
+          */
          tempReal = inHigh[i] - inLow[i];
-         if( (tempReal < 0.00000000000001) ) {
+         if( tempReal <= 0.0 ) {
             outReal[outIdx++] = 0.0;
          } else {
             outReal[outIdx++] = (inClose[i] - inOpen[i]) / tempReal;
@@ -81,7 +90,7 @@
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 ) {
          tempReal = (double)inHigh[i] - (double)inLow[i];
-         if( (tempReal < 0.00000000000001) ) {
+         if( tempReal <= 0.0 ) {
             outReal[outIdx++] = 0.0;
          } else {
             outReal[outIdx++] = ((double)inClose[i] - (double)inOpen[i]) / tempReal;
@@ -119,15 +128,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     */
    public OutRange BOP( int startIdx,
                         int endIdx,
@@ -138,9 +146,9 @@
                         double outReal[] )
    {
       requireIndexRange("BOP", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, BOP_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("BOP", startIdx, BOP_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BOP", "inOpen", inOpen, guardInLen);
       requireLength("BOP", "inHigh", inHigh, guardInLen);
       requireLength("BOP", "inLow", inLow, guardInLen);
@@ -185,15 +193,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     */
    public OutRange BOP( int startIdx,
                         int endIdx,
@@ -204,9 +211,9 @@
                         double outReal[] )
    {
       requireIndexRange("BOP", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, BOP_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("BOP", startIdx, BOP_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BOP", "inOpen", inOpen, guardInLen);
       requireLength("BOP", "inHigh", inHigh, guardInLen);
       requireLength("BOP", "inLow", inLow, guardInLen);
@@ -303,6 +310,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         requireArgument("BOP updateAndFill", "inOpen", inOpen);
+         requireArgument("BOP updateAndFill", "inHigh", inHigh);
+         requireArgument("BOP updateAndFill", "inLow", inLow);
+         requireArgument("BOP updateAndFill", "inClose", inClose);
+         requireArgument("BOP updateAndFill", "outReal", outReal);
          final int barCount = inOpen.length;
          if( inHigh.length != barCount || inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inOpen || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("BOP updateAndFill: BadParam", RetCode.BadParam);
@@ -350,8 +362,14 @@
    void BOP_StepImpl( BOP_Stream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       double tempReal = 0.0;
+      /* BOP is a fraction of the bar's own range, so it is scale-free and the
+       * divisor only has to be positive. An exact test, not the fixed
+       * TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
+       * and that band zeroed the output for any instrument quoted below it
+       * (issue #253).
+       */
       tempReal = inHigh - inLow;
-      if( (tempReal < 0.00000000000001) ) {
+      if( tempReal <= 0.0 ) {
          sp.cur_outReal = 0.0;
       } else {
          sp.cur_outReal = (inClose - inOpen) / tempReal;
@@ -364,11 +382,14 @@
       double tempReal = 0;
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -378,8 +399,14 @@
       /* BOP = (Close - Open)/(High - Low) */
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 ) {
+         /* BOP is a fraction of the bar's own range, so it is scale-free and the
+          * divisor only has to be positive. An exact test, not the fixed
+          * TA_IS_ZERO_OR_NEG band it used to be: the range carries the quote unit,
+          * and that band zeroed the output for any instrument quoted below it
+          * (issue #253).
+          */
          tempReal = inHigh[i] - inLow[i];
-         if( (tempReal < 0.00000000000001) ) {
+         if( tempReal <= 0.0 ) {
             outReal[outIdx++ * outStride] = 0.0;
          } else {
             outReal[outIdx++ * outStride] = (inClose[i] - inOpen[i]) / tempReal;
@@ -438,10 +465,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public BOP_Stream BOP_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
+      requireArgument("BOP open", "inOpen", inOpen);
+      requireHistory("BOP open", inOpen.length);
+      requireArgument("BOP open", "inHigh", inHigh);
+      requireArgument("BOP open", "inLow", inLow);
+      requireArgument("BOP open", "inClose", inClose);
+      requireHistoryLength("BOP open", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("BOP open", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("BOP open", "inClose", inClose.length, inOpen.length);
       return BOP_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
@@ -449,12 +487,24 @@
     * to {@link Core#BOP} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link BOP_Stream#outRange()}.
     */
    public BOP_Stream BOP_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double outReal[] )
    {
+      requireArgument("BOP openAndFill", "inOpen", inOpen);
+      requireHistory("BOP openAndFill", inOpen.length);
+      requireArgument("BOP openAndFill", "inHigh", inHigh);
+      requireArgument("BOP openAndFill", "inLow", inLow);
+      requireArgument("BOP openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("BOP openAndFill", inOpen.length, BOP_Lookback());
+      requireHistoryLength("BOP openAndFill", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("BOP openAndFill", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("BOP openAndFill", "inClose", inClose.length, inOpen.length);
+      requireLength("BOP openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inOpen || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          throw new TaLibArgumentException("BOP openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

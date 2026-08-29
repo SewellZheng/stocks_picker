@@ -240,8 +240,6 @@
        * If you delete this, delete the clamps and the comments together.
        */
       if( maxUsed < minUsed || maxUsed - minUsed > 100000 ) {
-         if( (finalIsAllocated) != 0 ) {
-         }
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return RetCode.BadParam ;
@@ -261,13 +259,6 @@
          localBegIdx.value = _xr0.begIdx();
          localNbElement.value = _xr0.count();
          retCode = RetCode.Success;
-         if( retCode != RetCode.Success ) {
-            if( (finalIsAllocated) != 0 ) {
-            }
-            outBegIdx.value = 0;
-            outNBElement.value = 0;
-            return retCode ;
-         }
       } else {
          /* Counting sort: sortedIdx ends up holding the output indices ordered
           * by period, one contiguous ascending slice per distinct period, with
@@ -316,13 +307,6 @@
                localBegIdx.value = _xr1.begIdx();
                localNbElement.value = _xr1.count();
                retCode = RetCode.Success;
-               if( retCode != RetCode.Success ) {
-                  if( (finalIsAllocated) != 0 ) {
-                  }
-                  outBegIdx.value = 0;
-                  outNBElement.value = 0;
-                  return retCode ;
-               }
                if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
                   /* The period's outputs form one contiguous run: block copy. */
                   System.arraycopy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
@@ -342,8 +326,6 @@
        */
       if( localFinalArray != outReal ) {
          System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
-      }
-      if( (finalIsAllocated) != 0 ) {
       }
       /* Done. Inform the caller of the success. */
       outBegIdx.value = startIdx;
@@ -467,8 +449,6 @@
          }
       }
       if( maxUsed < minUsed || maxUsed - minUsed > 100000 ) {
-         if( (finalIsAllocated) != 0 ) {
-         }
          outBegIdx.value = 0;
          outNBElement.value = 0;
          return RetCode.BadParam ;
@@ -479,13 +459,6 @@
          localBegIdx.value = _xr0.begIdx();
          localNbElement.value = _xr0.count();
          retCode = RetCode.Success;
-         if( retCode != RetCode.Success ) {
-            if( (finalIsAllocated) != 0 ) {
-            }
-            outBegIdx.value = 0;
-            outNBElement.value = 0;
-            return retCode ;
-         }
       } else {
          for( curPeriod = minUsed; curPeriod <= maxUsed + 1; curPeriod += 1 ) {
             bucketOfs[curPeriod - minUsed] = 0;
@@ -512,13 +485,6 @@
                localBegIdx.value = _xr1.begIdx();
                localNbElement.value = _xr1.count();
                retCode = RetCode.Success;
-               if( retCode != RetCode.Success ) {
-                  if( (finalIsAllocated) != 0 ) {
-                  }
-                  outBegIdx.value = 0;
-                  outNBElement.value = 0;
-                  return retCode ;
-               }
                if( lastOccurrence - firstOccurrence == bucketEnd - 1 - bucketStart ) {
                   System.arraycopy(localOutputArray, firstOccurrence, localFinalArray, firstOccurrence, (bucketEnd - bucketStart) * 1);
                } else {
@@ -533,8 +499,6 @@
       }
       if( localFinalArray != outReal ) {
          System.arraycopy(localFinalArray, 0, outReal, 0, outputSize * 1);
-      }
-      if( (finalIsAllocated) != 0 ) {
       }
       outBegIdx.value = startIdx;
       outNBElement.value = outputSize;
@@ -577,15 +541,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MA
     * @see Core#SMA
@@ -603,9 +566,9 @@
    {
       requireIndexRange("MAVP", startIdx, endIdx);
       requireArgument("MAVP", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MAVP", startIdx, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MAVP", "inReal", inReal, guardInLen);
       requireLength("MAVP", "inPeriods", inPeriods, guardInLen);
       requireLength("MAVP", "outReal", outReal, guardOutLen);
@@ -657,15 +620,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MA
     * @see Core#SMA
@@ -683,9 +645,9 @@
    {
       requireIndexRange("MAVP", startIdx, endIdx);
       requireArgument("MAVP", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MAVP", startIdx, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MAVP", "inReal", inReal, guardInLen);
       requireLength("MAVP", "inPeriods", inPeriods, guardInLen);
       requireLength("MAVP", "outReal", outReal, guardOutLen);
@@ -808,6 +770,9 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double inPeriods[], double outReal[] ) {
+         requireArgument("MAVP updateAndFill", "inReal", inReal);
+         requireArgument("MAVP updateAndFill", "inPeriods", inPeriods);
+         requireArgument("MAVP updateAndFill", "outReal", outReal);
          final int barCount = inReal.length;
          if( inPeriods.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inReal || (Object)outReal == (Object)inPeriods )
             throw new TaLibArgumentException("MAVP updateAndFill: BadParam", RetCode.BadParam);
@@ -879,11 +844,14 @@
    private RetCode MAVP_OpenImpl( MAVP_Stream sp, double inReal[], double inPeriods[], int startIdx, int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
       int historyLen = inReal.length;
-      if( historyLen < 1 || inPeriods.length != inReal.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inPeriods.length != inReal.length ) {
+         return RetCode.BadParam;
       }
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
@@ -938,11 +906,14 @@
    private RetCode MAVP_OpenAndFillImpl( MAVP_Stream sp, double inReal[], double inPeriods[], int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, MInteger outBegIdx, MInteger outNBElement, double outReal[] )
    {
       int historyLen = inReal.length;
-      if( historyLen < 1 || inPeriods.length != inReal.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inPeriods.length != inReal.length ) {
+         return RetCode.BadParam;
       }
       if( optInMinPeriod == Integer.MIN_VALUE ) {
          optInMinPeriod = 2;
@@ -1031,10 +1002,18 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public MAVP_Stream MAVP_Open( double inReal[], double inPeriods[], int optInMinPeriod, int optInMaxPeriod, MAType optInMAType )
    {
+      requireArgument("MAVP open", "inReal", inReal);
+      requireHistory("MAVP open", inReal.length);
+      requireArgument("MAVP open", "optInMAType", optInMAType);
+      requireArgument("MAVP open", "inPeriods", inPeriods);
+      requireHistoryLength("MAVP open", "inPeriods", inPeriods.length, inReal.length);
       return MAVP_OpenInternal(inReal, inPeriods, 0, optInMinPeriod, optInMaxPeriod, optInMAType);
    }
    /**
@@ -1042,12 +1021,21 @@
     * to {@link Core#MAVP} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link MAVP_Stream#outRange()}.
     */
    public MAVP_Stream MAVP_OpenAndFill( double inReal[], double inPeriods[], int optInMinPeriod, int optInMaxPeriod, MAType optInMAType, double outReal[] )
    {
+      requireArgument("MAVP openAndFill", "inReal", inReal);
+      requireHistory("MAVP openAndFill", inReal.length);
+      requireArgument("MAVP openAndFill", "optInMAType", optInMAType);
+      requireArgument("MAVP openAndFill", "inPeriods", inPeriods);
+      int guardOutLen = openFillCount("MAVP openAndFill", inReal.length, MAVP_Lookback(optInMinPeriod, optInMaxPeriod, optInMAType));
+      requireHistoryLength("MAVP openAndFill", "inPeriods", inPeriods.length, inReal.length);
+      requireLength("MAVP openAndFill", "outReal", outReal, guardOutLen);
       MAVP_Stream sp = new MAVP_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

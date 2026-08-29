@@ -50,6 +50,7 @@
  *  AM       Adrian Michel
  *  MIF      Mirek Fontan (mira@fontan.cz)
  *  CF       Christo Fogelberg
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
@@ -60,6 +61,9 @@
  *  082303 MF    Fix #792298. Remove rounding. Bug reported by AM.
  *  062704 MF    Fix #965557. Div by zero bug reported by MIF.
  *  122204 MF,CF Fix #1090231. Issues when period is 1.
+ *  082326 MF,CC Fix #253. Test the true range exactly instead of against the
+ *               fixed TA_IS_ZERO band, which zeroed the index for any
+ *               instrument quoted small enough to fall under it.
  */
 
 TA_LIB_API int TA_PLUS_DI_Lookback( int optInTimePeriod )
@@ -106,15 +110,17 @@ TA_LIB_API TA_RetCode TA_PLUS_DI( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -276,7 +282,7 @@ TA_LIB_API TA_RetCode TA_PLUS_DI( int    startIdx,
             }
             _true_range_0 = range_0;
             tempReal = _true_range_0;
-            if( TA_IS_ZERO(tempReal) )
+            if( tempReal <= 0.0 )
             {
                outReal[outIdx++] = (double)0.0;
             } else 
@@ -382,7 +388,14 @@ TA_LIB_API TA_RetCode TA_PLUS_DI( int    startIdx,
    /* Now start to write the output in
     * the caller provided outReal.
     */
-   if( !TA_IS_ZERO(prevTR) )
+   /* prevTR is a running sum of true ranges: non-negative by construction and
+    * built only by adding, so it carries no cancellation residue and reaches
+    * zero only for a window whose every range is exactly zero. Test it exactly.
+    * A true range carries the quote unit, so the fixed TA_IS_ZERO band it used
+    * to be compared against was a constant in some arbitrary unit, and zeroed
+    * the index for any instrument quoted below it (issue #253).
+    */
+   if( prevTR > 0.0 )
    {
       outReal[0] = (100.0 * (prevPlusDM / prevTR));
    } else 
@@ -429,7 +442,7 @@ TA_LIB_API TA_RetCode TA_PLUS_DI( int    startIdx,
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = inClose[today];
       /* Calculate the DI. The value is rounded (see Wilder book). */
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          outReal[outIdx++] = (100.0 * (prevPlusDM / prevTR));
       } else 
@@ -470,15 +483,17 @@ TA_RetCode TA_S_PLUS_DI( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -533,7 +548,7 @@ TA_RetCode TA_S_PLUS_DI( int    startIdx,
             }
             _true_range_0 = range_0;
             tempReal = _true_range_0;
-            if( TA_IS_ZERO(tempReal) )
+            if( tempReal <= 0.0 )
             {
                outReal[outIdx++] = (double)0.0;
             } else 
@@ -622,7 +637,7 @@ TA_RetCode TA_S_PLUS_DI( int    startIdx,
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = (double)inClose[today];
    }
-   if( !TA_IS_ZERO(prevTR) )
+   if( prevTR > 0.0 )
    {
       outReal[0] = (100.0 * (prevPlusDM / prevTR));
    } else 
@@ -662,7 +677,7 @@ TA_RetCode TA_S_PLUS_DI( int    startIdx,
       tempReal = _true_range_3;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = (double)inClose[today];
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          outReal[outIdx++] = (100.0 * (prevPlusDM / prevTR));
       } else 
@@ -723,7 +738,7 @@ static void TA_PLUS_DI_StepImpl( struct TA_PLUS_DI_Stream *sp, double inHigh, do
          }
          _true_range_0 = range_0;
          tempReal = _true_range_0;
-         if( TA_IS_ZERO(tempReal) )
+         if( tempReal <= 0.0 )
          {
             *outReal= (double)0.0;
          } else 
@@ -778,7 +793,7 @@ static void TA_PLUS_DI_StepImpl( struct TA_PLUS_DI_Stream *sp, double inHigh, do
       sp->prevTR = sp->prevTR - sp->prevTR / sp->optInTimePeriod + tempReal;
       sp->prevClose = inClose;
       /* Calculate the DI. The value is rounded (see Wilder book). */
-      if( !TA_IS_ZERO(sp->prevTR) )
+      if( sp->prevTR > 0.0 )
       {
          *outReal= (100.0 * (sp->prevPlusDM / sp->prevTR));
       } else 
@@ -797,9 +812,9 @@ static TA_RetCode TA_PLUS_DI_OpenImpl( struct TA_PLUS_DI_Stream **stream, const 
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -984,7 +999,7 @@ static TA_RetCode TA_PLUS_DI_OpenImpl( struct TA_PLUS_DI_Stream **stream, const 
             }
             _true_range_2 = range_2;
             tempReal = _true_range_2;
-            if( TA_IS_ZERO(tempReal) )
+            if( tempReal <= 0.0 )
             {
                outReal[outIdx++ * outStride] = (double)0.0;
             } else 
@@ -1235,7 +1250,14 @@ static TA_RetCode TA_PLUS_DI_OpenImpl( struct TA_PLUS_DI_Stream **stream, const 
       /* Now start to write the output in
        * the caller provided outReal.
        */
-      if( !TA_IS_ZERO(prevTR) )
+      /* prevTR is a running sum of true ranges: non-negative by construction and
+       * built only by adding, so it carries no cancellation residue and reaches
+       * zero only for a window whose every range is exactly zero. Test it exactly.
+       * A true range carries the quote unit, so the fixed TA_IS_ZERO band it used
+       * to be compared against was a constant in some arbitrary unit, and zeroed
+       * the index for any instrument quoted below it (issue #253).
+       */
+      if( prevTR > 0.0 )
       {
          outReal[0 * outStride] = (100.0 * (prevPlusDM / prevTR));
       } else 
@@ -1282,7 +1304,7 @@ static TA_RetCode TA_PLUS_DI_OpenImpl( struct TA_PLUS_DI_Stream **stream, const 
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
          /* Calculate the DI. The value is rounded (see Wilder book). */
-         if( !TA_IS_ZERO(prevTR) )
+         if( prevTR > 0.0 )
          {
             outReal[outIdx++ * outStride] = (100.0 * (prevPlusDM / prevTR));
          } else 
@@ -1309,7 +1331,7 @@ static TA_RetCode TA_PLUS_DI_OpenImpl( struct TA_PLUS_DI_Stream **stream, const 
    }
    }
 
-   return TA_INTERNAL_ERROR;
+   return TA_INTERNAL_ERROR(376);
 }
 
 /* Private function, not in public API. */
@@ -1331,9 +1353,9 @@ TA_LIB_API TA_RetCode TA_PLUS_DI_Open( TA_PLUS_DI_Stream **stream, const double 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_PLUS_DI_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -1341,10 +1363,9 @@ TA_LIB_API TA_RetCode TA_PLUS_DI_OpenAndFill( TA_PLUS_DI_Stream **stream, const 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_PLUS_DI_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

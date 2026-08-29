@@ -10,6 +10,12 @@ there, and runs the usual cross-language gates on the result:
   batch-vs-stream `stream_verify` / OpenAndFill bitwise gates, all four servers.
 - `ta_regtest --xlang-hash --function=SYNTH` — batch output parity, Rust/Java/C#
   against the in-process C golden, bitwise (fuzz shapes x seeds x sizes x params).
+- `synth_values.py` — hand-derived golden VALUES per fixture, all four servers.
+  The two legs above are both *comparative*: one diffs a fixture's stream tier
+  against its own batch tier, the other diffs three languages against C. A
+  fixture that is wrong the SAME way everywhere passes both. This leg is the
+  only one that knows what the numbers should be, so a new fixture needs a row
+  in its `GOLDEN` table or it is exercised without ever being checked.
 
 The point: exercise generator constructs (bitwise operators, truthiness
 conditions, do-while, switch-on-expression, `PRAGMA TA_ALT` alternates, ...)
@@ -44,16 +50,46 @@ Two mechanics worth knowing before touching the script:
    range-stability leg compares a sub-range call against a full-range one, and
    without the flag it fails `RANGE TEST FAILED (code=162)`. SYNTH1 and SYNTH4
    both need it, and each says why on the flag.
-3. Run `python3 scripts/synth_gate.py` until green.
+3. Add its row to `synth_values.py`'s `GOLDEN` table, derived by hand from the
+   `.c` you just wrote — not from what the generator emits, which is the thing
+   under test. Without a row the fixture still runs, and still proves nothing
+   about its own values.
+4. Run `python3 scripts/synth_gate.py` until green.
 
-Rules of thumb for staying language-neutral (the gate compares bitwise):
-no transcendentals (Java/.NET libm differs — those calls drop to 1e-9
-tolerance), no negative shift operands, keep accumulator state non-negative,
-keep every `(int)` cast of a double as the WHOLE right-hand side of an
-assignment (the generator rejects nested forms loudly — it cannot see runtime
-guards, #160), and GUARD every double→int cast to `[0, huge)`: the fuzz corpus includes
-1e9-magnitude and signed bars, and out-of-range or NEGATIVE `(int)` conversion
-is defined differently in C (UB / truncate), Rust (saturates — negatives
-become 0), Java (clamps) and C# — fold negative/non-finite/extreme bars to
-0.0 with plain comparisons first (see `synth1.c`; the gate caught both the
-extreme-magnitude and the negative-value divergence on its first runs).
+## What a fixture's docs may say
+
+The `.md` is authoritative and the `.c` header is the licence/contributors/
+change-history block plus a pointer to it. Keep to three things, all of which
+the code cannot state for itself:
+
+1. **Which generator construct this exercises, and why the shipped corpus never
+   reaches it.** Establish the second half by grepping `ta_codegen/input/`, not
+   by trusting a neighbouring fixture's prose.
+2. **What would SILENTLY reduce this fixture's own coverage** — a trap about the
+   FIXTURE, not about a backend. SYNTH10 is the model: reorder its `.yaml`
+   outputs and coverage drops to what MAMA already gives, gate still green.
+3. **The issue number.** The post-mortem lives there and in the commit message,
+   which are timestamped and do not pretend to be current.
+
+Everything else goes: how each backend renders the construct, how each one once
+broke, symbols out of a compiler error, named emitter internals. The gate's
+answer is pass/fail in four backends, and a failure is root-caused from the
+failure. See the root `CLAUDE.md` for the general rule.
+
+## Rules of thumb for staying language-neutral
+
+The gate compares bitwise, so: no transcendentals (Java/.NET libm differs —
+those calls drop to a 1e-9 tolerance), no negative shift operands, keep
+accumulator state non-negative, keep every `(int)` cast of a double as the WHOLE
+right-hand side of an assignment (the generator rejects nested forms loudly — it
+cannot see runtime guards, #160), and GUARD every double→int cast to
+`[0, huge)`.
+
+That last one is the trap worth internalising: the fuzz corpus carries
+1e9-magnitude, signed and non-finite bars, and an out-of-range or NEGATIVE
+double→int conversion is defined differently in each target language — undefined
+behaviour in C; a saturating `as` in Rust, where the generator's default target
+is `usize` and a negative therefore becomes 0; a clamp to
+`Integer.MIN_VALUE`/`MAX_VALUE` in Java, with NaN to 0; and an unchecked
+truncation in C#. Fold negative, non-finite and extreme bars to 0.0 with plain
+comparisons first (`synth1.c`); comparisons are IEEE-identical everywhere.

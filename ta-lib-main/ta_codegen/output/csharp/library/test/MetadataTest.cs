@@ -441,6 +441,32 @@ public static class MetadataTest
         Check(noOutput == RetCode.OutputNotAllInitialize && rNoOut.Count == 0,
             $"TryInvoke reports an unbound output as a code ({noOutput})");
 
+        /* A leg bound to a buffer SHORTER than the requested range -- absent is
+           covered above, too short was covered nowhere until #265. The thunk
+           called the body, which checks no length at all, so this reached the
+           numerics and came back out as an IndexOutOfRangeException escaping a
+           method whose documented contract is a code. The thunk calls the public
+           overload now, as C's frames and Java's Dispatch always have, so it is
+           BadParam in all three; C cannot express the case, its setters taking a
+           bare pointer with no length. */
+        RetCode shortIn = sma.CreateCall().SetInput(0, Close[..(N / 2)]).SetOption(0, 30)
+            .SetOutput(0, new double[N]).TryInvoke(0, N - 1, out OutRange rShortIn);
+        Check(shortIn == RetCode.BadParam && rShortIn.Count == 0,
+            $"TryInvoke reports an input shorter than the range as BadParam ({shortIn})");
+        RetCode shortOut = sma.CreateCall().SetInput(0, Close).SetOption(0, 30)
+            .SetOutput(0, new double[4]).TryInvoke(0, N - 1, out OutRange rShortOut);
+        Check(shortOut == RetCode.BadParam && rShortOut.Count == 0,
+            $"TryInvoke reports an output shorter than the produced count as BadParam ({shortOut})");
+        /* Control: an output sized to the count actually produced is enough. The
+           bound is B5's -- endIdx - max(startIdx, lookback) + 1 -- not the width
+           of the requested range, so a caller who allocated by the published
+           formula must not be rejected. */
+        int lookback = sma.CreateCall().SetOption(0, 30).Lookback();
+        RetCode exact = sma.CreateCall().SetInput(0, Close).SetOption(0, 30)
+            .SetOutput(0, new double[N - lookback]).TryInvoke(0, N - 1, out OutRange rExact);
+        Check(exact == RetCode.Success && rExact.Count == N - lookback,
+            $"an output sized to the produced count is accepted ({exact}, {rExact.Count})");
+
         /* `(int)value` on an out-of-range double is unspecified in ECMA-334, and
            .NET saturates: a large NEGATIVE value lands on int.MinValue -- which
            is the "use the default" sentinel -- so it silently meant "use the
@@ -935,6 +961,75 @@ public static class MetadataTest
         Check(found == c.Count, $"XML describes every function ({found}/{c.Count})");
     }
 
+    /// <summary>A rejected setter leaves the call as it found it.</summary>
+    /// <remarks>The other half of the rule, the call tier's half having landed
+    /// with #265. The sharp case is a RE-bind: on a fresh call a partial write is
+    /// masked by <c>BoundState</c>, but over a bundle that already works, a setter
+    /// that checks and writes one component at a time commits the ones ahead of
+    /// the offending one and leaves the rest holding the previous bundle — and
+    /// <c>AllPriceComponentsBound</c> only looks at the <i>required</i>
+    /// components, so <c>TryInvoke</c> then returned <c>Success</c> over a
+    /// mixture of the two. No code, no exception, wrong numbers (issue #266).</remarks>
+    private static void ARejectedSetterLeavesTheCallAsItFoundIt()
+    {
+        // WILLR consumes High|Low|Close, so Close is the last required component
+        // and the natural place to trip the setter.
+        FunctionInfo willr = FunctionCatalog.Default["WILLR"];
+        // A different PHASE, not a shift: WILLR is (hh - c) / (hh - ll), which a
+        // uniform offset leaves unchanged -- the control below would then pass on
+        // a setter that did nothing at all.
+        double[] high2 = Series(100.0, 8.0, 1.3);
+        var low2 = new double[N];
+        var close2 = new double[N];
+        for (int i = 0; i < N; i++)
+        {
+            low2[i] = high2[i] - 4.0;
+            close2[i] = high2[i] - 2.0;
+        }
+
+        var reference = new double[N];
+        OutRange want = willr.CreateCall()
+            .SetPriceInput(0, high: High, low: Low, close: Close)
+            .SetOption(0, 14).SetOutput(0, reference).Invoke(0, N - 1);
+        Check(want.Count > 0, "the reference call produced values");
+
+        var afterReject = new double[N];
+        FunctionCall call = willr.CreateCall()
+            .SetPriceInput(0, high: High, low: Low, close: Close)
+            .SetOption(0, 14).SetOutput(0, afterReject);
+        call.Invoke(0, N - 1);
+        CheckThrows<ArgumentException>(
+            () => call.SetPriceInput(0, high: high2, low: low2),
+            "close is consumed and was not supplied");
+        RetCode rc = call.TryInvoke(0, N - 1, out OutRange got);
+        Check(rc == RetCode.Success && got.BegIdx == want.BegIdx && got.Count == want.Count,
+            $"the call still reports the same range after a rejected setter ({rc})");
+        bool same = true;
+        for (int i = 0; i < want.Count; i++)
+        {
+            same &= BitConverter.DoubleToInt64Bits(afterReject[i])
+                 == BitConverter.DoubleToInt64Bits(reference[i]);
+        }
+        Check(same, "a rejected setter did not change what the call computes");
+
+        // Control: a CORRECT rebind must reach the output, or the check above
+        // passes for a setter that stopped working altogether.
+        var afterRebind = new double[N];
+        FunctionCall again = willr.CreateCall()
+            .SetPriceInput(0, high: High, low: Low, close: Close)
+            .SetOption(0, 14).SetOutput(0, afterRebind);
+        again.Invoke(0, N - 1);
+        again.SetPriceInput(0, high: high2, low: low2, close: close2);
+        again.Invoke(0, N - 1);
+        bool moved = false;
+        for (int i = 0; i < want.Count; i++)
+        {
+            moved |= BitConverter.DoubleToInt64Bits(afterRebind[i])
+                  != BitConverter.DoubleToInt64Bits(reference[i]);
+        }
+        Check(moved, "a correct rebind reaches the output");
+    }
+
     public static int Run()
     {
         CatalogueIsComplete();
@@ -943,6 +1038,7 @@ public static class MetadataTest
         UnstableIdAgreesWithTheFlag();
         PriceBundlesAreOneInput();
         BinderRejectsMisuse();
+        ARejectedSetterLeavesTheCallAsItFoundIt();
         BothCallPathsAgree();
         UnboundParametersTakeTheDocumentedDefault();
         MetadataTypesCannotBeConstructedOutside();

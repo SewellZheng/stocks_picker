@@ -6,16 +6,20 @@
  *  AM       Adrian Michel
  *  MIF      Mirek Fontan (mira@fontan.cz)
  *  GC       guycom@users.sourceforge.net
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  010802 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
- *  082303 MF   Fix #792298. Remove rounding. Bug reported by AM.
- *  062704 MF   Fix #965557. Div by zero bug reported by MIF.
- *  082206 MF   Fix #1544555. Div by zero bug reported by GC.
+ *  010802 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  082303 MF    Fix #792298. Remove rounding. Bug reported by AM.
+ *  062704 MF    Fix #965557. Div by zero bug reported by MIF.
+ *  082206 MF    Fix #1544555. Div by zero bug reported by GC.
+ *  082326 MF,CC Fix #253. Test the true-range sum exactly instead of against
+ *               the fixed TA_IS_ZERO band, which zeroed the index for any
+ *               instrument quoted small enough to fall under it.
  */
 
    /**
@@ -292,8 +296,18 @@
          tempReal = _true_range_1;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         /* Calculate the DX. The value is rounded (see Wilder book). */
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         /* Calculate the DX. The value is rounded (see Wilder book).
+          *
+          * prevTR is a running sum of true ranges: non-negative by construction
+          * and built only by adding, so it carries no cancellation residue and
+          * reaches zero only for a window whose every range is exactly zero. Test
+          * it exactly. A true range carries the quote unit, so the fixed
+          * TA_IS_ZERO band it used to be compared against was a constant in some
+          * arbitrary unit, and zeroed the index for any instrument quoted below
+          * it (issue #253). The DI legs it feeds are ratios -- dimensionless --
+          * so the fixed band on THEIR sum is scale-invariant and stays.
+          */
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             /* This loop is just to accumulate the initial DX */
@@ -342,7 +356,7 @@
          tempReal = _true_range_2;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             /* Calculate the DX. The value is rounded (see Wilder book). */
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -393,7 +407,7 @@
          tempReal = _true_range_3;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             /* Calculate the DX. The value is rounded (see Wilder book). */
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -528,7 +542,7 @@
          tempReal = _true_range_1;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = (double)inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             tempReal = minusDI + plusDI;
@@ -568,7 +582,7 @@
          tempReal = _true_range_2;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = (double)inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             tempReal = minusDI + plusDI;
@@ -609,7 +623,7 @@
          tempReal = _true_range_3;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = (double)inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             tempReal = minusDI + plusDI;
@@ -658,15 +672,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ADXR
     * @see Core#DX
@@ -685,9 +698,9 @@
                         double outReal[] )
    {
       requireIndexRange("ADX", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ADX_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ADX", startIdx, ADX_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ADX", "inHigh", inHigh, guardInLen);
       requireLength("ADX", "inLow", inLow, guardInLen);
       requireLength("ADX", "inClose", inClose, guardInLen);
@@ -738,15 +751,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ADXR
     * @see Core#DX
@@ -765,9 +777,9 @@
                         double outReal[] )
    {
       requireIndexRange("ADX", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ADX_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ADX", startIdx, ADX_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ADX", "inHigh", inHigh, guardInLen);
       requireLength("ADX", "inLow", inLow, guardInLen);
       requireLength("ADX", "inClose", inClose, guardInLen);
@@ -887,6 +899,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         requireArgument("ADX updateAndFill", "inHigh", inHigh);
+         requireArgument("ADX updateAndFill", "inLow", inLow);
+         requireArgument("ADX updateAndFill", "inClose", inClose);
+         requireArgument("ADX updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("ADX updateAndFill: BadParam", RetCode.BadParam);
@@ -971,7 +987,7 @@
       tempReal = _true_range_0;
       sp.prevTR = sp.prevTR - sp.prevTR / sp.optInTimePeriod + tempReal;
       sp.prevClose = inClose;
-      if( !((-0.00000000000001 < sp.prevTR) && (sp.prevTR < 0.00000000000001)) ) {
+      if( sp.prevTR > 0.0 ) {
          /* Calculate the DX. The value is rounded (see Wilder book). */
          minusDI = (100.0 * (sp.prevMinusDM / sp.prevTR));
          plusDI = (100.0 * (sp.prevPlusDM / sp.prevTR));
@@ -1007,11 +1023,14 @@
       int i = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -1233,8 +1252,18 @@
          tempReal = _true_range_2;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         /* Calculate the DX. The value is rounded (see Wilder book). */
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         /* Calculate the DX. The value is rounded (see Wilder book).
+          *
+          * prevTR is a running sum of true ranges: non-negative by construction
+          * and built only by adding, so it carries no cancellation residue and
+          * reaches zero only for a window whose every range is exactly zero. Test
+          * it exactly. A true range carries the quote unit, so the fixed
+          * TA_IS_ZERO band it used to be compared against was a constant in some
+          * arbitrary unit, and zeroed the index for any instrument quoted below
+          * it (issue #253). The DI legs it feeds are ratios -- dimensionless --
+          * so the fixed band on THEIR sum is scale-invariant and stays.
+          */
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             /* This loop is just to accumulate the initial DX */
@@ -1283,7 +1312,7 @@
          tempReal = _true_range_3;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             /* Calculate the DX. The value is rounded (see Wilder book). */
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -1334,7 +1363,7 @@
          tempReal = _true_range_4;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             /* Calculate the DX. The value is rounded (see Wilder book). */
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -1408,10 +1437,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public ADX_Stream ADX_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
+      requireArgument("ADX open", "inHigh", inHigh);
+      requireHistory("ADX open", inHigh.length);
+      requireArgument("ADX open", "inLow", inLow);
+      requireArgument("ADX open", "inClose", inClose);
+      requireHistoryLength("ADX open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ADX open", "inClose", inClose.length, inHigh.length);
       return ADX_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
@@ -1419,12 +1457,22 @@
     * to {@link Core#ADX} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link ADX_Stream#outRange()}.
     */
    public ADX_Stream ADX_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("ADX openAndFill", "inHigh", inHigh);
+      requireHistory("ADX openAndFill", inHigh.length);
+      requireArgument("ADX openAndFill", "inLow", inLow);
+      requireArgument("ADX openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("ADX openAndFill", inHigh.length, ADX_Lookback(optInTimePeriod));
+      requireHistoryLength("ADX openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ADX openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("ADX openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          throw new TaLibArgumentException("ADX openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

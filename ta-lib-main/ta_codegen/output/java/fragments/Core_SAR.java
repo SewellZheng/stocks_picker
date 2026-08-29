@@ -12,6 +12,8 @@
  *  010802 MF     Template creation.
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  122104 MF,CF  Fix#1089506 for out-of-bound access to ep_temp.
+ *  082726 MF,CC  Answer a rejected minus_dm before reading ep_temp, not after:
+ *                the read was of an uninitialised local.
  */
 
    /**
@@ -161,11 +163,6 @@
          isLong = 0;
       } else {
          isLong = 1;
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
       }
       outBegIdx.value = startIdx;
       outIdx = 0;
@@ -365,11 +362,6 @@
       } else {
          isLong = 1;
       }
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
-      }
       outBegIdx.value = startIdx;
       outIdx = 0;
       todayIdx = startIdx;
@@ -500,15 +492,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SAREXT
     * @see Core#MINUS_DM
@@ -523,9 +514,9 @@
                         double outReal[] )
    {
       requireIndexRange("SAR", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, SAR_Lookback(optInAcceleration, optInMaximum));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("SAR", startIdx, SAR_Lookback(optInAcceleration, optInMaximum));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SAR", "inHigh", inHigh, guardInLen);
       requireLength("SAR", "inLow", inLow, guardInLen);
       requireLength("SAR", "outReal", outReal, guardOutLen);
@@ -573,15 +564,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SAREXT
     * @see Core#MINUS_DM
@@ -596,9 +586,9 @@
                         double outReal[] )
    {
       requireIndexRange("SAR", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, SAR_Lookback(optInAcceleration, optInMaximum));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("SAR", startIdx, SAR_Lookback(optInAcceleration, optInMaximum));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SAR", "inHigh", inHigh, guardInLen);
       requireLength("SAR", "inLow", inLow, guardInLen);
       requireLength("SAR", "outReal", outReal, guardOutLen);
@@ -717,6 +707,9 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double outReal[] ) {
+         requireArgument("SAR updateAndFill", "inHigh", inHigh);
+         requireArgument("SAR updateAndFill", "inLow", inLow);
+         requireArgument("SAR updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow )
             throw new TaLibArgumentException("SAR updateAndFill: BadParam", RetCode.BadParam);
@@ -896,11 +889,14 @@
       double[] ep_temp = new double[1];
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInAcceleration == REAL_DEFAULT ) {
          optInAcceleration = 2e-2;
@@ -993,11 +989,6 @@
          isLong = 0;
       } else {
          isLong = 1;
-      }
-      if( retCode != RetCode.Success ) {
-         outBegIdx.value = 0;
-         outNBElement.value = 0;
-         return retCode ;
       }
       outBegIdx.value = startIdx;
       outIdx = 0;
@@ -1193,10 +1184,17 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public SAR_Stream SAR_Open( double inHigh[], double inLow[], double optInAcceleration, double optInMaximum )
    {
+      requireArgument("SAR open", "inHigh", inHigh);
+      requireHistory("SAR open", inHigh.length);
+      requireArgument("SAR open", "inLow", inLow);
+      requireHistoryLength("SAR open", "inLow", inLow.length, inHigh.length);
       return SAR_OpenInternal(inHigh, inLow, 0, optInAcceleration, optInMaximum);
    }
    /**
@@ -1204,12 +1202,20 @@
     * to {@link Core#SAR} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link SAR_Stream#outRange()}.
     */
    public SAR_Stream SAR_OpenAndFill( double inHigh[], double inLow[], double optInAcceleration, double optInMaximum, double outReal[] )
    {
+      requireArgument("SAR openAndFill", "inHigh", inHigh);
+      requireHistory("SAR openAndFill", inHigh.length);
+      requireArgument("SAR openAndFill", "inLow", inLow);
+      int guardOutLen = openFillCount("SAR openAndFill", inHigh.length, SAR_Lookback(optInAcceleration, optInMaximum));
+      requireHistoryLength("SAR openAndFill", "inLow", inLow.length, inHigh.length);
+      requireLength("SAR openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow ) {
          throw new TaLibArgumentException("SAR openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

@@ -124,9 +124,11 @@ def show_help():
                         Only drift this run introduces fails it, so it is
                         usable on a dirty working tree.
     check-stream-retcodes
-                        Verify every short-history arm, in all four backends,
-                        answers TA_INSUFFICIENT_HISTORY (rule S6). Pure text;
-                        also run as part of regen-check.
+                        Verify every history-length arm, in all four backends,
+                        answers its own code: TA_INSUFFICIENT_HISTORY for a
+                        short history (S7), TA_OUT_OF_RANGE_START_INDEX for an
+                        empty one (S1). Pure text; also run as part of
+                        regen-check.
     check-source-lists  Verify the CMake and autotools ta_regtest source
                         lists agree (no build; pure text check)
     check-mcdc          Verify each MC/DC builder's pb_conditions(N) matches the
@@ -244,13 +246,20 @@ def build_xlanghash(root_dir: str, build_dir: str, jobs: int, lang_filter=None) 
     JDK for the Java server and the .NET SDK for the C# server.
 
     --language narrows the gate to a subset of those three, so a machine with no
-    JDK or .NET SDK can still run the Rust leg. C is never a server row here —
-    it is the in-process golden every row is compared against — so it is dropped
-    from the filter rather than silently building a C server nobody consults.
+    JDK or .NET SDK can still run the Rust leg. C is never a COMPARISON row here
+    — it is the in-process golden every row is compared against — so it is
+    dropped from the filter rather than being diffed against itself.
     The filter is ALSO forwarded to ta_regtest: without it the runner would try
     to spawn the servers we deliberately did not build and merely print that
     they are unavailable, turning a narrowed run into a quietly vacuous one.
     CI passes no filter, so the nightly always runs all three rows.
+
+    The C SERVER is nonetheless built on an unfiltered run, because one leg of
+    the gate does consult it: the array-transport self-check (#257/#258) asks
+    each server for a plain array and re-hashes it against that same server's
+    own out_hash — a property of the server's wire format, which for C is
+    reachable no other way. A narrowed run skips it along with everything else
+    the filter excludes.
     """
     rows = [b for b in (backends_for_languages(lang_filter) or 'rust,java,csharp').split(',')
             if b in ('rust', 'java', 'csharp')]
@@ -264,9 +273,16 @@ def build_xlanghash(root_dir: str, build_dir: str, jobs: int, lang_filter=None) 
         # while the cargo/ta_regtest subprocesses write straight to the pipe —
         # without it these lines land after the output they are labelling.
         print(f"=== xlang-hash limited to: {backends} ===", flush=True)
-    # 1. Generate + compile the language servers into bin/.
-    run_codegen(root_dir, 'run', '--release', '--', 'generate-servers', f'--backend={backends}')
-    run_codegen(root_dir, 'run', '--release', '--', 'build', f'--backend={backends}')
+    # 1. Generate + compile the language servers into bin/ — plus the C server
+    #    for the array-transport leg (see the note above). --servers-only
+    #    because the C backend arm otherwise also builds ta_bench_cg and
+    #    ta_bench_stream: two more whole-library -flto compiles this gate never
+    #    talks to, on the same failure counter, so a bench-only break would
+    #    fail the parity nightly.
+    built = backends if lang_filter else backends + ',c'
+    run_codegen(root_dir, 'run', '--release', '--', 'generate-servers', f'--backend={built}')
+    run_codegen(root_dir, 'run', '--release', '--', 'build', f'--backend={built}',
+                '--servers-only')
     # 2. The C test runner links the in-process C golden; stage it into bin/.
     cmake_build(build_dir, target='ensure_ta_regtest_in_bin', jobs=jobs)
     # 3. Run the gate (server argv is relative "./", so cwd must be bin/).
@@ -443,7 +459,7 @@ def _surviving_probes(root_dir: str, was_dirty: set) -> list:
     return survivors
 
 def check_stream_retcodes(root_dir: str) -> bool:
-    """Rule S6 answers the same code in all four backends (#236).
+    """The two history-length rules answer the same code in all four backends.
 
     A separate script because it reads the GENERATED output rather than the
     input, and because it is the only check here that is cross-backend by
@@ -465,7 +481,7 @@ def regen_check(root_dir: str) -> int:
     if not check_regtest_source_lists(root_dir):
         return 1
 
-    print("\n=== Short-history return code (rule S6) ===")
+    print("\n=== History-length return codes (rules S1 and S7) ===")
     if not check_stream_retcodes(root_dir):
         return 1
 

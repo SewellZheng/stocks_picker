@@ -93,6 +93,8 @@ TA_LIB_API TA_RetCode TA_WAD( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -193,6 +195,8 @@ TA_RetCode TA_S_WAD( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -276,9 +280,9 @@ static TA_RetCode TA_WAD_OpenImpl( struct TA_WAD_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -398,9 +402,9 @@ TA_LIB_API TA_RetCode TA_WAD_Open( TA_WAD_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_WAD_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, outReal );
 }
 
@@ -408,10 +412,9 @@ TA_LIB_API TA_RetCode TA_WAD_OpenAndFill( TA_WAD_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_WAD_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outReal );
 }

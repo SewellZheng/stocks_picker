@@ -18,6 +18,10 @@
  *                of two scratch buffers + three sma() calls. Enables streaming
  *                and is bit-identical to the prior three-SMA form (verified vs
  *                v0.6.4).
+ *  082326 MF,CC  Fix #253. Scale the High+Low cancellation test to its own
+ *                operands instead of the fixed TA_IS_ZERO band, which widened
+ *                the bands of any instrument quoted small enough to fall
+ *                under it.
  */
 
    /**
@@ -115,8 +119,17 @@
        */
       i = trailingIdx;
       while( i < startIdx ) {
+         /* The band factor 4*(H-L)/(H+L) is a ratio of two prices, so it is
+          * scale-free -- but H+L is a sum that CANCELS when the two prices have
+          * opposite signs, and the factor then blows up on what is left of the
+          * operands' last bits. Test the sum against ITS OWN operands, not against
+          * a fixed band: an absolute threshold answers "cancelled" for every bar
+          * of an instrument quoted small enough to fall under it, and widened
+          * every band it touched (issue #253). Same test on all three sites, so
+          * the bar that enters a running sum is the one that later leaves it.
+          */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh[i]) + Math.abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -135,7 +148,7 @@
       while( i <= endIdx ) {
          /* Add the incoming bar to each running sum. */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh[i]) + Math.abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -151,7 +164,7 @@
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
          tempReal = inHigh[trailingIdx] + inLow[trailingIdx];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh[trailingIdx]) + Math.abs(inLow[trailingIdx]))) ) {
             tempReal = 4 * (inHigh[trailingIdx] - inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= inHigh[trailingIdx] * (1 + tempReal);
             periodTotalLower -= inLow[trailingIdx] * (1 - tempReal);
@@ -224,7 +237,7 @@
       i = trailingIdx;
       while( i < startIdx ) {
          tempReal = (double)inHigh[i] + (double)inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((double)inHigh[i]) + Math.abs((double)inLow[i]))) ) {
             tempReal = 4 * ((double)inHigh[i] - (double)inLow[i]) / tempReal;
             periodTotalUpper += (double)inHigh[i] * (1 + tempReal);
             periodTotalLower += (double)inLow[i] * (1 - tempReal);
@@ -238,7 +251,7 @@
       outIdx = 0;
       while( i <= endIdx ) {
          tempReal = (double)inHigh[i] + (double)inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((double)inHigh[i]) + Math.abs((double)inLow[i]))) ) {
             tempReal = 4 * ((double)inHigh[i] - (double)inLow[i]) / tempReal;
             periodTotalUpper += (double)inHigh[i] * (1 + tempReal);
             periodTotalLower += (double)inLow[i] * (1 - tempReal);
@@ -252,7 +265,7 @@
          tempMiddle = periodTotalMiddle;
          tempLower = periodTotalLower;
          tempReal = (double)inHigh[trailingIdx] + (double)inLow[trailingIdx];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((double)inHigh[trailingIdx]) + Math.abs((double)inLow[trailingIdx]))) ) {
             tempReal = 4 * ((double)inHigh[trailingIdx] - (double)inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= (double)inHigh[trailingIdx] * (1 + tempReal);
             periodTotalLower -= (double)inLow[trailingIdx] * (1 - tempReal);
@@ -305,15 +318,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SMA
     * @see Core#BBANDS
@@ -329,9 +341,9 @@
                              double outRealLowerBand[] )
    {
       requireIndexRange("ACCBANDS", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ACCBANDS_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ACCBANDS", startIdx, ACCBANDS_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ACCBANDS", "inHigh", inHigh, guardInLen);
       requireLength("ACCBANDS", "inLow", inLow, guardInLen);
       requireLength("ACCBANDS", "inClose", inClose, guardInLen);
@@ -383,15 +395,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SMA
     * @see Core#BBANDS
@@ -407,9 +418,9 @@
                              double outRealLowerBand[] )
    {
       requireIndexRange("ACCBANDS", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ACCBANDS_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ACCBANDS", startIdx, ACCBANDS_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ACCBANDS", "inHigh", inHigh, guardInLen);
       requireLength("ACCBANDS", "inLow", inLow, guardInLen);
       requireLength("ACCBANDS", "inClose", inClose, guardInLen);
@@ -573,6 +584,12 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] ) {
+         requireArgument("ACCBANDS updateAndFill", "inHigh", inHigh);
+         requireArgument("ACCBANDS updateAndFill", "inLow", inLow);
+         requireArgument("ACCBANDS updateAndFill", "inClose", inClose);
+         requireArgument("ACCBANDS updateAndFill", "outRealUpperBand", outRealUpperBand);
+         requireArgument("ACCBANDS updateAndFill", "outRealMiddleBand", outRealMiddleBand);
+         requireArgument("ACCBANDS updateAndFill", "outRealLowerBand", outRealLowerBand);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outRealUpperBand.length < barCount || outRealMiddleBand.length < barCount || outRealLowerBand.length < barCount || (Object)outRealUpperBand == (Object)inHigh || (Object)outRealUpperBand == (Object)inLow || (Object)outRealUpperBand == (Object)inClose || (Object)outRealMiddleBand == (Object)inHigh || (Object)outRealMiddleBand == (Object)inLow || (Object)outRealMiddleBand == (Object)inClose || (Object)outRealLowerBand == (Object)inHigh || (Object)outRealLowerBand == (Object)inLow || (Object)outRealLowerBand == (Object)inClose || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand )
             throw new TaLibArgumentException("ACCBANDS updateAndFill: BadParam", RetCode.BadParam);
@@ -646,7 +663,7 @@
       }
       /* Add the incoming bar to each running sum. */
       tempReal = inHigh + inLow;
-      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+      if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh) + Math.abs(inLow))) ) {
          tempReal = 4 * (inHigh - inLow) / tempReal;
          sp.periodTotalUpper += inHigh * (1 + tempReal);
          sp.periodTotalLower += inLow * (1 - tempReal);
@@ -661,7 +678,7 @@
       tempLower = sp.periodTotalLower;
       /* Remove the trailing bar from each running sum. */
       tempReal = sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] + sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx];
-      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+      if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx]) + Math.abs(sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]))) ) {
          tempReal = 4 * (sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] - sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx]) / tempReal;
          sp.periodTotalUpper -= sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] * (1 + tempReal);
          sp.periodTotalLower -= sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] * (1 - tempReal);
@@ -697,11 +714,14 @@
       int lookbackTotal = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 20;
@@ -750,8 +770,17 @@
        */
       i = trailingIdx;
       while( i < startIdx ) {
+         /* The band factor 4*(H-L)/(H+L) is a ratio of two prices, so it is
+          * scale-free -- but H+L is a sum that CANCELS when the two prices have
+          * opposite signs, and the factor then blows up on what is left of the
+          * operands' last bits. Test the sum against ITS OWN operands, not against
+          * a fixed band: an absolute threshold answers "cancelled" for every bar
+          * of an instrument quoted small enough to fall under it, and widened
+          * every band it touched (issue #253). Same test on all three sites, so
+          * the bar that enters a running sum is the one that later leaves it.
+          */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh[i]) + Math.abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -770,7 +799,7 @@
       while( i <= endIdx ) {
          /* Add the incoming bar to each running sum. */
          tempReal = inHigh[i] + inLow[i];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh[i]) + Math.abs(inLow[i]))) ) {
             tempReal = 4 * (inHigh[i] - inLow[i]) / tempReal;
             periodTotalUpper += inHigh[i] * (1 + tempReal);
             periodTotalLower += inLow[i] * (1 - tempReal);
@@ -786,7 +815,7 @@
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
          tempReal = inHigh[trailingIdx] + inLow[trailingIdx];
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh[trailingIdx]) + Math.abs(inLow[trailingIdx]))) ) {
             tempReal = 4 * (inHigh[trailingIdx] - inLow[trailingIdx]) / tempReal;
             periodTotalUpper -= inHigh[trailingIdx] * (1 + tempReal);
             periodTotalLower -= inLow[trailingIdx] * (1 - tempReal);
@@ -880,10 +909,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public ACCBANDS_Stream ACCBANDS_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
+      requireArgument("ACCBANDS open", "inHigh", inHigh);
+      requireHistory("ACCBANDS open", inHigh.length);
+      requireArgument("ACCBANDS open", "inLow", inLow);
+      requireArgument("ACCBANDS open", "inClose", inClose);
+      requireHistoryLength("ACCBANDS open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ACCBANDS open", "inClose", inClose.length, inHigh.length);
       return ACCBANDS_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
@@ -891,12 +929,24 @@
     * to {@link Core#ACCBANDS} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link ACCBANDS_Stream#outRange()}.
     */
    public ACCBANDS_Stream ACCBANDS_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
    {
+      requireArgument("ACCBANDS openAndFill", "inHigh", inHigh);
+      requireHistory("ACCBANDS openAndFill", inHigh.length);
+      requireArgument("ACCBANDS openAndFill", "inLow", inLow);
+      requireArgument("ACCBANDS openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("ACCBANDS openAndFill", inHigh.length, ACCBANDS_Lookback(optInTimePeriod));
+      requireHistoryLength("ACCBANDS openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ACCBANDS openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("ACCBANDS openAndFill", "outRealUpperBand", outRealUpperBand, guardOutLen);
+      requireLength("ACCBANDS openAndFill", "outRealMiddleBand", outRealMiddleBand, guardOutLen);
+      requireLength("ACCBANDS openAndFill", "outRealLowerBand", outRealLowerBand, guardOutLen);
       if( (Object)outRealUpperBand == (Object)inHigh || (Object)outRealUpperBand == (Object)inLow || (Object)outRealUpperBand == (Object)inClose || (Object)outRealMiddleBand == (Object)inHigh || (Object)outRealMiddleBand == (Object)inLow || (Object)outRealMiddleBand == (Object)inClose || (Object)outRealLowerBand == (Object)inHigh || (Object)outRealLowerBand == (Object)inLow || (Object)outRealLowerBand == (Object)inClose || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand ) {
          throw new TaLibArgumentException("ACCBANDS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

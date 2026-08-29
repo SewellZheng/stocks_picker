@@ -1,33 +1,37 @@
-//! Generate `tests/no_phantom_io.rs` — the Rust half of the phantom-I/O probe.
+//! Generate `src/ta_func/no_phantom_io.rs` — the Rust half of the phantom-I/O
+//! probe.
 //!
 //! Negative-space coverage: array lengths chosen so that any access the contract
 //! forbids is a panic rather than a comment. The Java suite of the same name
 //! (`NoPhantomIoTest`) is the original; this ports the two of its four sweeps
 //! that Rust can host.
 //!
-//! **What this reaches that the Java suite does not.** Since #236 step 3 routed
-//! cross-calls through the public callee, ten composed cores are out of the
-//! Java sweep's reach and are withheld by name there. Rust's cross-calls still
-//! target `<N>_Impl`, so it probes all 174. It also covers the *Rust*
-//! emitter: a bug that changes what one backend touches without changing what
-//! it produces is invisible to `--xlang-hash` by construction, so each
-//! backend's phantom-I/O coverage is only ever its own.
+//! **What this reaches that the Java suite does not.** All three suites probe
+//! `<N>_Impl` and all three reach every one of the 176 cores. That takes a
+//! dispatch body carrying the "nothing to produce" guard every other composed
+//! core has (#267); without it, routing a cross-call through the public callee
+//! puts a composed core out of a sweep's reach.
+//! What is left that is Rust's alone is the *Rust* emitter: a bug that changes
+//! what one backend touches without changing what it produces is invisible to
+//! `--xlang-hash` by construction, so each backend's phantom-I/O coverage is
+//! only ever its own.
 //!
-//! **Why Rust can host it.** Java and C# have a guarded public tier and an
-//! unguarded body, and the probe has to pick the second or it measures the
-//! guard. Rust has no such split: `pub fn SMA` is a thin `Result` mapper over
-//! `SMA_Impl`, and the bounds check lives *in the body* as the `assert!`
-//! preamble plus the indexing itself, under `#![forbid(unsafe_code)]`. The
-//! public API reaches it directly.
+//! **An in-crate `#[cfg(test)]` module calling `<N>_Impl` directly**, which is
+//! what the Java suite does and what #265 made every probe do. It was an
+//! integration test under `library/tests/` reaching the public tier, which works
+//! only while that tier is a pure forwarder — and that reach is precisely what
+//! kept Rust's argument contract stated as an `assert!` in the numerics instead
+//! of a code from the public tier. The probe's subject is what the *body*
+//! touches, so it names the body; the public tier's own contract is
+//! `tests/nullable_outputs.rs`'s and `BatchApiTest`'s business.
 //!
 //! **Generated rather than hand-written**, unlike the Java suite. Java discovers
 //! its corpus by reflection, so a new indicator is probed the day it lands.
 //! Rust has no reflection, and the one dynamic binder it does have —
-//! `abstract_api::ParamHolder` — validates output capacity before dispatch
-//! (`if o0.len() < need { return Err(BadParam) }`), which is the very guard the
-//! probe must get behind. A hand-written table of 174 call sites would rot
-//! silently; generating it makes `regen-check` the thing that keeps the corpus
-//! complete.
+//! `abstract_api::ParamHolder` — validates its own arguments before dispatch,
+//! which is the very guard the probe must get behind. A hand-written table of
+//! 176 call sites would rot silently; generating it makes `regen-check` the
+//! thing that keeps the corpus complete.
 
 // An integer parameter's `range:` and `default:` are integers that the IR
 // carries as `f64`, so narrowing them back is exact by construction -- the same
@@ -194,21 +198,20 @@ fn emit_func(o: &mut String, func: &FuncDef, enums: &HashMap<String, EnumDef>) {
     let _ = writeln!(o, "fn sub_{name}(r: &mut Report) {{");
     let _ = writeln!(o, "    let core = Core::new();");
     let _ = writeln!(o, "    for &{destructure} in V_{name} {{");
-    let _ = writeln!(o, "        let lb = core.{name}_Lookback({lookback_args});");
-    let _ = writeln!(o, "        if lb == usize::MAX {{ continue; }}");
+    let _ = writeln!(o, "        let Ok(lb) = core.{name}_Lookback({lookback_args}) else {{ continue; }};");
     // Control arm: one bar longer than the quiet range produces exactly one
     // value, so it must index an array; with zero-length arrays that is a panic.
     let _ = writeln!(o, "        r.control(\"{name}\", label, run(|| {{");
-    let _ = writeln!(o, "{}", empty_call(func, &call_opts, "lb", 12));
+    let _ = write!(o, "{}", empty_call(func, &call_opts, "lb", 12));
     let _ = writeln!(o, "        }}));");
     let _ = writeln!(o, "        if lb < 1 {{ r.no_quiet_range(\"{name}\", label); continue; }}");
     let _ = writeln!(o, "        r.quiet(\"{name}\", label, lb, run(|| {{");
-    let _ = writeln!(o, "{}", empty_call(func, &call_opts, "lb - 1", 12));
+    let _ = write!(o, "{}", empty_call(func, &call_opts, "lb - 1", 12));
     let _ = writeln!(o, "        }}));");
     let _ = writeln!(o, "    }}");
     let _ = writeln!(o, "}}\n");
 
-    // ---- sweep 2: unread legs ----
+    // ---- sweep 2: declared legs ----
     let _ = writeln!(o, "fn legs_{name}(r: &mut Report) {{");
     let _ = writeln!(o, "    let core = Core::new();");
     if func.inputs.is_empty() {
@@ -217,55 +220,105 @@ fn emit_func(o: &mut String, func: &FuncDef, enums: &HashMap<String, EnumDef>) {
         return;
     }
     // The defaults vector alone; the leg question is about the body's shape,
-    // not its parameters, and 174 x legs x vectors buys nothing over it.
+    // not its parameters, and 176 x legs x vectors buys nothing over it.
     let first = &vecs[0];
     for (k, opt) in func.optional_inputs.iter().enumerate() {
         let _ = writeln!(o, "    let {} = {};", opt.name, first.values[k]);
     }
-    let _ = writeln!(o, "    let lb = core.{name}_Lookback({lookback_args});");
-    let _ = writeln!(o, "    if lb == usize::MAX {{ r.no_legs(\"{name}\"); return; }}");
+    let _ = writeln!(o, "    let Ok(lb) = core.{name}_Lookback({lookback_args}) else {{ r.no_legs(\"{name}\"); return; }};");
     let _ = writeln!(o, "    let (startIdx, endIdx) = (lb, lb + 4);");
+    // Control arm first: the same call with EVERY leg correctly sized must succeed
+    // and produce values. Without it "every leg tripped the preamble" is satisfiable
+    // by a broken fixture -- a mis-sized `series`, a vector the lookback rejects --
+    // and the sweep would read green while probing nothing.
+    let _ = write!(o, "{}", sized_call_block(func, None));
+    let _ = writeln!(o, "        r.legs_control(\"{name}\", run(|| {{");
+    let _ = write!(o, "{}", impl_call(func, &call_opts, "startIdx", "endIdx", 12));
+    let _ = writeln!(o, "        }}));\n    }}");
     for (leg, input) in func.inputs.iter().enumerate() {
-        let _ = writeln!(o, "    {{");
-        for other in &func.inputs {
-            let ty = slice_ty(&other.param_type);
-            if other.name == input.name {
-                let _ = writeln!(o, "        let {}: Vec<{ty}> = Vec::with_capacity(1);", other.name);
-            } else {
-                let _ = writeln!(
-                    o,
-                    "        let {}: Vec<{ty}> = series(\"{}\", endIdx + 1);",
-                    other.name,
-                    leg_kind(&other.name)
-                );
-            }
-        }
-        for out in &func.outputs {
-            let ty = slice_ty(&out.param_type);
-            let _ = writeln!(o, "        let mut {}: Vec<{ty}> = vec![Default::default(); 5];", out.name);
-        }
-        let args = call_args(func, &call_opts);
+        let _ = write!(o, "{}", sized_call_block(func, Some(&input.name)));
         let _ = writeln!(
             o,
-            "        r.leg(\"{name}\", \"{}\", {leg}, run(|| core.{name}(startIdx, endIdx, {args})));",
+            "        r.leg(\"{name}\", \"{}\", {leg}, run(|| {{",
             input.name
         );
-        let _ = writeln!(o, "    }}");
+        let _ = write!(o, "{}", impl_call(func, &call_opts, "startIdx", "endIdx", 12));
+        let _ = writeln!(o, "        }}));\n    }}");
     }
     let _ = writeln!(o, "    r.legs_done(\"{name}\", {});", func.inputs.len());
     let _ = writeln!(o, "}}\n");
 }
 
-/// The argument list of a `Core::NAME(...)` call, after `startIdx, endIdx`.
+/// One `{ ... }` block binding every input to a correctly sized series and every
+/// output to a five-slot buffer, less `hole`, which gets a zero-length one. The
+/// caller closes the block with the `Report` call that judges it.
+fn sized_call_block(func: &FuncDef, hole: Option<&str>) -> String {
+    let mut s = String::from("    {\n");
+    for input in &func.inputs {
+        let ty = slice_ty(&input.param_type);
+        if hole == Some(input.name.as_str()) {
+            let _ = writeln!(s, "        let {}: Vec<{ty}> = Vec::with_capacity(1);", input.name);
+        } else {
+            let _ = writeln!(
+                s,
+                "        let {}: Vec<{ty}> = series(\"{}\", endIdx + 1);",
+                input.name,
+                leg_kind(&input.name)
+            );
+        }
+    }
+    for out in &func.outputs {
+        let ty = slice_ty(&out.param_type);
+        let _ = writeln!(s, "        let mut {}: Vec<{ty}> = vec![Default::default(); 5];", out.name);
+    }
+    s
+}
+
+/// The argument list of a `Core::NAME_Impl(...)` call, after `startIdx, endIdx`.
+///
+/// The numerics tier keeps C's shape, so the two out-params sit between the
+/// optional parameters and the output slices.
 fn call_args(func: &FuncDef, call_opts: &str) -> String {
     let mut parts: Vec<String> = func.inputs.iter().map(|i| format!("&{}", i.name)).collect();
     if !call_opts.is_empty() {
         parts.push(call_opts.trim_end_matches(", ").to_string());
     }
+    parts.push("&mut _b".to_string());
+    parts.push("&mut _n".to_string());
     for o in &func.outputs {
-        parts.push(format!("&mut {}", o.name));
+        // A nullable output takes `Option<&mut [T]>` (rule B6a). The sweep hands
+        // it `Some(..)`: declining it would hide exactly the writes it is here
+        // to catch.
+        if o.is_nullable() {
+            parts.push(format!("Some(&mut {})", o.name));
+        } else {
+            parts.push(format!("&mut {}", o.name));
+        }
     }
     parts.join(", ")
+}
+
+/// One `<N>_Impl` call over `start_expr..=end_expr`, as the tail of a `run(||)`
+/// closure: the two out-params, the call, and `(rc, count)` for the classifier.
+fn impl_call(
+    func: &FuncDef,
+    call_opts: &str,
+    start_expr: &str,
+    end_expr: &str,
+    indent: usize,
+) -> String {
+    let pad = " ".repeat(indent);
+    let mut s = String::new();
+    let _ = writeln!(s, "{pad}let mut _b: usize = 0;");
+    let _ = writeln!(s, "{pad}let mut _n: usize = 0;");
+    let _ = writeln!(
+        s,
+        "{pad}let rc = core.{}_Impl({start_expr}, {end_expr}, {});",
+        func.name,
+        call_args(func, call_opts)
+    );
+    let _ = writeln!(s, "{pad}(rc, _n)");
+    s
 }
 
 /// A call with a zero-length array for every input and every output, over
@@ -275,22 +328,28 @@ fn empty_call(func: &FuncDef, call_opts: &str, end_expr: &str, indent: usize) ->
     let mut s = String::new();
     // `with_capacity(1)`, not `Vec::new()`: the slices must be zero-LENGTH but
     // must not share an ADDRESS. Every unallocated Vec hands out the same
-    // dangling aligned pointer, and a multi-output function's overlap guard
-    // (`outUpper.as_ptr() == outMiddle.as_ptr()`) reads that as aliased buffers
-    // and answers BadParam before the body runs -- which silently cost this
-    // sweep all 14 multi-output indicators until the control arm said so.
+    // dangling aligned pointer, which a multi-output function's overlap guard
+    // once read as aliased buffers -- silently costing this sweep all 14
+    // multi-output indicators until the control arm said so. The guard now
+    // excludes empty operands (rule B6, #262), so this is belt and braces: it
+    // keeps the sweep independent of that guard's shape.
     for i in &func.inputs {
         let _ = writeln!(s, "{pad}let {}: Vec<{}> = Vec::with_capacity(1);", i.name, slice_ty(&i.param_type));
     }
     for o in &func.outputs {
         let _ = writeln!(s, "{pad}let mut {}: Vec<{}> = Vec::with_capacity(1);", o.name, slice_ty(&o.param_type));
     }
-    let args = call_args(func, call_opts);
-    let _ = write!(s, "{pad}core.{}(0, {end_expr}, {args})", func.name);
+    s.push_str(&impl_call(func, call_opts, "0", end_expr, indent));
     s
 }
 
-/// Generate `ta_codegen/output/rust/library/tests/no_phantom_io.rs`.
+/// Generate `ta_codegen/output/rust/library/src/ta_func/no_phantom_io.rs`.
+///
+/// In `src/`, not `tests/`: the sweep probes `<N>_Impl`, which is
+/// `pub(crate)`. The generated `mod.rs` declares it `#[cfg(test)]`
+/// (`RUST_GENERATED_TEST_MODULES` in `main.rs`) and the Rust backend's
+/// `clean_keep` spares it from the stale-file sweep, which would otherwise see
+/// a `.rs` in `src/ta_func/` that names no indicator.
 #[allow(clippy::implicit_hasher)]
 pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &Path) {
     let mut sorted: Vec<&FuncDef> = funcs.iter().collect();
@@ -311,7 +370,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &
     used.sort_unstable();
     used.dedup();
     for ty in used {
-        let _ = writeln!(o, "use ta_lib::{ty};");
+        let _ = writeln!(o, "use crate::{ty};");
     }
     o.push('\n');
     o.push_str(HARNESS);
@@ -329,7 +388,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &
     let _ = writeln!(o, "];\n");
     let _ = write!(o, "{}", driver(sorted.len()));
 
-    let dir = out_base.join("rust/library/tests");
+    let dir = out_base.join("rust/library/src/ta_func");
     std::fs::create_dir_all(&dir).unwrap();
     super::write_if_changed(&dir.join("no_phantom_io.rs"), &o, "no_phantom_io.rs", sorted.len());
 }
@@ -341,9 +400,23 @@ fn driver(n: usize) -> String {
         r#"#[test]
 fn no_phantom_io() {{
     // One test, both sweeps, sequential: the panic hook is process-global, and
-    // two tests racing to install and restore it is a flake with no bug behind it.
-    let prior = std::panic::take_hook();
-    std::panic::set_hook(Box::new(|_| {{}}));
+    // two tests racing to install it is a flake with no bug behind it.
+    //
+    // It silences EXACTLY the calls `run` wraps, and delegates everything else to
+    // the hook installed before it. A bare `|_| {{}}` was enough while this lived
+    // in its own integration-test binary; in-crate, libtest runs the other unit
+    // tests concurrently in this same process, so it would have swallowed a
+    // sibling's assertion message -- and any panic a probe raised OUTSIDE `run`,
+    // which is a bug rather than a verdict. Not restored afterwards, because with
+    // `IN_PROBE` false the delegating hook is exactly the one it replaced.
+    let _ = PRIOR_HOOK.set(std::panic::take_hook());
+    std::panic::set_hook(Box::new(|info| {{
+        if !IN_PROBE.with(std::cell::Cell::get) {{
+            if let Some(prior) = PRIOR_HOOK.get() {{
+                prior(info);
+            }}
+        }}
+    }}));
 
     let mut r = Report::new();
     for (name, sub, _) in PROBES {{
@@ -357,15 +430,13 @@ fn no_phantom_io() {{
     }}
     r.finish_legs();
 
-    std::panic::set_hook(prior);
-
     // The corpus is the generator's, not a list kept by hand: a probe that
     // stopped being emitted is a shrinking sweep, which is the one way this
     // file can fail open.
     assert_eq!(PROBES.len(), {n}, "probe count");
     assert_eq!(
         PROBES.len(),
-        ta_lib::abstract_api::funcs().count(),
+        crate::abstract_api::funcs().count(),
         "every registered function has a probe"
     );
 
@@ -378,8 +449,15 @@ fn no_phantom_io() {{
 
 const PREAMBLE: &str = r#"//! GENERATED by ta_codegen -- DO NOT EDIT.
 //!
-//! Negative-space coverage for the Rust batch API: array lengths chosen so that
-//! any access the contract forbids is a panic rather than a comment.
+//! Negative-space coverage for the Rust numerics tier: array lengths chosen so
+//! that any access the contract forbids is a panic rather than a comment.
+//!
+//! It probes `<N>_Impl`, the crate-private C-shaped body, which is why this is
+//! an in-crate `#[cfg(test)]` module and not an integration test under
+//! `tests/`. That is what the Java suite does, and since #265 what every
+//! backend's phantom-I/O probe does. Reaching the numerics from outside the
+//! crate was only ever possible while `pub fn SMA` forwarded without checking,
+//! so the probe's reach was silently deciding what the shipped API could do.
 //!
 //! The value gates (`ta_regtest`, `--xlang-hash`, `--fuzz-064`) can only see
 //! work that reaches an output. Work a function does and then discards -- a read
@@ -404,59 +482,73 @@ const PREAMBLE: &str = r#"//! GENERATED by ta_codegen -- DO NOT EDIT.
 //! slices it must panic. That turns "this core was silent" into "this core was
 //! silent *and* the detector was working on it".
 //!
-//! **`legs_*` (unread legs).** One declared input at a time given a zero-length
+//! **`legs_*` (declared legs).** One declared input at a time given a zero-length
 //! slice while the rest stay correctly sized, over a range that does produce
-//! values. Here the panic can come from two places, and the difference is the
-//! whole point:
+//! values. Every one of them must be rejected: since #260 the `assert!` preamble
+//! bounds every DECLARED input, not only the ones the body indexes, so
+//! "a declared input must be supplied" holds over the whole declaration in Rust
+//! as it does over C's NULL checks. Over the whole declaration, not the whole
+//! input domain: Rust's `_assertStart > endIdx ||` escape switches every input
+//! assert off on a sub-lookback range, uniformly for all 442 legs, which is
+//! spec footnote [5] and is why the sweep probes a range that produces values.
+//! What the sweep classifies:
 //!
-//! * an **assertion failure** is the body's `assert!` preamble, whose leg set is
-//!   `backends::common::indexed_input_names` -- the same computation that feeds
-//!   Java's and C#'s argument checks. Asserting *that* against itself would be
-//!   circular, so it is reported, not asserted on.
-//! * an **index-out-of-bounds** is the body indexing a leg the preamble does not
-//!   bound. Under `#![forbid(unsafe_code)]` that access is checked whatever the
+//! * an **assertion failure** is the preamble doing its job -- the expected
+//!   verdict for every leg of every function.
+//! * a **success** is the leg sailing through: the preamble does not cover it, so
+//!   the identical call is `TA_BAD_PARAM` in C and a success here. That is the
+//!   divergence #260 closed, and it fails the sweep.
+//! * an **index-out-of-bounds** is the body reading past the bound the preamble
+//!   states. Under `#![forbid(unsafe_code)]` that access is checked whatever the
 //!   preamble says, which is what makes this reading the body rather than the
 //!   declaration. It is a violation: in Rust it is a panic in shipped code, and
 //!   in the C the same input generates, an unbounded read.
 //!
-//! So this sweep pins one direction of `indexed_input_names` -- that it covers
-//! every leg the body actually indexes. The other direction (a leg listed but
-//! never read) is not reachable from outside the crate: the preamble runs first
-//! and pre-empts the observation. That is a false rejection, not a memory
-//! error, and Java's suite does not distinguish it either.
+//! Each function also gets a control arm first: the same call with every leg
+//! correctly sized must succeed and produce values. Without it "every leg was
+//! rejected" is satisfiable by a fixture that probes nothing -- a mis-sized
+//! `series`, a vector the lookback rejects -- and the sweep would read green.
 //!
 //! # Measured against the Java suite
 //!
 //! Run together on the same corpus, the two agree where they can:
 //!
-//! * **sub-lookback: zero delta.** 144 cores probed at the defaults vector, 30
-//!   skipped for having no sub-lookback range (lookback 0), 174 detector
-//!   controls fired -- the same three numbers in both, so Rust reaches every
-//!   core Java reaches.
-//! * **unread legs: Rust sees 7, Java sees 40, and the 7 are a subset.** The 33
-//!   extra are legs Rust's preamble bounds but the body does not read at the
-//!   default candle settings; the preamble pre-empts the observation, which is
-//!   the direction described above as unreachable from outside the crate. Zero
-//!   legs are unread here and read there, which is the direction that would be
-//!   a real disagreement.
+//! * **sub-lookback: the three suites agree exactly.** Rust probes 145 cores at
+//!   the defaults vector, skips 31 for having no sub-lookback range (lookback 0)
+//!   and fires 176 detector controls; Java and C# report the same 145 / 31 / 176
+//!   on the same corpus. They read 144 / 31 / 175 until #267: `ma` forwarded on a
+//!   range shorter than its own lookback, so the rejection arrived from a
+//!   callee's public input bound as a RETURN rather than the throw those probes
+//!   read, and it was withheld by name. It answers `0,0` in its own frame now,
+//!   and the withholding lists are deleted rather than empty.
+//! * **declared legs: the two suites probe the same tier and still measure
+//!   different things.** Java's `unreadLegSweep` probes `<N>_Impl` and reports
+//!   the 40 legs a zero-length array sails through at the default candle
+//!   settings, because Java's numerics tier carries the index and parameter
+//!   checks and no ARRAY check at all -- its array bound lives one tier up. In
+//!   Rust the bound IS in the numerics, as the `assert!` preamble, so the same
+//!   tier answers all 442 legs and none sails through. Before #260 Rust saw 7
+//!   of Java's 40; it now sees 0, by construction rather than by accident, and
+//!   this sweep pins that construction.
 //!
 //! # What is deliberately not here
 //!
-//! `exactExtentSweep` and `openAndFillSweep` from the Java suite are not ported.
-//! The first passes the public guard by construction; the second is streaming,
-//! which #236 does not touch.
+//! `openAndFillSweep` from the Java suite is not ported: it is streaming, which
+//! #236 does not touch. `exactExtentSweep` is not ported as a sweep either --
+//! it passes the public guard by construction -- though the leg sweep's control
+//! arm is one call of that shape per function, there to prove the fixture works
+//! rather than to bound the extent.
 //!
 //! And this covers the shared C under `ta_codegen/input/` as the Rust emitter
 //! renders it. It is not a substitute for the Java and C# suites: an emitter bug
 //! that changes what ONE backend touches without changing what it produces is
 //! invisible to `--xlang-hash` by construction, so each backend needs its own.
+//!
+//! No module-inner `#![allow]`s: the crate root already carries
+//! `non_snake_case` and `clippy::all`/`clippy::pedantic` (which is where
+//! `type_complexity` lives, and SAREXT's eight-wide vector tuple needs it).
 
-#![allow(non_snake_case)]
-// SAREXT takes eight optional parameters, so its vector tuple is eight wide.
-// Naming a type per arity would be eight aliases used once each.
-#![allow(clippy::type_complexity)]
-
-use ta_lib::Core;
+use crate::{Core, RetCode};
 "#;
 
 const HARNESS: &str = r#"/// What one call did to the arrays it was given.
@@ -472,11 +564,29 @@ enum Touch {
     Other(String),
 }
 
+/// The hook installed before this sweep's, so everything that is not one of its
+/// own expected panics still reports normally.
+static PRIOR_HOOK: std::sync::OnceLock<
+    Box<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send>,
+> = std::sync::OnceLock::new();
+
+thread_local! {
+    /// True only inside [`run`]'s `catch_unwind`, where a panic is a verdict.
+    static IN_PROBE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Run one call, classifying a panic by what produced it.
-fn run(f: impl FnOnce() -> Result<ta_lib::OutRange, ta_lib::RetCode>) -> Touch {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-        Ok(Ok(range)) => Touch::Quiet(true, range.count),
-        Ok(Err(_)) => Touch::Quiet(false, 0),
+///
+/// The closure hands back the numerics tier's own pair -- a `RetCode` and the
+/// count it wrote into `outNBElement` -- rather than a `Result`, because that
+/// is the shape `<N>_Impl` has.
+fn run(f: impl FnOnce() -> (RetCode, usize)) -> Touch {
+    IN_PROBE.with(|p| p.set(true));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+    IN_PROBE.with(|p| p.set(false));
+    match outcome {
+        Ok((RetCode::Success, count)) => Touch::Quiet(true, count),
+        Ok((_, _)) => Touch::Quiet(false, 0),
         Err(e) => {
             let msg = e
                 .downcast_ref::<String>()
@@ -496,7 +606,7 @@ fn run(f: impl FnOnce() -> Result<ta_lib::OutRange, ta_lib::RetCode>) -> Touch {
 }
 
 /// `len` bars of `leg`, mirroring `NoPhantomIoTest.bar` so the two suites agree
-/// on the fixture and a leg cannot read as unread here but read there.
+/// on the fixture and a leg cannot read as untouched here but read there.
 fn series<T: FromF64>(leg: &str, len: usize) -> Vec<T> {
     (0..len).map(|i| T::from_f64(bar(leg, i))).collect()
 }
@@ -538,7 +648,10 @@ struct Report {
     quiet_calls: usize,
     /// Per function: the legs whose empty slice stopped the call, and how.
     bounded: std::collections::BTreeMap<&'static str, Vec<String>>,
-    unread: Vec<String>,
+    unbounded: Vec<String>,
+    legs_control: std::collections::BTreeSet<&'static str>,
+    legs_swept: std::collections::BTreeSet<&'static str>,
+    legs_none: usize,
     legs_seen: usize,
     funcs_with_legs: usize,
 }
@@ -554,7 +667,10 @@ impl Report {
             quiet_cores: std::collections::BTreeSet::new(),
             quiet_calls: 0,
             bounded: std::collections::BTreeMap::new(),
-            unread: Vec::new(),
+            unbounded: Vec::new(),
+            legs_control: std::collections::BTreeSet::new(),
+            legs_swept: std::collections::BTreeSet::new(),
+            legs_none: 0,
             legs_seen: 0,
             funcs_with_legs: 0,
         }
@@ -572,7 +688,7 @@ impl Report {
                 "{name}[{label}] at endIdx == lookback returned {} ({n} value(s)) without \
                  touching an array; a call that produces a value must index one, so this \
                  sweep could not detect I/O for it",
-                if ok { "Ok" } else { "Err" }
+                if ok { "Success" } else { "a failure code" }
             )),
             Touch::Other(msg) => {
                 self.fail(format!("{name}[{label}] at endIdx == lookback panicked with {msg}"));
@@ -607,7 +723,7 @@ impl Report {
                 lb - 1
             )),
             Touch::Quiet(false, _) => self.fail(format!(
-                "{name}[{label}] (lookback {lb}, endIdx {}) returned Err, expected a \
+                "{name}[{label}] (lookback {lb}, endIdx {}) returned a failure code, expected a \
                  success with no values",
                 lb - 1
             )),
@@ -625,31 +741,73 @@ impl Report {
         }
     }
 
+    /// A function the sweep cannot judge: no declared input, or a `_Lookback`
+    /// that rejects its own defaults. Counted, not discarded -- `finish_legs`
+    /// accounts for every probe, so a sweep that quietly stopped judging the
+    /// corpus is a failure rather than a smaller run.
     fn no_legs(&mut self, name: &'static str) {
         let _ = name;
+        self.legs_none += 1;
     }
 
-    /// One leg given a zero-length slice while the rest stay sized.
+    /// The per-function control arm: every leg correctly sized must succeed and
+    /// produce values, so a `Bounded` verdict below is attributable to the one
+    /// zero-length leg and not to the fixture.
+    fn legs_control(&mut self, name: &'static str, t: Touch) {
+        match t {
+            Touch::Quiet(true, n) if n > 0 => {
+                self.legs_control.insert(name);
+            }
+            Touch::Quiet(ok, n) => self.fail(format!(
+                "{name} with every leg correctly sized returned {} ({n} value(s)); the leg sweep \
+                 is probing a call that does nothing, so every rejection below proves nothing",
+                if ok { "Success" } else { "a failure code" }
+            )),
+            Touch::Bounded => self.fail(format!(
+                "{name} tripped its own bounds assert with every leg correctly sized: the \
+                 preamble states a bound the fixture does not meet"
+            )),
+            Touch::Indexed => self.fail(format!(
+                "{name} indexed out of bounds with every leg correctly sized"
+            )),
+            Touch::Other(msg) => {
+                self.fail(format!("{name} control panicked with {msg}"));
+            }
+        }
+    }
+
+    /// One leg given a zero-length slice while the rest stay sized. Since #260
+    /// the preamble bounds EVERY declared leg, so every one of these must be
+    /// `Bounded`: a leg that sails through is the exemption coming back.
     fn leg(&mut self, name: &'static str, leg: &str, _index: usize, t: Touch) {
         self.legs_seen += 1;
         match t {
             Touch::Bounded => self.bounded.entry(name).or_default().push(leg.to_string()),
             Touch::Indexed => self.fail(format!(
                 "{name}.{leg} was indexed with a zero-length slice, but the body's bounds-assert \
-                 preamble does not cover it: the body reads a leg the declaration says it does \
-                 not, so nothing bounds that read"
+                 preamble does not cover it: the body reads past the bound the preamble states, \
+                 so nothing bounds that read"
             )),
-            Touch::Quiet(_, _) => self.unread.push(format!("{name}.{leg}")),
+            Touch::Quiet(_, _) => {
+                self.unbounded.push(format!("{name}.{leg}"));
+                self.fail(format!(
+                    "{name}.{leg} is a DECLARED input that a zero-length slice sails through: \
+                     the bounds-assert preamble does not cover it, so the same call is \
+                     TA_BAD_PARAM in C and a success here (#260)"
+                ));
+            }
             Touch::Other(msg) => self.fail(format!("{name}.{leg} panicked with {msg}")),
         }
     }
 
     fn legs_done(&mut self, name: &'static str, declared: usize) {
         self.funcs_with_legs += 1;
-        if !self.bounded.contains_key(name) {
+        self.legs_swept.insert(name);
+        let bounded = self.bounded.get(name).map_or(0, Vec::len);
+        if bounded != declared {
             self.fail(format!(
-                "{name} reads none of its {declared} declared leg(s): a function that reads no \
-                 input has stopped being an indicator"
+                "{name}: {bounded} of {declared} declared leg(s) are bounded by the preamble; \
+                 every declared input must be, or a caller may omit one in Rust and not in C"
             ));
         }
     }
@@ -690,7 +848,35 @@ impl Report {
 
     fn finish_legs(&mut self) {
         if self.funcs_with_legs == 0 || self.legs_seen == 0 {
-            self.fail("unread legs: the sweep ran no leg at all".to_string());
+            self.fail("declared legs: the sweep ran no leg at all".to_string());
+        }
+        // Every core is accounted for: judged, or explicitly counted as having
+        // nothing to judge.
+        if self.legs_swept.len() + self.legs_none != PROBES.len() {
+            self.fail(format!(
+                "declared legs: every core is swept or counted ({} + {} vs {})",
+                self.legs_swept.len(),
+                self.legs_none,
+                PROBES.len()
+            ));
+        }
+        // Every function the sweep judged must have had its control arm fire, or
+        // its verdicts are unattributable. Missing from the SWEPT set, not from
+        // `bounded`: a function whose every leg sailed through has no `bounded`
+        // entry, and filtering that would drop it from the list naming it.
+        if self.legs_control.len() != self.funcs_with_legs {
+            let missing: Vec<&str> = self
+                .legs_swept
+                .iter()
+                .copied()
+                .filter(|n| !self.legs_control.contains(n))
+                .collect();
+            self.fail(format!(
+                "declared legs: the control arm fired for {} of {} function(s) swept; not \
+                 proved {missing:?}",
+                self.legs_control.len(),
+                self.funcs_with_legs
+            ));
         }
     }
 
@@ -706,13 +892,14 @@ impl Report {
         );
         let bounded_legs: usize = self.bounded.values().map(Vec::len).sum();
         println!(
-            "  unread legs: {} leg(s) across {} function(s); {} bounded by the assert preamble, \
-             {} declared but never indexed{}",
+            "  declared legs: {} leg(s) across {} function(s); {} bounded by the assert preamble, \
+             {} unbounded{}; {} control(s) fired",
             self.legs_seen,
             self.funcs_with_legs,
             bounded_legs,
-            self.unread.len(),
-            if self.unread.is_empty() { String::new() } else { format!(" -> {:?}", self.unread) }
+            self.unbounded.len(),
+            if self.unbounded.is_empty() { String::new() } else { format!(" -> {:?}", self.unbounded) },
+            self.legs_control.len()
         );
         for f in &self.failures {
             println!("  VIOLATION: {f}");

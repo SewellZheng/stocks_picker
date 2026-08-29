@@ -77,11 +77,17 @@ impl TryFrom<i32> for MAType {
 
 // Hand-written test-only modules (not generated; see templates/rust/).
 #[cfg(test)]
+mod div_zero;
+#[cfg(test)]
 mod scratch_election;
 #[cfg(test)]
 mod stream_finite;
 #[cfg(test)]
 mod stream_out_range;
+
+// Generated test-only modules.
+#[cfg(test)]
+mod no_phantom_io;
 
 // Generated indicator modules:
 mod ac;

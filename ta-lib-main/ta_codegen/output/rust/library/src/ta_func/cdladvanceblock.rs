@@ -66,7 +66,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLADVANCEBLOCK`]: the number of leading input values consumed
     /// before the first output value can be produced.
-    pub fn CDLADVANCEBLOCK_Lookback(&self) -> usize {
+    pub fn CDLADVANCEBLOCK_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
         #[allow(non_snake_case)]
@@ -97,10 +97,11 @@ impl Core {
         let ShadowShort_avgPeriod: i32 = self.candle_settings.shadow_short.avg_period;
         #[allow(non_snake_case)]
         let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
-        return ((((ShadowLong_avgPeriod).max(ShadowShort_avgPeriod)).max((Far_avgPeriod).max(Near_avgPeriod))).max(BodyLong_avgPeriod) + 2) as usize;
+        return Ok(((((ShadowLong_avgPeriod).max(ShadowShort_avgPeriod)).max((Far_avgPeriod).max(Near_avgPeriod))).max(BodyLong_avgPeriod) + 2) as usize);
     }
     /// C-shaped body behind [`Core::CDLADVANCEBLOCK`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn CDLADVANCEBLOCK_Impl(
         &self,
         startIdx: usize,
@@ -119,7 +120,7 @@ impl Core {
         if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        let _assertLb = self.CDLADVANCEBLOCK_Lookback();
+        let _assertLb = self.CDLADVANCEBLOCK_Lookback().unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
@@ -173,7 +174,7 @@ impl Core {
         let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLADVANCEBLOCK_Lookback();
+        lookbackTotal = self.CDLADVANCEBLOCK_Lookback().unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -641,11 +642,9 @@ impl Core {
     /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -689,6 +688,30 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLADVANCEBLOCK_Lookback()?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inOpen.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.CDLADVANCEBLOCK_Impl(
@@ -720,7 +743,16 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLADVANCEBLOCK_Stream")]
 pub struct CDLADVANCEBLOCK_Stream {
-    core: Core,
+    /// The `BodyLong` setting this stream was opened with.
+    cs_body_long: CandleSetting,
+    /// The `Far` setting this stream was opened with.
+    cs_far: CandleSetting,
+    /// The `Near` setting this stream was opened with.
+    cs_near: CandleSetting,
+    /// The `ShadowLong` setting this stream was opened with.
+    cs_shadow_long: CandleSetting,
+    /// The `ShadowShort` setting this stream was opened with.
+    cs_shadow_short: CandleSetting,
     state: CDLADVANCEBLOCK_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -731,7 +763,11 @@ impl CDLADVANCEBLOCK_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `CDLADVANCEBLOCK_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
+        self.cs_body_long = src.cs_body_long;
+        self.cs_far = src.cs_far;
+        self.cs_near = src.cs_near;
+        self.cs_shadow_long = src.cs_shadow_long;
+        self.cs_shadow_short = src.cs_shadow_short;
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -823,38 +859,38 @@ impl CDLADVANCEBLOCK_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn CDLADVANCEBLOCK_step_impl(&self, sp: &mut CDLADVANCEBLOCK_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
+    fn CDLADVANCEBLOCK_step_impl(sp: &mut CDLADVANCEBLOCK_StreamState, cs_body_long: &CandleSetting, cs_far: &CandleSetting, cs_near: &CandleSetting, cs_shadow_long: &CandleSetting, cs_shadow_short: &CandleSetting, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         let mut totIdx: usize = 0_usize;
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
+        let BodyLong_rangeType: i32 = cs_body_long.range_type as i32;
         #[allow(non_snake_case)]
-        let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
+        let BodyLong_avgPeriod: i32 = cs_body_long.avg_period;
         #[allow(non_snake_case)]
-        let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
+        let BodyLong_factor: f64 = cs_body_long.factor;
         #[allow(non_snake_case)]
-        let Far_rangeType: i32 = self.candle_settings.far.range_type as i32;
+        let Far_rangeType: i32 = cs_far.range_type as i32;
         #[allow(non_snake_case)]
-        let Far_avgPeriod: i32 = self.candle_settings.far.avg_period;
+        let Far_avgPeriod: i32 = cs_far.avg_period;
         #[allow(non_snake_case)]
-        let Far_factor: f64 = self.candle_settings.far.factor;
+        let Far_factor: f64 = cs_far.factor;
         #[allow(non_snake_case)]
-        let Near_rangeType: i32 = self.candle_settings.near.range_type as i32;
+        let Near_rangeType: i32 = cs_near.range_type as i32;
         #[allow(non_snake_case)]
-        let Near_avgPeriod: i32 = self.candle_settings.near.avg_period;
+        let Near_avgPeriod: i32 = cs_near.avg_period;
         #[allow(non_snake_case)]
-        let Near_factor: f64 = self.candle_settings.near.factor;
+        let Near_factor: f64 = cs_near.factor;
         #[allow(non_snake_case)]
-        let ShadowLong_rangeType: i32 = self.candle_settings.shadow_long.range_type as i32;
+        let ShadowLong_rangeType: i32 = cs_shadow_long.range_type as i32;
         #[allow(non_snake_case)]
-        let ShadowLong_avgPeriod: i32 = self.candle_settings.shadow_long.avg_period;
+        let ShadowLong_avgPeriod: i32 = cs_shadow_long.avg_period;
         #[allow(non_snake_case)]
-        let ShadowLong_factor: f64 = self.candle_settings.shadow_long.factor;
+        let ShadowLong_factor: f64 = cs_shadow_long.factor;
         #[allow(non_snake_case)]
-        let ShadowShort_rangeType: i32 = self.candle_settings.shadow_short.range_type as i32;
+        let ShadowShort_rangeType: i32 = cs_shadow_short.range_type as i32;
         #[allow(non_snake_case)]
-        let ShadowShort_avgPeriod: i32 = self.candle_settings.shadow_short.avg_period;
+        let ShadowShort_avgPeriod: i32 = cs_shadow_short.avg_period;
         #[allow(non_snake_case)]
-        let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
+        let ShadowShort_factor: f64 = cs_shadow_short.factor;
         let mut _candlerange_0: f64;
         match BodyLong_rangeType {
             0 => {
@@ -1027,11 +1063,14 @@ impl Core {
     pub(crate) fn CDLADVANCEBLOCK_OpenImpl(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDLADVANCEBLOCK_Stream, RetCode> {
-        if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
-            return Err(RetCode::BadParam);
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
+        }
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
         let endIdx: usize = historyLen - 1;
@@ -1089,7 +1128,7 @@ impl Core {
         let ShadowShort_factor: f64 = self.candle_settings.shadow_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLADVANCEBLOCK_Lookback();
+        lookbackTotal = self.CDLADVANCEBLOCK_Lookback()?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -1624,7 +1663,7 @@ impl Core {
             ringLag_ShadowShortTrailingIdx: capLag_ShadowShortTrailingIdx as usize,
             ring_ShadowShortTrailingIdx_derived,
         };
-        Ok(CDLADVANCEBLOCK_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(CDLADVANCEBLOCK_Stream { cs_body_long: self.candle_settings.body_long, cs_far: self.candle_settings.far, cs_near: self.candle_settings.near, cs_shadow_long: self.candle_settings.shadow_long, cs_shadow_short: self.candle_settings.shadow_short, state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::CDLADVANCEBLOCK_Open`] (composition seam).
@@ -1645,8 +1684,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1676,12 +1716,32 @@ impl Core {
 
     /// [`Core::CDLADVANCEBLOCK_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::CDLADVANCEBLOCK`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::CDLADVANCEBLOCK_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_CDLADVANCEBLOCK_OpenAndFill")]
     pub fn CDLADVANCEBLOCK_OpenAndFill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32],
     ) -> Result<(CDLADVANCEBLOCK_Stream, OutRange), RetCode> {
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inOpen.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLADVANCEBLOCK_Lookback()?;
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inOpen.len().saturating_sub(_guardLb);
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.CDLADVANCEBLOCK_OpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outInteger)?;
@@ -1726,7 +1786,7 @@ impl CDLADVANCEBLOCK_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.CDLADVANCEBLOCK_step_impl(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
+        Core::CDLADVANCEBLOCK_step_impl(&mut self.state, &self.cs_body_long, &self.cs_far, &self.cs_near, &self.cs_shadow_long, &self.cs_shadow_short, inOpen, inHigh, inLow, inClose, &mut outInteger);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1759,7 +1819,7 @@ impl CDLADVANCEBLOCK_Stream {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.CDLADVANCEBLOCK_step_impl(&mut self.state, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
+            Core::CDLADVANCEBLOCK_step_impl(&mut self.state, &self.cs_body_long, &self.cs_far, &self.cs_near, &self.cs_shadow_long, &self.cs_shadow_short, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

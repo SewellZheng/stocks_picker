@@ -1236,6 +1236,55 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, reuse: bool) {
 }
 
 // --- UpdateAndFill ---------------------------------------------------------------
+/// `UpdateAndFill`'s XML doc — hoisted so the emitter itself stays readable.
+fn update_and_fill_doc(func: &FuncDef, inputs: &[String]) -> XmlDoc {
+    let mut d = XmlDoc::new();
+    d.summary(
+        "Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.",
+    );
+    d.open("remarks");
+    d.para(
+        "Exactly <c>n</c> back-to-back <see cref=\"Update\"/> calls, with one set of \
+         argument checks instead of <c>n</c>. The outputs must hold at least <c>n</c> \
+         values and must not overlap an input or each other.",
+    );
+    d.para(
+        "<see cref=\"OutRange\"/> counts what was committed, which is what makes a \
+         rejection readable: a non-finite bar <c>k</c> throws \
+         <see cref=\"System.ArgumentException\"/> exactly as <see cref=\"Update\"/> would, \
+         with bars <c>0..k</c> committed and written, bar <c>k</c> and everything after it \
+         not, and the count advanced by <c>k</c>.",
+    );
+    // Rule U6a reads the same as S6a, and a caller of this tier needs telling in
+    // the same place a caller of the opener is told.
+    {
+        let names = super::common::nullable_output_list(func);
+        if !names.is_empty() {
+            let list = names
+                .iter()
+                .map(|n| format!("<c>{n}</c>"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            d.para(&format!(
+                "{list} may be declined with an empty span, per call and independently of \
+                 what the opener was given: the value is still computed — \
+                 <see cref=\"Value\"/> reports it — and nothing is written out."
+            ));
+        }
+    }
+    d.close("remarks");
+    for input in inputs {
+        d.param(input, &format!("Closed bars for <c>{input}</c>, oldest first."));
+    }
+    for out in &func.outputs {
+        d.param(
+            &out.name,
+            &format!("Receives one <c>{}</c> value per bar committed.", out.name),
+        );
+    }
+    d
+}
+
 fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
     let base = base_name(func);
     let inputs = streaming::input_array_names(func);
@@ -1256,35 +1305,8 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
     let count_src = inputs
         .first()
         .map_or_else(|| "0".to_string(), |a| format!("{a}.Length"));
-    let mut d = XmlDoc::new();
-    d.summary(
-        "Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.",
-    );
-    d.open("remarks");
-    d.para(
-        "Exactly <c>n</c> back-to-back <see cref=\"Update\"/> calls, with one set of \
-         argument checks instead of <c>n</c>. The outputs must hold at least <c>n</c> \
-         values and must not overlap an input or each other.",
-    );
-    d.para(
-        "<see cref=\"OutRange\"/> counts what was committed, which is what makes a \
-         rejection readable: a non-finite bar <c>k</c> throws \
-         <see cref=\"System.ArgumentException\"/> exactly as <see cref=\"Update\"/> would, \
-         with bars <c>0..k</c> committed and written, bar <c>k</c> and everything after it \
-         not, and the count advanced by <c>k</c>.",
-    );
-    d.close("remarks");
-    for input in &inputs {
-        d.param(input, &format!("Closed bars for <c>{input}</c>, oldest first."));
-    }
-    for out in &func.outputs {
-        d.param(
-            &out.name,
-            &format!("Receives one <c>{}</c> value per bar committed.", out.name),
-        );
-    }
     o.push('\n');
-    o.push_str(&d.render(6));
+    o.push_str(&update_and_fill_doc(func, &inputs).render(6));
     let _ = writeln!(o, "      public void UpdateAndFill( {sig} )");
     let _ = writeln!(o, "      {{");
     let _ = writeln!(o, "         int barCount = {count_src};");
@@ -1293,8 +1315,17 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
         .skip(1)
         .map(|a| format!("{a}.Length != barCount"))
         .collect();
+    // A `nullable` output may be declined here exactly as at the opener (rule
+    // U6a), per call: bounded only where it was supplied, and its store guarded.
+    // Nothing recorded at `Open` constrains what this call presents. An empty
+    // span IS the declination, as it is at the opener — a span cannot be null.
+    let nullable = super::common::nullable_output_names(func);
     for out in &func.outputs {
-        checks.push(format!("{}.Length < barCount", out.name));
+        if nullable.contains(&out.name) {
+            checks.push(format!("(!{0}.IsEmpty && {0}.Length < barCount)", out.name));
+        } else {
+            checks.push(format!("{}.Length < barCount", out.name));
+        }
     }
     if let Some(alias) = alias_condition(func, &inputs) {
         checks.push(alias);
@@ -1323,7 +1354,8 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
     let _ = writeln!(o, "            core.{base}_StepImpl(this, {});", idx_bars.join(", "));
     for out in &func.outputs {
         let name = &out.name;
-        let _ = writeln!(o, "            {name}[i] = cur_{name};");
+        let guard = if nullable.contains(name) { format!("if( !{name}.IsEmpty ) ") } else { String::new() };
+        let _ = writeln!(o, "            {guard}{name}[i] = cur_{name};");
     }
     let _ = writeln!(o, "            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;");
     let _ = writeln!(o, "         }}");
@@ -1381,6 +1413,9 @@ fn stream_ctx<'a>(
 ) -> CsRenderCtx<'a> {
     CsRenderCtx {
         single_precision: false,
+        // The streaming tier keeps every output required, so no store is guarded.
+        nullable_outputs: empty,
+        nullable_shadow: false,
         double_address_of_vars: empty,
         float_input_params: empty,
         inline_counter: counter,
@@ -1676,7 +1711,7 @@ fn emit_open_body(
 ) {
     emit_open_body_sig(o, func, OutMode::Core);
     emit_out_meta_seed(o);
-    let open_body = build_open_body_cs(model, body);
+    let open_body = cleanup_open_body(&build_open_body_cs(model, body), registry);
     emit_open_prologue(o, func, &open_body, model, enums, registry, helpers, counter, stream_fma);
     emit_identity_fast_path(o, func, model, fields, registry, helpers, stream_fma, counter);
     emit_open_region(
@@ -1789,6 +1824,11 @@ fn emit_anchor_guard(o: &mut String) {
 /// `collect_double_address_of_vars` needs to tell a real out-param from an int
 /// one.
 fn emit_body_decls(o: &mut String, func: &FuncDef, open_body: &[Statement]) {
+    // The handle caches every output's last value, and a declined output leaves
+    // no span to read it back from — so the guarded store writes it here too.
+    for name in super::common::nullable_output_list(func) {
+        let _ = writeln!(o, "      {} lastCur_{name} = 0;", out_cs_type(func, &name));
+    }
     let address_of_vars = collect_address_of_vars(open_body);
     let matype_params: HashSet<String> = func
         .optional_inputs
@@ -1852,12 +1892,13 @@ fn emit_open_validation(
 ) {
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    let mut checks: Vec<String> = vec!["historyLen < 1".to_string()];
-    for extra in &inputs[1..] {
-        checks.push(format!("{extra}.Length != {first}.Length"));
-    }
-    let _ = writeln!(o, "      if( {} ) {{", checks.join(" || "));
-    let _ = writeln!(o, "         return RetCode.BadParam;");
+    // The implied index pair first: an opener is a batch call over
+    // `[0, historyLen - 1]`, so S1 and S2 are B1 and B2 read on that range and
+    // answer the same two codes (docs/error-handling-spec.md 2.3). `historyLen`
+    // is the FIRST input's length, so a later input of a different length is an
+    // argument disagreement, not an empty history.
+    let _ = writeln!(o, "      if( historyLen < 1 ) {{");
+    let _ = writeln!(o, "         return RetCode.OutOfRangeStartIndex;");
     let _ = writeln!(o, "      }}");
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
     // other and MAX_INDEX bounds it too (#180). Without this the streaming entry
@@ -1866,6 +1907,15 @@ fn emit_open_validation(
     let _ = writeln!(o, "      if( historyLen > MAX_INDEX + 1 ) {{");
     let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
     let _ = writeln!(o, "      }}");
+    let mismatches: Vec<String> = inputs[1..]
+        .iter()
+        .map(|extra| format!("{extra}.Length != {first}.Length"))
+        .collect();
+    if !mismatches.is_empty() {
+        let _ = writeln!(o, "      if( {} ) {{", mismatches.join(" || "));
+        let _ = writeln!(o, "         return RetCode.BadParam;");
+        let _ = writeln!(o, "      }}");
+    }
     o.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
     if mode == OutMode::Fill {
         o.push_str(&alias_reject(func, &inputs));
@@ -1903,6 +1953,19 @@ fn emit_extras_and_candle(
     }
 }
 
+/// This backend's IR cleanup sequence — `java_stream::cleanup_open_body`'s twin,
+/// with this backend's own admission test. See it for why the sequence runs
+/// where the body is BUILT and what `INSUFFICIENT_HISTORY` answers; the C#
+/// stake in the first is CS0219 on an orphaned local, which
+/// `TreatWarningsAsErrors` makes a build failure.
+fn cleanup_open_body(body: &[Statement], registry: &Registry) -> Vec<Statement> {
+    let admits = |f: &str, a: &[Expr]| super::csharp::cross_call_split(f, a, registry).is_some();
+    let folded =
+        super::ir_cleanup::drop_answered_cross_call_guards(body, &admits, Some("InsufficientHistory"));
+    let folded = super::ir_cleanup::drop_deallocation(&folded);
+    super::ir_cleanup::drop_inert_guards(&folded)
+}
+
 /// Render the transcribed open region: VarDecl initializations then the
 /// statements, with tier inserts (composed sub-opens) spliced by index.
 #[allow(clippy::too_many_arguments)]
@@ -1918,12 +1981,14 @@ fn emit_open_region(
     inserts: &[(usize, String)],
     replaced: &HashSet<usize>,
 ) {
-    let _ = func;
     let address_of_vars = collect_address_of_vars(open_body);
     let double_address_of_vars = collect_double_address_of_vars(open_body, &address_of_vars);
     let empty = HashSet::new();
+    let nullable = super::common::nullable_output_names(func);
     let ctx = CsRenderCtx {
         single_precision: false,
+        nullable_outputs: &nullable,
+        nullable_shadow: true,
         double_address_of_vars: &double_address_of_vars,
         float_input_params: &empty,
         inline_counter: counter,
@@ -2282,11 +2347,21 @@ enum CurSource {
 
 /// Seed `sp.cur_*` at the end of an open body.
 fn emit_cur_capture(o: &mut String, func: &FuncDef, outputs: &[String], source: CurSource) {
-    let _ = func;
+    let nullable = super::common::nullable_output_names(func);
+    assert!(
+        !(matches!(source, CurSource::Scratch) && outputs.iter().any(|o| nullable.contains(o))),
+        "{}: a composed open would cache 0 for a declined output — the shadow is written \
+         beside a transcribed store, and this path has none",
+        func.name
+    );
     for out in outputs {
-        let expr = match source {
-            CurSource::StridedArray => format!("{out}[(outNBElement - 1) * outStride]"),
-            CurSource::Scratch => format!("sc_{out}[outNBElement - 1]"),
+        let expr = if nullable.contains(out) {
+            format!("lastCur_{out}")
+        } else {
+            match source {
+                CurSource::StridedArray => format!("{out}[(outNBElement - 1) * outStride]"),
+                CurSource::Scratch => format!("sc_{out}[outNBElement - 1]"),
+            }
         };
         let _ = writeln!(o, "      sp.cur_{out} = {expr};");
     }
@@ -2384,6 +2459,113 @@ fn emit_open_and_fill_internal_wrapper(o: &mut String, func: &FuncDef, merged: b
     let _ = writeln!(o, "      sp.outRangeCount = outNBElement;");
     emit_reject_conversion(o, func, "openAndFill");
     let _ = writeln!(o, "   }}");
+}
+
+/// The PUBLIC opener's input guards. A span cannot be null — a null array
+/// converts to an empty one — so emptiness is the only absence C# can see, and
+/// it means two different things by position: the FIRST input carries the
+/// history, so empty there is rule S1, the implied `startIdx` of 0 naming no bar;
+/// any other input is then a length disagreement, which is `BadParam` like every
+/// other argument fault.
+///
+/// S1 is answered here rather than left to the core so the pair is evaluated
+/// ahead of the aliasing guard below, which would otherwise see two empty spans
+/// and name the wrong problem. `OpenInternal` is the composition seam and is
+/// reached only with generator-created arrays, so it stays unchecked.
+fn public_open_empty_guards(n: &str, verb: &str, inputs: &[String]) -> String {
+    let mut s = String::new();
+    let first = &inputs[0];
+    let _ = writeln!(
+        s,
+        "      if( {first}.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is empty\", RetCode.OutOfRangeStartIndex);"
+    );
+    let _ = writeln!(
+        s,
+        "      if( {first}.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof({first}), \"{n} {verb}: history is longer than MAX_INDEX + 1\", RetCode.OutOfRangeEndIndex);"
+    );
+    for input in &inputs[1..] {
+        let _ = writeln!(
+            s,
+            "      if( {input}.IsEmpty ) throw new TaLibArgumentException(\"{n} {verb}: {input} is empty\", nameof({input}), RetCode.BadParam);"
+        );
+    }
+    s
+}
+
+/// Rule S5's input half, the same at both openers: the history's own length IS
+/// the range, so every other declared input must AGREE with it rather than
+/// merely reach it.
+///
+/// At the plain open it is the whole of S5 — nothing is written, so there is no
+/// capacity to bound — and it belongs on this frame for the same reason the
+/// fill's does: the core makes the test, but answers it as a bare `BadParam`
+/// naming nothing, where the same fault at `OpenAndFill` named the leg (issue
+/// #271 item 1).
+fn history_length_guards(func: &FuncDef, n: &str, verb: &str) -> String {
+    let inputs = streaming::input_array_names(func);
+    let history = &inputs[0];
+    let mut s = String::new();
+    for input in &inputs[1..] {
+        let _ = writeln!(
+            s,
+            "      RequireHistoryLength(\"{n}\", \"{verb}\", \"{input}\", {input}.Length, {history}.Length);"
+        );
+    }
+    s
+}
+
+/// Rule S5 at the PUBLIC `OpenAndFill`.
+///
+/// An opener is a batch call over `[0, historyLen - 1]`, so B5's produced count
+/// collapses to `historyLen - lookback`. B5 reads its two halves in one rule,
+/// inputs first, so the input series' agreement with the history is checked here
+/// too — the core makes that test, but only after this frame would have answered,
+/// which reported a short input as an output-capacity fault.
+///
+/// `Core.OpenFillCount` floors a short history at 0 so that it reaches S7, and
+/// raises on the `-1` a rejected parameter returns so that S3 stays ahead of the
+/// buffer rules.
+/// `<N>_Lookback` does its own default substitution, so the raw parameters the
+/// frame was handed are the right ones to pass.
+///
+/// **The PUBLIC frame, never `<N>_OpenAndFillInternal`.** That seam takes an
+/// anchor and writes `historyLen - max(lookback, startIdx)` — fewer — so the
+/// same bound there would reject the composed sub-calls that pass a non-zero
+/// anchor, and would be redundant: those destinations are proved disjoint and
+/// sized by construction.
+///
+/// An output marked `nullable` is bounded only where it was supplied: declining
+/// it is legal here, exactly as in the batch tier (rule B6a).
+fn public_open_fill_capacity(func: &FuncDef, n: &str, history: &str) -> String {
+    let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+    let mut s = String::new();
+    // Rule S3 first, in the shape the buffer rules need it: `<N>_Lookback`
+    // answers `-1` for an out-of-domain parameter and `OpenFillCount` raises on
+    // it, so a bad parameter is reported as one rather than as whatever the
+    // buffer rules would have said about a call it made no sense to size.
+    let _ = writeln!(
+        s,
+        "      int guardOutLen = OpenFillCount(\"{n}\", \"openAndFill\", {history}.Length, {n}_Lookback({}));",
+        lb_args.join(", ")
+    );
+    // Then S5's input half, ahead of its output half — the order B5 states.
+    s.push_str(&history_length_guards(func, n, "openAndFill"));
+    // A `nullable` output may be declined with an empty span (rule B6a read on
+    // this tier), so its bound is conditional — the shape the batch wrapper uses.
+    let nullable = super::common::nullable_output_names(func);
+    for out in &func.outputs {
+        let guard = if nullable.contains(&out.name) {
+            format!("if( !{0}.IsEmpty ) ", out.name)
+        } else {
+            String::new()
+        };
+        let _ = writeln!(
+            s,
+            "      {guard}RequireFillLength(\"{n}\", \"openAndFill\", \"{0}\", {0}.Length, guardOutLen);",
+            out.name
+        );
+    }
+    s
 }
 
 /// `OpenInternal` (the anchored plain open), the public `<base>_Open`, and the
@@ -2507,9 +2689,10 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
          different lengths.",
     );
     d.exception(
-        "System.ArgumentException",
-        "An input series is empty — which is what a null array becomes, since a span cannot \
-         be null.",
+        "System.ArgumentOutOfRangeException",
+        "The history is empty — which is what a null array becomes, since a span cannot be \
+         null — or it is longer than <see cref=\"Core.MAX_INDEX\"/> + 1, the two index \
+         faults an opener can have (rules S1 and S2).",
     );
     o.push('\n');
     o.push_str(&d.render(3));
@@ -2519,16 +2702,8 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         in_sig.join(", ")
     );
     let _ = writeln!(o, "   {{");
-    // Public entry point: name the null rather than letting the transcribed
-    // body throw an NRE from wherever it first indexes. OpenInternal is the
-    // composition seam and is reached only with generator-created arrays, so
-    // it stays unchecked.
-    for input in &in_fwd {
-        let _ = writeln!(
-            o,
-            "      if( {input}.IsEmpty ) throw new TaLibArgumentException(\"{input} is empty\", nameof({input}), RetCode.BadParam);"
-        );
-    }
+    o.push_str(&public_open_empty_guards(&n, "open", &in_fwd));
+    o.push_str(&history_length_guards(func, &n, "open"));
     let _ = writeln!(
         o,
         "      return {base}_OpenInternal({}, 0{opt_fwd_str});",
@@ -2568,7 +2743,9 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         "Output arrays must hold <c>historyLen - {base}_Lookback(...)</c> values and must \
          not alias the inputs or each other — this path writes the outputs and then reads \
          the input tail to seed its rings, so the batch tier's in-place allowance does not \
-         carry over here."
+         carry over here. Both are checked before anything is written, so an undersized \
+         span is an <c>ArgumentException</c> naming it rather than a fault from inside \
+         the fill."
     ));
     d.para(&format!(
         "The range written is reported on the returned handle: \
@@ -2588,8 +2765,14 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         d.param(
             &out.name,
             &format!(
-                "{} Must hold at least <c>historyLen - {base}_Lookback(...)</c> values.",
-                super::csharp_doc::output_desc(out, doc)
+                "{}{} Must hold at least <c>historyLen - {base}_Lookback(...)</c> values.",
+                super::csharp_doc::output_desc(out, doc),
+                if out.is_nullable() {
+                    " Pass an empty span to decline it: the value is still computed \
+                     — the handle's <c>Value</c> reports it — and nothing is written out."
+                } else {
+                    ""
+                }
             ),
         );
     }
@@ -2601,11 +2784,14 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
     d.exception(
         "System.ArgumentException",
         "An optional parameter is outside its documented range, the input series have \
-         different lengths, or an output array aliases an input or another output.",
+         different lengths, an output is shorter than the values the fill writes, or an \
+         output array aliases an input or another output.",
     );
     d.exception(
-        "System.ArgumentException",
-        "An input series is empty, or an output overlaps an input or another output.",
+        "System.ArgumentOutOfRangeException",
+        "The history is empty — which is what a null array becomes, since a span cannot be \
+         null — or it is longer than <see cref=\"Core.MAX_INDEX\"/> + 1, the two index \
+         faults an opener can have (rules S1 and S2).",
     );
     o.push('\n');
     o.push_str(&d.render(3));
@@ -2615,16 +2801,8 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         fill_sig.join(", ")
     );
     let _ = writeln!(o, "   {{");
-    // Inputs AND outputs: the fill path writes through the caller's arrays, so
-    // a null output is as much a caller error as a null input, and the
-    // aliasing guard below would otherwise see two nulls as "equal" and answer
-    // BadParam instead of naming the argument.
-    for input in &in_fwd {
-        let _ = writeln!(
-            o,
-            "      if( {input}.IsEmpty ) throw new TaLibArgumentException(\"{input} is empty\", nameof({input}), RetCode.BadParam);"
-        );
-    }
+    o.push_str(&public_open_empty_guards(&n, "openAndFill", &in_fwd));
+    o.push_str(&public_open_fill_capacity(func, &n, &in_fwd[0]));
     if merged {
         // The guard the anchored seam deliberately omits: every composed
         // sub-call passes a destination that overlaps neither its sources nor
@@ -2802,8 +2980,8 @@ fn emit_dual_mode(
         // Identity (HMA period 1) short-circuits ahead of the predicate: the
         // whole union sits at its defaults, including the arrays only the
         // general arm touches. What keeps that arm from running is the step's
-        // own guard, hoisted ABOVE the mode predicate (the arms no longer carry
-        // it), so which arm the predicate would pick is moot.
+        // own guard, hoisted ABOVE the mode predicate, so which arm the predicate
+        // would pick is moot.
         emit_identity_fast_path(o, func, ma, &fields, registry, helpers, stream_fma, counter);
         let pred = render_predicate(&dmp.predicate, &ctx, registry, helpers);
         let _ = writeln!(o, "      if( {pred} ) {{");
@@ -2820,7 +2998,7 @@ fn emit_dual_mode(
             let mut body: Vec<Statement> = dmp.prologue.to_vec();
             body.extend_from_slice(arm.body);
             body.extend_from_slice(dmp.epilogue);
-            let open_body = build_open_body_cs(arm, &body);
+            let open_body = cleanup_open_body(&build_open_body_cs(arm, &body), registry);
             let mut s = String::new();
             emit_body_decls(&mut s, func, &open_body);
             emit_extras_and_candle(&mut s, func, &open_body, registry, helpers, counter, stream_fma);
@@ -3167,9 +3345,7 @@ fn emit_dispatch(
                             .iter()
                             .map(|slot| match slot {
                                 streaming::OutSlot::Forward(k) => outputs[*k].clone(),
-                                streaming::OutSlot::Discard => {
-                                    "new double[historyLen]".to_string()
-                                }
+                                streaming::OutSlot::Discard => "default".to_string(),
                             })
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -3608,6 +3784,35 @@ fn transform_map_step(
     rewritten.iter().flat_map(drop_forc_shells).collect()
 }
 
+/// The composed step's locals: the producer's temps, the map temps, and one
+/// `cur_` scalar per output and sub-call intermediate.
+///
+/// A `cur_` scalar is typed by what it stands for, as in C — an output's own
+/// element type, `double` for the intermediates. Sizing them all as `double`
+/// truncated an integer output on the way out.
+fn emit_composed_step_decls(
+    o: &mut String,
+    func: &FuncDef,
+    cp: &streaming::ComposedPlan,
+    cur_scalars: &[String],
+) {
+    if let Some(model) = &cp.producer {
+        for (name, ty) in &model.temps {
+            let (cty, default) = field_type_and_default(ty);
+            let _ = writeln!(o, "      {cty} {name} = {default};");
+        }
+    }
+    for (name, ty) in &cp.map_temps {
+        let (cty, default) = field_type_and_default(ty);
+        let _ = writeln!(o, "      {cty} {name} = {default};");
+    }
+    for name in cur_scalars {
+        let ty = out_cs_type(func, name);
+        let zero = if ty == "int" { "0" } else { "0.0" };
+        let _ = writeln!(o, "      {ty} cur_{name} = {zero};");
+    }
+}
+
 /// The composed `StepImpl`: producer transition (writing `cur_<series>`), then
 /// the batch-tail pipeline through the owned sub handles, combine maps per bar,
 /// lag-ring pushes, and the `sp.cur_*` output stores. No peek flag: peek is the
@@ -3629,19 +3834,7 @@ fn emit_composed_step(
     emit_step_sig(o, func);
     let cur_scalars = composed_cur_scalars(cp, inputs, outputs);
 
-    if let Some(model) = &cp.producer {
-        for (name, ty) in &model.temps {
-            let (cty, default) = field_type_and_default(ty);
-            let _ = writeln!(o, "      {cty} {name} = {default};");
-        }
-    }
-    for (name, ty) in &cp.map_temps {
-        let (cty, default) = field_type_and_default(ty);
-        let _ = writeln!(o, "      {cty} {name} = {default};");
-    }
-    for name in &cur_scalars {
-        let _ = writeln!(o, "      double cur_{name} = 0.0;");
-    }
+    emit_composed_step_decls(o, func, cp, &cur_scalars);
 
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
@@ -3801,22 +3994,16 @@ fn emit_composed_open(
     counter: &Cell<usize>,
 ) {
     // The composed fill/scratch path hardcodes double arrays (mirrors C/Rust/Java).
-    assert!(
-        func.outputs.iter().all(|out| !out_is_int(func, &out.name)),
-        "composed open assumes real (double) outputs; {} has an integer output",
-        func.name
-    );
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
 
     emit_open_body_sig(o, func, OutMode::Core);
     emit_out_meta_seed(o);
     let (region_stmts, tail_stmts) = build_composed_open_bodies(cp, outputs);
-    let combined: Vec<Statement> = region_stmts
-        .iter()
-        .cloned()
-        .chain(tail_stmts.iter().cloned())
-        .collect();
+    let combined: Vec<Statement> = cleanup_open_body(
+        &region_stmts.iter().cloned().chain(tail_stmts.iter().cloned()).collect::<Vec<_>>(),
+        registry,
+    );
     emit_body_decls(o, func, &combined);
     emit_open_head(o, func, &[]);
     emit_open_validation(o, func, OutMode::Core, enums);
@@ -3833,9 +4020,8 @@ fn emit_composed_open(
     // reported as the sub's insufficient history.
     //
     // Cost: one lookback call per OPEN, on a path that already allocates
-    // `historyLen` doubles per output; `Update` is untouched. On the rejecting
-    // path it is now cheaper, because the scratch allocations below no longer
-    // happen before the reject.
+    // `historyLen` doubles per output; `Update` is untouched. The rejecting path
+    // is cheaper for it -- the scratch allocations below never happen.
     {
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|p| p.name.clone()).collect();
@@ -3852,13 +4038,14 @@ fn emit_composed_open(
     // widen its pinned destination set on the strength of it passing here.
     let alias_fill = cp.fill_scratch_may_alias_output(outputs);
     for out in outputs {
+        let ty = out_cs_type(func, out);
         if alias_fill {
             let _ = writeln!(
                 o,
-                "      Span<double> sc_{out} = outStride == 1 ? {out} : new double[historyLen];"
+                "      Span<{ty}> sc_{out} = outStride == 1 ? {out} : new {ty}[historyLen];"
             );
         } else {
-            let _ = writeln!(o, "      Span<double> sc_{out} = new double[historyLen];");
+            let _ = writeln!(o, "      Span<{ty}> sc_{out} = new {ty}[historyLen];");
         }
     }
 
@@ -3875,6 +4062,8 @@ fn emit_composed_open(
     let ins_double_address_of = collect_double_address_of_vars(&combined, &ins_address_of);
     let ins_ctx = CsRenderCtx {
         single_precision: false,
+        nullable_outputs: &empty,
+        nullable_shadow: false,
         double_address_of_vars: &ins_double_address_of,
         float_input_params: &empty,
         inline_counter: counter,

@@ -461,13 +461,21 @@ jobs:
         shell: bash
         run: cargo test --doc -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 
-      # The Core/CoreBuilder API tests live in templates/rust/types.rs and ship
-      # inside the crate, but no job ran them: clippy --all-targets only builds
-      # the test target, and --doc skips it. They are the only gate on the Rust
-      # public-API contract (issue #144).
-      - name: Run the generated crate's unit tests
+      # This step is the ONLY thing anywhere that EXECUTES the crate's
+      # hand-written test modules (templates/rust/, copied in by `generate`):
+      # types.rs's Core/CoreBuilder API tests (#144), and the four #[cfg(test)]
+      # ones -- scratch_election (#146), stream_finite, stream_out_range (#241)
+      # and div_zero (#249). clippy --all-targets only COMPILES the test target
+      # and --doc skips it, so narrowing this step silently retires all five.
+      #
+      # `--tests`, not `--lib`: the latter excludes tests/, which is where
+      # nullable_outputs.rs (#262) lives. The generated phantom-I/O sweep was
+      # there too until #265 moved it in-crate to probe `<N>_Impl`; `--tests`
+      # still covers it, because it selects the lib's own unittest binary as
+      # well.
+      - name: Run the generated crate's unit and integration tests
         shell: bash
-        run: cargo test --lib -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
+        run: cargo test --tests -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 
   # Bit-exact regression gate vs the last release (v0.6.4): diff every function
   # at period>=2, fail on any real divergence. C-only, gated on 'test'.

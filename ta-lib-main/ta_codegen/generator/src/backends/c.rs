@@ -380,6 +380,10 @@ pub fn generate(
         })
         .collect();
     let _circbuf_order = CircBufOrderGuard::new(circbuf_order, idx_unused);
+    // Names this function for every `TA_INTERNAL_ERROR(<id>)` the emitters below
+    // ask the ledger for -- the batch bodies, the TA_S_ bodies and, through the
+    // call at the end, the whole streaming section.
+    let _site_scope = crate::internal_error_ids::FuncScope::new(&func.name);
 
     let mut out = String::new();
     out.push_str(&gen_header());
@@ -830,12 +834,7 @@ fn gen_func_inner(
     // fusion decision (never float operands), so one seed set is used uniformly
     // across variants.
     let fma_sets = fma::build_fma_var_sets(body, &func.outputs, &fma::INDEX_PARAM_SEEDS);
-    let nullable_outputs: Vec<String> = func
-        .outputs
-        .iter()
-        .filter(|o| o.is_nullable())
-        .map(|o| o.name.clone())
-        .collect();
+    let nullable_outputs: Vec<String> = super::common::nullable_output_list(func);
     let ctx = &CRenderCtx {
         single_precision,
         inline_counter: &inline_counter,
@@ -881,14 +880,22 @@ fn gen_func_inner(
         out.push_str("      return TA_OUT_OF_RANGE_END_INDEX;\n");
         out.push('\n');
 
+        // Optional parameter validation (default + range). Ahead of every
+        // argument-presence check: a parameter domain is language-neutral, an
+        // absent argument is not (Rust slices and C# spans cannot be absent), so
+        // putting the shared rule first is what lets all four backends agree on
+        // which condition a multi-fault call reports.
+        out.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
+
         // Input array NULL checks
         for input in &func.inputs {
             out.push_str(&format!("   if( !{} )\n", input.name));
             out.push_str("      return TA_BAD_PARAM;\n");
         }
 
-        // Optional parameter validation (default + range)
-        out.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
+        // The range out-parameters are required arguments like any other.
+        out.push_str("   if( !outBegIdx || !outNBElement )\n");
+        out.push_str("      return TA_BAD_PARAM;\n");
 
         // Output array NULL checks. A nullable output may legitimately be NULL
         // ("compute but don't write it" — see `Output::is_nullable`), so it is
@@ -905,12 +912,22 @@ fn gen_func_inner(
         // output in-place aliasing is deliberately left allowed. See issue #108.
         // A nullable operand is guarded non-NULL first (a dropped output aliases
         // nothing; two NULLs would otherwise compare equal and spuriously reject).
+        //
+        // Cross-typed pairs are skipped, as the C# emitter has always skipped
+        // them: comparing a `double *` with an `int *` is a constraint violation
+        // (`-Wcompare-distinct-pointer-types`), and the same pair is a compile
+        // error in Java and Rust and unreachable in safe code in both. The rule
+        // is set by the weakest member that can express it — Appendix E of
+        // docs/error-handling-spec.md, #262.
         if func.outputs.len() >= 2 {
             let mut pairs: Vec<String> = Vec::new();
             for i in 0..func.outputs.len() {
                 for j in (i + 1)..func.outputs.len() {
                     let a = &func.outputs[i];
                     let b = &func.outputs[j];
+                    if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
+                        continue;
+                    }
                     let mut guard = String::new();
                     if a.is_nullable() {
                         guard.push_str(&format!("{} != NULL && ", a.name));
@@ -921,8 +938,21 @@ fn gen_func_inner(
                     pairs.push(format!("{guard}{} == {}", a.name, b.name));
                 }
             }
-            out.push_str(&format!("   if( {} )\n", pairs.join(" || ")));
-            out.push_str("      return TA_BAD_PARAM;\n");
+            // More than one pair, and a guarded term carries `&&`: parenthesise
+            // it so the `&&` cannot read as binding across the `||` that joins
+            // the pairs, and `-Wparentheses` stays quiet. Single-pair functions
+            // (MAMA) keep the bare form.
+            if pairs.len() > 1 {
+                for p in &mut pairs {
+                    if p.contains(" && ") {
+                        *p = format!("({p})");
+                    }
+                }
+            }
+            if !pairs.is_empty() {
+                out.push_str(&format!("   if( {} )\n", pairs.join(" || ")));
+                out.push_str("      return TA_BAD_PARAM;\n");
+            }
         }
         out.push('\n');
     }
@@ -1269,7 +1299,8 @@ impl StatementEmitter for CStmt<'_> {
                 let et0 = c_type_name(first_t);
                 let mut s = String::new();
                 s.push_str(&format!(
-                    "{pad}if( {sz} < 1 ) return TA_INTERNAL_ERROR(137);\n"
+                    "{pad}if( {sz} < 1 ) return TA_INTERNAL_ERROR({eid});\n",
+                    eid = crate::internal_error_ids::site(&format!("circbuf.{id}"))
                 ));
                 s.push_str(&format!(
                     "{pad}if( (int){sz} > (int)(sizeof(local_{first})/sizeof({et0})) )\n{pad}{{\n"

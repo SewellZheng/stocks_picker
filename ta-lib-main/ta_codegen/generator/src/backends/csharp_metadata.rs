@@ -62,7 +62,8 @@ const EMITTED: &[&str] = &[
 ];
 
 /// Generate the whole `TALib.Metadata` namespace into `dir`
-/// (`.../csharp/library/src/metadata`).
+/// (`.../csharp/library/src/metadata`), plus the phantom-I/O probe's binder
+/// into the test project.
 #[allow(clippy::implicit_hasher)]
 pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, dir: &Path) {
     std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("creating {}: {e}", dir.display()));
@@ -85,6 +86,141 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, dir: &Path)
     write(dir, "FunctionDescription.g.cs", &function_description(funcs));
 
     println!("  C# metadata registry -> {} ({} functions)", dir.display(), rows.len());
+
+    // The phantom-I/O probe's `<N>_Impl` binder, into the TEST project (#265).
+    // Not shipped, so it does not shape the public API the way the catalogue's
+    // own thunk did; generated rather than hand-written, because reflection
+    // cannot pass a `ReadOnlySpan<double>` and a table of 176 call sites kept by
+    // hand cannot track a corpus that changes -- `scripts/synth_gate.py` adds
+    // eleven functions and the suite went red on all of them.
+    let test_dir = dir
+        .parent()
+        .and_then(Path::parent)
+        .expect("metadata dir sits under csharp/library/src")
+        .join("test");
+    std::fs::create_dir_all(&test_dir)
+        .unwrap_or_else(|e| panic!("creating {}: {e}", test_dir.display()));
+    super::write_if_changed_silent(
+        &test_dir.join("NoPhantomIoBinder.g.cs"),
+        &phantom_io_binder(&rows, &by_name),
+    );
+    println!("  C# phantom-I/O binder -> {} ({} functions)", test_dir.display(), rows.len());
+}
+
+/// The phantom-I/O probe's own binder: one `<N>_Impl` call site per function.
+///
+/// **Why the probe needs one at all.** Its subject is what a *body* touches, so
+/// it must reach the numerics tier — and it must do so without borrowing the
+/// shipped metadata API's call path, or a test's reach decides which tier that
+/// API calls (#265).
+///
+/// **Why it cannot use reflection.** A generated `<N>_Impl` takes
+/// `ReadOnlySpan<double>` and `Span<double>`; a ref struct cannot be boxed, so
+/// `MethodInfo.Invoke` cannot pass one. Java's probe discovers its corpus by
+/// reflection and Rust's is generated; C#'s has to be written out.
+///
+/// **Why generated rather than hand-written.** The corpus is not fixed —
+/// `scripts/synth_gate.py` swaps the `SYNTH*` fixtures into `ta_codegen/input/`
+/// and regenerates — so a hand-kept table covers none of them and fails the
+/// probe's own completeness check. Emitting it makes `regen-check` what keeps
+/// the corpus complete, the same argument `rust_phantom_io` makes for the Rust
+/// sweep.
+///
+/// It lands in the TEST project, not `src/`, so it is not shipped and cannot
+/// shape the public API.
+fn phantom_io_binder(rows: &[FuncRow], by_name: &HashMap<&str, &FuncDef>) -> String {
+    let mut s = header();
+    s.push_str(
+        r#"
+using System;
+using System.Collections.Generic;
+using TALib;
+using TALib.Metadata;
+
+namespace TALib.Test;
+
+/// <summary>
+/// <c>NoPhantomIoTest</c>'s own binder: one call site per function, each naming
+/// <c>NAME_Impl</c> — the transcribed numerics and nothing above them.
+/// </summary>
+/// <remarks>
+/// <para>The probe's subject is what a <i>body</i> touches, so it names the
+/// body — and it brings its own call site rather than borrowing
+/// <see cref="FunctionCall.TryInvoke"/>, whose thunks call the public entry
+/// point like C's frames and Java's Dispatch. Sharing one would make a test's
+/// reach decide which tier the shipped metadata API calls (issue #265).</para>
+///
+/// <para>Reflection cannot substitute: a generated <c>NAME_Impl</c> takes
+/// <c>ReadOnlySpan&lt;double&gt;</c>, and a ref struct cannot be boxed for
+/// <c>MethodInfo.Invoke</c>. Buffers and parameters still come from
+/// <see cref="FunctionCall"/> — the probe binds them through the public setters
+/// and reads them back through the same internal accessors the catalogue's
+/// thunks use. Only the call itself is local.</para>
+/// </remarks>
+internal static class NoPhantomIoBinder
+{
+    /// <summary>What one numerics call produced: the code and the range.</summary>
+    /// <remarks>The probe's own, because the numerics tier answers a code and the
+    /// shipped <see cref="InvokeThunk"/> does not — its thunks call the public
+    /// overload, which throws.</remarks>
+    internal readonly record struct CallOutcome(RetCode Code, int BegIdx, int Count);
+
+    internal delegate CallOutcome Thunk(Core core, FunctionCall c, int startIdx, int endIdx);
+
+    /// <summary>Runs one function's numerics over the bound buffers.</summary>
+    /// <remarks>Reports failure as a code, like
+    /// <see cref="FunctionCall.TryInvoke"/> and for the same reason: a composed
+    /// body cross-calls its callee's PUBLIC tier, and that throws. Converting it
+    /// here keeps the sweeps reading one thing. Anything that is not the
+    /// library's own failure is left to propagate — the sweeps classify it.
+    /// <para>No boundness check: the sweeps bind every input and output before
+    /// calling, and an unbound slot faulting is a fixture bug the sweeps should
+    /// see rather than a code they should read.</para></remarks>
+    internal static RetCode Invoke(string name, Core core, FunctionCall call,
+                                   int startIdx, int endIdx, out OutRange range)
+    {
+        try
+        {
+            CallOutcome outcome = Thunks[name](core, call, startIdx, endIdx);
+            range = new OutRange(outcome.BegIdx, outcome.Count);
+            return outcome.Code;
+        }
+        catch (Exception e) when (e is ITaLibFailure f)
+        {
+            range = new OutRange(0, 0);
+            return f.RetCode;
+        }
+    }
+
+    /// <summary>One thunk per catalogued function, by name.</summary>
+    internal static readonly Dictionary<string, Thunk> Thunks = new(StringComparer.Ordinal)
+    {
+"#,
+    );
+
+    for r in rows {
+        let def = by_name[r.name.as_str()];
+        let mut args: Vec<String> = vec!["startIdx".into(), "endIdx".into()];
+        args.extend(input_arg_exprs(r));
+        args.extend(opt_arg_exprs(def));
+        args.push("out int b".into());
+        args.push("out int n".into());
+        for (k, out) in r.outputs.iter().enumerate() {
+            args.push(match out.kind {
+                OutputKind::Real => format!("c.RealOut({k})"),
+                OutputKind::Integer => format!("c.IntOut({k})"),
+            });
+        }
+        let _ = writeln!(s, "        [\"{}\"] = static (core, c, startIdx, endIdx) =>", r.name);
+        s.push_str("        {\n");
+        let _ = writeln!(s, "            RetCode rc = core.{}_Impl(", r.name);
+        let _ = writeln!(s, "                {});", args.join(", "));
+        s.push_str("            return new CallOutcome(rc, b, n);\n");
+        s.push_str("        },\n");
+    }
+
+    s.push_str("    };\n}\n");
+    s
 }
 
 fn write(dir: &Path, name: &str, body: &str) {
@@ -389,6 +525,12 @@ fn model() -> String {
     s
 }
 
+/// `FunctionCall.g.cs`'s text, without writing it — so a test can assert on the
+/// emitted binder.
+pub fn render_function_call() -> String {
+    function_call()
+}
+
 fn function_call() -> String {
     let mut s = header();
     s.push_str(FUNCTION_CALL);
@@ -687,30 +829,31 @@ fn emit_factory(s: &mut String, r: &FuncRow, by_name: &HashMap<&str, &FuncDef>) 
     let mut call_args: Vec<String> = vec!["startIdx".into(), "endIdx".into()];
     call_args.extend(input_arg_exprs(r));
     call_args.extend(opt_args);
-    call_args.push("out int b".into());
-    call_args.push("out int n".into());
     for (k, out) in r.outputs.iter().enumerate() {
         call_args.push(match out.kind {
             OutputKind::Real => format!("c.RealOut({k})"),
             OutputKind::Integer => format!("c.IntOut({k})"),
         });
     }
-    // The BODY. This bound the C-shaped overload until #236 step 5 deleted that
-    // tier, and the body is what that overload called -- so the binder reaches
-    // the same code, UNGUARDED, exactly as before. Deliberately not the public
-    // overload: `NoPhantomIoTest` drives functions through this binder, and the
-    // public tier's length checks would reject its undersized arrays before the
-    // body could touch them, which is the one thing that probe must not measure.
+    // The PUBLIC overload (#265), which is what C's frames and Java's Dispatch
+    // have always called. It bound the body until then, so this tier did no
+    // argument checking at all and a leg shorter than the range reached the
+    // numerics: an `IndexOutOfRangeException` escaping `TryInvoke`, whose
+    // documented contract is a code and not an exception.
     //
-    // What the deleted shim did still has to happen: since step 3 a cross-call
-    // inside the body calls the PUBLIC callee and a rejection arrives as a
-    // throw. `FunctionCall.TryInvoke` -- whose contract is a code, not an
-    // exception -- converts it in that one place rather than in 174 thunks.
-    s.push_str("        invoke: static (core, c, startIdx, endIdx) =>\n        {\n");
-    let _ = writeln!(s, "            RetCode rc = core.{method}_Impl(");
-    let _ = writeln!(s, "                {});", call_args.join(", "));
-    s.push_str("            return new CallOutcome(rc, b, n);\n");
-    s.push_str("        });\n\n");
+    // It bound the body for a reason, and the reason was a test: `NoPhantomIoTest`
+    // drove functions through this binder, so the public tier's length checks
+    // would have rejected its undersized arrays before the body could touch
+    // them. That probe brings its own `NAME_Impl` binder now, which is what
+    // freed this one.
+    //
+    // The public overload returns `OutRange` and throws, so the code comes back
+    // through `FunctionCall.TryInvoke`'s `ITaLibFailure` catch -- the same one
+    // that already converted a composed body's cross-call rejection since #236
+    // step 3, now on the direct path too.
+    s.push_str("        invoke: static (core, c, startIdx, endIdx) =>\n");
+    let _ = writeln!(s, "            core.{method}(");
+    let _ = writeln!(s, "                {}));\n", call_args.join(", "));
 }
 
 /// The argument expressions for a function's required inputs. A price bundle is
@@ -765,11 +908,10 @@ fn emit_list(s: &mut String, label: &str, items: &[String]) {
 
 /// `TA_FunctionDescriptionXML`'s analog, carrying the real XML.
 ///
-/// The server used to answer the XML RPC with a `(length, checksum)` pair baked
-/// at generation time. `test_abstract.c` compares those numbers against C's
-/// actual bytes — but a constant the generator computed from the same string
-/// C's own table is built from is the generator agreeing with itself, and could
-/// not fail. C# now ships the XML the way Rust does (#164).
+/// Ships the real XML, never a `(length, checksum)` pair baked at generation
+/// time: `test_abstract.c` compares it against C's actual bytes, and a constant
+/// the generator computed from the same string C's own table is built from is
+/// the generator agreeing with itself — a gate that cannot fail (#164).
 ///
 /// A verbatim literal: the XML is ASCII with no backslashes, so only `"` needs
 /// doubling, and C# has no per-literal size limit to work around.
@@ -926,17 +1068,15 @@ using System.Linq;
 
 namespace TALib.Metadata;
 
-/// <summary>What one dynamic call produced.</summary>
-/// <param name="Code">The function's return code.</param>
-/// <param name="BegIdx">Input index of the first output value.</param>
-/// <param name="Count">How many values were written.</param>
-internal readonly record struct CallOutcome(RetCode Code, int BegIdx, int Count);
-
 /// <summary>Computes a function's lookback from a bound call.</summary>
 internal delegate int LookbackThunk(Core core, FunctionCall call);
 
 /// <summary>Runs a function from a bound call.</summary>
-internal delegate CallOutcome InvokeThunk(Core core, FunctionCall call, int startIdx, int endIdx);
+/// <remarks>The thunk calls the function's public overload, so a rejection
+/// arrives as an exception and the range is all that comes back;
+/// <see cref="FunctionCall.TryInvoke"/> turns the exception into the code it
+/// promises (#265).</remarks>
+internal delegate OutRange InvokeThunk(Core core, FunctionCall call, int startIdx, int endIdx);
 
 /// <summary>One entry of a named choice list.</summary>
 public sealed record NamedValue
@@ -1452,13 +1592,13 @@ public sealed class FunctionCall
     /// <exception cref="ArgumentException">The slot is not a price input.</exception>
     /// <remarks>A component the function does not consume is accepted and ignored,
     /// matching C's <c>TA_SetInputParamPricePtr</c> (whose <c>SET_PARAM_INFO</c>
-    /// stores only the flagged components) and Java's <c>ParamHolder</c>. This
-    /// used to throw. It reads like the stricter, safer choice and is not: no
+    /// stores only the flagged components) and Java's <c>ParamHolder</c>. Do not
+    /// make it throw: that reads like the stricter, safer choice and is not — no
     /// function in the catalogue consumes <see cref="PriceComponents.OpenInterest"/>,
-    /// so the natural generic call — hand the binder a whole OHLCV bundle and let
-    /// it take what it needs — threw for every price function here while working
-    /// against C and Java. Rejecting a MISSING required component is the check
-    /// that earns its keep, and all three backends still do it.</remarks>
+    /// so the natural generic call (hand the binder a whole OHLCV bundle and let
+    /// it take what it needs) would throw for every price function here while
+    /// working against C and Java. Rejecting a MISSING required component is the
+    /// check that earns its keep, and all three backends do it.</remarks>
     public FunctionCall SetPriceInput(int slot, PriceComponents component, double[] series)
     {
         InputInfo info = CheckInput(slot, InputKind.Price);
@@ -1479,6 +1619,11 @@ public sealed class FunctionCall
     /// <exception cref="ArgumentException">A consumed component was not supplied.
     /// A component the function ignores is accepted — see the single-component
     /// overload's remarks.</exception>
+    /// <remarks>Validates every consumed component before writing any of them, so
+    /// a rejection leaves this call exactly as it found it (issue #266).
+    /// Interleaved, it committed the components ahead of the offending one, and a
+    /// caller re-binding an already-good bundle then got <c>Success</c> over a
+    /// mixture of the two — no code, no exception, wrong numbers.</remarks>
     public FunctionCall SetPriceInput(int slot, double[]? open = null, double[]? high = null,
                                       double[]? low = null, double[]? close = null,
                                       double[]? volume = null, double[]? openInterest = null)
@@ -1493,15 +1638,17 @@ public sealed class FunctionCall
 
         for (int i = 0; i < all.Length; i++)
         {
-            bool required = info.Requires(all[i]);
-            if (required && given[i] is null)
+            if (info.Requires(all[i]) && given[i] is null)
             {
                 throw new ArgumentException(
                     $"{_info.Name} input {slot} ({info.ParamName}) requires {all[i]}", nameof(slot));
             }
+        }
 
-            /* An unconsumed component is stored and ignored -- see the remark on
-               the single-component overload. */
+        /* An unconsumed component is stored and ignored -- see the remark on the
+           single-component overload. */
+        for (int i = 0; i < all.Length; i++)
+        {
             _price[slot][i] = given[i];
         }
 
@@ -1751,13 +1898,13 @@ public sealed class FunctionCall
             throw new ArgumentException($"{_info.Name}: {which} was not set");
         }
 
-        RetCode rc = TryInvoke(startIdx, endIdx, out OutRange range);
-        if (rc != RetCode.Success)
-        {
-            throw new ArgumentException($"{_info.Name} failed: {rc}");
-        }
-
-        return range;
+        // The function's OWN exception, not a relabelled code. Since #265 the
+        // thunk calls the public overload, whose message names the buffer and
+        // both sizes and whose type carries the RetCode; going through
+        // TryInvoke flattened that to "SMA failed: BadParam". TryInvoke exists
+        // to hand back a code; this method's contract is the exception, so it
+        // should be the real one -- which is what Java's ParamHolder.call does.
+        return _info.Invoke(_core, this, startIdx, endIdx);
     }
 
     /// <summary>Runs the function, reporting failure as a code rather than an
@@ -1778,33 +1925,24 @@ public sealed class FunctionCall
             return bound;
         }
 
-        CallOutcome outcome;
         try
         {
-            outcome = _info.Invoke(_core, this, startIdx, endIdx);
+            range = _info.Invoke(_core, this, startIdx, endIdx);
+            return RetCode.Success;
         }
         catch (Exception _e) when (_e is ITaLibFailure)
         {
-            // Reachable only through a COMPOSED function. The thunk calls the
-            // body, which answers a code and does not throw; but a composed
-            // body cross-calls its callee's PUBLIC tier -- `OutRange _xr0 =
-            // MA(startIdx, endIdx, ...)` in APO -- and that throws. This
-            // method's contract is a code, so it converts here, once, rather
-            // than in every thunk. Only the library's own failure is
-            // converted; anything else is not ours to relabel.
-            //
-            // So this catch is coupled to the #236 step 3 debt: it is live
-            // only while composed bodies call the public callee, which is the
-            // same mechanism that put ten cores in NoPhantomIoTest's
-            // CROSS_CALL_GUARDED list. If that debt is ever paid down by
-            // routing cross-calls to `_Impl`, this goes dead and TryInvoke
-            // silently stops converting anything -- delete it in that change,
-            // do not leave it standing as reassurance.
+            // The one conversion point. Since #265 the thunk calls the function's
+            // PUBLIC overload, like C's frames and Java's Dispatch, so every
+            // rejection this method reports -- a bad parameter, a range out of
+            // bounds, a buffer too short -- arrives here as a throw. It also
+            // still catches what it was written for: a composed body cross-calls
+            // its callee's public tier, `OutRange _xr0 = MA(startIdx, endIdx,
+            // ...)` in APO, and that throws too. Only the library's own failure
+            // is converted; anything else is not ours to relabel.
             range = new OutRange(0, 0);
             return ((ITaLibFailure)_e).RetCode;
         }
-        range = new OutRange(outcome.BegIdx, outcome.Count);
-        return outcome.Code;
     }
 
     /* Accessors used by the generated thunks. Every one is reached only after

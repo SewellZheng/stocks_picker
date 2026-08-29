@@ -122,9 +122,10 @@ inside `open`. `OpenAndFill` keeps the discarded output:
 It is a **separate** entry point; `open` is byte-for-byte unchanged. The signature is
 `open`'s input head followed by `batch`'s output tail — one array per output plus
 `outBegIdx`/`outNBElement` (both required). There is no `startIdx`: pinning bar 0 is
-exactly what makes the fill bit-exact (see *Semantic definition*). Because the fill
-writes the outputs and *then* reads the input tail to seed the ring, the output arrays
-must not alias the input or each other (the batch-tier aliasing rule, #108).
+exactly what makes the fill bit-exact (see *Semantic definition*). The output arrays must not alias the input or each other
+(rule S6) — not because the fill would compute the wrong answer, which it does not,
+but because the margin between its writes and the ring seeds' reads of the input tail
+is an accident of each body's arithmetic that nothing asserts.
 
 Rejection is `open`'s, not `batch`'s: too-short history returns
 `TA_INSUFFICIENT_HISTORY` and produces no handle (a handle needs a defined value, so
@@ -193,8 +194,8 @@ one at a time.
 
 The alternative was to read the `n` bars as an input *array* — never scanned,
 `count += n` unconditionally, marginally faster. It was rejected because the two
-reasons the warm-up scan was deleted (`docs/error-handling-spec.md` footnote
-[17]) both stop applying here. That scan was an extra pass over caller memory;
+reasons the warm-up scan was deleted (`docs/error-handling-spec.md`, the
+withdrawn rule S8) both stop applying here. That scan was an extra pass over caller memory;
 this check is a comparison on a value the loop has already loaded to step on.
 And a partial fill was unacceptable in `OpenAndFill` because it leaves no handle
 and a half-written array with nothing to describe it, where here it leaves `k`
@@ -380,16 +381,11 @@ TA_LIB_API TA_RetCode TA_StreamOutRange( const void *stream,
                                          int        *outNBElement );
 ```
 
-**Error model.** `Open` returns `TA_INSUFFICIENT_HISTORY` (`historyLen <
-min_history`, so no value exists yet), `TA_BAD_PARAM` (param out of range) or
-`TA_ALLOC_ERR`; `*stream` is NULL on any failure. The history itself is an input array and is not
-scanned — see the non-finite bullet above.
-`Update`/`Peek` return `TA_BAD_PARAM` on NULL arguments and on a non-finite bar
-value, leaving the handle untouched in the latter case. `UpdateAndFill` adds a
-negative `barCount` and an output aliasing an input or another output to that
-list, all three checked before any bar is committed; a non-finite bar `k` is
-rejected mid-run and commits `[0, k)`. `barCount == 0` is a success that does
-nothing. `Close(NULL)` is a no-op returning `TA_SUCCESS`.
+**Error model.** `docs/error-handling-spec.md` §2.3–2.5 specifies it, rule by
+rule and backend by backend. Two properties belong here instead, being shapes of
+this API rather than rules about a fault: `*stream` is NULL on every `Open`
+failure, and the warm-up history is an input array, so it is never scanned — see
+the non-finite bullet above.
 
 **Shapes.** Multi-input functions take the price scalars in batch order
 (`TA_CDLDOJI_Update(s, open, high, low, close, &outInteger)`).
@@ -441,8 +437,11 @@ OutRange r = s2.outRange();                      // bars produced so far, on the
 - Open rejections are unchecked exceptions: `InsufficientHistoryException`
   (an `IllegalArgumentException` subclass — the one routine, data-dependent
   condition, catchable separately) for `historyLen < lookback + 1`, plain
-  `IllegalArgumentException` for out-of-range parameters and `OpenAndFill`
-  aliasing, `IllegalStateException` for capture invariants. Messages carry the
+  `IllegalArgumentException` for out-of-range parameters, an absent argument, an
+  input series that is not the history's length, an `OpenAndFill` output too
+  short for the fill, and `OpenAndFill` aliasing; `IllegalStateException` for
+  capture invariants. An empty history and one past `MAX_INDEX + 1` are the two
+  index faults, and carry the range codes (`docs/error-handling-spec.md` §2.3). Messages carry the
   stable prefix `"<NAME> open:"`. Post-open, `update`/`peek` throw only
   `IllegalArgumentException` on a non-finite bar (prefix `"<NAME> update:"` /
   `"<NAME> peek:"`), leaving the handle untouched.
@@ -787,10 +786,13 @@ Structural notes:
 
 ### Verification
 
-**Bit-identical comparison cannot ride the existing JSON path** — the C server
-emits `%.15g`, .NET emits `G15` (doubles need 17 significant digits to
-round-trip), inputs are sent at `%.15g`, and the comparator is epsilon-based.
-Changing those shared formatters would perturb every existing comparison.
+**Bit-identical comparison cannot ride the existing JSON path** — inputs are
+sent at `%.15g` and the comparator is epsilon-based, so the two sides compute
+on subtly different numbers. (At the time this was written the outputs were
+lossy too — the C server emitted `%.15g`, .NET `G15`, and doubles need 17
+significant digits to round-trip. That half is closed: every server writes
+hex-of-IEEE-bits for a real output array since #257/#258. The input half, and
+the epsilon comparator, are unchanged, so the conclusion below still holds.)
 Instead (implemented, riding the fuzz-064 seed-in idea one step further):
 
 - `stream_verify(funcName, params, gen_shape/seed/n, unstablePeriod,
@@ -921,8 +923,9 @@ claim in *Motivation* gets measured, not asserted).
    (2026-07-10)**; the rest of the family is in progress. Composition goes
    through the PUBLIC stream handles, not cross-TU internals:
    - **`TA_MA_Stream` (DONE, 132 streamable).** The analyzer recognizes the
-     dispatch body shape (identity path + switch over an enum optional param
-     whose arms delegate the whole range) and the emitter renders a tagged
+     dispatch body shape (an optional leading "nothing to produce" guard, the
+     identity path, and a switch over an enum optional param whose arms
+     delegate the whole range) and the emitter renders a tagged
      handle over the callees' public streams. The supported-arm set is
      DERIVED from the callees' YAML stream flags at generation time —
      TRIMA's arm joins automatically the moment its stream lands; MAMA's

@@ -66,7 +66,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLTAKURI`]: the number of leading input values consumed before
     /// the first output value can be produced.
-    pub fn CDLTAKURI_Lookback(&self) -> usize {
+    pub fn CDLTAKURI_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type as i32;
         #[allow(non_snake_case)]
@@ -85,10 +85,11 @@ impl Core {
         let ShadowVeryShort_avgPeriod: i32 = self.candle_settings.shadow_very_short.avg_period;
         #[allow(non_snake_case)]
         let ShadowVeryShort_factor: f64 = self.candle_settings.shadow_very_short.factor;
-        return (((BodyDoji_avgPeriod).max(ShadowVeryShort_avgPeriod)).max(ShadowVeryLong_avgPeriod)) as usize;
+        return Ok((((BodyDoji_avgPeriod).max(ShadowVeryShort_avgPeriod)).max(ShadowVeryLong_avgPeriod)) as usize);
     }
     /// C-shaped body behind [`Core::CDLTAKURI`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn CDLTAKURI_Impl(
         &self,
         startIdx: usize,
@@ -107,7 +108,7 @@ impl Core {
         if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        let _assertLb = self.CDLTAKURI_Lookback();
+        let _assertLb = self.CDLTAKURI_Lookback().unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
@@ -144,7 +145,7 @@ impl Core {
         let ShadowVeryShort_factor: f64 = self.candle_settings.shadow_very_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLTAKURI_Lookback();
+        lookbackTotal = self.CDLTAKURI_Lookback().unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -379,11 +380,9 @@ impl Core {
     /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -425,6 +424,30 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLTAKURI_Lookback()?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inOpen.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.CDLTAKURI_Impl(
@@ -456,7 +479,12 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLTAKURI_Stream")]
 pub struct CDLTAKURI_Stream {
-    core: Core,
+    /// The `BodyDoji` setting this stream was opened with.
+    cs_body_doji: CandleSetting,
+    /// The `ShadowVeryLong` setting this stream was opened with.
+    cs_shadow_very_long: CandleSetting,
+    /// The `ShadowVeryShort` setting this stream was opened with.
+    cs_shadow_very_short: CandleSetting,
     state: CDLTAKURI_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -467,7 +495,9 @@ impl CDLTAKURI_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `CDLTAKURI_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
+        self.cs_body_doji = src.cs_body_doji;
+        self.cs_shadow_very_long = src.cs_shadow_very_long;
+        self.cs_shadow_very_short = src.cs_shadow_very_short;
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -517,25 +547,25 @@ impl CDLTAKURI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn CDLTAKURI_step_impl(&self, sp: &mut CDLTAKURI_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
+    fn CDLTAKURI_step_impl(sp: &mut CDLTAKURI_StreamState, cs_body_doji: &CandleSetting, cs_shadow_very_long: &CandleSetting, cs_shadow_very_short: &CandleSetting, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         #[allow(non_snake_case)]
-        let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type as i32;
+        let BodyDoji_rangeType: i32 = cs_body_doji.range_type as i32;
         #[allow(non_snake_case)]
-        let BodyDoji_avgPeriod: i32 = self.candle_settings.body_doji.avg_period;
+        let BodyDoji_avgPeriod: i32 = cs_body_doji.avg_period;
         #[allow(non_snake_case)]
-        let BodyDoji_factor: f64 = self.candle_settings.body_doji.factor;
+        let BodyDoji_factor: f64 = cs_body_doji.factor;
         #[allow(non_snake_case)]
-        let ShadowVeryLong_rangeType: i32 = self.candle_settings.shadow_very_long.range_type as i32;
+        let ShadowVeryLong_rangeType: i32 = cs_shadow_very_long.range_type as i32;
         #[allow(non_snake_case)]
-        let ShadowVeryLong_avgPeriod: i32 = self.candle_settings.shadow_very_long.avg_period;
+        let ShadowVeryLong_avgPeriod: i32 = cs_shadow_very_long.avg_period;
         #[allow(non_snake_case)]
-        let ShadowVeryLong_factor: f64 = self.candle_settings.shadow_very_long.factor;
+        let ShadowVeryLong_factor: f64 = cs_shadow_very_long.factor;
         #[allow(non_snake_case)]
-        let ShadowVeryShort_rangeType: i32 = self.candle_settings.shadow_very_short.range_type as i32;
+        let ShadowVeryShort_rangeType: i32 = cs_shadow_very_short.range_type as i32;
         #[allow(non_snake_case)]
-        let ShadowVeryShort_avgPeriod: i32 = self.candle_settings.shadow_very_short.avg_period;
+        let ShadowVeryShort_avgPeriod: i32 = cs_shadow_very_short.avg_period;
         #[allow(non_snake_case)]
-        let ShadowVeryShort_factor: f64 = self.candle_settings.shadow_very_short.factor;
+        let ShadowVeryShort_factor: f64 = cs_shadow_very_short.factor;
         if sp.ringCap_BodyDojiTrailingIdx == 0 {
             let mut _candlerange_0: f64;
             match BodyDoji_rangeType {
@@ -712,11 +742,14 @@ impl Core {
     pub(crate) fn CDLTAKURI_OpenImpl(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDLTAKURI_Stream, RetCode> {
-        if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
-            return Err(RetCode::BadParam);
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
+        }
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
         let endIdx: usize = historyLen - 1;
@@ -757,7 +790,7 @@ impl Core {
         let ShadowVeryShort_factor: f64 = self.candle_settings.shadow_very_short.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLTAKURI_Lookback();
+        lookbackTotal = self.CDLTAKURI_Lookback()?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -1012,7 +1045,7 @@ impl Core {
             ringCap_ShadowVeryShortTrailingIdx: cap_ShadowVeryShortTrailingIdx as usize,
             ring_ShadowVeryShortTrailingIdx_derived,
         };
-        Ok(CDLTAKURI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(CDLTAKURI_Stream { cs_body_doji: self.candle_settings.body_doji, cs_shadow_very_long: self.candle_settings.shadow_very_long, cs_shadow_very_short: self.candle_settings.shadow_very_short, state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::CDLTAKURI_Open`] (composition seam).
@@ -1033,8 +1066,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1064,12 +1098,32 @@ impl Core {
 
     /// [`Core::CDLTAKURI_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::CDLTAKURI`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::CDLTAKURI_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_CDLTAKURI_OpenAndFill")]
     pub fn CDLTAKURI_OpenAndFill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32],
     ) -> Result<(CDLTAKURI_Stream, OutRange), RetCode> {
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inOpen.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLTAKURI_Lookback()?;
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inOpen.len().saturating_sub(_guardLb);
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.CDLTAKURI_OpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outInteger)?;
@@ -1114,7 +1168,7 @@ impl CDLTAKURI_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.CDLTAKURI_step_impl(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
+        Core::CDLTAKURI_step_impl(&mut self.state, &self.cs_body_doji, &self.cs_shadow_very_long, &self.cs_shadow_very_short, inOpen, inHigh, inLow, inClose, &mut outInteger);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1147,7 +1201,7 @@ impl CDLTAKURI_Stream {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.CDLTAKURI_step_impl(&mut self.state, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
+            Core::CDLTAKURI_step_impl(&mut self.state, &self.cs_body_doji, &self.cs_shadow_very_long, &self.cs_shadow_very_short, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

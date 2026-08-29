@@ -58,6 +58,9 @@
  *                from the wrong bar (TR-buffer-relative index).
  *  070626 MF,CC  Speed optimization: True Range computed inline in a
  *                single pass (bit-exact, no temporary buffer).
+ *  082326 MF,CC  Fix #253. Test the close exactly instead of against the fixed
+ *                TA_IS_ZERO band, which zeroed the output for any instrument
+ *                quoted small enough to fall under it.
  */
 
 TA_LIB_API int TA_NATR_Lookback( int optInTimePeriod )
@@ -106,15 +109,17 @@ TA_LIB_API TA_RetCode TA_NATR( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -257,8 +262,13 @@ TA_LIB_API TA_RetCode TA_NATR( int    startIdx,
       outReal[0] = prevATR;
    } else 
    {
+      /* NATR is the ATR as a percentage of the close, so it is scale-free and
+       * the divisor only has to be non-zero. An exact test, not the fixed
+       * TA_IS_ZERO band it used to be: a close carries the quote unit, and that
+       * band zeroed the whole output for any instrument quoted below it (#253).
+       */
       tempValue = inClose[startIdx];
-      if( !TA_IS_ZERO(tempValue) )
+      if( tempValue != 0.0 )
       {
          outReal[0] = prevATR / tempValue * 100.0;
       } else 
@@ -296,7 +306,7 @@ TA_LIB_API TA_RetCode TA_NATR( int    startIdx,
       } else 
       {
          tempValue = inClose[today];
-         if( !TA_IS_ZERO(tempValue) )
+         if( tempValue != 0.0 )
          {
             outReal[outIdx] = prevATR / tempValue * 100.0;
          } else 
@@ -342,15 +352,17 @@ TA_RetCode TA_S_NATR( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -419,7 +431,7 @@ TA_RetCode TA_S_NATR( int    startIdx,
    } else 
    {
       tempValue = (double)inClose[startIdx];
-      if( !TA_IS_ZERO(tempValue) )
+      if( tempValue != 0.0 )
       {
          outReal[0] = prevATR / tempValue * 100.0;
       } else 
@@ -453,7 +465,7 @@ TA_RetCode TA_S_NATR( int    startIdx,
       } else 
       {
          tempValue = (double)inClose[today];
-         if( !TA_IS_ZERO(tempValue) )
+         if( tempValue != 0.0 )
          {
             outReal[outIdx] = prevATR / tempValue * 100.0;
          } else 
@@ -518,7 +530,7 @@ static void TA_NATR_StepImpl( struct TA_NATR_Stream *sp, double inHigh, double i
    } else 
    {
       tempValue = inClose;
-      if( !TA_IS_ZERO(tempValue) )
+      if( tempValue != 0.0 )
       {
          *outReal= sp->prevATR / tempValue * 100.0;
       } else 
@@ -538,9 +550,9 @@ static TA_RetCode TA_NATR_OpenImpl( struct TA_NATR_Stream **stream, const double
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -710,8 +722,13 @@ static TA_RetCode TA_NATR_OpenImpl( struct TA_NATR_Stream **stream, const double
          outReal[0 * outStride] = prevATR;
       } else 
       {
+         /* NATR is the ATR as a percentage of the close, so it is scale-free and
+          * the divisor only has to be non-zero. An exact test, not the fixed
+          * TA_IS_ZERO band it used to be: a close carries the quote unit, and that
+          * band zeroed the whole output for any instrument quoted below it (#253).
+          */
          tempValue = inClose[startIdx];
-         if( !TA_IS_ZERO(tempValue) )
+         if( tempValue != 0.0 )
          {
             outReal[0 * outStride] = prevATR / tempValue * 100.0;
          } else 
@@ -749,7 +766,7 @@ static TA_RetCode TA_NATR_OpenImpl( struct TA_NATR_Stream **stream, const double
          } else 
          {
             tempValue = inClose[today];
-            if( !TA_IS_ZERO(tempValue) )
+            if( tempValue != 0.0 )
             {
                outReal[outIdx * outStride] = prevATR / tempValue * 100.0;
             } else 
@@ -796,9 +813,9 @@ TA_LIB_API TA_RetCode TA_NATR_Open( TA_NATR_Stream **stream, const double inHigh
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_NATR_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -806,10 +823,9 @@ TA_LIB_API TA_RetCode TA_NATR_OpenAndFill( TA_NATR_Stream **stream, const double
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_NATR_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

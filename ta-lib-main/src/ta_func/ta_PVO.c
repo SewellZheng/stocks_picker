@@ -98,8 +98,6 @@ TA_LIB_API TA_RetCode TA_PVO( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inVolume )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 12;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -111,6 +109,10 @@ TA_LIB_API TA_RetCode TA_PVO( int    startIdx,
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 1;
    else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( !inVolume )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -137,6 +139,8 @@ TA_LIB_API TA_RetCode TA_PVO( int    startIdx,
    tempBuffer = malloc((endIdx - startIdx + 1) * sizeof(double));
    if( !tempBuffer )
    {
+      *outBegIdx= 0;
+      *outNBElement= 0;
       return TA_ALLOC_ERR;
    }
    /* Make sure slow is really slower than
@@ -208,8 +212,6 @@ TA_RetCode TA_S_PVO( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inVolume )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 12;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -221,6 +223,10 @@ TA_RetCode TA_S_PVO( int    startIdx,
    if( (int)optInMAType == TA_INTEGER_DEFAULT || optInMAType == TA_MAType_DEFAULT )
       optInMAType = 1;
    else if( (int)optInMAType < TA_MATYPE_MIN || (int)optInMAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( !inVolume )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -234,6 +240,8 @@ TA_RetCode TA_S_PVO( int    startIdx,
    tempBuffer = malloc((endIdx - startIdx + 1) * sizeof(double));
    if( !tempBuffer )
    {
+      *outBegIdx= 0;
+      *outNBElement= 0;
       return TA_ALLOC_ERR;
    }
    if( optInSlowPeriod < optInFastPeriod )
@@ -340,9 +348,9 @@ static TA_RetCode TA_PVO_OpenImpl( struct TA_PVO_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 12;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -519,9 +527,9 @@ TA_LIB_API TA_RetCode TA_PVO_Open( TA_PVO_Stream **stream, const double inVolume
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_PVO_OpenInternal( stream, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outReal );
 }
 
@@ -529,10 +537,9 @@ TA_LIB_API TA_RetCode TA_PVO_OpenAndFill( TA_PVO_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_PVO_OpenAndFillInternal( stream, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal );
 }

@@ -73,19 +73,21 @@ impl Core {
     /// * `optInFastPeriod` — Period of the fast A/D EMA (default 3, range 2..=100000)
     /// * `optInSlowPeriod` — Period of the slow A/D EMA (default 10, range 2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn ADOSC_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32) -> usize {
+    pub fn ADOSC_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32) -> Result<usize, RetCode> {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
             optInFastPeriod = 3;
         } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 10;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         let mut slowestPeriod: usize = 0_usize;
         // Use the slowest EMA period to evaluate the total lookback.
@@ -95,10 +97,11 @@ impl Core {
             slowestPeriod = (optInFastPeriod) as usize;
         }
         // Adjust startIdx to account for the lookback period.
-        return self.EMA_Lookback((slowestPeriod) as i32);
+        return Ok(self.EMA_Lookback((slowestPeriod) as i32)?);
     }
     /// C-shaped body behind [`Core::ADOSC`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn ADOSC_Impl(
         &self,
         startIdx: usize,
@@ -167,7 +170,7 @@ impl Core {
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.ADOSC_Lookback(optInFastPeriod, optInSlowPeriod);
+        let _assertLb = self.ADOSC_Lookback(optInFastPeriod, optInSlowPeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -220,7 +223,7 @@ impl Core {
             slowestPeriod = (optInFastPeriod) as usize;
         }
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.EMA_Lookback((slowestPeriod) as i32);
+        lookbackTotal = self.EMA_Lookback((slowestPeriod) as i32).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -329,11 +332,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -384,6 +385,30 @@ impl Core {
         optInSlowPeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.ADOSC_Lookback(optInFastPeriod, optInSlowPeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inVolume.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.ADOSC_Impl(
@@ -417,7 +442,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_ADOSC_Stream")]
 pub struct ADOSC_Stream {
-    core: Core,
     state: ADOSC_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -428,7 +452,6 @@ impl ADOSC_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `ADOSC_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -472,7 +495,7 @@ impl ADOSC_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn ADOSC_step_impl(&self, sp: &mut ADOSC_StreamState, inHigh: f64, inLow: f64, inClose: f64, inVolume: f64, outReal: &mut f64) {
+    fn ADOSC_step_impl(sp: &mut ADOSC_StreamState, inHigh: f64, inLow: f64, inClose: f64, inVolume: f64, outReal: &mut f64) {
         let mut high: f64 = 0.0_f64;
         let mut low: f64 = 0.0_f64;
         let mut close: f64 = 0.0_f64;
@@ -494,8 +517,8 @@ impl Core {
     pub(crate) fn ADOSC_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<ADOSC_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inVolume.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -508,6 +531,9 @@ impl Core {
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 10;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -565,7 +591,7 @@ impl Core {
             slowestPeriod = (optInFastPeriod) as usize;
         }
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.EMA_Lookback((slowestPeriod) as i32);
+        lookbackTotal = self.EMA_Lookback((slowestPeriod) as i32)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -643,7 +669,7 @@ impl Core {
             one_minus_fastk,
             ad,
         };
-        Ok(ADOSC_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(ADOSC_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::ADOSC_Open`] (composition seam).
@@ -664,8 +690,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -695,12 +722,32 @@ impl Core {
 
     /// [`Core::ADOSC_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::ADOSC`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::ADOSC_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_ADOSC_OpenAndFill")]
     pub fn ADOSC_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outReal: &mut [f64],
     ) -> Result<(ADOSC_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.ADOSC_Lookback(optInFastPeriod, optInSlowPeriod)?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || inVolume.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.ADOSC_OpenAndFillInternal(inHigh, inLow, inClose, inVolume, 0, optInFastPeriod, optInSlowPeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -737,7 +784,7 @@ impl ADOSC_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.ADOSC_step_impl(&mut self.state, inHigh, inLow, inClose, inVolume, &mut outReal);
+        Core::ADOSC_step_impl(&mut self.state, inHigh, inLow, inClose, inVolume, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -770,7 +817,7 @@ impl ADOSC_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() || !inVolume[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.ADOSC_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], inVolume[i], &mut outReal[i]);
+            Core::ADOSC_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], inVolume[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

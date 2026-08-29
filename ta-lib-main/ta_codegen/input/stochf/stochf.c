@@ -18,6 +18,11 @@
  *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
  *  072026 MF,CC Fix #130. Never elect outFastD as the K scratch buffer: %D's
  *               in-place ma() destroyed the raw K before the final copy.
+ *  082326 MF,CC Fix #253. Scale that guard to the window's own extremes: the
+ *               fixed band zeroed the whole output for any instrument quoted
+ *               small enough to fall under it.
+ *  082726 MF,CC Drop the dead retCode block after the copy: the rejection is
+ *               already answered above it, and the shape reads like #269.
  *
  */
 
@@ -153,6 +158,8 @@ TA_RetCode stochf(int startIdx, int endIdx,
       tempBuffer = malloc((endIdx-today+1) * sizeof(double));
       if( !tempBuffer )
       {
+         *outBegIdx = 0;
+         *outNBElement = 0;
          return TA_ALLOC_ERR;
       }
    }
@@ -210,10 +217,14 @@ TA_RetCode stochf(int startIdx, int endIdx,
          diff = (highest - lowest)/100.0;
       }
 
-      /* Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-       * a machine-flat window leaves a sub-epsilon residue that an exact check
-       * would divide into [0,100] noise (issue #107 / STOCHRSI). */
-      if( !TA_IS_ZERO(diff) )
+      /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+       * machine-flat window leaves a sub-epsilon residue that an exact check
+       * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+       * range against ITS OWN two extremes, not against a fixed band: the range
+       * carries the quote unit, so a constant put against it answers "flat" for
+       * every window of an instrument quoted below it and zeroed the whole
+       * output (issue #253). */
+      if( !TA_IS_ZERO_SCALED(highest-lowest, fabs(highest)+fabs(lowest)) )
          tempBuffer[outIdx++] = (inClose[today]-lowest)/diff;
       else
          tempBuffer[outIdx++] = 0.0;
@@ -233,7 +244,7 @@ TA_RetCode stochf(int startIdx, int endIdx,
    if( (retCode != TA_SUCCESS ) || ((int)*outNBElement) == 0 )
    {
       if (bufferIsAllocated) { free(tempBuffer); }
-         /* Something wrong happen? No further data? */
+      /* Something wrong happen? No further data? */
       *outBegIdx = 0;
       *outNBElement = 0;
       return retCode;
@@ -248,16 +259,7 @@ TA_RetCode stochf(int startIdx, int endIdx,
     * reused as scratch, so source and destination overlap (issue #94). */
    memmove(outFastK, &tempBuffer[lookbackFastD], ((int)*outNBElement) * sizeof(double));
 
-   /* Don't need K anymore, free it if it was allocated here. */
    if (bufferIsAllocated) { free(tempBuffer); }
-
-      if( retCode != TA_SUCCESS )
-   {
-      /* Something wrong happen while processing %D? */
-      *outBegIdx = 0;
-      *outNBElement = 0;
-      return retCode;
-   }
 
    /* Note: Keep the outBegIdx relative to the
     *       caller input before returning.

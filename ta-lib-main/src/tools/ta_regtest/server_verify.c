@@ -362,8 +362,9 @@ static ErrorNumber sync_compatibility(int pipeIdx)
  *
  * Inputs are always serialized losslessly (hex-of-IEEE-bits). When wantHash,
  * the request carries "want_hash":1 so the server returns an out_hash digest of
- * its raw outputs instead of %.15g arrays (the bitwise path); otherwise it
- * returns arrays (the Java-transcendental tolerance path). Returns -1 if the
+ * its raw outputs instead of the arrays (the bitwise path); otherwise it
+ * returns the arrays, themselves lossless since #257/#258 (the
+ * Java-transcendental tolerance path). Returns -1 if the
  * function is not in ta_abstract (graceful skip). */
 static int build_request(const char *funcName,
                          TA_Integer startIdx, TA_Integer endIdx,
@@ -551,7 +552,7 @@ static unsigned long long sv_golden_hash(const char *funcName,
 /* ---- Tolerance-based element compare (Java transcendental path only) ----
  *
  * fdlibm != system libm means Java cannot be bit-compared on the transcendental
- * calls, so its %.15g arrays are element-compared at `tol` (integers still
+ * calls, so its output arrays are element-compared at `tol` (integers still
  * exact) via the shared codegen_compare_tol — the same primitive --xlang-hash's
  * Java leg uses. This wrapper just reconstructs the C outputs in logical order
  * and translates the verdict into server_verify's messages and error codes. */
@@ -762,6 +763,134 @@ ErrorNumber server_verify(
             if( err != TA_TEST_PASS )
                 return err;
             g_comparisons++;
+        }
+    }
+
+    return TA_TEST_PASS;
+}
+
+/* ---- Lookback-tier vs batch-tier agreement, per server (issue #256) ----
+ * See the doc comment in server_verify.h for the property this checks and how
+ * it differs from server_verify() above. */
+
+/* Build the abstract_get_lookback request for `funcName` at `optParams` into
+ * g_reqBuf. Mirrors build_request()'s optional-parameter serialization. */
+static void build_lookback_request(const TA_FuncHandle *handle,
+                                   const TA_FuncInfo *fi,
+                                   const char *funcName,
+                                   const double optParams[], int nbOptParams)
+{
+    int pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, 0,
+        "{\"method\":\"abstract_get_lookback\",\"params\":{\"funcName\":\"%s\"", funcName);
+    for( unsigned int i = 0; i < fi->nbOptInput; i++ )
+    {
+        const TA_OptInputParameterInfo *oi;
+        TA_GetOptInputParameterInfo(handle, i, &oi);
+        double v = (optParams && (int)i < nbOptParams) ? optParams[i] : oi->defaultValue;
+        if( oi->type == TA_OptInput_RealRange || oi->type == TA_OptInput_RealList )
+            pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, ",\"%s\":%.15g", oi->paramName, v);
+        else
+            pos = codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, ",\"%s\":%d", oi->paramName, (int)v);
+    }
+    codegen_appendf(g_reqBuf, SV_BUF_SIZE, pos, "}}");
+}
+
+ErrorNumber server_verify_lookback_parity(
+    const char    *funcName,
+    TA_Integer     startIdx,
+    TA_Integer     endIdx,
+    int            nbBars,
+    const TA_Real *inputs[],
+    const double   optParams[],
+    int            nbOptParams)
+{
+    if( g_nbPipes == 0 )
+        return TA_TEST_PASS;
+
+    const TA_FuncHandle *handle;
+    const TA_FuncInfo   *fi;
+    if( TA_GetFuncHandle(funcName, &handle) != TA_SUCCESS ) return TA_TEST_PASS;
+    if( TA_GetFuncInfo(handle, &fi) != TA_SUCCESS ) return TA_TEST_PASS;
+
+    for( int p = 0; p < g_nbPipes; p++ )
+    {
+        g_curPipe = p;
+        const char *lang = g_pipeLang[p];
+
+        ErrorNumber err = sync_unstable_periods(p);
+        if( err != TA_TEST_PASS )
+        {
+            printf("  SV WARN [%s]: lookback-parity: failed to sync unstable periods\n", funcName);
+            continue;
+        }
+        if( TA_GetCompatibility() != TA_COMPATIBILITY_DEFAULT &&
+            !codegen_lang_has_compatibility_api(lang) )
+            continue;   /* same graceful skip as server_verify() above */
+        err = sync_compatibility(p);
+        if( err != TA_TEST_PASS )
+        {
+            printf("  SV WARN [%s]: lookback-parity: failed to sync compatibility\n", funcName);
+            continue;
+        }
+        err = sync_candle_settings(p);
+        if( err != TA_TEST_PASS )
+        {
+            printf("  SV WARN [%s]: lookback-parity: failed to sync candle settings\n", funcName);
+            continue;
+        }
+
+        /* ---- lookback tier ---- */
+        build_lookback_request(handle, fi, funcName, optParams, nbOptParams);
+        err = codegen_pipe_call(g_pipes[p], g_reqBuf, g_respBuf, SV_BUF_SIZE);
+        if( err != TA_TEST_PASS )
+        {
+            printf("  SV FAIL [%s] (pipe %d): lookback-parity lookback call failed\n", funcName, p);
+            return err;
+        }
+        int lbLen;
+        if( !json_find_field(g_respBuf, "lookback", &lbLen) )
+        {
+            printf("  SV FAIL [%s] (pipe %d, %s): abstract_get_lookback response has no "
+                   "lookback field (%.120s)\n", funcName, p, lang ? lang : "?", g_respBuf);
+            return TA_SV_OUTPUT_MISMATCH;
+        }
+        int lookback = json_get_int(g_respBuf, "lookback");
+        int lbRejected = (lookback < 0);
+
+        /* ---- batch tier, same vector, same server. want_hash=1 to keep the
+         * response small -- the output VALUES are irrelevant here, only retCode. */
+        int reqLen = build_request(funcName, startIdx, endIdx, nbBars,
+                                   inputs, optParams, nbOptParams, /*wantHash=*/1);
+        if( reqLen < 0 )
+        {
+            printf("  SV WARN [%s]: lookback-parity: failed to build batch request\n", funcName);
+            return TA_TEST_PASS;   /* not in ta_abstract -- graceful skip */
+        }
+        err = codegen_pipe_call(g_pipes[p], g_reqBuf, g_respBuf, SV_BUF_SIZE);
+        if( err != TA_TEST_PASS )
+        {
+            printf("  SV FAIL [%s] (pipe %d): lookback-parity batch call failed\n", funcName, p);
+            return err;
+        }
+        int rcLen;
+        if( !json_find_field(g_respBuf, "retCode", &rcLen) )
+        {
+            printf("  SV FAIL [%s] (pipe %d, %s): batch response has no retCode field "
+                   "(%.120s)\n", funcName, p, lang ? lang : "?", g_respBuf);
+            return TA_SV_OUTPUT_MISMATCH;
+        }
+        int retCode = json_get_int(g_respBuf, "retCode");
+        int batchRejected = (retCode != TA_SUCCESS);
+
+        g_comparisons++;
+        if( lbRejected != batchRejected )
+        {
+            printf("  SV FAIL [%s] (pipe %d, %s): lookback/batch tier disagree -- "
+                   "lookback=%d (%s), batch retCode=%d (%s)\n",
+                   funcName, p, lang ? lang : "?",
+                   lookback, lbRejected ? "rejected" : "accepted",
+                   retCode, batchRejected ? "rejected" : "accepted");
+            return TA_SV_LOOKBACK_PARITY_MISMATCH;
         }
     }
 

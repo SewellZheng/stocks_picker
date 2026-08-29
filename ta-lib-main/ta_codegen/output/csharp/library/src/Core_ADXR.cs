@@ -153,9 +153,6 @@ public partial class Core
       outBegIdx = _xr0.BegIdx;
       outNBElement = _xr0.Count;
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
        * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
        * is adx[k]; the ADX range holds (period-1) more elements than the output.
@@ -210,9 +207,6 @@ public partial class Core
       outBegIdx = _xr0.BegIdx;
       outNBElement = _xr0.Count;
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       nbElement = outNBElement - (optInTimePeriod - 1);
       for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
          outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
@@ -258,14 +252,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange ADXR( int startIdx,
@@ -332,14 +328,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange ADXR( int startIdx,
@@ -552,11 +550,14 @@ public partial class Core
       RetCode retCode;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 14;
@@ -606,9 +607,6 @@ public partial class Core
        * sub-call's own startIdx (the seeding point). */
       ADX_Stream sub0 = ADX_OpenAndFillInternal(inHigh, inLow, inClose, startIdx - (optInTimePeriod - 1), optInTimePeriod, out outBegIdx, out outNBElement, adx);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
        * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
        * is adx[k]; the ADX range holds (period-1) more elements than the output.
@@ -681,13 +679,17 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>ADXR_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public ADXR_Stream ADXR_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ADXR open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ADXR open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("ADXR open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("ADXR open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("ADXR", "open", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("ADXR", "open", "inClose", inClose.Length, inHigh.Length);
       return ADXR_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
 
@@ -699,7 +701,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - ADXR_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="ADXR_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -713,15 +717,21 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>ADXR_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public ADXR_Stream ADXR_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ADXR openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "ADXR openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("ADXR openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("ADXR openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("ADXR", "openAndFill", inHigh.Length, ADXR_Lookback(optInTimePeriod));
+      RequireHistoryLength("ADXR", "openAndFill", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("ADXR", "openAndFill", "inClose", inClose.Length, inHigh.Length);
+      RequireFillLength("ADXR", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
          throw StreamFailure("ADXR", "openAndFill", RetCode.BadParam);
       }

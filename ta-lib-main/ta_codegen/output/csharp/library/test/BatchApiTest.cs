@@ -44,6 +44,7 @@
  *  -------------------------------------------------------------------
  *  080226 MF,CC  First Version — the OutRange batch contract, ported from the
  *                Java BatchApiTest to the C# surface.
+ *  082526 MF,CC  Declinable outputs and distinct empty ones (#262).
  */
 
 /* Hand-written test; ta_codegen never opens this file. */
@@ -523,25 +524,42 @@ public static class BatchApiTest
     }
 
     /// <summary>
-    /// A leg the algorithm never indexes is not checked — not for length and not
-    /// for emptiness. Four candlestick patterns declare an OHLC input they never
-    /// read; the generated Rust asserts and the Java checks skip exactly those, so
-    /// rejecting them here would make the same call an error in C# alone. The
-    /// control is the leg beside it, which IS read.
+    /// A leg the algorithm never indexes is checked like any other (#260). Four
+    /// candlestick patterns declare an OHLC input they never read; Rust, Java and
+    /// C# used to exempt exactly those while C's NULL checks covered them, so the
+    /// identical call was <c>TA_BAD_PARAM</c> in C and a success here. A declared
+    /// input must be supplied; that rule now needs no exception list.
+    ///
+    /// <para>A span is never null, so both spellings of "not supplied" — an empty
+    /// span and <c>(double[])null</c>, which converts to one — arrive at the same
+    /// length rejection. The control is the leg beside it, which IS read and was
+    /// never exempt.</para>
     /// </summary>
-    private static void AnUnreadLegIsNotChecked()
+    private static void AnUnreadLegIsCheckedLikeAnyOther()
     {
         var core = new Core();
         double[] real = Closes(200);
         var outv = new int[200];
 
-        OutRange r = core.CDL3OUTSIDE(0, 199, real, ReadOnlySpan<double>.Empty,
-                                      ReadOnlySpan<double>.Empty, real, outv);
-        Check(r.Count > 0, "CDL3OUTSIDE runs with empty high/low legs it never reads");
+        CheckThrows<ArgumentException>(
+            () => core.CDL3OUTSIDE(0, 199, real, ReadOnlySpan<double>.Empty,
+                                   ReadOnlySpan<double>.Empty, real, outv),
+            "an empty high leg the body never reads", "inHigh", "0", "200");
+        double[] nullLeg = null!;
+        CheckThrows<ArgumentException>(
+            () => core.CDL3OUTSIDE(0, 199, real, real, nullLeg, real, outv),
+            "a null low leg the body never reads", "inLow", "0", "200");
+        CheckThrows<ArgumentException>(
+            () => core.CDLHIKKAKE(0, 199, ReadOnlySpan<double>.Empty, real, real, real, outv),
+            "CDLHIKKAKE's open leg, the other shape of the same exemption",
+            "inOpen", "0", "200");
 
         CheckThrows<ArgumentException>(
             () => core.CDL3OUTSIDE(0, 199, ReadOnlySpan<double>.Empty, real, real, real, outv),
             "the open leg, which IS read, is still checked", "inOpen", "0", "200");
+        // Non-vacuity: every leg supplied and sized is the success these reject.
+        Check(core.CDL3OUTSIDE(0, 199, real, real, real, real, outv).Count > 0,
+              "CDL3OUTSIDE runs when every declared leg is supplied");
     }
 
     /// <summary>
@@ -784,9 +802,9 @@ public static class BatchApiTest
         // ...and the REST of the streaming tier, which is a separate reject
         // ladder from the batch one. Totality is a property of every failure the
         // library raises, not of the tier someone happened to convert first.
-        CheckCode(RetCode.BadParam,
+        CheckCode(RetCode.OutOfRangeStartIndex,
             () => core.SMA_Open(ReadOnlySpan<double>.Empty, 30),
-            "an empty history carries BadParam");
+            "an empty history carries OutOfRangeStartIndex");
         CheckCode(RetCode.BadParam,
             () => core.SMA_Open(input, 0),
             "an out-of-range period on a stream open carries BadParam");
@@ -849,6 +867,102 @@ public static class BatchApiTest
         }
     }
 
+    /// <summary>
+    /// Rule B6a: an output the .yaml marks <c>nullable</c> may be declined, and
+    /// declining it changes nothing about the output that was asked for. MAMA's
+    /// <c>outFAMA</c> is the only one in the corpus.
+    /// </summary>
+    /// <remarks>C# cannot spell "absent" apart from "empty" — a <c>Span&lt;T&gt;</c>
+    /// is a ref struct and a null array converts to an empty span — so an empty
+    /// span IS the declination (Appendix F of the error-handling spec).
+    /// <para>Acceptance alone would not test this: a body that stopped computing
+    /// FAMA, or took a different path without it, would be accepted here just the
+    /// same. So the declining call has to reproduce the supplied one bit for bit
+    /// and leave everything above its own count untouched (rule N2). No
+    /// cross-language gate can see any of it — the JSON-RPC servers bind every
+    /// declared output.</para></remarks>
+    private static void ANullableOutputMayBeDeclined()
+    {
+        var core = new Core();
+        double[] input = Closes(252);
+        var mamaRef = new double[252];
+        var famaRef = new double[252];
+        OutRange reference = core.MAMA(0, 251, input, 0.5, 0.05, mamaRef, famaRef);
+        Check(reference.Count > 0, "the reference call produces values");
+
+        const double canary = -1.2345678901234e300;
+        var mama = new double[252];
+        Array.Fill(mama, canary);
+        OutRange r = core.MAMA(0, 251, input, 0.5, 0.05, mama, default);
+
+        Check(r.BegIdx == reference.BegIdx && r.Count == reference.Count,
+            "declining outFAMA leaves the reported range alone");
+        bool same = true;
+        for (int i = 0; i < reference.Count; i++)
+        {
+            same &= BitConverter.DoubleToInt64Bits(mama[i])
+                 == BitConverter.DoubleToInt64Bits(mamaRef[i]);
+        }
+        Check(same, "declining outFAMA leaves outMAMA bit-identical");
+        bool untouched = true;
+        for (int i = r.Count; i < mama.Length; i++)
+        {
+            untouched &= BitConverter.DoubleToInt64Bits(mama[i])
+                      == BitConverter.DoubleToInt64Bits(canary);
+        }
+        Check(untouched, "the declining call writes nothing past its own count");
+
+        // A null array converts to an empty span, so this is the same call —
+        // which is exactly why C# cannot tell "declined" from "empty".
+        double[]? absent = null;
+        core.MAMA(0, 251, input, 0.5, 0.05, new double[252], absent);
+
+        // Controls, so the acceptance above is about the FLAG and not about MAMA
+        // having stopped checking its outputs.
+        CheckThrows<ArgumentException>(
+            () => core.MAMA(0, 251, input, 0.5, 0.05, default, famaRef),
+            "the non-nullable output is still required", "MAMA", "outMAMA");
+        CheckThrows<ArgumentException>(
+            () => core.MAMA(0, 251, input, 0.5, 0.05, mamaRef, new double[1]),
+            "a SUPPLIED nullable output is still length-checked", "MAMA", "outFAMA");
+    }
+
+    /// <summary>
+    /// Appendix D item 11: distinct zero-length outputs are not aliases. A range
+    /// shorter than the lookback produces nothing and needs no output space
+    /// (rule N1), so the call is a success with an empty range — which is what C
+    /// and Java always answered.
+    /// </summary>
+    /// <remarks>C# used to reject it outright: the pair guard carried an explicit
+    /// <c>a.IsEmpty &amp;&amp; b.IsEmpty</c> arm, because a span carries no
+    /// identity with no elements. That arm also made "declined" unspellable,
+    /// which is why it went with #262 rather than being narrowed.</remarks>
+    private static void DistinctEmptyOutputsAreNotAliases()
+    {
+        var core = new Core();
+        double[] input = Closes(252);
+        const int period = 253;
+        Check(core.ACCBANDS_Lookback(period) > 251,
+            "the probe needs a lookback past the range, or it proves nothing");
+
+        OutRange r = core.ACCBANDS(0, 251, input, input, input, period,
+            default, default, default);
+        Check(r.Count == 0, "a sub-lookback range needs no output space");
+
+        // Control: the same three empty spans on a range that DOES produce values
+        // are still rejected, so this is about the count and not about the bound
+        // having gone away.
+        CheckThrows<ArgumentException>(
+            () => core.ACCBANDS(0, 251, input, input, input, 20, default, default, default),
+            "an output that has to hold values is still bounded", "ACCBANDS");
+        // And a REAL alias of two outputs is still rejected.
+        var shared = new double[252];
+        CheckThrows<ArgumentException>(
+            () => core.ACCBANDS(0, 251, input, input, input, 20,
+                shared, shared, new double[252]),
+            "two outputs that are one span are still rejected", "ACCBANDS");
+    }
+
     public static int Run()
     {
         MaxWithKnownOutputs();
@@ -865,7 +979,7 @@ public static class BatchApiTest
         EachOutputIsCheckedSeparately();
         IntegerOutputsAreChecked();
         FloatOverloadIsCheckedToo();
-        AnUnreadLegIsNotChecked();
+        AnUnreadLegIsCheckedLikeAnyOther();
         AnEndIdxPastTheInputIsRejectedEvenProducingNothing();
         OverlappingBuffersAreRejected();
         NoUnguardedTierOnThePublicSurface();
@@ -873,6 +987,8 @@ public static class BatchApiTest
         OutRangeValueSemantics();
         IntegerSentinelSelectsTheDocumentedDefault();
         EveryFailureCarriesItsCode();
+        ANullableOutputMayBeDeclined();
+        DistinctEmptyOutputsAreNotAliases();
 
         if (_failures == 0)
         {

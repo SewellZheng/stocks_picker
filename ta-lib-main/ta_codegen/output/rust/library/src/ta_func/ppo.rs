@@ -81,28 +81,31 @@ impl Core {
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
     ///   11=DEFAULT, `MAType::DEFAULT` selects the default)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn PPO_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType) -> usize {
+    pub fn PPO_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType) -> Result<usize, RetCode> {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
             optInFastPeriod = 12;
         } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 26;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInMAType == MAType::DEFAULT {
             optInMAType = MAType::EMA;
         }
         // Lookback is driven by the slowest MA.
-        return self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType);
+        return Ok(self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType)?);
     }
     /// C-shaped body behind [`Core::PPO`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn PPO_Impl(
         &self,
         startIdx: usize,
@@ -134,7 +137,7 @@ impl Core {
         if optInMAType == MAType::DEFAULT {
             optInMAType = MAType::EMA;
         }
-        let _assertLb = self.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType);
+        let _assertLb = self.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -158,7 +161,7 @@ impl Core {
         // being false: with a caller-supplied inReal that stops short of endIdx, that
         // discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
         // probe over every guarded core.
-        if self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType) > endIdx {
+        if self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType).unwrap_or(usize::MAX) > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return RetCode::Success;
@@ -174,15 +177,15 @@ impl Core {
             optInFastPeriod = (tempInteger) as i32;
         }
         // Calculate the fast MA into the tempBuffer.
-        retCode = self.MA_Impl(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, &mut fastBeg, &mut fastNb, &mut tempBuffer[..]);
-        if retCode != RetCode::Success {
-            return retCode;
-        }
+        let _xr0 = match self.MA(startIdx, endIdx, inReal, optInFastPeriod, optInMAType, &mut tempBuffer[..]) { Ok(_r) => _r, Err(_e) => return _e };
+        fastBeg = _xr0.beg_idx;
+        fastNb = _xr0.count;
+        retCode = RetCode::Success;
         // Calculate the slow MA into the output.
-        retCode = self.MA_Impl(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, outReal);
-        if retCode != RetCode::Success {
-            return retCode;
-        }
+        let _xr1 = match self.MA(startIdx, endIdx, inReal, optInSlowPeriod, optInMAType, outReal) { Ok(_r) => _r, Err(_e) => return _e };
+        (*outBegIdx) = _xr1.beg_idx;
+        (*outNBElement) = _xr1.count;
+        retCode = RetCode::Success;
         // fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
         // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
         // outReal[i], with a non-negative index. An empty slow MA skips the loop.
@@ -248,11 +251,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -293,6 +294,21 @@ impl Core {
         optInMAType: MAType,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.PPO_Impl(
@@ -324,7 +340,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_PPO_Stream")]
 pub struct PPO_Stream {
-    core: Core,
     state: PPO_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -335,7 +350,6 @@ impl PPO_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `PPO_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -371,7 +385,7 @@ impl PPO_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn PPO_step_impl(&self, sp: &mut PPO_StreamState, inReal: f64, outReal: &mut f64) -> Result<(), RetCode> {
+    fn PPO_step_impl(sp: &mut PPO_StreamState, inReal: f64, outReal: &mut f64) -> Result<(), RetCode> {
         let mut tempReal: f64 = 0.0_f64;
         let mut cur_tempBuffer: f64 = 0.0_f64;
         let mut cur_outReal: f64 = 0.0_f64;
@@ -396,7 +410,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<PPO_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -447,7 +461,7 @@ impl Core {
         // being false: with a caller-supplied inReal that stops short of endIdx, that
         // discarded work is an out-of-bounds read. Pinned by the zero-length no-I/O
         // probe over every guarded core.
-        if self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType) > endIdx {
+        if self.MA_Lookback((optInSlowPeriod).max(optInFastPeriod), optInMAType)? > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
@@ -467,17 +481,11 @@ impl Core {
         // sub-call's own startIdx (the seeding point).
         let sub0 = self.MA_OpenAndFillInternal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInFastPeriod, optInMAType, &mut fastBeg, &mut fastNb, &mut tempBuffer[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success {
-            return Err(retCode);
-        }
         // Calculate the slow MA into the output.
         // Sub-stream 1: ma over `inReal`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
         let sub1 = self.MA_OpenAndFillInternal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInSlowPeriod, optInMAType, outBegIdx, outNBElement, &mut sc_outReal[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success {
-            return Err(retCode);
-        }
         // fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
         // many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
         // outReal[i], with a non-negative index. An empty slow MA skips the loop.
@@ -510,7 +518,7 @@ impl Core {
             let last_sc_outReal = sc_outReal[*outNBElement - 1];
             outReal[0] = last_sc_outReal;
         }
-        Ok(PPO_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(PPO_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::PPO_Open`] (composition seam).
@@ -531,8 +539,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
@@ -555,12 +564,29 @@ impl Core {
 
     /// [`Core::PPO_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::PPO`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::PPO_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_PPO_OpenAndFill")]
     pub fn PPO_OpenAndFill(
         &self, inReal: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInMAType: MAType, outReal: &mut [f64],
     ) -> Result<(PPO_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.PPO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.PPO_OpenAndFillInternal(inReal, 0, optInFastPeriod, optInSlowPeriod, optInMAType, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -605,7 +631,7 @@ impl PPO_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.PPO_step_impl(&mut self.state, inReal, &mut outReal)?;
+        Core::PPO_step_impl(&mut self.state, inReal, &mut outReal)?;
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -638,7 +664,7 @@ impl PPO_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.PPO_step_impl(&mut self.state, inReal[i], &mut outReal[i])?;
+            Core::PPO_step_impl(&mut self.state, inReal[i], &mut outReal[i])?;
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

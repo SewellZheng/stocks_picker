@@ -151,7 +151,7 @@
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
          return RetCode.BadParam;
       }
-      if( outMAMA == outFAMA ) {
+      if( outFAMA != null && outMAMA == outFAMA ) {
          return RetCode.BadParam ;
       }
       a = 0.0962;
@@ -427,7 +427,8 @@
             /* FAMA is nullable (issue #125): its write carries no outIdx advance so
              * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
              */
-            outFAMA[outIdx] = fama;
+            if( outFAMA != null )
+               outFAMA[outIdx] = fama;
             outMAMA[outIdx++] = mama;
          }
          /* Adjust the period for next price bar */
@@ -546,7 +547,7 @@
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
          return RetCode.BadParam;
       }
-      if( outMAMA == outFAMA ) {
+      if( outFAMA != null && outMAMA == outFAMA ) {
          return RetCode.BadParam ;
       }
       a = 0.0962;
@@ -764,7 +765,8 @@
          tempReal *= 0.5;
          fama = Math.fma(1 - tempReal, fama, tempReal * mama);
          if( today >= startIdx ) {
-            outFAMA[outIdx] = fama;
+            if( outFAMA != null )
+               outFAMA[outIdx] = fama;
             outMAMA[outIdx++] = mama;
          }
          Re = Math.fma(0.8, Re, 0.2 * (Math.fma(I2, prevI2, Q2 * prevQ2)));
@@ -822,21 +824,22 @@
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @param outFAMA Following adaptive moving average, using half the alpha
-    *        (slow line) Must hold at least {@code endIdx - startIdx + 1} values.
+    *        (slow line) Pass {@code null} to decline it: it is still computed where
+    *        the algorithm needs it, but nothing is written out. Supplied, it must hold
+    *        at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MA
     * @see Core#WMA
@@ -851,12 +854,12 @@
                          double outFAMA[] )
    {
       requireIndexRange("MAMA", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, MAMA_Lookback(optInFastLimit, optInSlowLimit));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MAMA", startIdx, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MAMA", "inReal", inReal, guardInLen);
       requireLength("MAMA", "outMAMA", outMAMA, guardOutLen);
-      requireLength("MAMA", "outFAMA", outFAMA, guardOutLen);
+      if( outFAMA != null ) requireLength("MAMA", "outFAMA", outFAMA, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       RetCode retCode = MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
@@ -896,21 +899,22 @@
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @param outFAMA Following adaptive moving average, using half the alpha
-    *        (slow line) Must hold at least {@code endIdx - startIdx + 1} values.
+    *        (slow line) Pass {@code null} to decline it: it is still computed where
+    *        the algorithm needs it, but nothing is written out. Supplied, it must hold
+    *        at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MA
     * @see Core#WMA
@@ -925,12 +929,12 @@
                          double outFAMA[] )
    {
       requireIndexRange("MAMA", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, MAMA_Lookback(optInFastLimit, optInSlowLimit));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MAMA", startIdx, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MAMA", "inReal", inReal, guardInLen);
       requireLength("MAMA", "outMAMA", outMAMA, guardOutLen);
-      requireLength("MAMA", "outFAMA", outFAMA, guardOutLen);
+      if( outFAMA != null ) requireLength("MAMA", "outFAMA", outFAMA, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
       RetCode retCode = MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, outBegIdx, outNBElement, outMAMA, outFAMA);
@@ -1221,6 +1225,9 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inReal.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
+       * <p>{@code outFAMA} may be declined with {@code null}, per call and
+       * independently of what the opener was given: the value is still
+       * computed — {@link #value()} reports it — and nothing is written out.
        * <p>{@link #outRange()} counts what was committed, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
@@ -1228,8 +1235,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outMAMA[], double outFAMA[] ) {
+         requireArgument("MAMA updateAndFill", "inReal", inReal);
+         requireArgument("MAMA updateAndFill", "outMAMA", outMAMA);
          final int barCount = inReal.length;
-         if( outMAMA.length < barCount || outFAMA.length < barCount || (Object)outMAMA == (Object)inReal || (Object)outFAMA == (Object)inReal || (Object)outMAMA == (Object)outFAMA )
+         if( outMAMA.length < barCount || (outFAMA != null && outFAMA.length < barCount) || (Object)outMAMA == (Object)inReal || (outFAMA != null && (Object)outFAMA == (Object)inReal) || (outFAMA != null && (Object)outMAMA == (Object)outFAMA) )
             throw new TaLibArgumentException("MAMA updateAndFill: BadParam", RetCode.BadParam);
          int done = 0;
          try {
@@ -1238,7 +1247,7 @@
                   throw new TaLibArgumentException("MAMA updateAndFill: BadParam", RetCode.BadParam);
                core.MAMA_StepImpl(this, inReal[i]);
                outMAMA[i] = this.cur_outMAMA;
-               outFAMA[i] = this.cur_outFAMA;
+               if( outFAMA != null ) outFAMA[i] = this.cur_outFAMA;
                if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                done = i + 1;
             }
@@ -1481,6 +1490,7 @@
    }
    private RetCode MAMA_OpenImpl( MAMA_Stream sp, double inReal[], int startIdx, double optInFastLimit, double optInSlowLimit, MInteger outBegIdx, MInteger outNBElement, double outMAMA[], double outFAMA[], int outStride )
    {
+      double lastCur_outFAMA = 0;
       int outIdx = 0;
       int i = 0;
       int lookbackTotal = 0;
@@ -1544,7 +1554,7 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1837,7 +1847,9 @@
             /* FAMA is nullable (issue #125): its write carries no outIdx advance so
              * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
              */
-            outFAMA[outIdx * outStride] = fama;
+            lastCur_outFAMA = fama;
+            if( outFAMA != null )
+               outFAMA[outIdx * outStride] = fama;
             outMAMA[outIdx++ * outStride] = mama;
          }
          /* Adjust the period for next price bar */
@@ -1926,7 +1938,7 @@
       sp.ringCap_trailingWMAIdx = cap_trailingWMAIdx;
       sp.ring_trailingWMAIdx_inReal = capRing_trailingWMAIdx_inReal;
       sp.cur_outMAMA = outMAMA[(outNBElement.value - 1) * outStride];
-      sp.cur_outFAMA = outFAMA[(outNBElement.value - 1) * outStride];
+      sp.cur_outFAMA = lastCur_outFAMA;
       sp.cachedValue = new MAMA_Stream.Value(sp.cur_outMAMA, sp.cur_outFAMA);
       return RetCode.Success;
    }
@@ -1978,10 +1990,15 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public MAMA_Stream MAMA_Open( double inReal[], double optInFastLimit, double optInSlowLimit )
    {
+      requireArgument("MAMA open", "inReal", inReal);
+      requireHistory("MAMA open", inReal.length);
       return MAMA_OpenInternal(inReal, 0, optInFastLimit, optInSlowLimit);
    }
    /**
@@ -1989,13 +2006,22 @@
     * to {@link Core#MAMA} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
+    * <p>{@code outFAMA} may be declined with {@code null}: the value is still
+    * computed — {@link MAMA_Stream#value()} reports it — and nothing is written out.
     * <p>The range written is on the returned handle:
     * {@link MAMA_Stream#outRange()}.
     */
    public MAMA_Stream MAMA_OpenAndFill( double inReal[], double optInFastLimit, double optInSlowLimit, double outMAMA[], double outFAMA[] )
    {
-      if( (Object)outMAMA == (Object)inReal || (Object)outFAMA == (Object)inReal || (Object)outMAMA == (Object)outFAMA ) {
+      requireArgument("MAMA openAndFill", "inReal", inReal);
+      requireHistory("MAMA openAndFill", inReal.length);
+      int guardOutLen = openFillCount("MAMA openAndFill", inReal.length, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      requireLength("MAMA openAndFill", "outMAMA", outMAMA, guardOutLen);
+      if( outFAMA != null ) requireLength("MAMA openAndFill", "outFAMA", outFAMA, guardOutLen);
+      if( (Object)outMAMA == (Object)inReal || (outFAMA != null && (Object)outFAMA == (Object)inReal) || (outFAMA != null && (Object)outMAMA == (Object)outFAMA) ) {
          throw new TaLibArgumentException("MAMA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }
       MInteger outBegIdx = new MInteger();

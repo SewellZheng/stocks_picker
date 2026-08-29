@@ -10,6 +10,9 @@
  *  MMDDYY BY     Description
  *  -------------------------------------------------------------------
  *  082026 MF,CC  Initial version (#238).
+ *  082326 MF,CC  Fix #253. Test the smoothed range exactly instead of against
+ *                the fixed TA_IS_ZERO band, which zeroed the oscillator for
+ *                any instrument quoted small enough to fall under it.
  */
 
    /**
@@ -273,7 +276,7 @@
          if( nBar >= lookbackSlow + lookbackFast ) {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+            if( halfDen > 0.0 ) {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                smiValue = 0.0;
@@ -336,14 +339,19 @@
          emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
          emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
-         /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-          * window leaves a sub-epsilon residue that an exact check would divide
-          * into noise (issue #107 / STOCHRSI). A window whose bars are all
-          * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-          * CCI (#7) and IMI (#112) convention.
+         /* The denominator is an EMA of an EMA of the high-low range: every term
+          * is non-negative and every weight is positive, so it carries no
+          * cancellation residue and is zero only when every range that reached it
+          * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+          * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+          * convention. Test it exactly: the range carries the quote unit, so the
+          * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+          * instrument quoted below it (issue #253). Issue #107's machine-flat
+          * window is caught by the exact test as well, since the residue an
+          * EMA leaves there is zero, not sub-epsilon.
           */
          halfDen = 0.5 * emaFastDen;
-         if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
@@ -529,7 +537,7 @@
          if( nBar >= lookbackSlow + lookbackFast ) {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+            if( halfDen > 0.0 ) {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                smiValue = 0.0;
@@ -590,7 +598,7 @@
          emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
          halfDen = 0.5 * emaFastDen;
-         if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
@@ -659,15 +667,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#STOCH
     * @see Core#STOCHRSI
@@ -687,9 +694,9 @@
                         double outSMISignal[] )
    {
       requireIndexRange("SMI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("SMI", startIdx, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SMI", "inHigh", inHigh, guardInLen);
       requireLength("SMI", "inLow", inLow, guardInLen);
       requireLength("SMI", "inClose", inClose, guardInLen);
@@ -760,15 +767,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#STOCH
     * @see Core#STOCHRSI
@@ -788,9 +794,9 @@
                         double outSMISignal[] )
    {
       requireIndexRange("SMI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("SMI", startIdx, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("SMI", "inHigh", inHigh, guardInLen);
       requireLength("SMI", "inLow", inLow, guardInLen);
       requireLength("SMI", "inClose", inClose, guardInLen);
@@ -991,6 +997,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outSMI[], double outSMISignal[] ) {
+         requireArgument("SMI updateAndFill", "inHigh", inHigh);
+         requireArgument("SMI updateAndFill", "inLow", inLow);
+         requireArgument("SMI updateAndFill", "inClose", inClose);
+         requireArgument("SMI updateAndFill", "outSMI", outSMI);
+         requireArgument("SMI updateAndFill", "outSMISignal", outSMISignal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outSMI.length < barCount || outSMISignal.length < barCount || (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal )
             throw new TaLibArgumentException("SMI updateAndFill: BadParam", RetCode.BadParam);
@@ -1108,14 +1119,19 @@
       sp.emaSlowDen = Math.fma(den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
       sp.emaFastNum = Math.fma(sp.emaSlowNum - sp.emaFastNum, sp.kFast, sp.emaFastNum);
       sp.emaFastDen = Math.fma(sp.emaSlowDen - sp.emaFastDen, sp.kFast, sp.emaFastDen);
-      /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-       * window leaves a sub-epsilon residue that an exact check would divide
-       * into noise (issue #107 / STOCHRSI). A window whose bars are all
-       * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-       * CCI (#7) and IMI (#112) convention.
+      /* The denominator is an EMA of an EMA of the high-low range: every term
+       * is non-negative and every weight is positive, so it carries no
+       * cancellation residue and is zero only when every range that reached it
+       * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+       * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+       * convention. Test it exactly: the range carries the quote unit, so the
+       * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+       * instrument quoted below it (issue #253). Issue #107's machine-flat
+       * window is caught by the exact test as well, since the residue an
+       * EMA leaves there is zero, not sub-epsilon.
        */
       halfDen = 0.5 * sp.emaFastDen;
-      if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+      if( halfDen > 0.0 ) {
          smiValue = 100.0 * sp.emaFastNum / halfDen;
       } else {
          smiValue = 0.0;
@@ -1162,11 +1178,14 @@
       int nSignal = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 13;
@@ -1329,7 +1348,7 @@
          if( nBar >= lookbackSlow + lookbackFast ) {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+            if( halfDen > 0.0 ) {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                smiValue = 0.0;
@@ -1392,14 +1411,19 @@
          emaSlowDen = Math.fma(den - emaSlowDen, kSlow, emaSlowDen);
          emaFastNum = Math.fma(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = Math.fma(emaSlowDen - emaFastDen, kFast, emaFastDen);
-         /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-          * window leaves a sub-epsilon residue that an exact check would divide
-          * into noise (issue #107 / STOCHRSI). A window whose bars are all
-          * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-          * CCI (#7) and IMI (#112) convention.
+         /* The denominator is an EMA of an EMA of the high-low range: every term
+          * is non-negative and every weight is positive, so it carries no
+          * cancellation residue and is zero only when every range that reached it
+          * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+          * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+          * convention. Test it exactly: the range carries the quote unit, so the
+          * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+          * instrument quoted below it (issue #253). Issue #107's machine-flat
+          * window is caught by the exact test as well, since the residue an
+          * EMA leaves there is zero, not sub-epsilon.
           */
          halfDen = 0.5 * emaFastDen;
-         if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
@@ -1505,10 +1529,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public SMI_Stream SMI_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
+      requireArgument("SMI open", "inHigh", inHigh);
+      requireHistory("SMI open", inHigh.length);
+      requireArgument("SMI open", "inLow", inLow);
+      requireArgument("SMI open", "inClose", inClose);
+      requireHistoryLength("SMI open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("SMI open", "inClose", inClose.length, inHigh.length);
       return SMI_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
    }
    /**
@@ -1516,12 +1549,23 @@
     * to {@link Core#SMI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link SMI_Stream#outRange()}.
     */
    public SMI_Stream SMI_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, double outSMI[], double outSMISignal[] )
    {
+      requireArgument("SMI openAndFill", "inHigh", inHigh);
+      requireHistory("SMI openAndFill", inHigh.length);
+      requireArgument("SMI openAndFill", "inLow", inLow);
+      requireArgument("SMI openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("SMI openAndFill", inHigh.length, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      requireHistoryLength("SMI openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("SMI openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("SMI openAndFill", "outSMI", outSMI, guardOutLen);
+      requireLength("SMI openAndFill", "outSMISignal", outSMISignal, guardOutLen);
       if( (Object)outSMI == (Object)inHigh || (Object)outSMI == (Object)inLow || (Object)outSMI == (Object)inClose || (Object)outSMISignal == (Object)inHigh || (Object)outSMISignal == (Object)inLow || (Object)outSMISignal == (Object)inClose || (Object)outSMI == (Object)outSMISignal ) {
          throw new TaLibArgumentException("SMI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

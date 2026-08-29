@@ -272,14 +272,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CDLCONCEALBABYSWALL( int startIdx,
@@ -342,14 +344,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CDLCONCEALBABYSWALL( int startIdx,
@@ -658,11 +662,14 @@ public partial class Core
       int lookbackTotal = 0;
       int historyLen = inOpen.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inHigh.Length != inOpen.Length || inLow.Length != inOpen.Length || inClose.Length != inOpen.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inHigh.Length != inOpen.Length || inLow.Length != inOpen.Length || inClose.Length != inOpen.Length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx = 0;
@@ -826,14 +833,19 @@ public partial class Core
    /// bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public CDLCONCEALBABYSWALL_Stream CDLCONCEALBABYSWALL_Open( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose )
    {
-      if( inOpen.IsEmpty ) throw new TaLibArgumentException("inOpen is empty", nameof(inOpen), RetCode.BadParam);
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inOpen.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inOpen), "CDLCONCEALBABYSWALL open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inOpen.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inOpen), "CDLCONCEALBABYSWALL open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("CDLCONCEALBABYSWALL open: inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("CDLCONCEALBABYSWALL open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("CDLCONCEALBABYSWALL open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("CDLCONCEALBABYSWALL", "open", "inHigh", inHigh.Length, inOpen.Length);
+      RequireHistoryLength("CDLCONCEALBABYSWALL", "open", "inLow", inLow.Length, inOpen.Length);
+      RequireHistoryLength("CDLCONCEALBABYSWALL", "open", "inClose", inClose.Length, inOpen.Length);
       return CDLCONCEALBABYSWALL_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
 
@@ -847,7 +859,9 @@ public partial class Core
    /// CDLCONCEALBABYSWALL_Lookback(...)</c> values and must not alias the inputs
    /// or each other — this path writes the outputs and then reads the input tail
    /// to seed its rings, so the batch tier's in-place allowance does not carry
-   /// over here.</para>
+   /// over here. Both are checked before anything is written, so an undersized
+   /// span is an <c>ArgumentException</c> naming it rather than a fault from
+   /// inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="CDLCONCEALBABYSWALL_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -862,16 +876,23 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CDLCONCEALBABYSWALL_Lookback(...) + 1</c>
    /// bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public CDLCONCEALBABYSWALL_Stream CDLCONCEALBABYSWALL_OpenAndFill( ReadOnlySpan<double> inOpen, ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<int> outInteger )
    {
-      if( inOpen.IsEmpty ) throw new TaLibArgumentException("inOpen is empty", nameof(inOpen), RetCode.BadParam);
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inOpen.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inOpen), "CDLCONCEALBABYSWALL openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inOpen.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inOpen), "CDLCONCEALBABYSWALL openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentException("CDLCONCEALBABYSWALL openAndFill: inHigh is empty", nameof(inHigh), RetCode.BadParam);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("CDLCONCEALBABYSWALL openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("CDLCONCEALBABYSWALL openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("CDLCONCEALBABYSWALL", "openAndFill", inOpen.Length, CDLCONCEALBABYSWALL_Lookback());
+      RequireHistoryLength("CDLCONCEALBABYSWALL", "openAndFill", "inHigh", inHigh.Length, inOpen.Length);
+      RequireHistoryLength("CDLCONCEALBABYSWALL", "openAndFill", "inLow", inLow.Length, inOpen.Length);
+      RequireHistoryLength("CDLCONCEALBABYSWALL", "openAndFill", "inClose", inClose.Length, inOpen.Length);
+      RequireFillLength("CDLCONCEALBABYSWALL", "openAndFill", "outInteger", outInteger.Length, guardOutLen);
       return CDLCONCEALBABYSWALL_OpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, out _, out _, outInteger);
    }
 }

@@ -226,15 +226,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CDLLONGLEGGEDDOJI
     * @see Core#CDLSPINNINGTOP
@@ -250,9 +249,9 @@
                                 int outInteger[] )
    {
       requireIndexRange("CDLHIGHWAVE", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, CDLHIGHWAVE_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("CDLHIGHWAVE", startIdx, CDLHIGHWAVE_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLHIGHWAVE", "inOpen", inOpen, guardInLen);
       requireLength("CDLHIGHWAVE", "inHigh", inHigh, guardInLen);
       requireLength("CDLHIGHWAVE", "inLow", inLow, guardInLen);
@@ -304,15 +303,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CDLLONGLEGGEDDOJI
     * @see Core#CDLSPINNINGTOP
@@ -328,9 +326,9 @@
                                 int outInteger[] )
    {
       requireIndexRange("CDLHIGHWAVE", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, CDLHIGHWAVE_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("CDLHIGHWAVE", startIdx, CDLHIGHWAVE_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLHIGHWAVE", "inOpen", inOpen, guardInLen);
       requireLength("CDLHIGHWAVE", "inHigh", inHigh, guardInLen);
       requireLength("CDLHIGHWAVE", "inLow", inLow, guardInLen);
@@ -480,6 +478,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] ) {
+         requireArgument("CDLHIGHWAVE updateAndFill", "inOpen", inOpen);
+         requireArgument("CDLHIGHWAVE updateAndFill", "inHigh", inHigh);
+         requireArgument("CDLHIGHWAVE updateAndFill", "inLow", inLow);
+         requireArgument("CDLHIGHWAVE updateAndFill", "inClose", inClose);
+         requireArgument("CDLHIGHWAVE updateAndFill", "outInteger", outInteger);
          final int barCount = inOpen.length;
          if( inHigh.length != barCount || inLow.length != barCount || inClose.length != barCount || outInteger.length < barCount || (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose )
             throw new TaLibArgumentException("CDLHIGHWAVE updateAndFill: BadParam", RetCode.BadParam);
@@ -578,11 +581,14 @@
       int lookbackTotal = 0;
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -737,10 +743,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public CDLHIGHWAVE_Stream CDLHIGHWAVE_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
+      requireArgument("CDLHIGHWAVE open", "inOpen", inOpen);
+      requireHistory("CDLHIGHWAVE open", inOpen.length);
+      requireArgument("CDLHIGHWAVE open", "inHigh", inHigh);
+      requireArgument("CDLHIGHWAVE open", "inLow", inLow);
+      requireArgument("CDLHIGHWAVE open", "inClose", inClose);
+      requireHistoryLength("CDLHIGHWAVE open", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("CDLHIGHWAVE open", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("CDLHIGHWAVE open", "inClose", inClose.length, inOpen.length);
       return CDLHIGHWAVE_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
@@ -748,12 +765,24 @@
     * to {@link Core#CDLHIGHWAVE} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link CDLHIGHWAVE_Stream#outRange()}.
     */
    public CDLHIGHWAVE_Stream CDLHIGHWAVE_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
+      requireArgument("CDLHIGHWAVE openAndFill", "inOpen", inOpen);
+      requireHistory("CDLHIGHWAVE openAndFill", inOpen.length);
+      requireArgument("CDLHIGHWAVE openAndFill", "inHigh", inHigh);
+      requireArgument("CDLHIGHWAVE openAndFill", "inLow", inLow);
+      requireArgument("CDLHIGHWAVE openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("CDLHIGHWAVE openAndFill", inOpen.length, CDLHIGHWAVE_Lookback());
+      requireHistoryLength("CDLHIGHWAVE openAndFill", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("CDLHIGHWAVE openAndFill", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("CDLHIGHWAVE openAndFill", "inClose", inClose.length, inOpen.length);
+      requireLength("CDLHIGHWAVE openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          throw new TaLibArgumentException("CDLHIGHWAVE openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

@@ -98,25 +98,27 @@ impl Core {
     ///   1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED,
     ///   11=DEFAULT, `MAType::DEFAULT` selects the default)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`], and real parameters [`Core::REAL_DEFAULT`], to select their
     /// default value.
     #[inline]
-    pub fn BBANDS_Lookback(&self, mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: MAType) -> usize {
+    pub fn BBANDS_Lookback(&self, mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: MAType) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 20;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInNbDevUp == Self::REAL_DEFAULT {
             optInNbDevUp = 2e0;
         } else if !((optInNbDevUp >= Self::REAL_MIN) && (optInNbDevUp <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInNbDevDn == Self::REAL_DEFAULT {
             optInNbDevDn = 2e0;
         } else if !((optInNbDevDn >= Self::REAL_MIN) && (optInNbDevDn <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInMAType == MAType::DEFAULT {
             optInMAType = MAType::SMA;
@@ -134,12 +136,13 @@ impl Core {
         // under-reported those cases (outBegIdx > lookback) and broke streaming, whose
         // Open is tied to lookback+1. The middle band still begins at the MA's earlier
         // begIdx internally and is realigned to this later bar in bbands() below.
-        maLookback = self.MA_Lookback(optInTimePeriod, optInMAType);
-        stddevLookback = self.STDDEV_Lookback(optInTimePeriod, 1.0);
-        return ((if maLookback > stddevLookback { maLookback } else { stddevLookback })) as usize;
+        maLookback = self.MA_Lookback(optInTimePeriod, optInMAType)?;
+        stddevLookback = self.STDDEV_Lookback(optInTimePeriod, 1.0)?;
+        return Ok(((if maLookback > stddevLookback { maLookback } else { stddevLookback })) as usize);
     }
     /// C-shaped body behind [`Core::BBANDS`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn BBANDS_Impl(
         &self,
         startIdx: usize,
@@ -219,15 +222,15 @@ impl Core {
         if optInMAType == MAType::DEFAULT {
             optInMAType = MAType::SMA;
         }
-        if outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr() || outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr() || outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr() {
-            return RetCode::BadParam;
-        }
-        let _assertLb = self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType);
+        let _assertLb = self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealUpperBand.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealMiddleBand.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outRealLowerBand.len());
+        if (!outRealUpperBand.is_empty() && !outRealMiddleBand.is_empty() && outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr()) || (!outRealUpperBand.is_empty() && !outRealLowerBand.is_empty() && outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr()) || (!outRealMiddleBand.is_empty() && !outRealLowerBand.is_empty() && outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr()) {
+            return RetCode::BadParam;
+        }
         let mut startIdx = startIdx;
         let mut retCode: RetCode = RetCode::Success;
         let mut i: usize = 0_usize;
@@ -412,7 +415,7 @@ impl Core {
         // The SMA fast path above needs no such guard - its own lookback IS the
         // deviation's, so its clamp already covers it. Pinned by the zero-length
         // no-I/O probe over every guarded core, at every MA type.
-        if self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx {
+        if self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType).unwrap_or(usize::MAX) > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return RetCode::Success;
@@ -420,19 +423,21 @@ impl Core {
         tempBuffer1 = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
         tempBuffer2 = vec![0.0_f64; ((endIdx - startIdx + 1) * 1) as usize];
         // Calculate the middle band moving average.
-        retCode = self.MA_Impl(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, outBegIdx, outNBElement, &mut tempBuffer1[..]);
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
+        let _xr0 = match self.MA(startIdx, endIdx, inReal, optInTimePeriod, optInMAType, &mut tempBuffer1[..]) { Ok(_r) => _r, Err(_e) => return _e };
+        (*outBegIdx) = _xr0.beg_idx;
+        (*outNBElement) = _xr0.count;
+        retCode = RetCode::Success;
+        if ((*outNBElement) as usize) == 0 {
             (*outNBElement) = 0;
             return retCode;
         }
         // Remember where the moving average begins, to realign it below.
         maBegIdx = ((*outBegIdx) as usize) as usize;
         // Calculate the Standard Deviation into tempBuffer2.
-        retCode = self.STDDEV_Impl(((*outBegIdx) as usize) as usize, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, &mut tempBuffer2[..]);
-        if retCode != RetCode::Success {
-            (*outNBElement) = 0;
-            return retCode;
-        }
+        let _xr1 = match self.STDDEV(((*outBegIdx) as usize) as usize, endIdx, inReal, optInTimePeriod, 1.0, &mut tempBuffer2[..]) { Ok(_r) => _r, Err(_e) => return _e };
+        (*outBegIdx) = _xr1.beg_idx;
+        (*outNBElement) = _xr1.count;
+        retCode = RetCode::Success;
         // When the standard deviation (lookback optInTimePeriod-1) clamps to a later
         // begIdx than the moving average did - as with TA_MAType_MAMA (constant
         // lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
@@ -535,11 +540,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -585,6 +588,27 @@ impl Core {
         outRealMiddleBand: &mut [f64],
         outRealLowerBand: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outRealUpperBand.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outRealMiddleBand.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outRealLowerBand.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.BBANDS_Impl(
@@ -619,7 +643,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_BBANDS_Stream")]
 pub struct BBANDS_Stream {
-    core: Core,
     state: BBANDS_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -630,7 +653,6 @@ impl BBANDS_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `BBANDS_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -668,7 +690,7 @@ impl BBANDS_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn BBANDS_step_impl(&self, sp: &mut BBANDS_StreamState, inReal: f64, outRealUpperBand: &mut f64, outRealMiddleBand: &mut f64, outRealLowerBand: &mut f64) -> Result<(), RetCode> {
+    fn BBANDS_step_impl(sp: &mut BBANDS_StreamState, inReal: f64, outRealUpperBand: &mut f64, outRealMiddleBand: &mut f64, outRealLowerBand: &mut f64) -> Result<(), RetCode> {
         let mut tempReal: f64 = 0.0_f64;
         let mut tempReal2: f64 = 0.0_f64;
         let mut cur_tempBuffer1: f64 = 0.0_f64;
@@ -702,7 +724,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outRealUpperBand: &mut [f64], outRealMiddleBand: &mut [f64], outRealLowerBand: &mut [f64], outStride: usize,
     ) -> Result<BBANDS_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -773,7 +795,7 @@ impl Core {
         // The SMA fast path above needs no such guard - its own lookback IS the
         // deviation's, so its clamp already covers it. Pinned by the zero-length
         // no-I/O probe over every guarded core, at every MA type.
-        if self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType) > endIdx {
+        if self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)? > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
@@ -785,9 +807,9 @@ impl Core {
         // sub-call's own startIdx (the seeding point).
         let sub0 = self.MA_OpenAndFillInternal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInTimePeriod, optInMAType, outBegIdx, outNBElement, &mut tempBuffer1[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
+        if ((*outNBElement) as usize) == 0 {
             (*outNBElement) = 0;
-            return Err(retCode);
+            return Err(RetCode::InsufficientHistory);
         }
         // Remember where the moving average begins, to realign it below.
         maBegIdx = ((*outBegIdx) as usize) as usize;
@@ -796,10 +818,6 @@ impl Core {
         // sub-call's own startIdx (the seeding point).
         let sub1 = self.STDDEV_OpenAndFillInternal(&inReal[..((endIdx) as usize) + 1], (((*outBegIdx) as usize) as usize), optInTimePeriod, 1.0, outBegIdx, outNBElement, &mut tempBuffer2[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success {
-            (*outNBElement) = 0;
-            return Err(retCode);
-        }
         // When the standard deviation (lookback optInTimePeriod-1) clamps to a later
         // begIdx than the moving average did - as with TA_MAType_MAMA (constant
         // lookback 32) and optInTimePeriod >= 34 - the MA in tempBuffer1 still starts
@@ -865,7 +883,7 @@ impl Core {
             let last_sc_outRealLowerBand = sc_outRealLowerBand[*outNBElement - 1];
             outRealLowerBand[0] = last_sc_outRealLowerBand;
         }
-        Ok(BBANDS_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(BBANDS_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::BBANDS_Open`] (composition seam).
@@ -888,8 +906,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
@@ -914,19 +933,42 @@ impl Core {
 
     /// [`Core::BBANDS_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::BBANDS`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::BBANDS_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_BBANDS_OpenAndFill")]
     pub fn BBANDS_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInNbDevUp: f64, mut optInNbDevDn: f64, mut optInMAType: MAType, outRealUpperBand: &mut [f64], outRealMiddleBand: &mut [f64], outRealLowerBand: &mut [f64],
     ) -> Result<(BBANDS_Stream, OutRange), RetCode> {
-        if outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr() {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.BBANDS_Lookback(optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outRealUpperBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr() {
+        if outRealMiddleBand.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr() {
+        if outRealLowerBand.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if !outRealUpperBand.is_empty() && !outRealMiddleBand.is_empty() && outRealUpperBand.as_ptr() == outRealMiddleBand.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if !outRealUpperBand.is_empty() && !outRealLowerBand.is_empty() && outRealUpperBand.as_ptr() == outRealLowerBand.as_ptr() {
+            return Err(RetCode::BadParam);
+        }
+        if !outRealMiddleBand.is_empty() && !outRealLowerBand.is_empty() && outRealMiddleBand.as_ptr() == outRealLowerBand.as_ptr() {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -975,7 +1017,7 @@ impl BBANDS_Stream {
         let mut outRealUpperBand: f64 = 0.0_f64;
         let mut outRealMiddleBand: f64 = 0.0_f64;
         let mut outRealLowerBand: f64 = 0.0_f64;
-        self.core.BBANDS_step_impl(&mut self.state, inReal, &mut outRealUpperBand, &mut outRealMiddleBand, &mut outRealLowerBand)?;
+        Core::BBANDS_step_impl(&mut self.state, inReal, &mut outRealUpperBand, &mut outRealMiddleBand, &mut outRealLowerBand)?;
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1008,7 +1050,7 @@ impl BBANDS_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.BBANDS_step_impl(&mut self.state, inReal[i], &mut outRealUpperBand[i], &mut outRealMiddleBand[i], &mut outRealLowerBand[i])?;
+            Core::BBANDS_step_impl(&mut self.state, inReal[i], &mut outRealUpperBand[i], &mut outRealMiddleBand[i], &mut outRealLowerBand[i])?;
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

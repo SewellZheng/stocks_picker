@@ -132,8 +132,6 @@ TA_LIB_API TA_RetCode TA_MACDEXT( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 12;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -157,6 +155,10 @@ TA_LIB_API TA_RetCode TA_MACDEXT( int    startIdx,
    if( (int)optInSignalMAType == TA_INTEGER_DEFAULT || optInSignalMAType == TA_MAType_DEFAULT )
       optInSignalMAType = 0;
    else if( (int)optInSignalMAType < TA_MATYPE_MIN || (int)optInSignalMAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outMACD )
       return TA_BAD_PARAM;
@@ -339,8 +341,6 @@ TA_RetCode TA_S_MACDEXT( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 12;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -364,6 +364,10 @@ TA_RetCode TA_S_MACDEXT( int    startIdx,
    if( (int)optInSignalMAType == TA_INTEGER_DEFAULT || optInSignalMAType == TA_MAType_DEFAULT )
       optInSignalMAType = 0;
    else if( (int)optInSignalMAType < TA_MATYPE_MIN || (int)optInSignalMAType > TA_MATYPE_MAX )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outMACD )
       return TA_BAD_PARAM;
@@ -554,9 +558,9 @@ static TA_RetCode TA_MACDEXT_OpenImpl( struct TA_MACDEXT_Stream **stream, const 
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 12;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -840,9 +844,9 @@ TA_LIB_API TA_RetCode TA_MACDEXT_Open( TA_MACDEXT_Stream **stream, const double 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    return TA_MACDEXT_OpenInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, outMACD, outMACDSignal, outMACDHist );
 }
 
@@ -850,10 +854,9 @@ TA_LIB_API TA_RetCode TA_MACDEXT_OpenAndFill( TA_MACDEXT_Stream **stream, const 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inReal || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    if( (const void *)outMACD == (const void *)inReal || (const void *)outMACDSignal == (const void *)inReal || (const void *)outMACDHist == (const void *)inReal || (const void *)outMACD == (const void *)outMACDSignal || (const void *)outMACD == (const void *)outMACDHist || (const void *)outMACDSignal == (const void *)outMACDHist ) return TA_BAD_PARAM;
    return TA_MACDEXT_OpenAndFillInternal( stream, inReal, 0, historyLen, optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType, outBegIdx, outNBElement, outMACD, outMACDSignal, outMACDHist );
 }

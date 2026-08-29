@@ -45,6 +45,7 @@
  *  072626 MF,CC  First Version — the OutRange batch contract. Absorbs the
  *                non-vacuous cases of the retired junit CoreTest.
  *  081826 MF,CC  Array-argument checks (#172 C2).
+ *  082526 MF,CC  Declinable outputs and distinct empty ones (#262).
  */
 
 package io.github.talib.test;
@@ -54,6 +55,7 @@ import io.github.talib.InsufficientHistoryException;
 import io.github.talib.MAType;
 import io.github.talib.OutRange;
 import io.github.talib.RetCode;
+import io.github.talib.TaLibArgumentException;
 import io.github.talib.TaLibFailure;
 
 import java.util.Arrays;
@@ -80,6 +82,18 @@ public class BatchApiTest {
 
     private static int failures = 0;
     private static int checks = 0;
+
+    /* The streaming-opener cases below are counted apart from the batch ones:
+     * sharing a counter would let a deleted streaming case hide behind a batch
+     * one, and the floors in main() are what make a deletion loud. */
+    private static int s1Reject = 0;
+    private static int s4Reject = 0;
+    private static int s4Accept = 0;
+    private static int s5Reject = 0;
+    /** Rule B6a at the opener — a declined output, counted apart from S5's. */
+    private static int b6aOpen = 0;
+    /** Rule U6a at {@code updateAndFill} — counted apart from the opener's. */
+    private static int u6aFill = 0;
 
     private static void check(boolean condition, String what) {
         checks++;
@@ -237,9 +251,9 @@ public class BatchApiTest {
             () -> Core.DEFAULT.SMA(0, 50, in, 0, out), "period below range -> IllegalArgument");
         // The cast is required, not incidental: `null` alone is ambiguous between
         // the double[] and float[] overloads. Real callers pass a typed array.
-        checkThrows(NullPointerException.class,
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 50, (double[]) null, 10, out),
-            "null input -> NullPointerException");
+            "null input -> IllegalArgument");
 
         // Two outputs sharing one array has no correct answer (issue #108).
         final double[] shared = new double[100];
@@ -315,21 +329,21 @@ public class BatchApiTest {
         final double[] in = closes(200);
         final double[] out = new double[200];
 
-        checkThrows(NullPointerException.class,
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 199, (double[]) null, 10, out),
-            "null input -> NullPointerException naming it", "SMA", "inReal");
-        checkThrows(NullPointerException.class,
+            "null input names it", "SMA", "inReal");
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 199, in, 10, (double[]) null),
-            "null output -> NullPointerException naming it", "SMA", "outReal");
-        checkThrows(NullPointerException.class,
+            "null output names it", "SMA", "outReal");
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 199, (float[]) null, 10, out),
-            "null float input -> NullPointerException naming it", "SMA", "inReal");
+            "null float input names it", "SMA", "inReal");
         // An argument that does not exist is a bug however little of it would
         // have been read: the null check outlives the lookback short-circuit
         // that switches the LENGTH check off.
-        checkThrows(NullPointerException.class,
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 9, in, 30, (double[]) null),
-            "null output on a range that produces nothing -> NullPointerException",
+            "null output on a range that produces nothing is still rejected",
             "SMA", "outReal");
     }
 
@@ -384,11 +398,12 @@ public class BatchApiTest {
     }
 
     /**
-     * The checks do not pre-empt the core's own RetCode mapping. Every case here
-     * is BOTH a bad argument and an undersized buffer; the core owns the
-     * diagnosis, so its exception has to be the one that comes out.
+     * The length check does not pre-empt the index and parameter rules. Every
+     * case here is BOTH a bad argument and an undersized buffer, and the buffer
+     * is the last thing the specification looks at, so it must not be the
+     * diagnosis.
      */
-    static void theCoreStillOwnsItsOwnDiagnoses() {
+    static void theLengthCheckDoesNotPreEmpt() {
         final double[] in = closes(200);
         final double[] tiny = new double[3];
 
@@ -401,9 +416,6 @@ public class BatchApiTest {
         checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 199, in, 0, tiny),
             "out-of-range period still -> the parameter message", "bad parameter");
-        // The MAX_INDEX clause of clampedStart is the only one the three cases above
-        // cannot reach: endIdx < startIdx and a negative startIdx both re-derive their
-        // own rejection from the clamp, so dropping this clause is otherwise silent.
         checkThrows(IndexOutOfBoundsException.class,
             () -> Core.DEFAULT.SMA(0, Core.MAX_INDEX + 1, in, 10, tiny),
             "endIdx above MAX_INDEX still -> IndexOutOfBounds", "endIdx");
@@ -518,9 +530,9 @@ public class BatchApiTest {
             () -> Core.DEFAULT.CDLDOJI(0, 199, o, h, l, c, new int[3]),
             "short int[] output -> IllegalArgument",
             "CDLDOJI", "outInteger", "3", String.valueOf(produced));
-        checkThrows(NullPointerException.class,
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.CDLDOJI(0, 199, o, h, l, c, (int[]) null),
-            "null int[] output -> NullPointerException", "outInteger");
+            "null int[] output -> IllegalArgument", "outInteger");
     }
 
     /** The float overload carries the identical checks, on its own array type. */
@@ -543,23 +555,39 @@ public class BatchApiTest {
     }
 
     /**
-     * A leg the algorithm never indexes is not checked. Four candlestick patterns
-     * declare an OHLC input they do not read — CDL3OUTSIDE's high and low among
-     * them — and the generated Rust asserts skip exactly those, so rejecting them
-     * here would make the same call a success in one language and a throw in the
-     * other. The control is the leg next to it, which IS read.
+     * A leg the algorithm never indexes is checked like any other (#260). Four
+     * candlestick patterns declare an OHLC input they do not read — CDL3OUTSIDE's
+     * high and low among them — and Rust, Java and C# used to exempt exactly
+     * those while C's NULL checks covered them, so the identical call was
+     * {@code TA_BAD_PARAM} in C and a success here. A declared input must be
+     * supplied; that rule now needs no exception list.
+     *
+     * <p>Both spellings of "not supplied", since the exemption dropped both: an
+     * empty array (B5, naming the two lengths) and a null one (B4). The control
+     * is the leg next to it, which IS read and was never exempt.
      */
-    static void anUnreadLegIsNotChecked() {
+    static void anUnreadLegIsCheckedLikeAnyOther() {
         final double[] real = closes(200);
         final double[] empty = new double[0];
         final int[] out = new int[200];
 
-        OutRange r = Core.DEFAULT.CDL3OUTSIDE(0, 199, real, empty, empty, real, out);
-        check(r.count() > 0, "CDL3OUTSIDE runs with empty high/low legs it never reads");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.CDL3OUTSIDE(0, 199, real, empty, empty, real, out),
+            "an empty high leg the body never reads", "inHigh", "0", "200");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.CDL3OUTSIDE(0, 199, real, real, (double[]) null, real, out),
+            "a null low leg the body never reads", "inLow", "null");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.CDLHIKKAKE(0, 199, empty, real, real, real, out),
+            "CDLHIKKAKE's open leg, the other shape of the same exemption",
+            "inOpen", "0", "200");
 
         checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.CDL3OUTSIDE(0, 199, empty, real, real, real, out),
             "the open leg, which IS read, is still checked", "inOpen", "0", "200");
+        // Non-vacuity: every leg supplied and sized is the success these reject.
+        check(Core.DEFAULT.CDL3OUTSIDE(0, 199, real, real, real, real, out).count() > 0,
+              "CDL3OUTSIDE runs when every declared leg is supplied");
     }
 
     /**
@@ -681,9 +709,9 @@ public class BatchApiTest {
         // ...and the REST of the streaming tier, which is a separate reject
         // ladder from the batch one. Totality is a property of every failure the
         // library raises, not of the tier someone happened to convert first.
-        checkCode(RetCode.BadParam,
+        checkCode(RetCode.OutOfRangeStartIndex,
             () -> Core.DEFAULT.SMA_Open(new double[0], 30),
-            "an empty history carries BadParam");
+            "an empty history carries OutOfRangeStartIndex");
         checkCode(RetCode.BadParam,
             () -> Core.DEFAULT.SMA_Open(in, 0),
             "an out-of-range period on a stream open carries BadParam");
@@ -747,13 +775,9 @@ public class BatchApiTest {
     }
 
     /**
-     * The index rules are evaluated BEFORE the presence check.
-     *
-     * <p>The specification lists B-1 and B-2 ahead of B-3, and this wrapper used
-     * to run the presence check first, so a negative {@code startIdx} with a null
-     * input reported the null and said nothing about the index
-     * ({@code docs/error-handling-spec.md}, open item 3). Every case here is
-     * BOTH faults at once; only the order decides which is reported.
+     * The index rules are evaluated BEFORE the presence check: the
+     * specification lists B1 and B2 ahead of B4. Every case here is BOTH faults
+     * at once; only the order decides which is reported.
      */
     static void anIndexFaultOutranksAnAbsentArgument() {
         final double[] in = closes(200);
@@ -772,31 +796,648 @@ public class BatchApiTest {
         // The control, and what makes the three above about ORDER rather than
         // about the null check having been deleted: with the indices valid, the
         // null IS the diagnosis.
-        checkThrows(NullPointerException.class,
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.SMA(0, 199, (double[]) null, 10, out),
             "a valid range still reports the null", "SMA", "inReal");
     }
 
     /**
-     * A null enum parameter is rejected as the absent argument it is, naming the
-     * function and the parameter.
+     * A bad optional parameter outranks an absent or undersized buffer: the
+     * specification lists B3 ahead of B4 and B5.
      *
-     * <p>It used to reach the {@code switch} inside the function's own
-     * {@code _Lookback} and surface as a bare {@link NullPointerException} naming
-     * neither ({@code docs/error-handling-spec.md}, open item 4). Java is the
-     * only backend where this is expressible at all.
+     * <p>The parameter rule is the one every backend can express, so putting it
+     * first is what makes a multi-fault call report the same condition in all
+     * four. The buffer rules are not: a Rust slice and a C# span cannot be
+     * absent, and C has no sizes to check.
+     */
+    static void aBadParameterOutranksAnAbsentBuffer() {
+        final double[] in = closes(200);
+        final double[] out = new double[200];
+
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.SMA(0, 199, (double[]) null, 0, out),
+            "a bad period outranks a null input", "bad parameter");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.SMA(0, 199, in, 0, (double[]) null),
+            "a bad period outranks a null output", "bad parameter");
+
+        // The control: with the period valid, the buffer IS the diagnosis. Without
+        // it the two above would pass against a wrapper that had simply stopped
+        // checking buffers.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.SMA(0, 199, (double[]) null, 10, out),
+            "a valid period still reports the null", "SMA", "inReal");
+    }
+
+    /**
+     * A null enum parameter is rejected as a parameter outside its domain,
+     * naming the function and the parameter. Left to itself it reaches the
+     * {@code switch} inside the function's own {@code _Lookback} and surfaces as
+     * a bare {@link NullPointerException} naming neither. Java is the only
+     * backend where this is expressible at all.
      */
     static void aNullEnumIsNamed() {
         final double[] in = closes(200);
         final double[] out = new double[200];
 
-        checkThrows(NullPointerException.class,
+        checkThrows(IllegalArgumentException.class,
             () -> Core.DEFAULT.MA(0, 199, in, 10, null, out),
             "a null enum names the function and the parameter", "MA", "optInMAType");
-        // ...and it does not outrank the index rules either.
+        checkCode(RetCode.BadParam,
+            () -> Core.DEFAULT.MA(0, 199, in, 10, null, out),
+            "a null enum carries BadParam");
+        // ...and neither outranks the index rules.
         checkThrows(IndexOutOfBoundsException.class,
             () -> Core.DEFAULT.MA(-1, 199, in, 10, null, out),
             "a negative startIdx outranks a null enum", "startIdx");
+    }
+
+    /**
+     * Rule B6a: an output the .yaml marks {@code nullable} may be declined with
+     * {@code null}, and declining it changes nothing about the output that was
+     * asked for. MAMA's {@code outFAMA} is the only one in the corpus.
+     *
+     * <p>Acceptance alone would not test this. A body that stopped computing
+     * FAMA, or took a different path without it, would be accepted here just the
+     * same — so the declining call has to reproduce the supplied one bit for
+     * bit, and leave everything above its own count untouched (rule N2).
+     *
+     * <p>No cross-language gate can see any of it: the JSON-RPC servers bind
+     * every declared output, so a wrapper that went back to requiring
+     * {@code outFAMA} stays green in {@code --codegen} and {@code --xlang-hash}
+     * alike.
+     */
+    static void aNullableOutputMayBeDeclined() {
+        final double[] in = closes(252);
+        final double[] mamaRef = new double[252];
+        final double[] famaRef = new double[252];
+        OutRange ref = Core.DEFAULT.MAMA(0, 251, in, 0.5, 0.05, mamaRef, famaRef);
+        check(ref.count() > 0, "the reference call produces values");
+
+        final double CANARY = -1.2345678901234e300;
+        double[] mama = new double[252];
+        Arrays.fill(mama, CANARY);
+        OutRange r = Core.DEFAULT.MAMA(0, 251, in, 0.5, 0.05, mama, null);
+
+        check(r.begIdx() == ref.begIdx() && r.count() == ref.count(),
+            "declining outFAMA leaves the reported range alone");
+        boolean same = true;
+        for (int i = 0; i < ref.count(); i++) {
+            same &= Double.doubleToRawLongBits(mama[i]) == Double.doubleToRawLongBits(mamaRef[i]);
+        }
+        check(same, "declining outFAMA leaves outMAMA bit-identical");
+        boolean untouched = true;
+        for (int i = r.count(); i < mama.length; i++) {
+            untouched &= Double.doubleToRawLongBits(mama[i]) == Double.doubleToRawLongBits(CANARY);
+        }
+        check(untouched, "the declining call writes nothing past its own count");
+
+        // The supplied output only has to hold the produced count; the declined
+        // one has no size to hold at all.
+        Core.DEFAULT.MAMA(0, 251, in, 0.5, 0.05, new double[ref.count()], null);
+
+        // Controls, so the acceptance above is about the FLAG and not about
+        // MAMA having stopped checking its outputs.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.MAMA(0, 251, in, 0.5, 0.05, null, famaRef),
+            "the non-nullable output is still required", "MAMA", "outMAMA");
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.MAMA(0, 251, in, 0.5, 0.05, mamaRef, new double[1]),
+            "a SUPPLIED nullable output is still length-checked", "MAMA", "outFAMA");
+    }
+
+    /**
+     * Appendix D item 11: three separately allocated zero-length outputs are
+     * three distinct buffers, and a range shorter than the lookback produces
+     * nothing, so the call is a success with an empty range (rule N1).
+     *
+     * <p>Java always accepted it — two arrays are the same object or disjoint,
+     * so its guard is reference equality and complete. It is here as the
+     * cross-language anchor: C# and Rust rejected the same call until #262, and
+     * this is the shape they now have to agree with.
+     */
+    static void distinctEmptyOutputsAreNotAliases() {
+        final double[] in = closes(252);
+        final int period = 253;
+        check(Core.DEFAULT.ACCBANDS_Lookback(period) > 251,
+            "the probe needs a lookback past the range, or it proves nothing");
+
+        OutRange r = Core.DEFAULT.ACCBANDS(0, 251, in, in, in, period,
+            new double[0], new double[0], new double[0]);
+        check(r.count() == 0, "a sub-lookback range needs no output space");
+
+        // Control: the same three empty arrays on a range that DOES produce
+        // values are still rejected, so this is about the count and not about
+        // the bound having gone away.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.ACCBANDS(0, 251, in, in, in, 20,
+                new double[0], new double[0], new double[0]),
+            "an output that has to hold values is still bounded", "ACCBANDS");
+        // And a REAL alias of two outputs is still rejected.
+        double[] shared = new double[252];
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.ACCBANDS(0, 251, in, in, in, 20,
+                shared, shared, new double[252]),
+            "two outputs that are one array are still rejected", "ACCBANDS");
+    }
+
+    /**
+     * Rule S4 is B4 plus the handle, over the same argument shapes, so the
+     * streaming openers are driven from here rather than from a suite of their
+     * own — as C's own S4 block rides along inside its batch-argument test.
+     *
+     * <p>Java expresses fewer of the shapes than C does: the handle is the
+     * RETURN value and the range out-parameters live on it, so what is left is
+     * the declared inputs and, for {@code openAndFill}, the outputs. Until #268
+     * none of them was checked — {@code inReal.length} was read straight off a
+     * null array and a null output faulted inside the fill loop, both with a raw
+     * JVM exception naming neither the function nor the argument.
+     *
+     * <p>{@code outFAMA} is here rather than among the controls even though it
+     * is declared {@code nullable}: unlike C's, this fill guards no output write,
+     * so declining one has never worked in the streaming tier. Naming it is the
+     * whole change — the call was already rejected.
+     */
+    static void streamingOpenersCheckTheirArguments() {
+        final double[] in = closes(252);
+        final double[] out = new double[252];
+        final double[] out2 = new double[252];
+        final int[] outI = new int[252];
+        final double[] periods = new double[252];
+        Arrays.fill(periods, 5.0);
+
+        // B4's shapes, through the openers.
+        streamRejects(() -> Core.DEFAULT.SMA_Open(null, 30),
+            "SMA_Open(inReal=null)", "SMA open", "inReal");
+        streamRejects(() -> Core.DEFAULT.SMA_OpenAndFill(null, 30, out),
+            "SMA_OpenAndFill(inReal=null)", "SMA openAndFill", "inReal");
+        streamRejects(() -> Core.DEFAULT.SMA_OpenAndFill(in, 30, null),
+            "SMA_OpenAndFill(outReal=null)", "SMA openAndFill", "outReal");
+        // A candlestick leg the body never indexes is still a declared input (#260).
+        streamRejects(() -> Core.DEFAULT.CDL3OUTSIDE_Open(in, null, in, in),
+            "CDL3OUTSIDE_Open(inHigh=null)", "CDL3OUTSIDE open", "inHigh");
+        streamRejects(() -> Core.DEFAULT.CDL3OUTSIDE_OpenAndFill(in, in, null, in, outI),
+            "CDL3OUTSIDE_OpenAndFill(inLow=null)", "CDL3OUTSIDE openAndFill", "inLow");
+        streamRejects(() -> Core.DEFAULT.CDLDOJI_Open(in, in, in, null),
+            "CDLDOJI_Open(inClose=null)", "CDLDOJI open", "inClose");
+        // Multi-input, multi-output.
+        streamRejects(() -> Core.DEFAULT.STOCH_Open(in, in, null, 5, 3, MAType.SMA, 3, MAType.SMA),
+            "STOCH_Open(inClose=null)", "STOCH open", "inClose");
+        streamRejects(() -> Core.DEFAULT.STOCH_OpenAndFill(in, in, in, 5, 3, MAType.SMA, 3,
+                MAType.SMA, out, null),
+            "STOCH_OpenAndFill(outSlowD=null)", "STOCH openAndFill", "outSlowD");
+        // The two hand-rolled tiers: the dispatch and the period bank.
+        streamRejects(() -> Core.DEFAULT.MA_Open(null, 30, MAType.EMA),
+            "MA_Open(inReal=null)", "MA open", "inReal");
+        streamRejects(() -> Core.DEFAULT.MAVP_Open(in, null, 2, 30, MAType.SMA),
+            "MAVP_Open(inPeriods=null)", "MAVP open", "inPeriods");
+        streamRejects(() -> Core.DEFAULT.MAVP_OpenAndFill(in, periods, 2, 30, MAType.SMA, null),
+            "MAVP_OpenAndFill(outReal=null)", "MAVP openAndFill", "outReal");
+        // A nullable output may be DECLINED at the opener, exactly as in the
+        // batch tier (rule B6a) and as C has always allowed: `null` is not an
+        // absent argument here, it is an answer. Proved below, in
+        // `aDeclinedFillOutputIsStillComputed`, that declining changes nothing
+        // but the write.
+
+        aDeclinedFillOutputIsStillComputed(in);
+
+        // Rule S3 ahead of the buffer rules, and the one shape that can tell
+        // `openFillCount`'s raise from the flooring it replaced: with a rejected
+        // parameter AND an absent output, flooring the `-1` lookback to 0 let
+        // the output be reported (S4), where the fault is the parameter.
+        streamRejects(() -> Core.DEFAULT.SMA_OpenAndFill(in, 0, null),
+            "a bad parameter outranks an absent output", "SMA openAndFill", "bad parameter");
+        s5Reject++;
+
+        // Controls: the same calls with every argument supplied still open.
+        streamAccepts(() -> Core.DEFAULT.SMA_Open(in, 30), "SMA_Open");
+        streamAccepts(() -> Core.DEFAULT.SMA_OpenAndFill(in, 30, out), "SMA_OpenAndFill");
+        streamAccepts(() -> Core.DEFAULT.CDL3OUTSIDE_Open(in, in, in, in), "CDL3OUTSIDE_Open");
+        streamAccepts(() -> Core.DEFAULT.STOCH_OpenAndFill(in, in, in, 5, 3, MAType.SMA, 3,
+                MAType.SMA, out, out2), "STOCH_OpenAndFill");
+        streamAccepts(() -> Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, out, out2),
+            "MAMA_OpenAndFill");
+    }
+
+    /**
+     * Rule S1, and its order. An opener is a batch call over
+     * {@code [0, historyLen - 1]}, so an empty history is B1's condition read on
+     * that range — the implied {@code startIdx} of 0 names no bar — and answers
+     * B1's code.
+     *
+     * <p>The order is the part worth a case of its own: the third call below is
+     * BOTH an empty history and an absent output, and the empty history is what
+     * it has to report. A null HISTORY is the one thing that cannot outrank —
+     * a length is not readable from an array that is not there — which is the
+     * last case, and the reason this rule is stated as "ahead of every presence
+     * check" rather than "first".
+     */
+    static void anEmptyHistoryOutranksAnAbsentArgument() {
+        final double[] empty = new double[0];
+        final double[] out = new double[252];
+
+        checkThrows(IndexOutOfBoundsException.class,
+            () -> Core.DEFAULT.SMA_Open(empty, 30),
+            "an empty history is an index fault", "SMA open");
+        s1Reject++;
+        checkThrows(IndexOutOfBoundsException.class,
+            () -> Core.DEFAULT.SMA_OpenAndFill(empty, 30, out),
+            "an empty history is an index fault on the fill too", "SMA openAndFill");
+        s1Reject++;
+        checkThrows(IndexOutOfBoundsException.class,
+            () -> Core.DEFAULT.SMA_OpenAndFill(empty, 30, null),
+            "an empty history outranks a null output", "SMA openAndFill");
+        s1Reject++;
+        checkThrows(IndexOutOfBoundsException.class,
+            () -> Core.DEFAULT.CDLDOJI_Open(empty, empty, empty, empty),
+            "a candlestick reaches it through four legs", "CDLDOJI open");
+        s1Reject++;
+        // The leg that is NOT the history is an ordinary argument, so it is
+        // checked after the pair — the same call reports the empty history in C.
+        checkThrows(IndexOutOfBoundsException.class,
+            () -> Core.DEFAULT.CDLDOJI_Open(empty, null, empty, empty),
+            "an empty history outranks a null leg", "CDLDOJI open");
+        s1Reject++;
+        checkThrows(IndexOutOfBoundsException.class,
+            () -> Core.DEFAULT.MA_Open(empty, 30, MAType.EMA),
+            "the dispatch tier answers it too", "MA open");
+        s1Reject++;
+
+        // The code, not just the type: one IndexOutOfBoundsException serves both
+        // index rules, so the type alone cannot say which fired.
+        check(codeOf(() -> Core.DEFAULT.SMA_Open(empty, 30)) == RetCode.OutOfRangeStartIndex,
+            "an empty history carries OutOfRangeStartIndex");
+
+        // A history of exactly one bar is inside the domain: that is S7's
+        // business, and this is what keeps the cases above about EMPTY.
+        checkThrows(InsufficientHistoryException.class,
+            () -> Core.DEFAULT.SMA_Open(new double[1], 30),
+            "a one-bar history reaches the warm-up check");
+
+        // The exception: a null history is an absent argument, because its
+        // length is what the rule above is about.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.SMA_Open(null, 30),
+            "a null history is an absent argument, not an empty one",
+            "SMA open", "inReal");
+    }
+
+    /** The code an opener's rejection carries, or null if it did not reject. */
+    private static RetCode codeOf(Runnable body) {
+        try {
+            body.run();
+            return null;
+        } catch (RuntimeException e) {
+            return (e instanceof TaLibFailure) ? ((TaLibFailure) e).retCode() : null;
+        }
+    }
+
+    private static void streamRejects(Runnable body, String what, String... needles) {
+        s4Reject++;
+        checkThrows(IllegalArgumentException.class, body, what, needles);
+    }
+
+    /**
+     * Rule B6a at the opener: {@code outFAMA} may be declined with {@code null},
+     * and declining changes nothing but the write.
+     *
+     * <p>Non-vacuous in three directions. The supplied run is the oracle, so a
+     * fill that stopped computing FAMA when it is declined — the easy way to
+     * "support" this — fails on {@code value()}, which the handle caches from
+     * the same expression the guarded store writes. The declined run must still
+     * reject an undersized {@code outMAMA}, so the conditional bound cannot have
+     * been dropped wholesale. And the supplied-but-undersized {@code outFAMA} is
+     * still rejected, so "declinable" did not become "unchecked".
+     */
+    private static void aDeclinedFillOutputIsStillComputed(double[] in) {
+        int lb = Core.DEFAULT.MAMA_Lookback(0.5, 0.05);
+        int produced = in.length - lb;
+
+        double[] refMama = new double[produced];
+        double[] refFama = new double[produced];
+        Core.MAMA_Stream both =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, refMama, refFama);
+
+        double[] soloMama = new double[produced];
+        Core.MAMA_Stream declined =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, soloMama, null);
+
+        b6aOpen++;
+        check(java.util.Arrays.equals(refMama, soloMama),
+            "declining outFAMA leaves outMAMA bit-identical");
+        check(both.outRange().begIdx() == declined.outRange().begIdx()
+                && both.outRange().count() == declined.outRange().count(),
+            "declining outFAMA leaves the reported range unchanged");
+        b6aOpen++;
+        check(Double.doubleToRawLongBits(both.value().fama())
+                == Double.doubleToRawLongBits(declined.value().fama()),
+            "a declined outFAMA is still computed: the handle reports it");
+        b6aOpen++;
+        check(Double.doubleToRawLongBits(refFama[produced - 1])
+                == Double.doubleToRawLongBits(declined.value().fama()),
+            "and it is the value the supplied run wrote last");
+        b6aOpen++;
+
+        // Declining one output does not disarm the other's bound, nor its own
+        // when it IS supplied.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced - 1], null),
+            "an undersized outMAMA is still rejected when outFAMA is declined",
+            "outMAMA");
+        b6aOpen++;
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced],
+                    new double[produced - 1]),
+            "a supplied outFAMA is still bounded", "outFAMA");
+        b6aOpen++;
+    }
+
+    /**
+     * Rule U6a: {@code updateAndFill} declines a nullable output exactly as the
+     * opener does, and the choice is the CALL's — the four open/fill
+     * combinations are all accepted and all compute the same numbers.
+     *
+     * <p>Non-vacuous in the same directions as the opener's probe, plus the one
+     * this rule adds. The supplied run is the oracle, and the comparison a
+     * backend that stopped computing FAMA cannot satisfy is the handle's own
+     * {@code value()} after the fill, not the arrays. The mixed combinations are
+     * the point of the rule: declining at {@code openAndFill} and supplying here
+     * — and the reverse — must be as ordinary as either matching pair. A
+     * declining call must still bound {@code outMAMA}, and still bound
+     * {@code outFAMA} where it IS supplied.
+     */
+    private static final double U6A_CANARY = -1.2345678901234e300;
+
+    private static double[] canaryFilled(int n) {
+        double[] a = new double[n];
+        java.util.Arrays.fill(a, U6A_CANARY);
+        return a;
+    }
+
+    private static boolean wasWritten(double[] a) {
+        for (double v : a) {
+            if (v == U6A_CANARY) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void aDeclinedOutputAtUpdateAndFillIsAPropertyOfTheCall() {
+        final double[] in = closes(252);
+        final int produced = in.length - Core.DEFAULT.MAMA_Lookback(0.5, 0.05);
+        final double[] bars = new double[8];
+        for (int i = 0; i < bars.length; i++) {
+            bars[i] = in[in.length - 1] + 1.0 + i * 0.25;
+        }
+
+        // The oracle: supplied at open, supplied here.
+        Core.MAMA_Stream oracle =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], new double[produced]);
+        // Canary-filled, not zero-filled: comparing two arrays the fill never
+        // wrote would otherwise pass on their shared initial value, which is
+        // exactly the break the supplied/supplied leg below is meant to catch.
+        double[] refMama = canaryFilled(bars.length);
+        double[] refFama = canaryFilled(bars.length);
+        oracle.updateAndFill(bars, refMama, refFama);
+        u6aFill++;
+        check(wasWritten(refMama) && wasWritten(refFama), "the oracle fill wrote both outputs");
+        long oracleFama = Double.doubleToRawLongBits(oracle.value().fama());
+        long oracleMama = Double.doubleToRawLongBits(oracle.value().mama());
+
+        for (boolean declinedAtOpen : new boolean[] { false, true }) {
+            String what = declinedAtOpen ? "declined at open" : "supplied at open";
+
+            Core.MAMA_Stream h = declinedAtOpen
+                ? Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], null)
+                : Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced],
+                        new double[produced]);
+            double[] mama = canaryFilled(bars.length);
+            h.updateAndFill(bars, mama, null);
+            u6aFill++;
+            check(wasWritten(mama) && java.util.Arrays.equals(refMama, mama),
+                what + ", declined here: outMAMA");
+            u6aFill++;
+            check(h.outRange().begIdx() == oracle.outRange().begIdx()
+                    && h.outRange().count() == oracle.outRange().count(),
+                what + ", declined here: the range");
+            // The state, not the write: FAMA feeds the next bar.
+            u6aFill++;
+            check(Double.doubleToRawLongBits(h.value().fama()) == oracleFama,
+                what + ", declined here: a declined outFAMA is still computed");
+            u6aFill++;
+            check(Double.doubleToRawLongBits(h.value().mama()) == oracleMama,
+                what + ", declined here: the handle's outMAMA");
+
+            Core.MAMA_Stream h2 = declinedAtOpen
+                ? Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], null)
+                : Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced],
+                        new double[produced]);
+            double[] mama2 = canaryFilled(bars.length);
+            double[] fama2 = canaryFilled(bars.length);
+            h2.updateAndFill(bars, mama2, fama2);
+            u6aFill++;
+            check(wasWritten(mama2) && wasWritten(fama2)
+                    && java.util.Arrays.equals(refMama, mama2)
+                    && java.util.Arrays.equals(refFama, fama2),
+                what + ", supplied here: both outputs");
+        }
+
+        // "May differ again on the NEXT call" — the sentence the whole rule rests
+        // on. One handle, three fills, alternating; each has to agree with an
+        // oracle driven the same way with everything supplied.
+        Core.MAMA_Stream alt =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], new double[produced]);
+        Core.MAMA_Stream altRef =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], new double[produced]);
+        boolean[] plan = { true, false, true };
+        for (int k = 0; k < plan.length; k++) {
+            double[] leg = new double[bars.length];
+            for (int i = 0; i < bars.length; i++) {
+                leg[i] = bars[i] + k;
+            }
+            double[] wantM = canaryFilled(leg.length);
+            double[] wantF = canaryFilled(leg.length);
+            altRef.updateAndFill(leg, wantM, wantF);
+            double[] gotM = canaryFilled(leg.length);
+            double[] gotF = canaryFilled(leg.length);
+            if (plan[k]) {
+                alt.updateAndFill(leg, gotM, null);
+            } else {
+                alt.updateAndFill(leg, gotM, gotF);
+                u6aFill++;
+                check(wasWritten(gotF) && java.util.Arrays.equals(wantF, gotF),
+                    "alternating leg " + k + ": outFAMA");
+            }
+            u6aFill++;
+            check(wasWritten(gotM) && java.util.Arrays.equals(wantM, gotM)
+                    && alt.outRange().count() == altRef.outRange().count(),
+                "alternating leg " + k + ": outMAMA and the range");
+        }
+        u6aFill++;
+        check(Double.doubleToRawLongBits(alt.value().fama())
+                == Double.doubleToRawLongBits(altRef.value().fama()),
+            "alternating the declined set left the handle's FAMA identical");
+
+        // A DECLINED output is not an absent one: the required arrays are still
+        // rule U2, and the fault has to be the documented exception naming the
+        // argument, not the raw NullPointerException reading a length off a null
+        // array used to produce.
+        Core.MAMA_Stream named =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], new double[produced]);
+        checkThrows(TaLibArgumentException.class,
+            () -> named.updateAndFill(bars, null, new double[bars.length]),
+            "an absent required output names itself", "MAMA updateAndFill", "outMAMA");
+        u6aFill++;
+        checkThrows(TaLibArgumentException.class,
+            () -> named.updateAndFill(null, new double[bars.length], null),
+            "an absent input series names itself", "MAMA updateAndFill", "inReal");
+        u6aFill++;
+
+        // Declining one output disarms neither the other's bound nor its own
+        // where it IS supplied, and a rejected fill commits nothing.
+        Core.MAMA_Stream guarded =
+            Core.DEFAULT.MAMA_OpenAndFill(in, 0.5, 0.05, new double[produced], new double[produced]);
+        int before = guarded.outRange().count();
+        checkThrows(IllegalArgumentException.class,
+            () -> guarded.updateAndFill(bars, new double[bars.length - 1], null),
+            "an undersized outMAMA is still rejected when outFAMA is declined");
+        u6aFill++;
+        checkThrows(IllegalArgumentException.class,
+            () -> guarded.updateAndFill(bars, new double[bars.length],
+                    new double[bars.length - 1]),
+            "a supplied outFAMA is still bounded");
+        u6aFill++;
+        check(guarded.outRange().count() == before, "a rejected fill commits nothing");
+        u6aFill++;
+    }
+
+    private static void streamAccepts(Runnable body, String what) {
+        s4Accept++;
+        checks++;
+        try {
+            body.run();
+        } catch (RuntimeException e) {
+            failures++;
+            System.out.println("  FAIL: " + what + " was rejected (" + e + ")");
+        }
+    }
+
+
+    /**
+     * Rule S5, from both sides. The bound is {@code historyLen - lookback} — the
+     * count the fill actually writes, not the width of the history — so an
+     * exactly-sized output has to be ACCEPTED and one element shorter REJECTED.
+     * Only the pair pins the arithmetic: a bound of {@code historyLen} would
+     * reject the first, and no bound at all would accept the second.
+     *
+     * <p>Until #268's follow-up an undersized output faulted inside the fill
+     * with an {@link ArrayIndexOutOfBoundsException}, the buffer already partly
+     * written and no {@link OutRange} to say how far it got.
+     */
+    static void theFillOutputBoundFromBothSides() {
+        final double[] in = closes(252);
+        final int lookback = Core.DEFAULT.SMA_Lookback(30);
+        final int produced = in.length - lookback;
+
+        check(lookback == 29, "the probe needs a lookback it can be one short of");
+        check(produced < in.length, "the produced count is shorter than the history");
+
+        double[] exact = new double[produced];
+        Core.SMA_Stream h = Core.DEFAULT.SMA_OpenAndFill(in, 30, exact);
+        check(h.outRange().begIdx() == lookback, "the fill starts at the lookback");
+        check(h.outRange().count() == produced, "the fill wrote exactly the bound");
+
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.SMA_OpenAndFill(in, 30, new double[produced - 1]),
+            "one element short of the produced count -> IllegalArgument",
+            "SMA openAndFill", "outReal", String.valueOf(produced - 1), String.valueOf(produced));
+        s5Reject++;
+
+        // A rejected fill writes nothing — the check is ahead of the numerics,
+        // not a report from inside them.
+        final double[] shortOut = new double[produced - 1];
+        Arrays.fill(shortOut, -3e37);
+        try {
+            Core.DEFAULT.SMA_OpenAndFill(in, 30, shortOut);
+            check(false, "expected the undersized fill to be rejected");
+        } catch (IllegalArgumentException expected) {
+            boolean untouched = true;
+            for (double v : shortOut) {
+                if (v != -3e37) { untouched = false; }
+            }
+            check(untouched, "a rejected fill leaves the output as it found it");
+        }
+
+        // An oversized output is legal and bit-identical: the bound is a
+        // minimum, which is what says the exact case above was not luck.
+        double[] roomy = new double[in.length];
+        Core.DEFAULT.SMA_OpenAndFill(in, 30, roomy);
+        boolean same = true;
+        for (int i = 0; i < produced; i++) {
+            if (Double.doubleToRawLongBits(exact[i]) != Double.doubleToRawLongBits(roomy[i])) {
+                same = false;
+            }
+        }
+        check(same, "the exactly-sized fill is bit-identical to the roomy one");
+    }
+
+    /**
+     * The same bound on the tiers that hand-roll their own fill — the dispatch
+     * tier (including its identity arm, whose lookback is 0), the period bank,
+     * and a composed multi-output, whose sub-calls fill scratch of
+     * their own rather than the caller's arrays. Each output is bounded separately.
+     */
+    static void theFillOutputBoundHoldsOnEveryTier() {
+        final double[] in = closes(252);
+        final double[] periods = new double[252];
+        Arrays.fill(periods, 5.0);
+
+        for (int[] arm : new int[][] { {30, 0}, {1, 0} }) {
+            final int period = arm[0];
+            final int lb = Core.DEFAULT.MA_Lookback(period, MAType.EMA);
+            final int produced = in.length - lb;
+            Core.DEFAULT.MA_OpenAndFill(in, period, MAType.EMA, new double[produced]);
+            checkThrows(IllegalArgumentException.class,
+                () -> Core.DEFAULT.MA_OpenAndFill(in, period, MAType.EMA, new double[produced - 1]),
+                "MA one short of the bound", "MA openAndFill", "outReal");
+            s5Reject++;
+        }
+
+        final int mavpLb = Core.DEFAULT.MAVP_Lookback(2, 30, MAType.SMA);
+        final int mavpProduced = in.length - mavpLb;
+        Core.DEFAULT.MAVP_OpenAndFill(in, periods, 2, 30, MAType.SMA, new double[mavpProduced]);
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.MAVP_OpenAndFill(in, periods, 2, 30, MAType.SMA,
+                new double[mavpProduced - 1]),
+            "MAVP one short of the bound", "MAVP openAndFill", "outReal");
+        s5Reject++;
+
+        final int bbLb = Core.DEFAULT.BBANDS_Lookback(20, 2.0, 2.0, MAType.SMA);
+        final int bbProduced = in.length - bbLb;
+        Core.DEFAULT.BBANDS_OpenAndFill(in, 20, 2.0, 2.0, MAType.SMA,
+            new double[bbProduced], new double[bbProduced], new double[bbProduced]);
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.BBANDS_OpenAndFill(in, 20, 2.0, 2.0, MAType.SMA,
+                new double[bbProduced], new double[bbProduced], new double[bbProduced - 1]),
+            "each output is bounded separately", "BBANDS openAndFill", "outRealLowerBand");
+        s5Reject++;
+
+        // A history too short to produce anything is still S7, whatever the
+        // output holds: the bound floors at zero rather than going negative.
+        checkThrows(InsufficientHistoryException.class,
+            () -> Core.DEFAULT.SMA_OpenAndFill(Arrays.copyOf(in, 29), 30, new double[0]),
+            "a short history reaches the warm-up check, not the capacity one");
+
+        // A null enum is a parameter outside its domain, named — it reaches the
+        // lookback call the bound is derived from.
+        // Rule S3, not S5 — a null enum with a full-length output. It belongs
+        // here because the enum check has to precede the lookback call the S5
+        // bound is derived from, but it is not one of S5's cases and is not
+        // counted as one.
+        checkThrows(IllegalArgumentException.class,
+            () -> Core.DEFAULT.MA_OpenAndFill(in, 30, null, new double[in.length]),
+            "a null enum at the opener is named", "MA openAndFill", "optInMAType");
     }
 
     public static void main(String[] args) {
@@ -811,20 +1452,40 @@ public class BatchApiTest {
         nullArraysAreNamed();
         bothSidesOfTheOutputBound();
         aRejectedCallWritesNothing();
-        theCoreStillOwnsItsOwnDiagnoses();
+        theLengthCheckDoesNotPreEmpt();
         aRangeThatProducesNothingChecksNoLength();
         anEndIdxPastTheInputIsRejectedEvenProducingNothing();
         eachOutputIsCheckedSeparately();
         integerOutputsAreChecked();
         floatOverloadIsCheckedToo();
-        anUnreadLegIsNotChecked();
+        anUnreadLegIsCheckedLikeAnyOther();
         theMetadataPathIsGuardedToo();
         noUnguardedTierOnThePublicSurface();
         floatOverloadHasTheSameShape();
         outRangeValueSemantics();
         everyFailureCarriesItsCode();
         anIndexFaultOutranksAnAbsentArgument();
+        aBadParameterOutranksAnAbsentBuffer();
         aNullEnumIsNamed();
+        aNullableOutputMayBeDeclined();
+        distinctEmptyOutputsAreNotAliases();
+        streamingOpenersCheckTheirArguments();
+        anEmptyHistoryOutranksAnAbsentArgument();
+        theFillOutputBoundFromBothSides();
+        theFillOutputBoundHoldsOnEveryTier();
+        aDeclinedOutputAtUpdateAndFillIsAPropertyOfTheCall();
+
+        // Literal floors, not derived from the calls above: a count computed
+        // from the cases would move with a deleted one and still "pass".
+        // s4Reject is 11, not 12: the twelfth was `MAMA_OpenAndFill(outFAMA=null)`,
+        // which is no longer an absent argument but a declined output — rule B6a,
+        // and it has its own counter and its own probe.
+        if (s4Reject < 11 || s4Accept < 5 || s1Reject < 6 || s5Reject < 5 || b6aOpen < 6
+                || u6aFill < 21) {
+            failures++;
+            System.out.println("  FAIL: the streaming-opener gate ran fewer checks"
+                + " than it was written with");
+        }
 
         if (failures == 0) {
             System.out.println("BatchApiTest: ALL PASS (" + checks + " checks)");

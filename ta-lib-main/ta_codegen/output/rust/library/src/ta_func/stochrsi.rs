@@ -81,34 +81,37 @@ impl Core {
     ///   2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT,
     ///   `MAType::DEFAULT` selects the default)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn STOCHRSI_Lookback(&self, mut optInTimePeriod: i32, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType) -> usize {
+    pub fn STOCHRSI_Lookback(&self, mut optInTimePeriod: i32, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInFastK_Period) as i32) == (i32::MIN) {
             optInFastK_Period = 5;
         } else if (((optInFastK_Period) as i32) < 1) || (((optInFastK_Period) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInFastD_Period) as i32) == (i32::MIN) {
             optInFastD_Period = 3;
         } else if (((optInFastD_Period) as i32) < 1) || (((optInFastD_Period) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInFastD_MAType == MAType::DEFAULT {
             optInFastD_MAType = MAType::SMA;
         }
         let mut retValue: usize = 0_usize;
-        retValue = self.RSI_Lookback(optInTimePeriod) + self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-        return retValue;
+        retValue = self.RSI_Lookback(optInTimePeriod)? + self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType)?;
+        return Ok(retValue);
     }
     /// C-shaped body behind [`Core::STOCHRSI`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn STOCHRSI_Impl(
         &self,
         startIdx: usize,
@@ -147,14 +150,14 @@ impl Core {
         if optInFastD_MAType == MAType::DEFAULT {
             optInFastD_MAType = MAType::SMA;
         }
-        if outFastK.as_ptr() == outFastD.as_ptr() {
-            return RetCode::BadParam;
-        }
-        let _assertLb = self.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+        let _assertLb = self.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outFastK.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outFastD.len());
+        if (!outFastK.is_empty() && !outFastD.is_empty() && outFastK.as_ptr() == outFastD.as_ptr()) {
+            return RetCode::BadParam;
+        }
         let mut startIdx = startIdx;
         let mut tempRSIBuffer: Vec<f64> = Vec::new();
         let mut retCode: RetCode = RetCode::Success;
@@ -190,8 +193,8 @@ impl Core {
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
         // Adjust startIdx to account for the lookback period.
-        lookbackSTOCHF = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-        lookbackTotal = self.RSI_Lookback(optInTimePeriod) + lookbackSTOCHF;
+        lookbackSTOCHF = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType).unwrap_or(usize::MAX);
+        lookbackTotal = self.RSI_Lookback(optInTimePeriod).unwrap_or(usize::MAX) + lookbackSTOCHF;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -204,14 +207,20 @@ impl Core {
         (*outBegIdx) = startIdx;
         tempArraySize = endIdx - startIdx + 1 + lookbackSTOCHF;
         tempRSIBuffer = vec![0.0_f64; (tempArraySize * 1) as usize];
-        retCode = self.RSI_Impl(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, &mut outBegIdx1, &mut outNbElement1, &mut tempRSIBuffer[..]);
-        if retCode != RetCode::Success || outNbElement1 == 0 {
+        let _xr0 = match self.RSI(startIdx - lookbackSTOCHF, endIdx, inReal, optInTimePeriod, &mut tempRSIBuffer[..]) { Ok(_r) => _r, Err(_e) => return _e };
+        outBegIdx1 = _xr0.beg_idx;
+        outNbElement1 = _xr0.count;
+        retCode = RetCode::Success;
+        if outNbElement1 == 0 {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return retCode;
         }
-        retCode = self.STOCHF_Impl(0, tempArraySize - 1, &tempRSIBuffer, &tempRSIBuffer, &tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, &mut outBegIdx2, outNBElement, outFastK, outFastD);
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
+        let _xr1 = match self.STOCHF(0, tempArraySize - 1, &tempRSIBuffer, &tempRSIBuffer, &tempRSIBuffer, optInFastK_Period, optInFastD_Period, optInFastD_MAType, outFastK, outFastD) { Ok(_r) => _r, Err(_e) => return _e };
+        outBegIdx2 = _xr1.beg_idx;
+        (*outNBElement) = _xr1.count;
+        retCode = RetCode::Success;
+        if ((*outNBElement) as usize) == 0 {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return retCode;
@@ -267,11 +276,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -316,6 +323,24 @@ impl Core {
         outFastK: &mut [f64],
         outFastD: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outFastK.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outFastD.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.STOCHRSI_Impl(
@@ -349,7 +374,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_STOCHRSI_Stream")]
 pub struct STOCHRSI_Stream {
-    core: Core,
     state: STOCHRSI_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -360,7 +384,6 @@ impl STOCHRSI_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `STOCHRSI_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -398,7 +421,7 @@ impl STOCHRSI_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn STOCHRSI_step_impl(&self, sp: &mut STOCHRSI_StreamState, inReal: f64, outFastK: &mut f64, outFastD: &mut f64) -> Result<(), RetCode> {
+    fn STOCHRSI_step_impl(sp: &mut STOCHRSI_StreamState, inReal: f64, outFastK: &mut f64, outFastD: &mut f64) -> Result<(), RetCode> {
         let mut cur_tempRSIBuffer: f64 = 0.0_f64;
         let mut cur_outFastK: f64 = 0.0_f64;
         let mut cur_outFastD: f64 = 0.0_f64;
@@ -421,7 +444,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outFastK: &mut [f64], outFastD: &mut [f64], outStride: usize,
     ) -> Result<STOCHRSI_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -496,8 +519,8 @@ impl Core {
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
         // Adjust startIdx to account for the lookback period.
-        lookbackSTOCHF = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
-        lookbackTotal = self.RSI_Lookback(optInTimePeriod) + lookbackSTOCHF;
+        lookbackSTOCHF = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType)?;
+        lookbackTotal = self.RSI_Lookback(optInTimePeriod)? + lookbackSTOCHF;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -514,19 +537,19 @@ impl Core {
         // sub-call's own startIdx (the seeding point).
         let sub0 = self.RSI_OpenAndFillInternal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize).saturating_sub((lookbackSTOCHF) as usize), optInTimePeriod, &mut outBegIdx1, &mut outNbElement1, &mut tempRSIBuffer[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success || outNbElement1 == 0 {
+        if outNbElement1 == 0 {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(retCode);
+            return Err(RetCode::InsufficientHistory);
         }
         // Sub-stream 1: stochf over `tempRSIBuffer, tempRSIBuffer, tempRSIBuffer`, warmed from bar 0 up to the
         // sub-call's own startIdx (the seeding point).
         let sub1 = self.STOCHF_OpenAndFillInternal(&tempRSIBuffer[..((tempArraySize - 1) as usize) + 1], &tempRSIBuffer[..((tempArraySize - 1) as usize) + 1], &tempRSIBuffer[..((tempArraySize - 1) as usize) + 1], ((0) as usize), optInFastK_Period, optInFastD_Period, optInFastD_MAType, &mut outBegIdx2, outNBElement, &mut sc_outFastK[..], &mut sc_outFastD[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
+        if ((*outNBElement) as usize) == 0 {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(retCode);
+            return Err(RetCode::InsufficientHistory);
         }
 
         // Capture the live producer state + sub handles.
@@ -549,7 +572,7 @@ impl Core {
             let last_sc_outFastD = sc_outFastD[*outNBElement - 1];
             outFastD[0] = last_sc_outFastD;
         }
-        Ok(STOCHRSI_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(STOCHRSI_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::STOCHRSI_Open`] (composition seam).
@@ -571,8 +594,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
@@ -596,13 +620,33 @@ impl Core {
 
     /// [`Core::STOCHRSI_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::STOCHRSI`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::STOCHRSI_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_STOCHRSI_OpenAndFill")]
     pub fn STOCHRSI_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType, outFastK: &mut [f64], outFastD: &mut [f64],
     ) -> Result<(STOCHRSI_Stream, OutRange), RetCode> {
-        if outFastK.as_ptr() == outFastD.as_ptr() {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.STOCHRSI_Lookback(optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outFastK.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outFastD.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if !outFastK.is_empty() && !outFastD.is_empty() && outFastK.as_ptr() == outFastD.as_ptr() {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -650,7 +694,7 @@ impl STOCHRSI_Stream {
         }
         let mut outFastK: f64 = 0.0_f64;
         let mut outFastD: f64 = 0.0_f64;
-        self.core.STOCHRSI_step_impl(&mut self.state, inReal, &mut outFastK, &mut outFastD)?;
+        Core::STOCHRSI_step_impl(&mut self.state, inReal, &mut outFastK, &mut outFastD)?;
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -683,7 +727,7 @@ impl STOCHRSI_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.STOCHRSI_step_impl(&mut self.state, inReal[i], &mut outFastK[i], &mut outFastD[i])?;
+            Core::STOCHRSI_step_impl(&mut self.state, inReal[i], &mut outFastK[i], &mut outFastD[i])?;
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

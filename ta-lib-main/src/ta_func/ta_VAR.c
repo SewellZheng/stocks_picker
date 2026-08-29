@@ -103,8 +103,6 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -112,6 +110,10 @@ TA_LIB_API TA_RetCode TA_VAR( int    startIdx,
    if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
    else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -305,8 +307,6 @@ TA_RetCode TA_S_VAR( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inReal )
-      return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -314,6 +314,10 @@ TA_RetCode TA_S_VAR( int    startIdx,
    if( optInNbDev == TA_REAL_DEFAULT )
       optInNbDev = 1;
    else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -569,9 +573,9 @@ static TA_RetCode TA_VAR_OpenImpl( struct TA_VAR_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 5;
    else if( (int)optInTimePeriod < 1 || (int)optInTimePeriod > 100000 )
@@ -782,7 +786,7 @@ static TA_RetCode TA_VAR_OpenImpl( struct TA_VAR_Stream **stream, const double i
       sp->windowStart = windowStart;
       sp->i = i;
       sp->xCap = (int)(i - trailingIdx) + 1;
-      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_VAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->xCap < 1 || sp->xCap > historyLen ) { TA_VAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(394); }
       sp->xPhys = 1;
       while( sp->xPhys < sp->xCap ) sp->xPhys <<= 1;
       sp->xMask = sp->xPhys - 1;
@@ -822,9 +826,9 @@ TA_LIB_API TA_RetCode TA_VAR_Open( TA_VAR_Stream **stream, const double inReal[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_VAR_OpenInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outReal );
 }
 
@@ -832,10 +836,9 @@ TA_LIB_API TA_RetCode TA_VAR_OpenAndFill( TA_VAR_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_VAR_OpenAndFillInternal( stream, inReal, 0, historyLen, optInTimePeriod, optInNbDev, outBegIdx, outNBElement, outReal );
 }

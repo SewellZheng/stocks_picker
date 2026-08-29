@@ -74,27 +74,30 @@ impl Core {
     /// * `optInSlowPeriod` — Number of bars in the long moving average. (default 34, range
     ///   2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn AO_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32) -> usize {
+    pub fn AO_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32) -> Result<usize, RetCode> {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
             optInFastPeriod = 5;
         } else if (((optInFastPeriod) as i32) < 2) || (((optInFastPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 34;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         // The longer of the two windows drives the lookback, and it is the lookback
         // of that window's SMA. There is no swap of an inverted pair, so the max is
         // taken over the periods exactly as the caller gave them.
-        return self.SMA_Lookback((optInFastPeriod).max(optInSlowPeriod));
+        return Ok(self.SMA_Lookback((optInFastPeriod).max(optInSlowPeriod))?);
     }
     /// C-shaped body behind [`Core::AO`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn AO_Impl(
         &self,
         startIdx: usize,
@@ -123,7 +126,7 @@ impl Core {
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.AO_Lookback(optInFastPeriod, optInSlowPeriod);
+        let _assertLb = self.AO_Lookback(optInFastPeriod, optInSlowPeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -166,7 +169,7 @@ impl Core {
         // swap would buy nothing and would have to be duplicated in ao_lookback.
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.AO_Lookback(optInFastPeriod, optInSlowPeriod) as usize;
+        lookbackTotal = self.AO_Lookback(optInFastPeriod, optInSlowPeriod).unwrap_or(usize::MAX) as usize;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -278,11 +281,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -329,6 +330,24 @@ impl Core {
         optInSlowPeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.AO_Lookback(optInFastPeriod, optInSlowPeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.AO_Impl(
@@ -360,7 +379,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_AO_Stream")]
 pub struct AO_Stream {
-    core: Core,
     state: AO_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -371,7 +389,6 @@ impl AO_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `AO_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -417,7 +434,7 @@ impl AO_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn AO_step_impl(&self, sp: &mut AO_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
+    fn AO_step_impl(sp: &mut AO_StreamState, inHigh: f64, inLow: f64, outReal: &mut f64) {
         let mut medianPrice: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
         if sp.ringCap_trailingFastIdx == 0 {
@@ -457,8 +474,8 @@ impl Core {
     pub(crate) fn AO_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], startIdx: usize, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<AO_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inLow.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -471,6 +488,9 @@ impl Core {
         if ((optInSlowPeriod) as i32) == (i32::MIN) {
             optInSlowPeriod = 34;
         } else if (((optInSlowPeriod) as i32) < 2) || (((optInSlowPeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -520,7 +540,7 @@ impl Core {
         // swap would buy nothing and would have to be duplicated in ao_lookback.
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.AO_Lookback(optInFastPeriod, optInSlowPeriod) as usize;
+        lookbackTotal = self.AO_Lookback(optInFastPeriod, optInSlowPeriod)? as usize;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -621,7 +641,7 @@ impl Core {
             ringCap_trailingSlowIdx: cap_trailingSlowIdx as usize,
             ring_trailingSlowIdx_derived,
         };
-        Ok(AO_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(AO_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::AO_Open`] (composition seam).
@@ -642,8 +662,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -667,12 +688,32 @@ impl Core {
 
     /// [`Core::AO_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::AO`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::AO_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_AO_OpenAndFill")]
     pub fn AO_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], mut optInFastPeriod: i32, mut optInSlowPeriod: i32, outReal: &mut [f64],
     ) -> Result<(AO_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.AO_Lookback(optInFastPeriod, optInSlowPeriod)?;
+        if inLow.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.AO_OpenAndFillInternal(inHigh, inLow, 0, optInFastPeriod, optInSlowPeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -717,7 +758,7 @@ impl AO_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.AO_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
+        Core::AO_step_impl(&mut self.state, inHigh, inLow, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -750,7 +791,7 @@ impl AO_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.AO_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
+            Core::AO_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

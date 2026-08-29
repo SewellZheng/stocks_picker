@@ -30,12 +30,18 @@ fn func_unst_variant_names(enums: &HashMap<String, EnumDef>) -> Vec<String> {
 
 /// Generate the JSON response key for an output at position `idx` among all outputs.
 ///
-/// Naming convention (matches ta_regtest expectations):
-/// - Real outputs: index 0 → `"outReal"`, index 1 → `"outReal1"`, index 2 → `"outReal2"`
-/// - Integer outputs: index 0 → `"outInteger"`, index 1 → `"outInteger1"`
+/// Naming convention (matches ta_regtest expectations): the type name, then the
+/// output's rank among outputs of that same type, with the rank omitted at 0 —
+/// `outReal`, `outReal1`, `outReal2`, …, `outInteger`, `outInteger1`, … The rank
+/// is per-type, so two real outputs and one integer output yield `"outReal"`,
+/// `"outReal1"`, `"outInteger"` (not `"outInteger2"`).
 ///
-/// Counters are per-type: two real outputs and one integer output yield
-/// `"outReal"`, `"outReal1"`, `"outInteger"` (not `"outInteger2"`).
+/// Derived, not enumerated, and the same rule is built by hand in two other
+/// places that have to agree with it: the C server's abstract handler
+/// (`templates/c/ta_abstract_serve.c`) and the driver that reads its reply
+/// (`test_abstract.c`). Neither may go back to a hardcoded list of keys — such a
+/// list stops at the corpus's widest function and silently blinds the gate past
+/// it (#262).
 fn output_json_key(outputs: &[Output], idx: usize) -> String {
     let out = &outputs[idx];
     // Count how many outputs of the same type appear before this one.
@@ -148,10 +154,10 @@ fn price_input_to_rust_ref(name: &str) -> Option<&'static str> {
 /// Map a function name to its unstable-period id, derived from `enums.yaml`.
 ///
 /// A function owns the id whose enumerator is `TA_FUNC_UNST_<NAME>` — the whole
-/// naming convention of the enum. This used to be a hardcoded `match` carrying a
-/// second copy of the numbering, which is exactly how ta-lib-python's ids came to
-/// mis-target after the 0.6.0 renumbering; a duplicated table drifts silently
-/// because both the writer and the reader use the same wrong value.
+/// naming convention of the enum. Never a hardcoded `match`: a second copy of
+/// the numbering drifts silently, because the writer and the reader both use the
+/// same wrong value. That is how ta-lib-python's ids came to mis-target after
+/// the 0.6.0 renumbering.
 ///
 /// Retired slots (`TA_FUNC_UNST_UNUSED_*`) match no function and yield `None`.
 fn func_unst_id(name: &str, enums: &HashMap<String, EnumDef>) -> Option<i32> {
@@ -360,7 +366,7 @@ pub fn generate_c_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) ->
     s.push_str(&generate_c_json_helpers());
 
     // Shared static buffers (used by both abstract handlers and per-function dispatch)
-    s.push_str(&generate_c_global_buffers());
+    s.push_str(&generate_c_global_buffers(funcs));
 
     // Generic ta_abstract handlers (abstract_call, abstract_get_lookback, abstract_for_each_func)
     s.push_str(&generate_c_abstract_handlers());
@@ -558,14 +564,24 @@ static const char *json_find_string(const char *json, const char *field,
     return start;
 }
 
+/* Real OUTPUT arrays ride the same lossless hex-bits transport the INPUT
+ * arrays have used since #115: one string of concatenated 16-hex-char groups,
+ * each one f64's IEEE-754 bit pattern (json_find_double_array's string arm is
+ * the read side). Decimal text could not carry either half of what an output
+ * has to carry -- %.15g rounds a finite double off by up to ~1-2 ULP (#257),
+ * and no decimal spelling exists at all for an infinity or for WHICH NaN a
+ * payload is (#258). Every backend now writes this same encoding, so the
+ * transport is lossless by construction rather than by whichever native
+ * formatter each language happens to ship. */
 static int json_write_double_array(char *buf, int buf_size, int pos,
                                     const double *data, int count) {
-    pos = json_appendc(buf, buf_size, pos, '[');
+    pos = json_appendc(buf, buf_size, pos, '"');
     for( int i = 0; i < count; i++ ) {
-        if( i > 0 ) pos = json_appendc(buf, buf_size, pos, ',');
-        pos = json_appendf(buf, buf_size, pos, "%.15g", data[i]);
+        unsigned long long bits;
+        memcpy(&bits, &data[i], sizeof(double));
+        pos = json_appendf(buf, buf_size, pos, "%016llx", bits);
     }
-    return json_appendc(buf, buf_size, pos, ']');
+    return json_appendc(buf, buf_size, pos, '"');
 }
 
 static int json_write_int_array(char *buf, int buf_size, int pos,
@@ -601,7 +617,7 @@ static long get_nanotime(void) {
 
 /// Emit shared static buffer declarations used by both abstract handlers and
 /// per-function dispatch.
-fn generate_c_global_buffers() -> String {
+fn generate_c_global_buffers(funcs: &[FuncDef]) -> String {
     let mut s = String::new();
     // Static buffers for input arrays — up to 6 for full OHLCV + openInterest.
     s.push_str("static double g_inBuf0[MAX_ARRAY_SIZE];\n");
@@ -618,13 +634,34 @@ fn generate_c_global_buffers() -> String {
     s.push_str("static float g_sinBuf3[MAX_ARRAY_SIZE];\n");
     s.push_str("static float g_sinBuf4[MAX_ARRAY_SIZE];\n");
     s.push_str("static float g_sinBuf5[MAX_ARRAY_SIZE];\n");
-    // Real output buffers — up to 3 for MACD/BBANDS/STOCH
-    s.push_str("static double g_outBuf0[MAX_ARRAY_SIZE];\n");
-    s.push_str("static double g_outBuf1[MAX_ARRAY_SIZE];\n");
-    s.push_str("static double g_outBuf2[MAX_ARRAY_SIZE];\n");
-    // Integer output buffers — for CDL* patterns and MINMAXINDEX
-    s.push_str("static int g_outIntBuf0[MAX_ARRAY_SIZE];\n");
-    s.push_str("static int g_outIntBuf1[MAX_ARRAY_SIZE];\n\n");
+    // Output buffers, one per slot the WIDEST function in the corpus uses —
+    // counted, not written down. Three reals (MACD/BBANDS/STOCH) and two
+    // integers (MINMAXINDEX) is what today's corpus needs; a literal there is
+    // what made a third integer output fail to compile (#262).
+    let (n_out_real, n_out_int) = crate::backends::common::max_output_arity(funcs);
+    for k in 0..n_out_real {
+        let _ = writeln!(s, "static double g_outBuf{k}[MAX_ARRAY_SIZE];");
+    }
+    for k in 0..n_out_int {
+        let _ = writeln!(s, "static int g_outIntBuf{k}[MAX_ARRAY_SIZE];");
+    }
+    // Indexable views of the same buffers, plus the widths, for the hand-written
+    // abstract handler (`templates/c/ta_abstract_serve.c`). It binds outputs by
+    // ordinal and cannot name `g_outBuf0..n` itself without hardcoding an arity
+    // — which is what it did: a third integer output bound `g_outIntBuf1` twice
+    // and `TA_CallFunc` rejected the call as two outputs sharing a buffer (#262).
+    let reals: Vec<String> = (0..n_out_real).map(|k| format!("g_outBuf{k}")).collect();
+    let ints: Vec<String> = (0..n_out_int).map(|k| format!("g_outIntBuf{k}")).collect();
+    let _ = writeln!(s, "static double *const g_outBufV[] = {{ {} }};", reals.join(", "));
+    let _ = writeln!(s, "static int *const g_outIntBufV[] = {{ {} }};", ints.join(", "));
+    let _ = writeln!(s, "#define TA_SERVE_MAX_OUT_REAL {n_out_real}");
+    let _ = writeln!(s, "#define TA_SERVE_MAX_OUT_INT {n_out_int}");
+    let _ = writeln!(
+        s,
+        "#define TA_SERVE_MAX_OUTPUT {}",
+        funcs.iter().map(|f| f.outputs.len()).max().unwrap_or(1).max(1)
+    );
+    s.push('\n');
 
     // Pre-loaded reference data (immutable after load_data, copied to working buffers per call)
     s.push_str("/* Pre-loaded OHLCV reference data for perftest.\n");
@@ -734,8 +771,8 @@ fn emit_sv_batch_fail_tail(s: &mut String, candle: bool) {
     // (bad params, e.g. an out-of-list enum hitting a dispatch default arm)
     // or an empty range — the stream's Open must reject too. Open mirrors
     // the batch validation and min-history by construction, so a stream
-    // that opens where batch fails is always a contract break; forcing
-    // ok=1 on batch errors (the old behavior) shielded exactly that.
+    // that opens where batch fails is always a contract break. Never force
+    // ok=1 on a batch error -- that shields exactly this case.
     if candle {
         s.push_str("            if( !openRejects ) allOk = 0;\n");
         s.push_str("            if( rd + 1 < rounds ) continue;\n");
@@ -1900,7 +1937,11 @@ fn emit_sv_state_report(s: &mut String, steq: bool) {
     s.push_str("        pos = json_appendf(resp, resp_size, pos, \",\\\"state_checked\\\":%d,\\\"state_legs\\\":%d,\\\"state_ok\\\":%d,\\\"state_bad\\\":\\\"%s\\\"\", stateChecked, stateLegs, stateOk, stateWhat);\n");
 }
 
-#[allow(clippy::too_many_lines)]
+// `cognitive_complexity`: the same allow the other whole-server emitters carry.
+// This one crossed the threshold when #262's declined-output arm landed, and the
+// shape it is complaining about is the sequence of `emit_sv_*` calls this
+// function exists to order.
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let mut s = String::new();
     s.push_str("/* ---- stream_verify: bitwise batch-vs-stream comparison ---- */\n");
@@ -1916,12 +1957,22 @@ fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("#define SV_PEEK_EVERY 7\n");
     s.push_str("static double sv_o[SV_MAXN], sv_h[SV_MAXN], sv_l[SV_MAXN];\n");
     s.push_str("static double sv_c[SV_MAXN], sv_v[SV_MAXN], sv_oi[SV_MAXN];\n");
-    s.push_str("static double sv_b0[SV_MAXN], sv_b1[SV_MAXN], sv_b2[SV_MAXN];\n");
-    s.push_str("static int sv_ib0[SV_MAXN], sv_ib1[SV_MAXN];\n");
-    // OpenAndFill scratch: the whole-history arrays it fills, compared bitwise
-    // against the batch buffers above (sv_b*/sv_ib*).
-    s.push_str("static double sv_f0[SV_MAXN], sv_f1[SV_MAXN], sv_f2[SV_MAXN];\n");
-    s.push_str("static int sv_if0[SV_MAXN], sv_if1[SV_MAXN];\n");
+    // Batch output buffers, then the OpenAndFill scratch it is compared against
+    // bitwise. One per slot the widest function uses, counted from the corpus
+    // for the reason `max_output_arity` gives.
+    let (sv_n_real, sv_n_int) = crate::backends::common::max_output_arity(funcs);
+    for (prefix, ty, n) in [
+        ("sv_b", "double", sv_n_real),
+        ("sv_f", "double", sv_n_real),
+        ("sv_ib", "int", sv_n_int),
+        ("sv_if", "int", sv_n_int),
+    ] {
+        if n == 0 {
+            continue;
+        }
+        let decl: Vec<String> = (0..n).map(|k| format!("{prefix}{k}[SV_MAXN]")).collect();
+        let _ = writeln!(s, "static {ty} {};", decl.join(", "));
+    }
     s.push_str("static int sv_bitne(double a, double b) { return memcmp(&a, &b, sizeof(double)) != 0; }\n");
     // Cross-tier compare (stream vs batch, and OpenAndFill's array vs batch).
     // Differing bits that are numerically equal can only be +0.0 vs -0.0, which
@@ -2230,13 +2281,23 @@ fn generate_c_stream_verify(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             // sharing a buffer must reject (#108 class). Covers the mutual-
             // distinctness guard the input-output probe above never touches, and
             // exercises the integer-output multi-out funcs (MINMAXINDEX) whose
-            // guard the input-output probe skips. Outputs are homogeneously typed,
-            // so aliasing output 1 onto output 0's buffer is type-consistent.
-            if n_outs >= 2 {
+            // guard the input-output probe skips.
+            //
+            // The pair has to be SAME-TYPED, and is searched for rather than
+            // assumed to be (0, 1): substituting a `double*` buffer into an
+            // `int*` slot is an incompatible-pointer-type, i.e. the generated
+            // server would not compile. Searching keeps the probe alive for a
+            // mixed-type function whose same-typed pair is not adjacent —
+            // SYNTH12's reals are outputs 0 and 2. C# already pairs by type
+            // (below); Java gates on `!out_is_int[1]`.
+            let aa_pair = (0..n_outs)
+                .flat_map(|i| ((i + 1)..n_outs).map(move |j| (i, j)))
+                .find(|&(i, j)| out_is_int[i] == out_is_int[j]);
+            if let Some((ai, aj)) = aa_pair {
                 let aa_out: Vec<String> = fbuf
                     .iter()
                     .enumerate()
-                    .map(|(i, b)| if i == 1 { fbuf[0].clone() } else { b.clone() })
+                    .map(|(i, b)| if i == aj { fbuf[ai].clone() } else { b.clone() })
                     .collect::<Vec<_>>();
                 let aa_args = aa_out.join(", ");
                 s.push_str("        {\n");
@@ -2453,11 +2514,14 @@ fn emit_rust_warmup_arms(
     let mut fill_outs = String::new();
     let (mut real_idx, mut int_idx) = (0usize, 0usize);
     for out in outputs {
+        // A nullable output takes `Option<&mut [T]>` (rule B6a); this arm
+        // compares values, so it always supplies one.
+        let (op, cl) = if out.is_nullable() { ("Some(", ")") } else { ("", "") };
         if out.param_type == ParamType::Integer {
-            let _ = write!(fill_outs, ", &mut outIntBuf{int_idx}");
+            let _ = write!(fill_outs, ", {op}&mut outIntBuf{int_idx}{cl}");
             int_idx += 1;
         } else {
-            let _ = write!(fill_outs, ", &mut outBuf{real_idx}");
+            let _ = write!(fill_outs, ", {op}&mut outBuf{real_idx}{cl}");
             real_idx += 1;
         }
     }
@@ -2730,8 +2794,9 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
 
         // want_hash mode (server_verify / issue #115): after the GUARDED call —
         // the same public API TA_CallFunc runs in-process for the golden — return
-        // a full-precision FNV digest of the raw output bytes instead of %.15g
-        // arrays, so a same-input C-vs-C build-flag drift becomes a hard mismatch.
+        // a full-precision FNV digest of the raw output bytes instead of the arrays
+        // themselves, so a same-input C-vs-C build-flag drift is ONE value to
+        // compare rather than outNBElement of them.
         // fuzz_hash_* live in fuzz_data.h, only present when not TA_REF_SERVE; the
         // frozen reference server never receives want_hash (server_verify drives
         // the four generated servers, not ta_ref_serve).
@@ -2817,7 +2882,7 @@ fn generate_c_dispatch(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> S
         s.push_str("            \"{\\\"retCode\\\":%d,\\\"outBegIdx\\\":%d,\\\"outNBElement\\\":%d,\\\"out_len\\\":%d,\\\"timing_ns\\\":%ld\",\n");
         s.push_str("            (int)rc, outBegIdx, outNBElement, (int)MAX_ARRAY_SIZE, elapsed_ns);\n");
         // no_output: ta_bench only reads timing_ns, but serialising a 100k-element
-        // array as %.15g costs more than the call being measured. Suppressing the
+        // array costs more than the call being measured. Suppressing the
         // arrays keeps retCode/outBegIdx/outNBElement so the caller can still tell
         // a real result from an error.
         s.push_str("        if( !json_find_int(json, \"no_output\") ) {\n");
@@ -3204,7 +3269,11 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        switch (retCode) {\n");
     s.push_str("            case OutOfRangeStartIndex: return new TaLibIndexException(where + \"startIdx out of range\", retCode);\n");
     s.push_str("            case OutOfRangeEndIndex: return new TaLibIndexException(where + \"endIdx out of range\", retCode);\n");
-    s.push_str("            case BadParam: return new TaLibArgumentException(where + \"bad parameter\", retCode);\n");
+    // Split exactly as the shipped `Core.java` splits it: the parity gate
+    // compares these bodies token by token (issue #271 item 3).
+    s.push_str("            case BadParam: return new TaLibArgumentException(\n");
+    s.push_str("                where + \"bad parameter (out-of-range optional parameter, or two \"\n");
+    s.push_str("                      + \"outputs sharing one array)\", retCode);\n");
     s.push_str("            case AllocErr: return new TaLibStateException(where + \"allocation failed\", retCode);\n");
     s.push_str("            case InternalError: return new TaLibStateException(where + \"internal error\", retCode);\n");
     s.push_str("            case InsufficientHistory: return new InsufficientHistoryException(where + \"history shorter than the lookback\");\n");
@@ -3215,9 +3284,9 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // public wrapper — it calls the cores — but the spliced text has to compile,
     // and it has to compile against the SAME helpers the library ships, or the
     // identity this splice exists to preserve would be an identity of text only.
-    s.push_str("    static int clampedStart(int startIdx, int endIdx, int lookback) {\n");
-    s.push_str("        if (lookback < 0 || startIdx < 0 || endIdx < startIdx || endIdx > MAX_INDEX) {\n");
-    s.push_str("            return -1;\n");
+    s.push_str("    static int clampedStart(String funcName, int startIdx, int lookback) {\n");
+    s.push_str("        if (lookback < 0) {\n");
+    s.push_str("            throw failure(funcName, RetCode.BadParam);\n");
     s.push_str("        }\n");
     s.push_str("        return startIdx > lookback ? startIdx : lookback;\n");
     s.push_str("    }\n\n");
@@ -3230,7 +3299,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     }
     s.push_str("    static void checkLength(String funcName, String argName, int actual, int required) {\n");
     s.push_str("        if (actual < 0) {\n");
-    s.push_str("            throw new TaLibNullArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BadParam);\n");
+    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BadParam);\n");
     s.push_str("        }\n");
     s.push_str("        if (actual < required) {\n");
     s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName\n");
@@ -3245,9 +3314,29 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("            throw failure(funcName, RetCode.OutOfRangeEndIndex);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
+    s.push_str("    static int openFillCount(String funcName, int historyLen, int lookback) {\n");
+    s.push_str("        if (lookback < 0) {\n");
+    s.push_str("            throw failure(funcName, RetCode.BadParam);\n");
+    s.push_str("        }\n");
+    s.push_str("        return historyLen <= lookback ? 0 : historyLen - lookback;\n");
+    s.push_str("    }\n\n");
+    s.push_str("    static void requireHistoryLength(String funcName, String argName, int actual, int historyLen) {\n");
+    s.push_str("        if (actual != historyLen) {\n");
+    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName + \" has length \" + actual\n");
+    s.push_str("                  + \", needs \" + historyLen, RetCode.BadParam);\n");
+    s.push_str("        }\n");
+    s.push_str("    }\n\n");
+    s.push_str("    static void requireHistory(String funcName, int historyLen) {\n");
+    s.push_str("        if (historyLen < 1) {\n");
+    s.push_str("            throw failure(funcName, RetCode.OutOfRangeStartIndex);\n");
+    s.push_str("        }\n");
+    s.push_str("        if (historyLen > MAX_INDEX + 1) {\n");
+    s.push_str("            throw failure(funcName, RetCode.OutOfRangeEndIndex);\n");
+    s.push_str("        }\n");
+    s.push_str("    }\n\n");
     s.push_str("    static void requireArgument(String funcName, String argName, Object argument) {\n");
     s.push_str("        if (argument == null) {\n");
-    s.push_str("            throw new TaLibNullArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BadParam);\n");
+    s.push_str("            throw new TaLibArgumentException(funcName + \": \" + argName + \" is null\", RetCode.BadParam);\n");
     s.push_str("        }\n");
     s.push_str("    }\n\n");
     for func in funcs {
@@ -3338,13 +3427,22 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("        return result;\n");
     s.push_str("    }\n\n");
 
+    // Real output arrays: the lossless hex-bits transport the inputs have used
+    // since #115 -- one string of concatenated 16-hex-char groups, each value's
+    // IEEE-754 bits. `sb.append(double)` (Double.toString) round-trips a FINITE
+    // value exactly, but prints every NaN as the same "NaN" token, so the
+    // payload `doubleToRawLongBits` (and therefore out_hash) sees was
+    // unrecoverable from the text (#258). doubleToRawLongBits does not
+    // canonicalize, so the bits written here are the bits hash mode hashes.
     s.push_str("    static String doubleArrayToJson(double[] arr, int count) {\n");
-    s.push_str("        StringBuilder sb = new StringBuilder(\"[\");\n");
+    s.push_str("        StringBuilder sb = new StringBuilder(count * 16 + 2);\n");
+    s.push_str("        sb.append('\"');\n");
     s.push_str("        for (int i = 0; i < count; i++) {\n");
-    s.push_str("            if (i > 0) sb.append(',');\n");
-    s.push_str("            sb.append(arr[i]);\n");
+    s.push_str("            long bits = Double.doubleToRawLongBits(arr[i]);\n");
+    s.push_str("            for (int n = 60; n >= 0; n -= 4)\n");
+    s.push_str("                sb.append(\"0123456789abcdef\".charAt((int) ((bits >>> n) & 0xfL)));\n");
     s.push_str("        }\n");
-    s.push_str("        sb.append(']');\n");
+    s.push_str("        sb.append('\"');\n");
     s.push_str("        return sb.toString();\n");
     s.push_str("    }\n\n");
 
@@ -3621,7 +3719,15 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
         s.push_str("        }\n");
 
-        // Optional params
+        // Optional params. `_optRejected` (issue #256) catches an out-of-list
+        // enum value BEFORE it reaches `.values()[...]` -- unlike the sv_<func>
+        // and absBind()/computeLookback() paths, nothing here wrapped that index
+        // in a try/catch, so an out-of-range optInMAType threw
+        // ArrayIndexOutOfBoundsException out of the JSON parse itself, before the
+        // library's own exception normalisation ever ran. Declared unconditionally
+        // (read unconditionally below) rather than only for functions with an enum
+        // param, so it is never an unused local either way.
+        s.push_str("        boolean _optRejected = false;\n");
         for opt in &func.optional_inputs {
             if opt.param_type == ParamType::Real {
                 s.push_str(&format!(
@@ -3629,10 +3735,17 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                     opt.name, opt.name
                 ));
             } else if let ParamType::Enum(ref enum_name) = opt.param_type {
-                // Enum params: read as int, convert to enum type
+                // Enum params: read as a raw int first, and reject out-of-list
+                // before converting to the enum type. On rejection the enum local
+                // is bound to a placeholder in-range value (index 0) purely so the
+                // rest of this method still compiles and runs its normal shape;
+                // `_optRejected` is what actually forces the BadParam response
+                // below, and the placeholder is never observed in one.
                 s.push_str(&format!(
-                    "        {} {} = {}.values()[jsonInt(json, \"{}\")];\n",
-                    enum_name, opt.name, enum_name, opt.name
+                    "        int _raw_{0} = jsonInt(json, \"{0}\");\n\
+                     \x20       if (_raw_{0} < 0 || _raw_{0} >= {1}.values().length) _optRejected = true;\n\
+                     \x20       {1} {0} = {1}.values()[_optRejected ? 0 : _raw_{0}];\n",
+                    opt.name, enum_name
                 ));
             } else {
                 s.push_str(&format!(
@@ -3699,21 +3812,17 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // Call
         // ---- Correctness goes through the PUBLIC API; the benchmark does not.
         //
-        // The harness drove the C-shaped tier, so the tier a user can actually
-        // reach — its argument checks, its exception mapping, the OutRange it
-        // returns — was compared against nothing (#236 step 4). It is compared
-        // now, and the exception is normalised HERE, in the server, rather than
-        // by the library pre-flattening it: a thrown failure carries its code
-        // (#236 step 1), the server reads it and reports the same
-        // retCode / outBegIdx / outNBElement wire shape it always did.
+        // A correctness request calls the tier a user can actually reach, and
+        // the exception is normalised HERE, in the server, rather than by the
+        // library pre-flattening it: a thrown failure carries its code, the
+        // server reads it and reports the retCode / outBegIdx / outNBElement
+        // wire shape (#236 steps 1 and 4).
         //
         // A request that declares itself TIMED (`"timed":1`, which only ta_bench
         // sends) calls the BODY -- the numerics and nothing else -- inside the
         // timed loop. These servers ARE the cross-language benchmark, and
         // nothing measured may quietly acquire the public tier's argument
-        // checks. Before #236 step 5 this went through the C-shaped shim, which
-        // wrapped the same body in a try/catch; the shim is gone and the body is
-        // what it always meant.
+        // checks.
         //
         // Declared, not inferred from `iters > 1`: `ta_bench --iters=1` is a
         // legitimate invocation, and inferring would have made it measure the
@@ -3742,6 +3851,11 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             }
             s.push_str("        if (bench_mode == 0) {\n");
             s.push_str("        if (jsonInt(json, \"timed\") != 0) {\n");
+            s.push_str("            if (_optRejected) {\n");
+            s.push_str("                rc = RetCode.BadParam;\n");
+            s.push_str("                outBegIdx.value = 0;\n");
+            s.push_str("                outNBElement.value = 0;\n");
+            s.push_str("            } else {\n");
             s.push_str("            try {\n");
             s.push_str(&format!("                rc = core.{func_base}_Impl({core_args});\n"));
             s.push_str("            } catch (RuntimeException _e) {\n");
@@ -3750,7 +3864,13 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            }\n");
+            s.push_str("            }\n");
             s.push_str("        } else {\n");
+            s.push_str("            if (_optRejected) {\n");
+            s.push_str("                rc = RetCode.BadParam;\n");
+            s.push_str("                outBegIdx.value = 0;\n");
+            s.push_str("                outNBElement.value = 0;\n");
+            s.push_str("            } else {\n");
             s.push_str("            try {\n");
             s.push_str(&format!("                OutRange _pr = core.{func_base}({pub_args});\n"));
             s.push_str("                outBegIdx.value = _pr.begIdx();\n");
@@ -3761,6 +3881,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str("                rc = ((TaLibFailure) _e).retCode();\n");
             s.push_str("                outBegIdx.value = 0;\n");
             s.push_str("                outNBElement.value = 0;\n");
+            s.push_str("            }\n");
             s.push_str("            }\n");
             s.push_str("        }\n");
             s.push_str("        }\n");
@@ -3787,14 +3908,24 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 fill_args.push(format!("outArr{k}"));
             }
             let fill = fill_args.join(", ");
+            s.push_str("        else if (_optRejected) { rc = RetCode.BadParam; }\n");
             s.push_str("        else { try {\n");
             s.push_str("            if (bench_mode == 1) {\n");
             s.push_str(&format!(
                 "                core.{func_base}_Open({ins});\n"
             ));
             s.push_str("            } else {\n");
+            // The fill reports its range via the returned handle's outRange()
+            // (issue #256) -- unpack it into the same two locals the batch arm
+            // sets, which the response builder below reads. Discarding the
+            // handle (as before) left outBegIdx/outNBElement at whatever the
+            // batch/float legs happened to leave them, invisible to ta_bench
+            // (timing-only) but wrong for anything that reads the value, same
+            // shape as the Rust arm's `Ok((_h, r)) => outBegIdx = r.beg_idx`.
             s.push_str(&format!(
-                "                core.{func_base}_OpenAndFill({fill});\n"
+                "                Core.{func_base}_Stream _wh = core.{func_base}_OpenAndFill({fill});\n\
+                 \x20               outBegIdx.value = _wh.outRange().begIdx();\n\
+                 \x20               outNBElement.value = _wh.outRange().count();\n"
             ));
             s.push_str("            }\n");
             s.push_str("            rc = RetCode.Success;\n");
@@ -3822,6 +3953,11 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         }
         // The float leg is a CORRECTNESS leg, so it takes the public overload
         // for the same reason the double one does. Normalised here, same shape.
+        s.push_str("            if (_optRejected) {\n");
+        s.push_str("                rc = RetCode.BadParam;\n");
+        s.push_str("                outBegIdx.value = 0;\n");
+        s.push_str("                outNBElement.value = 0;\n");
+        s.push_str("            } else {\n");
         s.push_str("            try {\n");
         {
             let mut f_args = String::from("startIdx, endIdx");
@@ -3845,6 +3981,7 @@ pub fn generate_java_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             s.push_str("                outNBElement.value = 0;\n");
             s.push_str("            }\n");
         }
+        s.push_str("            }\n");
         s.push_str("            usedFloat = 1;\n");
         s.push_str("        }\n");
 
@@ -4205,14 +4342,18 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
     s.push_str("        h ^= h >> 33; return h;\n");
     s.push_str("    }\n\n");
 
-    // Array formatters. Default double.ToString() is shortest-round-trip on
-    // modern .NET, and the csproj pins InvariantGlobalization so the decimal
-    // separator cannot vary by locale.
+    // Array formatters. Real outputs ride the lossless hex-bits transport the
+    // inputs have used since #115 -- one string of concatenated 16-hex-char
+    // groups, each value's IEEE-754 bits. `double.ToString()` is
+    // shortest-round-trip on modern .NET and InvariantGlobalization pins the
+    // decimal separator, so it was correct today; hex bits make that a property
+    // of the format instead of of the runtime's formatter (#257/#258), and give
+    // NaN payloads and infinities a spelling decimal text has none for.
     s.push_str("    static string FormatArray(double[] arr, int count) {\n");
     s.push_str("        var parts = new string[count];\n");
     s.push_str("        for (int i = 0; i < count; i++)\n");
-    s.push_str("            parts[i] = arr[i].ToString();\n");
-    s.push_str("        return \"[\" + string.Join(\",\", parts) + \"]\";\n");
+    s.push_str("            parts[i] = BitConverter.DoubleToInt64Bits(arr[i]).ToString(\"x16\");\n");
+    s.push_str("        return \"\\\"\" + string.Concat(parts) + \"\\\"\";\n");
     s.push_str("    }\n\n");
     s.push_str("    static string FormatIntArray(int[] arr, int count) {\n");
     s.push_str("        var parts = new string[count];\n");
@@ -4482,12 +4623,13 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
         s.push_str("        int use_preloaded = GetInt(p, \"use_preloaded\", 0);\n");
         s.push_str("        int bench_iters = GetInt(p, \"iters\", 1);\n");
         s.push_str("        if (bench_iters < 1) bench_iters = 1;\n");
-        // ta_bench --mode=open/openfill has nothing to measure here: the C#
-        // backend has no streaming API at all (no *_Open / *_OpenAndFill).
-        // Answer honestly rather than silently timing the batch call and
-        // reporting it as a warm-up number.
-        s.push_str("        if (GetInt(p, \"bench_mode\", 0) != 0)\n");
-        s.push_str("            return \"{\\\"retCode\\\":0,\\\"timing_ns\\\":0,\\\"unsupported_mode\\\":1}\";\n");
+        // bench_mode (ta_bench --mode): 0 = batch (default), 1 = the streaming
+        // warm-up <N>_Open, 2 = <N>_OpenAndFill (issue #256). Answering
+        // "unsupported_mode" here silently times nothing for --mode=open and
+        // --mode=openfill. Handles are GC-managed (no Close), and the public Open/
+        // OpenAndFill throw instead of returning a code, same as the batch
+        // call below -- the arms convert the throw into a RetCode the same way.
+        s.push_str("        int bench_mode = GetInt(p, \"bench_mode\", 0);\n");
 
         // Inputs: preloaded reference data or from the request.
         for name in &input_names {
@@ -4511,6 +4653,25 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str(&format!("            {name} = GetDoubleArray(p, \"{name}\");\n"));
         }
         s.push_str("        }\n");
+
+        // Right-sized warm-up views for the Open/OpenAndFill arms, bound ONCE
+        // outside the timing loop. Guarded on bench_mode, same as Java's
+        // null-when-unused: endIdx+1 can exceed the array's real length on
+        // purpose (the index-range boundary sweep sends endIdx near
+        // TA_MAX_INDEX on a small array to prove the batch call's OWN
+        // validation rejects it) -- AsSpan's own bounds check would throw
+        // ArgumentOutOfRangeException before that validation ever runs if
+        // this were unconditional, on every plain batch call, not just the
+        // warm-up ones. `default` is a valid empty ReadOnlySpan<double>.
+        // Java derives historyLen from array.length, and with use_preloaded the
+        // buffer is refN-sized already; slicing to endIdx+1 matches what the
+        // C/Rust/Java arms do for the same reason (measure the same range the
+        // batch call does, not whatever --points happened to preload).
+        for name in &input_names {
+            s.push_str(&format!(
+                "        ReadOnlySpan<double> _warm_{name} = bench_mode == 0 ? default : {name}.AsSpan(0, endIdx + 1);\n"
+            ));
+        }
 
         // Optional params (enum params read as int, cast to the enum type).
         // An absent field defaults to 0/0.0, matching the C and Java servers
@@ -4607,6 +4768,7 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             for k in 0..outputs.len() {
                 pub_args.push_str(&format!(", outArr{k}"));
             }
+            s.push_str("            if (bench_mode == 0) {\n");
             s.push_str("            if (GetInt(p, \"timed\", 0) != 0) {\n");
             s.push_str("                try {\n");
             s.push_str(&format!("                    rc = core.{base}_Impl({call_args});\n"));
@@ -4623,6 +4785,45 @@ pub fn generate_csharp_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef
             s.push_str("                    rc = RetCode.Success;\n");
             s.push_str("                } catch (Exception _e) when (_e is ITaLibFailure) {\n");
             s.push_str("                    rc = ((ITaLibFailure)_e).RetCode;\n");
+            s.push_str("                    outBegIdx = 0;\n");
+            s.push_str("                    outNBElement = 0;\n");
+            s.push_str("                }\n");
+            s.push_str("            }\n");
+            // --- warm-up arms (ta_bench --mode=open / openfill), issue #256.
+            // Handles are GC-managed (no Close) and the public Open/OpenAndFill
+            // throw instead of returning a code, so these arms convert the
+            // throw into a RetCode the same way the batch call above does.
+            let mut open_args: Vec<String> =
+                input_names.iter().map(|n| format!("_warm_{n}")).collect();
+            for opt in &func.optional_inputs {
+                open_args.push(opt.name.clone());
+            }
+            let ins = open_args.join(", ");
+            let mut fill_args = open_args.clone();
+            for k in 0..outputs.len() {
+                fill_args.push(format!("outArr{k}"));
+            }
+            let fill = fill_args.join(", ");
+            s.push_str("            } else if (bench_mode == 1) {\n");
+            s.push_str("                try {\n");
+            s.push_str(&format!("                    core.{base}_Open({ins});\n"));
+            s.push_str("                    rc = RetCode.Success;\n");
+            s.push_str("                } catch (Exception _e3) when (_e3 is ITaLibFailure) {\n");
+            s.push_str("                    rc = ((ITaLibFailure)_e3).RetCode;\n");
+            s.push_str("                }\n");
+            s.push_str("            } else {\n");
+            s.push_str("                try {\n");
+            // The fill reports its range via the returned handle's OutRange
+            // property -- unpack it into the same two locals the batch arm
+            // sets, which the response builder below reads.
+            s.push_str(&format!(
+                "                    Core.{base}_Stream _wh = core.{base}_OpenAndFill({fill});\n"
+            ));
+            s.push_str("                    outBegIdx = _wh.OutRange.BegIdx;\n");
+            s.push_str("                    outNBElement = _wh.OutRange.Count;\n");
+            s.push_str("                    rc = RetCode.Success;\n");
+            s.push_str("                } catch (Exception _e3) when (_e3 is ITaLibFailure) {\n");
+            s.push_str("                    rc = ((ITaLibFailure)_e3).RetCode;\n");
             s.push_str("                    outBegIdx = 0;\n");
             s.push_str("                    outNBElement = 0;\n");
             s.push_str("                }\n");
@@ -4860,7 +5061,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     // src/tools/ta_regtest/fuzz_data.h. Powers the cross-language bitwise-parity
     // gate (--xlang-hash, issue #113): the server regenerates the driver's seed
     // inputs in-process (no JSON float parse) and returns a full-precision hash
-    // of its raw outputs (no %.15g rounding), so ~1e-10 FMA drift cannot hide.
+    // of its raw outputs, so ~1e-10 FMA drift is one value to compare, not many.
     s.push_str("// ---- fuzz_data.h port (issue #113 --xlang-hash) ----\n");
     s.push_str(RUST_FUZZ);
     s.push_str("\n// ---- end fuzz_data.h port ----\n\n");
@@ -4930,24 +5131,21 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
     s.push_str("    rc.as_c_int()\n");
     s.push_str("}\n\n");
 
-    // Helper: serialize an f64 slice as a JSON-ish array. Finite values use
-    // serde_json's (ryu) formatting; non-finite values emit bare `nan`/`-nan`/
-    // `inf`/`-inf` tokens to match the C server's `%.15g` output, which the test
-    // harness's strtod-based parser understands (serde_json's `null` would not
-    // advance the parser, ballooning the parsed element count).
+    // Helper: serialize an f64 slice as the lossless hex-bits transport the
+    // inputs have used since #115 -- one string of concatenated 16-hex-char
+    // groups, each value's IEEE-754 bits. serde_json's ryu formatting is
+    // shortest-round-trip for a finite value, but `Number::from_f64` has no
+    // number at all for a NaN or an infinity, so a decimal spelling needs a
+    // bare `nan`/`inf` fallback token every driver's parser has to be taught.
+    // `to_bits` needs no fallback and no token: every f64 has a spelling, and it
+    // is the same one hash mode hashes (#257/#258).
     s.push_str("fn json_f64_array(data: &[f64]) -> String {\n");
-    s.push_str("    let mut s = String::with_capacity(data.len() * 8 + 2);\n");
-    s.push_str("    s.push('[');\n");
-    s.push_str("    for (i, &v) in data.iter().enumerate() {\n");
-    s.push_str("        if i > 0 { s.push(','); }\n");
-    s.push_str("        match serde_json::Number::from_f64(v) {\n");
-    s.push_str("            Some(n) => s.push_str(&n.to_string()),\n");
-    s.push_str("            None => s.push_str(\n");
-    s.push_str("                if v.is_nan() { if v.is_sign_negative() { \"-nan\" } else { \"nan\" } }\n");
-    s.push_str("                else if v < 0.0 { \"-inf\" } else { \"inf\" }),\n");
-    s.push_str("        }\n");
+    s.push_str("    let mut s = String::with_capacity(data.len() * 16 + 2);\n");
+    s.push_str("    s.push('\"');\n");
+    s.push_str("    for &v in data {\n");
+    s.push_str("        s.push_str(&format!(\"{:016x}\", v.to_bits()));\n");
     s.push_str("    }\n");
-    s.push_str("    s.push(']');\n");
+    s.push_str("    s.push('\"');\n");
     s.push_str("    s\n");
     s.push_str("}\n\n");
 
@@ -5298,7 +5496,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
                 func.optional_inputs.iter().map(|o| o.name.clone()).collect();
             s.push_str(&doc_produced_extent("            ", "//"));
             s.push_str(&format!(
-                "            let _lb = core.{}_Lookback({});\n",
+                "            let _lb = core.{}_Lookback({}).unwrap_or(usize::MAX);\n",
                 func.name,
                 lb_args.join(", ")
             ));
@@ -5368,13 +5566,18 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         int_idx = 0;
         let mut out_args: Vec<String> = Vec::new();
         for out in outputs {
-            if out.param_type == ParamType::Integer {
-                out_args.push(format!("&mut outIntBuf{int_idx}"));
+            let buf = if out.param_type == ParamType::Integer {
                 int_idx += 1;
+                format!("&mut outIntBuf{}", int_idx - 1)
             } else {
-                out_args.push(format!("&mut outBuf{real_idx}"));
                 real_idx += 1;
-            }
+                format!("&mut outBuf{}", real_idx - 1)
+            };
+            // A nullable output takes `Option<&mut [T]>` (rule B6a). The server
+            // always supplies it: a correctness request goes through the public
+            // API with every declared output bound, which is what the C
+            // reference is compared against.
+            out_args.push(if out.is_nullable() { format!("Some({buf})") } else { buf });
         }
         s.push_str(&format!("                {},\n", out_args.join(", ")));
         s.push_str("            );\n");
@@ -5394,9 +5597,9 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // [fuzz] out_hash mode (--xlang-hash, issue #113): after the GUARDED call —
         // the public API the C golden's TA_CallFunc also runs — return a
         // full-precision FNV digest of the raw outputs instead of the arrays, so a
-        // ~1e-10 cross-language divergence cannot be blurred by %.15g. full_output
-        // suppresses it (arrays to pinpoint a divergence). Hashes outputs in
-        // logical order; nothing unless the call succeeded.
+        // ~1e-10 cross-language divergence is one value to compare. full_output
+        // suppresses it (arrays to pinpoint WHICH element diverged). Hashes
+        // outputs in logical order; nothing unless the call succeeded.
         s.push_str("            if (gen_present != 0 || want_hash != 0) && full_output == 0 {\n");
         s.push_str("                let mut _oh = fuzz_hash_init();\n");
         s.push_str("                if matches!(rc, RetCode::Success) && outNBElement > 0 {\n");
@@ -5433,7 +5636,7 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
         // cannot reproduce it. Report the driver's "rejected" marker rather than
         // a fabricated number, which is also what the abstract tier returns.
         if enum_opts.is_empty() {
-            s.push_str(&format!("            let lookback = core.{fn_name}_Lookback("));
+            s.push_str(&format!("            let lookback: i64 = core.{fn_name}_Lookback("));
         } else {
             s.push_str(&format!(
                 "            let lookback: i64 = if _enum_bad {{ -1 }} else {{ core.{fn_name}_Lookback("
@@ -5445,17 +5648,21 @@ pub fn generate_rust_server(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>)
             .map(|o| o.name.clone())
             .collect();
         s.push_str(&lb_args.join(", "));
+        // Non-enum functions and the enum branch's callee both normalize the
+        // same way: Ok -> the real value, Err -> -1, matching C/Java/C#'s wire
+        // shape. `_enum_bad` stays a separate pre-condition -- an out-of-domain
+        // enum member can't be constructed to pass to `_Lookback` at all.
         if enum_opts.is_empty() {
-            s.push_str(");\n");
+            s.push_str(").map_or(-1, |v| v as i64);\n");
         } else {
-            s.push_str(") as i64 };\n");
+            s.push_str(").map_or(-1, |v| v as i64) };\n");
         }
 
-        // Build the response string manually (not via serde_json) so non-finite
-        // f64 outputs serialize as `nan`/`-nan`/`inf`/`-inf` — matching the C
-        // server's `%.15g` — rather than serde_json's `null` (which the test
-        // harness's strtod-based array parser cannot advance past, ballooning the
-        // element count). Finite values use json_f64_array (serde_json formatting).
+        // Built manually rather than via serde_json: an output array is not a
+        // JSON number array at all any more but the hex-bits string every
+        // backend now writes (json_f64_array), which serde_json has no shape
+        // for — and a non-finite f64 would have serialized as `null`, which is
+        // neither the value nor something the driver's parser can count.
         s.push_str("            let mut resp = format!(\"{{\\\"retCode\\\":{},\\\"outBegIdx\\\":{},\\\"outNBElement\\\":{},\\\"out_len\\\":{},\\\"lookback\\\":{},\\\"timing_ns\\\":{}\", retcode_to_int(rc), outBegIdx, outNBElement, out_size, lookback, elapsed_ns);\n");
 
         // Add output arrays to response
@@ -6209,14 +6416,18 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
     let mut fargs = String::new();
     for (i, is_int) in out_is_int.iter().enumerate() {
         let (ty, z) = if *is_int { ("i32", "0i32") } else { ("f64", "0.0f64") };
+        // A nullable output takes `Option<&mut [T]>` (rule B6a); this harness
+        // compares values, so it always supplies one.
+        let some = func.outputs.get(i).is_some_and(crate::ir::Output::is_nullable);
+        let (op, cl) = if some { ("Some(", ")") } else { ("", "") };
         let _ = writeln!(bdecls, "    let mut b{i}: Vec<{ty}> = vec![{z}; svN];");
-        let _ = write!(bargs, ", &mut b{i}");
+        let _ = write!(bargs, ", {op}&mut b{i}{cl}");
         // Canary-filled, not zero-filled: the slack above the produced range is
         // asserted untouched after the call (#205's write bound), so a write
         // past `nb` fails instead of landing in unread space.
         let canary = if *is_int { "-987654321i32" } else { "-1.2345678901234e300f64" };
         let _ = writeln!(fdecls, "        let mut f{i}: Vec<{ty}> = vec![{canary}; svN];");
-        let _ = write!(fargs, ", &mut f{i}");
+        let _ = write!(fargs, ", {op}&mut f{i}{cl}");
     }
     s.push_str(&bdecls);
 
@@ -6294,7 +6505,7 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         s,
         "        let rc = match c2.{fname}(0, svN - 1, {full_ins}, {opts_lead}{bargs_head}) {{ Ok(r) => {{ beg = r.beg_idx; nb = r.count; RetCode::Success }} Err(e) => {{ beg = 0; nb = 0; e }} }};"
     );
-    let _ = writeln!(s, "        let lb = c2.{fname}_Lookback({opts});");
+    let _ = writeln!(s, "        let lb = c2.{fname}_Lookback({opts}).unwrap_or(usize::MAX);");
     s.push_str("        if rc != RetCode::Success || nb == 0 {\n");
     let _ = writeln!(
         s,
@@ -6333,7 +6544,8 @@ fn emit_rust_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
 
     let seed_boundary = func_has_seed_boundary(func, funcs);
     emit_rust_sv_prefix_sweep(&mut s, fname, &arrays, &pfx_ins, &opts_tail, &out_is_int, seed_boundary);
-    emit_rust_sv_update_and_fill_leg(&mut s, fname, &arrays, &pfx_ins, &opts_tail, &out_is_int);
+    let out_nullable: Vec<bool> = func.outputs.iter().map(crate::ir::Output::is_nullable).collect();
+    emit_rust_sv_update_and_fill_leg(&mut s, fname, &arrays, &pfx_ins, &opts_tail, &out_is_int, &out_nullable);
 
     // Short-history reject leg: at `lb` bars no output is defined for ANY
     // configuration, so open must reject. (The seed-boundary bar `lb+1` is NOT
@@ -6451,6 +6663,21 @@ fn emit_rust_sv_prefix_sweep(
     s.push_str("                }\n            }\n        }\n");
 }
 
+/// Which output the "too short for the run" probe undersizes: the first one that
+/// is NOT `nullable`.
+///
+/// Zero length is how C# spells "declined", so undersizing a declinable output
+/// there asserts a declination is accepted, not that a short buffer is rejected
+/// — the opposite of the rule the probe is standing in for. Java and Rust would
+/// still reject it, so the choice only has to be right for C#; making it the
+/// same everywhere keeps the harness from depending on that.
+fn short_probe_index(out_nullable: &[bool]) -> usize {
+    out_nullable
+        .iter()
+        .position(|n| !n)
+        .expect("every function has a required output (backends::common's guardable-store assert)")
+}
+
 /// UpdateAndFill leg (#246): the same `Open(p)` the prefix sweep uses, then ONE
 /// call over the tail instead of `svN - p` separate updates. Rust has no
 /// aliasing probe (`&[f64]` and `&mut [f64]` cannot alias) and no negative
@@ -6464,6 +6691,7 @@ fn emit_rust_sv_update_and_fill_leg(
     pfx_ins: &str,
     opts_tail: &str,
     out_is_int: &[bool],
+    out_nullable: &[bool],
 ) {
     s.push_str("        if let Some(&p) = pcs.first() {\n");
     let _ = writeln!(s, "            match c2.{fname}_Open({pfx_ins}{opts_tail}) {{");
@@ -6479,8 +6707,17 @@ fn emit_rust_sv_update_and_fill_leg(
         };
         let _ = writeln!(s, "                    let mut u{i}: Vec<{ty}> = vec![{canary}; svN];");
     }
+    // A nullable output takes `Option<&mut [T]>` at this tier too (rule U6a);
+    // this harness compares values, so it always supplies one.
+    let ubuf = |i: usize| {
+        if out_nullable.get(i).copied().unwrap_or(false) {
+            format!("Some(&mut u{i})")
+        } else {
+            format!("&mut u{i}")
+        }
+    };
     let uargs: String = (0..out_is_int.len()).fold(String::new(), |mut acc, i| {
-        let _ = write!(acc, ", &mut u{i}");
+        let _ = write!(acc, ", {}", ubuf(i));
         acc
     });
     let tail_ins = arrays
@@ -6501,8 +6738,14 @@ fn emit_rust_sv_update_and_fill_leg(
         "                    if stu.update_and_fill({empty_ins}{uargs}).is_err() {{ ufill_ok = false; }}"
     );
     {
+        // The undersized buffer rides the first output that is NOT nullable.
+        // Empty is how C# spells "declined", so a zero-length nullable output is
+        // an accepted call there, not the U6 rejection this probe is asserting;
+        // every function has at least one required output (the guardable-store
+        // assert in `backends::common`), so there is always somewhere to put it.
+        let short_idx = short_probe_index(out_nullable);
         let short: String = (0..out_is_int.len())
-            .map(|i| if i == 0 { format!(", &mut u{i}[..0]") } else { format!(", &mut u{i}") })
+            .map(|i| if i == short_idx { format!(", &mut u{i}[..0]") } else { format!(", {}", ubuf(i)) })
             .collect();
         let _ = writeln!(
             s,
@@ -7059,11 +7302,13 @@ fn emit_java_sv_func(func: &FuncDef, funcs: &[FuncDef], enums: &HashMap<String, 
         "                        stu.updateAndFill({empty_ins}{uargs});"
     );
     {
+        let short_idx =
+            short_probe_index(&func.outputs.iter().map(crate::ir::Output::is_nullable).collect::<Vec<_>>());
         let short: String = out_is_int
             .iter()
             .enumerate()
             .map(|(i, is_int)| {
-                if i == 0 {
+                if i == short_idx {
                     format!(", new {}[0]", if *is_int { "int" } else { "double" })
                 } else {
                     format!(", u{i}")
@@ -8168,10 +8413,39 @@ fn emit_csharp_sv_func(
     // overlap guard a checked property rather than a claim.
     //
     // Two shapes per pair, because they fail differently:
-    //   - offset:  f{i} and a slice of it starting one element in
+    //   - offset:  a window and the same window shifted one element in
     //   - same start, different length: identical memory and start, which span
     //     `==` reads as NOT equal, so an `==`-based guard waves it through
+    //
+    // EVERY window is `svN` long or longer, cut from a buffer one element wider
+    // than the series. Slicing `f{i}` itself cannot do that: the widest window
+    // inside it that still leaves room to shift is `svN - 1`, which rule S5
+    // rejects for capacity the moment the lookback is 0 — so for the 28
+    // unconditional-zero-lookback functions, and every period-taking one at
+    // `period = 1`, the probe caught a capacity fault and never reached the
+    // overlap guard it is named for (issue #271 item 2).
     if n_out >= 1 {
+        let pair = |ints: bool| {
+            out_is_int.iter().enumerate().any(|(i, a)| {
+                *a == ints
+                    && out_is_int.iter().skip(i + 1).any(|b| *b == ints)
+            })
+        };
+        if pair(false) {
+            s.push_str("                double[] ovD = new double[svN + 1];\n");
+        }
+        if pair(true) {
+            s.push_str("                int[] ovI = new int[svN + 1];\n");
+        }
+        if out_is_int.iter().any(|b| !*b) {
+            if let Some(arr) = arrays.first() {
+                // The input leg needs the OUTPUT to overlap an INPUT, so the
+                // input has to come out of the wide buffer too — same values,
+                // one element of headroom.
+                let _ = writeln!(s, "                double[] ovIn = new double[svN + 1];");
+                let _ = writeln!(s, "                Array.Copy({arr}, ovIn, svN);");
+            }
+        }
         s.push_str("                /* R2b: PARTIAL overlap -- only spans can express it, and it is
 ");
         s.push_str("                   the only shape that separates Overlaps from identity. */
@@ -8181,16 +8455,17 @@ fn emit_csharp_sv_func(
                 if i_is_int != j_is_int {
                     continue;
                 }
+                let ov = if *i_is_int { "ovI" } else { "ovD" };
                 for (shape, expr) in [
-                    ("offset", format!("f{i}.AsSpan(1, svN - 1)")),
-                    ("same start, longer", format!("f{i}.AsSpan(0, svN)")),
+                    ("offset", format!("{ov}.AsSpan(1, svN)")),
+                    ("same start, longer", format!("{ov}.AsSpan(0, svN + 1)")),
                 ] {
                     let mut aargs = String::new();
                     for k in 0..n_out {
                         if k == j {
                             let _ = write!(aargs, ", {expr}");
                         } else if k == i {
-                            let _ = write!(aargs, ", f{i}.AsSpan(0, svN - 1)");
+                            let _ = write!(aargs, ", {ov}.AsSpan(0, svN)");
                         } else {
                             let _ = write!(aargs, ", f{k}");
                         }
@@ -8213,18 +8488,29 @@ fn emit_csharp_sv_func(
             if *i_is_int {
                 continue;
             }
-            if let Some(arr) = arrays.first() {
+            if !arrays.is_empty() {
                 let mut aargs = String::new();
                 for k in 0..n_out {
                     if k == i {
-                        let _ = write!(aargs, ", {arr}.AsSpan(1, svN - 1)");
+                        let _ = write!(aargs, ", ovIn.AsSpan(1, svN)");
                     } else {
                         let _ = write!(aargs, ", f{k}");
                     }
                 }
+                // The history comes out of `ovIn` so the output window above
+                // overlaps it; every other input stays the fuzz array, and the
+                // two agree in length (rule S5's input half).
+                let ov_ins = arrays
+                    .iter()
+                    .enumerate()
+                    .map(|(k, a)| {
+                        if k == 0 { "ovIn.AsSpan(0, svN)".to_string() } else { (*a).to_string() }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 let _ = writeln!(
                     s,
-                    "                try {{ _ = c2.{base}_OpenAndFill({full_ins}{opts_tail}{aargs}); fillOk = false; }}"
+                    "                try {{ _ = c2.{base}_OpenAndFill({ov_ins}{opts_tail}{aargs}); fillOk = false; }}"
                 );
                 let _ = writeln!(
                     s,
@@ -8393,11 +8679,13 @@ fn emit_csharp_sv_func(
     });
     let _ = writeln!(s, "                        stu.UpdateAndFill({empty_ins}{uargs});");
     {
+        let short_idx =
+            short_probe_index(&func.outputs.iter().map(crate::ir::Output::is_nullable).collect::<Vec<_>>());
         let short: String = out_is_int
             .iter()
             .enumerate()
             .map(|(i, is_int)| {
-                if i == 0 {
+                if i == short_idx {
                     format!(", new {}[0]", if *is_int { "int" } else { "double" })
                 } else {
                     format!(", u{i}")

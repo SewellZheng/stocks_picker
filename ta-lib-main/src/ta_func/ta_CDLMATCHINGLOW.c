@@ -96,6 +96,8 @@ TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
 
@@ -192,6 +194,8 @@ TA_RetCode TA_S_CDLMATCHINGLOW( int    startIdx,
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -301,9 +305,9 @@ static TA_RetCode TA_CDLMATCHINGLOW_OpenImpl( struct TA_CDLMATCHINGLOW_Stream **
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -390,7 +394,7 @@ static TA_RetCode TA_CDLMATCHINGLOW_OpenImpl( struct TA_CDLMATCHINGLOW_Stream **
       sp->EqualPeriodTotal = EqualPeriodTotal;
       sp->ringLag_EqualTrailingIdx = (int)(i - EqualTrailingIdx);
       sp->ringCap_EqualTrailingIdx = sp->ringLag_EqualTrailingIdx + 2;
-      if( sp->ringLag_EqualTrailingIdx < 0 || sp->ringCap_EqualTrailingIdx > historyLen ) { TA_CDLMATCHINGLOW_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringLag_EqualTrailingIdx < 0 || sp->ringCap_EqualTrailingIdx > historyLen ) { TA_CDLMATCHINGLOW_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(273); }
       { size_t allocN = (size_t)(sp->ringCap_EqualTrailingIdx > 0 ? sp->ringCap_EqualTrailingIdx : 1);
         sp->ring_EqualTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_EqualTrailingIdx_derived ) { TA_CDLMATCHINGLOW_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -432,9 +436,9 @@ TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW_Open( TA_CDLMATCHINGLOW_Stream **stream,
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLMATCHINGLOW_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
 
@@ -442,10 +446,9 @@ TA_LIB_API TA_RetCode TA_CDLMATCHINGLOW_OpenAndFill( TA_CDLMATCHINGLOW_Stream **
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLMATCHINGLOW_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
 }

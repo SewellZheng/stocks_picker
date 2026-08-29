@@ -62,6 +62,9 @@ public partial class Core
     *               + reseed) and a scale-relative denominator test.
     *  082326 MF,CC #242 follow-up: restore TA_VAR's outlier trigger, at 1e3,
     *               on BOTH axes -- the output reads S_xy and S_y too.
+    *  082326 MF,CC Fix #253. Test the base price of a return exactly instead of
+    *               against the fixed TA_IS_ZERO band, which collapsed beta to
+    *               zero for any instrument quoted small enough to fall under it.
     */
    /// <summary>
    /// Number of leading input bars <c>BETA</c> consumes before it can produce
@@ -226,22 +229,28 @@ public partial class Core
        * afford before the sums exist.
        */
       i = ++trailingIdx;
-      if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+      /* A return needs a non-zero base price and nothing more: the test is exact,
+       * not the fixed TA_IS_ZERO band it used to be. A price carries the quote
+       * unit, so that band declared every bar of a small-quoted instrument
+       * "no previous price", left every return at -shift, and collapsed beta to
+       * zero (issue #253).
+       */
+      if( last_price_x != 0.0 ) {
          shift_x = (inReal0[i] - last_price_x) / last_price_x;
       }
-      if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+      if( last_price_y != 0.0 ) {
          shift_y = (inReal1[i] - last_price_y) / last_price_y;
       }
       while( i < startIdx ) {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -259,14 +268,14 @@ public partial class Core
       barsSinceReseed = 32 * optInTimePeriod;
       do {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -340,11 +349,11 @@ public partial class Core
             tmp_real = 0.0;
             shift_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   tmp_real += (inReal0[j] - prev_x) / prev_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   shift_y += (inReal1[j] - prev_y) / prev_y;
                }
                prev_y = inReal1[j];
@@ -359,13 +368,13 @@ public partial class Core
             S_x = 0.0;
             S_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
                   x = 0 - shift_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
                   y = 0 - shift_y;
@@ -395,7 +404,7 @@ public partial class Core
           * buffer can be the same.
           */
          tmp_real = inReal0[trailingIdx];
-         if( !((-0.00000000000001 < trailing_last_price_x) && (trailing_last_price_x < 0.00000000000001)) ) {
+         if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
@@ -403,7 +412,7 @@ public partial class Core
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
          trailingIdx += 1;
-         if( !((-0.00000000000001 < trailing_last_price_y) && (trailing_last_price_y < 0.00000000000001)) ) {
+         if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -520,22 +529,22 @@ public partial class Core
       trailing_last_price_y = (double)inReal1[trailingIdx];
       last_price_y = trailing_last_price_y;
       i = ++trailingIdx;
-      if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+      if( last_price_x != 0.0 ) {
          shift_x = ((double)inReal0[i] - last_price_x) / last_price_x;
       }
-      if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+      if( last_price_y != 0.0 ) {
          shift_y = ((double)inReal1[i] - last_price_y) / last_price_y;
       }
       while( i < startIdx ) {
          tmp_real = (double)inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -552,14 +561,14 @@ public partial class Core
       barsSinceReseed = 32 * optInTimePeriod;
       do {
          tmp_real = (double)inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -581,11 +590,11 @@ public partial class Core
             tmp_real = 0.0;
             shift_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   tmp_real += ((double)inReal0[j] - prev_x) / prev_x;
                }
                prev_x = (double)inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   shift_y += ((double)inReal1[j] - prev_y) / prev_y;
                }
                prev_y = (double)inReal1[j];
@@ -600,13 +609,13 @@ public partial class Core
             S_x = 0.0;
             S_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   x = ((double)inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
                   x = 0 - shift_x;
                }
                prev_x = (double)inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   y = ((double)inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
                   y = 0 - shift_y;
@@ -625,7 +634,7 @@ public partial class Core
             }
          }
          tmp_real = (double)inReal0[trailingIdx];
-         if( !((-0.00000000000001 < trailing_last_price_x) && (trailing_last_price_x < 0.00000000000001)) ) {
+         if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
@@ -633,7 +642,7 @@ public partial class Core
          trailing_last_price_x = tmp_real;
          tmp_real = (double)inReal1[trailingIdx];
          trailingIdx += 1;
-         if( !((-0.00000000000001 < trailing_last_price_y) && (trailing_last_price_y < 0.00000000000001)) ) {
+         if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -690,14 +699,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange BETA( int startIdx,
@@ -759,14 +770,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange BETA( int startIdx,
@@ -1029,14 +1042,14 @@ public partial class Core
       sp.x_inReal0[sp.i & sp.xMask] = inReal0;
       sp.x_inReal1[sp.i & sp.xMask] = inReal1;
       tmp_real = sp.x_inReal0[sp.i & sp.xMask];
-      if( !((-0.00000000000001 < sp.last_price_x) && (sp.last_price_x < 0.00000000000001)) ) {
+      if( sp.last_price_x != 0.0 ) {
          x = (tmp_real - sp.last_price_x) / sp.last_price_x - sp.shift_x;
       } else {
          x = 0 - sp.shift_x;
       }
       sp.last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.i++ & sp.xMask];
-      if( !((-0.00000000000001 < sp.last_price_y) && (sp.last_price_y < 0.00000000000001)) ) {
+      if( sp.last_price_y != 0.0 ) {
          y = (tmp_real - sp.last_price_y) / sp.last_price_y - sp.shift_y;
       } else {
          y = 0 - sp.shift_y;
@@ -1110,11 +1123,11 @@ public partial class Core
          tmp_real = 0.0;
          sp.shift_y = 0.0;
          for( sp.j = windowStart; sp.j < sp.i; sp.j += 1 ) {
-            if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+            if( prev_x != 0.0 ) {
                tmp_real += (sp.x_inReal0[sp.j & sp.xMask] - prev_x) / prev_x;
             }
             prev_x = sp.x_inReal0[sp.j & sp.xMask];
-            if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+            if( prev_y != 0.0 ) {
                sp.shift_y += (sp.x_inReal1[sp.j & sp.xMask] - prev_y) / prev_y;
             }
             prev_y = sp.x_inReal1[sp.j & sp.xMask];
@@ -1129,13 +1142,13 @@ public partial class Core
          sp.S_x = 0.0;
          sp.S_y = 0.0;
          for( sp.j = windowStart; sp.j < sp.i; sp.j += 1 ) {
-            if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+            if( prev_x != 0.0 ) {
                x = (sp.x_inReal0[sp.j & sp.xMask] - prev_x) / prev_x - sp.shift_x;
             } else {
                x = 0 - sp.shift_x;
             }
             prev_x = sp.x_inReal0[sp.j & sp.xMask];
-            if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+            if( prev_y != 0.0 ) {
                y = (sp.x_inReal1[sp.j & sp.xMask] - prev_y) / prev_y - sp.shift_y;
             } else {
                y = 0 - sp.shift_y;
@@ -1165,7 +1178,7 @@ public partial class Core
        * buffer can be the same.
        */
       tmp_real = sp.x_inReal0[sp.trailingIdx & sp.xMask];
-      if( !((-0.00000000000001 < sp.trailing_last_price_x) && (sp.trailing_last_price_x < 0.00000000000001)) ) {
+      if( sp.trailing_last_price_x != 0.0 ) {
          x = (tmp_real - sp.trailing_last_price_x) / sp.trailing_last_price_x - sp.shift_x;
       } else {
          x = 0 - sp.shift_x;
@@ -1173,7 +1186,7 @@ public partial class Core
       sp.trailing_last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.trailingIdx & sp.xMask];
       sp.trailingIdx += 1;
-      if( !((-0.00000000000001 < sp.trailing_last_price_y) && (sp.trailing_last_price_y < 0.00000000000001)) ) {
+      if( sp.trailing_last_price_y != 0.0 ) {
          y = (tmp_real - sp.trailing_last_price_y) / sp.trailing_last_price_y - sp.shift_y;
       } else {
          y = 0 - sp.shift_y;
@@ -1236,11 +1249,14 @@ public partial class Core
       int nbInitialElementNeeded = 0;
       int historyLen = inReal0.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inReal1.Length != inReal0.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inReal1.Length != inReal0.Length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 5;
@@ -1340,22 +1356,28 @@ public partial class Core
        * afford before the sums exist.
        */
       i = ++trailingIdx;
-      if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+      /* A return needs a non-zero base price and nothing more: the test is exact,
+       * not the fixed TA_IS_ZERO band it used to be. A price carries the quote
+       * unit, so that band declared every bar of a small-quoted instrument
+       * "no previous price", left every return at -shift, and collapsed beta to
+       * zero (issue #253).
+       */
+      if( last_price_x != 0.0 ) {
          shift_x = (inReal0[i] - last_price_x) / last_price_x;
       }
-      if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+      if( last_price_y != 0.0 ) {
          shift_y = (inReal1[i] - last_price_y) / last_price_y;
       }
       while( i < startIdx ) {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -1373,14 +1395,14 @@ public partial class Core
       barsSinceReseed = 32 * optInTimePeriod;
       do {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -1454,11 +1476,11 @@ public partial class Core
             tmp_real = 0.0;
             shift_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   tmp_real += (inReal0[j] - prev_x) / prev_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   shift_y += (inReal1[j] - prev_y) / prev_y;
                }
                prev_y = inReal1[j];
@@ -1473,13 +1495,13 @@ public partial class Core
             S_x = 0.0;
             S_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
                   x = 0 - shift_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
                   y = 0 - shift_y;
@@ -1509,7 +1531,7 @@ public partial class Core
           * buffer can be the same.
           */
          tmp_real = inReal0[trailingIdx];
-         if( !((-0.00000000000001 < trailing_last_price_x) && (trailing_last_price_x < 0.00000000000001)) ) {
+         if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
@@ -1517,7 +1539,7 @@ public partial class Core
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
          trailingIdx += 1;
-         if( !((-0.00000000000001 < trailing_last_price_y) && (trailing_last_price_y < 0.00000000000001)) ) {
+         if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -1634,12 +1656,15 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>BETA_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public BETA_Stream BETA_Open( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int optInTimePeriod )
    {
-      if( inReal0.IsEmpty ) throw new TaLibArgumentException("inReal0 is empty", nameof(inReal0), RetCode.BadParam);
-      if( inReal1.IsEmpty ) throw new TaLibArgumentException("inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      if( inReal0.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal0), "BETA open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal0.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal0), "BETA open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal1.IsEmpty ) throw new TaLibArgumentException("BETA open: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      RequireHistoryLength("BETA", "open", "inReal1", inReal1.Length, inReal0.Length);
       return BETA_OpenInternal(inReal0, inReal1, 0, optInTimePeriod);
    }
 
@@ -1651,7 +1676,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - BETA_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="BETA_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -1666,14 +1693,19 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>BETA_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public BETA_Stream BETA_OpenAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, int optInTimePeriod, Span<double> outReal )
    {
-      if( inReal0.IsEmpty ) throw new TaLibArgumentException("inReal0 is empty", nameof(inReal0), RetCode.BadParam);
-      if( inReal1.IsEmpty ) throw new TaLibArgumentException("inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      if( inReal0.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal0), "BETA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal0.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal0), "BETA openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inReal1.IsEmpty ) throw new TaLibArgumentException("BETA openAndFill: inReal1 is empty", nameof(inReal1), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("BETA", "openAndFill", inReal0.Length, BETA_Lookback(optInTimePeriod));
+      RequireHistoryLength("BETA", "openAndFill", "inReal1", inReal1.Length, inReal0.Length);
+      RequireFillLength("BETA", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inReal0) || outReal.Overlaps(inReal1) ) {
          throw StreamFailure("BETA", "openAndFill", RetCode.BadParam);
       }

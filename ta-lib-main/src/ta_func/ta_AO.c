@@ -98,10 +98,6 @@ TA_LIB_API TA_RetCode TA_AO( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -109,6 +105,12 @@ TA_LIB_API TA_RetCode TA_AO( int    startIdx,
    if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
       optInSlowPeriod = 34;
    else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -243,10 +245,6 @@ TA_RetCode TA_S_AO( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -254,6 +252,12 @@ TA_RetCode TA_S_AO( int    startIdx,
    if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
       optInSlowPeriod = 34;
    else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -392,9 +396,9 @@ static TA_RetCode TA_AO_OpenImpl( struct TA_AO_Stream **stream, const double inH
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 5;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -537,7 +541,7 @@ static TA_RetCode TA_AO_OpenImpl( struct TA_AO_Stream **stream, const double inH
       sp->sumFast = sumFast;
       sp->sumSlow = sumSlow;
       sp->ringCap_trailingFastIdx = (int)(i - trailingFastIdx);
-      if( sp->ringCap_trailingFastIdx < 0 || sp->ringCap_trailingFastIdx > historyLen ) { TA_AO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingFastIdx < 0 || sp->ringCap_trailingFastIdx > historyLen ) { TA_AO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(186); }
       { size_t allocN = (size_t)(sp->ringCap_trailingFastIdx > 0 ? sp->ringCap_trailingFastIdx : 1);
         sp->ring_trailingFastIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingFastIdx_derived ) { TA_AO_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -550,7 +554,7 @@ static TA_RetCode TA_AO_OpenImpl( struct TA_AO_Stream **stream, const double inH
       }
       sp->ringPos_trailingFastIdx = 0;
       sp->ringCap_trailingSlowIdx = (int)(i - trailingSlowIdx);
-      if( sp->ringCap_trailingSlowIdx < 0 || sp->ringCap_trailingSlowIdx > historyLen ) { TA_AO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingSlowIdx < 0 || sp->ringCap_trailingSlowIdx > historyLen ) { TA_AO_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(187); }
       { size_t allocN = (size_t)(sp->ringCap_trailingSlowIdx > 0 ? sp->ringCap_trailingSlowIdx : 1);
         sp->ring_trailingSlowIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingSlowIdx_derived ) { TA_AO_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -588,9 +592,9 @@ TA_LIB_API TA_RetCode TA_AO_Open( TA_AO_Stream **stream, const double inHigh[], 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_AO_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal );
 }
 
@@ -598,10 +602,9 @@ TA_LIB_API TA_RetCode TA_AO_OpenAndFill( TA_AO_Stream **stream, const double inH
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_AO_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal );
 }

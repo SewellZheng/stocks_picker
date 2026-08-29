@@ -343,27 +343,111 @@ pub fn find_sizeof_type(expr: &Expr) -> Option<String> {
     }
 }
 
-/// The declared inputs a function's body actually indexes.
+/// The widest output arity in the corpus, split by element type:
+/// `(reals, integers)`.
 ///
-/// Four candlestick patterns take an OHLC leg they never read (cdl3outside's
-/// `inHigh`/`inLow`, for instance). A bounds check on such a leg would reject a
-/// caller who passed a short — or, in Java, a null — array for a series the
-/// algorithm ignores, while proving nothing about the accesses the body makes.
-/// Detected on the comment-stripped IR, so a name mentioned only in prose
-/// cannot count.
+/// The C harnesses — `ta_codegen_serve`, `ta_bench`, `ta_bench_stream` and the
+/// in-server `stream_verify` — hand every function the same file-scope buffers,
+/// so they need one per output slot any function can use. That count has to come
+/// from the corpus and never from a literal: a literal is only ever the corpus's
+/// current maximum, and the first function past it fails to compile against a
+/// buffer that was never declared (#262).
 ///
-/// One source of truth for the two backends that bound their array accesses:
-/// the Rust `assert!` preamble and the Java argument checks must agree on which
-/// legs are load-bearing, or the same call is a panic in one language and a
-/// success in the other.
+/// The split follows the emitters' own test — `ParamType::Integer` is the `int`
+/// buffer, everything else is `double` — so the three cannot drift apart.
 #[must_use]
-pub(crate) fn indexed_input_names(func: &FuncDef) -> BTreeSet<String> {
-    let body_repr = format!("{:?}", super::stmt_walk::strip_comments(&func.body));
-    func.inputs
+pub fn max_output_arity(funcs: &[FuncDef]) -> (usize, usize) {
+    funcs.iter().fold((0, 0), |(reals, ints), f| {
+        let n_int = f
+            .outputs
+            .iter()
+            .filter(|o| o.param_type == ParamType::Integer)
+            .count();
+        (reals.max(f.outputs.len() - n_int), ints.max(n_int))
+    })
+}
+
+/// The outputs a caller may decline — the `nullable` flag in the .yaml, rule
+/// B6a of `docs/error-handling-spec.md`.
+///
+/// One source of truth for the four backends: each spells "declined" in its own
+/// way (`NULL` in C, `null` in Java, `None` in Rust, an empty `Span` in C#), but
+/// all four have to guard the same set of stores, and all four skip the same
+/// presence/capacity check on them.
+#[must_use]
+pub(crate) fn nullable_output_names(func: &FuncDef) -> std::collections::HashSet<String> {
+    nullable_output_list(func).into_iter().collect()
+}
+
+/// [`nullable_output_names`] in declaration order, for the emitters that carry
+/// the set as a slice.
+///
+/// The one producer, so that asking which outputs are declinable is also what
+/// runs [`assert_nullable_stores_are_guardable`]: a backend cannot reach the
+/// answer without the check. That matters because `generate --backend=c` runs
+/// only the C emitter — a check wired into the Rust one alone would be skipped
+/// by exactly the invocation a C-only contributor uses.
+#[must_use]
+pub(crate) fn nullable_output_list(func: &FuncDef) -> Vec<String> {
+    let names: Vec<String> = func
+        .outputs
         .iter()
-        .filter(|i| body_repr.contains(&format!("\"{}\"", i.name)))
-        .map(|i| i.name.clone())
-        .collect()
+        .filter(|o| o.is_nullable())
+        .map(|o| o.name.clone())
+        .collect();
+    if !names.is_empty() {
+        assert_nullable_stores_are_guardable(func, &names);
+    }
+    names
+}
+
+/// Guarding a store is only *complete* while the cursor advance rides a store
+/// that is always made. Enforce that, rather than trusting the comment in
+/// `mama.c` that says so.
+///
+/// Every backend wraps a store into a nullable output in an `if declined` guard
+/// and leaves the rest of the body alone. So if the `outIdx++` sat on that
+/// store, declining the output would stop the cursor: the call would report
+/// `outNBElement = 0`, write every other output repeatedly to index 0, and
+/// return success. No gate can see it — the JSON-RPC servers bind every declared
+/// output, so the declining call is never made — which is exactly why this is an
+/// assert and not a test.
+///
+/// Two conditions, both cheap:
+///
+/// * at least one output is **not** nullable, so a cursor has somewhere to ride;
+/// * no nullable output is indexed by an increment or decrement, in a store or a
+///   read. A read of a declined output is a hazard of its own.
+///
+/// Panics loudly, at generate time, naming the output — the house answer for a
+/// shape the emitters cannot render correctly (`c_stream.rs` asserts the same
+/// way for the dispatch tiers that have no NULL-guarded form at all).
+fn assert_nullable_stores_are_guardable(func: &FuncDef, nullable: &[String]) {
+    assert!(
+        nullable.len() < func.outputs.len(),
+        "{}: every output is `nullable` — the `outIdx` advance has no store to ride,          so a caller who declined them all would leave the cursor at 0",
+        func.name
+    );
+    // The IR's own spelling of "this output is indexed by a cursor step", read
+    // off the debug form: `ArrayAccess("outX", PostIncrement(...))` and its three
+    // siblings. Matching the rendered shape keeps this in step with what the
+    // emitters actually wrap, which is the assignment target, not the statement.
+    let body = format!("{:?}", func.body);
+    for name in nullable {
+        for step in [
+            "PostIncrement",
+            "PostDecrement",
+            "PreIncrement",
+            "PreDecrement",
+        ] {
+            let needle = format!("ArrayAccess(\"{name}\", {step}(");
+            assert!(
+                !body.contains(&needle),
+                "{}: `{name}` is `nullable` and its index carries a `{step}` — the guard                  would make the cursor conditional on the caller declining it. Move the                  advance onto an output that is always written (see mama.c).",
+                func.name
+            );
+        }
+    }
 }
 
 #[cfg(test)]

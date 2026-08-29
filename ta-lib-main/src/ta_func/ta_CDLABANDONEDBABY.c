@@ -110,6 +110,10 @@ TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( optInPenetration == TA_REAL_DEFAULT )
+      optInPenetration = 0.3;
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
    if( !inOpen )
       return TA_BAD_PARAM;
    if( !inHigh )
@@ -118,9 +122,7 @@ TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( optInPenetration == TA_REAL_DEFAULT )
-      optInPenetration = 0.3;
-   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -251,6 +253,10 @@ TA_RetCode TA_S_CDLABANDONEDBABY( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( optInPenetration == TA_REAL_DEFAULT )
+      optInPenetration = 0.3;
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
    if( !inOpen )
       return TA_BAD_PARAM;
    if( !inHigh )
@@ -259,9 +265,7 @@ TA_RetCode TA_S_CDLABANDONEDBABY( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( optInPenetration == TA_REAL_DEFAULT )
-      optInPenetration = 0.3;
-   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -439,9 +443,9 @@ static TA_RetCode TA_CDLABANDONEDBABY_OpenImpl( struct TA_CDLABANDONEDBABY_Strea
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.3;
    else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
@@ -568,7 +572,7 @@ static TA_RetCode TA_CDLABANDONEDBABY_OpenImpl( struct TA_CDLABANDONEDBABY_Strea
       sp->BodyLongPeriodTotal = BodyLongPeriodTotal;
       sp->BodyShortPeriodTotal = BodyShortPeriodTotal;
       sp->ringCap_BodyDojiTrailingIdx = (int)(i - BodyDojiTrailingIdx);
-      if( sp->ringCap_BodyDojiTrailingIdx < 0 || sp->ringCap_BodyDojiTrailingIdx > historyLen ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_BodyDojiTrailingIdx < 0 || sp->ringCap_BodyDojiTrailingIdx > historyLen ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(207); }
       { size_t allocN = (size_t)(sp->ringCap_BodyDojiTrailingIdx > 0 ? sp->ringCap_BodyDojiTrailingIdx : 1);
         sp->ring_BodyDojiTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyDojiTrailingIdx_derived ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -581,7 +585,7 @@ static TA_RetCode TA_CDLABANDONEDBABY_OpenImpl( struct TA_CDLABANDONEDBABY_Strea
       }
       sp->ringPos_BodyDojiTrailingIdx = 0;
       sp->ringCap_BodyLongTrailingIdx = (int)(i - BodyLongTrailingIdx);
-      if( sp->ringCap_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(208); }
       { size_t allocN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
         sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -594,7 +598,7 @@ static TA_RetCode TA_CDLABANDONEDBABY_OpenImpl( struct TA_CDLABANDONEDBABY_Strea
       }
       sp->ringPos_BodyLongTrailingIdx = 0;
       sp->ringCap_BodyShortTrailingIdx = (int)(i - BodyShortTrailingIdx);
-      if( sp->ringCap_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(209); }
       { size_t allocN = (size_t)(sp->ringCap_BodyShortTrailingIdx > 0 ? sp->ringCap_BodyShortTrailingIdx : 1);
         sp->ring_BodyShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyShortTrailingIdx_derived ) { TA_CDLABANDONEDBABY_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -640,9 +644,9 @@ TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY_Open( TA_CDLABANDONEDBABY_Stream **str
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLABANDONEDBABY_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outInteger );
 }
 
@@ -650,10 +654,9 @@ TA_LIB_API TA_RetCode TA_CDLABANDONEDBABY_OpenAndFill( TA_CDLABANDONEDBABY_Strea
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLABANDONEDBABY_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger );
 }

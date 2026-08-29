@@ -127,15 +127,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     */
    public OutRange OBV( int startIdx,
                         int endIdx,
@@ -144,9 +143,9 @@
                         double outReal[] )
    {
       requireIndexRange("OBV", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, OBV_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("OBV", startIdx, OBV_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("OBV", "inReal", inReal, guardInLen);
       requireLength("OBV", "inVolume", inVolume, guardInLen);
       requireLength("OBV", "outReal", outReal, guardOutLen);
@@ -186,15 +185,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     */
    public OutRange OBV( int startIdx,
                         int endIdx,
@@ -203,9 +201,9 @@
                         double outReal[] )
    {
       requireIndexRange("OBV", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, OBV_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("OBV", startIdx, OBV_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("OBV", "inReal", inReal, guardInLen);
       requireLength("OBV", "inVolume", inVolume, guardInLen);
       requireLength("OBV", "outReal", outReal, guardOutLen);
@@ -306,6 +304,9 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double inVolume[], double outReal[] ) {
+         requireArgument("OBV updateAndFill", "inReal", inReal);
+         requireArgument("OBV updateAndFill", "inVolume", inVolume);
+         requireArgument("OBV updateAndFill", "outReal", outReal);
          final int barCount = inReal.length;
          if( inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("OBV updateAndFill: BadParam", RetCode.BadParam);
@@ -371,11 +372,14 @@
       double prevOBV = 0;
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inVolume.length != inReal.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inVolume.length != inReal.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -450,10 +454,17 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public OBV_Stream OBV_Open( double inReal[], double inVolume[] )
    {
+      requireArgument("OBV open", "inReal", inReal);
+      requireHistory("OBV open", inReal.length);
+      requireArgument("OBV open", "inVolume", inVolume);
+      requireHistoryLength("OBV open", "inVolume", inVolume.length, inReal.length);
       return OBV_OpenInternal(inReal, inVolume, 0);
    }
    /**
@@ -461,12 +472,20 @@
     * to {@link Core#OBV} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link OBV_Stream#outRange()}.
     */
    public OBV_Stream OBV_OpenAndFill( double inReal[], double inVolume[], double outReal[] )
    {
+      requireArgument("OBV openAndFill", "inReal", inReal);
+      requireHistory("OBV openAndFill", inReal.length);
+      requireArgument("OBV openAndFill", "inVolume", inVolume);
+      int guardOutLen = openFillCount("OBV openAndFill", inReal.length, OBV_Lookback());
+      requireHistoryLength("OBV openAndFill", "inVolume", inVolume.length, inReal.length);
+      requireLength("OBV openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal || (Object)outReal == (Object)inVolume ) {
          throw new TaLibArgumentException("OBV openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

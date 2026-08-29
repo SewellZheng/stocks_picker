@@ -101,6 +101,10 @@ TA_LIB_API TA_RetCode TA_CDLMATHOLD( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( optInPenetration == TA_REAL_DEFAULT )
+      optInPenetration = 0.5;
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
    if( !inOpen )
       return TA_BAD_PARAM;
    if( !inHigh )
@@ -109,9 +113,7 @@ TA_LIB_API TA_RetCode TA_CDLMATHOLD( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( optInPenetration == TA_REAL_DEFAULT )
-      optInPenetration = 0.5;
-   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -246,6 +248,10 @@ TA_RetCode TA_S_CDLMATHOLD( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( optInPenetration == TA_REAL_DEFAULT )
+      optInPenetration = 0.5;
+   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
    if( !inOpen )
       return TA_BAD_PARAM;
    if( !inHigh )
@@ -254,9 +260,7 @@ TA_RetCode TA_S_CDLMATHOLD( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( optInPenetration == TA_REAL_DEFAULT )
-      optInPenetration = 0.5;
-   else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -440,9 +444,9 @@ static TA_RetCode TA_CDLMATHOLD_OpenImpl( struct TA_CDLMATHOLD_Stream **stream, 
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( optInPenetration == TA_REAL_DEFAULT )
       optInPenetration = 0.5;
    else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) )
@@ -575,7 +579,7 @@ static TA_RetCode TA_CDLMATHOLD_OpenImpl( struct TA_CDLMATHOLD_Stream **stream, 
       memcpy( sp->BodyPeriodTotal, BodyPeriodTotal, sizeof( sp->BodyPeriodTotal ) );
       sp->ringLag_BodyLongTrailingIdx = (int)(i - BodyLongTrailingIdx);
       sp->ringCap_BodyLongTrailingIdx = sp->ringLag_BodyLongTrailingIdx + 5;
-      if( sp->ringLag_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLMATHOLD_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringLag_BodyLongTrailingIdx < 0 || sp->ringCap_BodyLongTrailingIdx > historyLen ) { TA_CDLMATHOLD_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(274); }
       { size_t allocN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
         sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLMATHOLD_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -589,7 +593,7 @@ static TA_RetCode TA_CDLMATHOLD_OpenImpl( struct TA_CDLMATHOLD_Stream **stream, 
       sp->ringPos_BodyLongTrailingIdx = historyLen % sp->ringCap_BodyLongTrailingIdx;
       sp->ringLag_BodyShortTrailingIdx = (int)(i - BodyShortTrailingIdx);
       sp->ringCap_BodyShortTrailingIdx = sp->ringLag_BodyShortTrailingIdx + 4;
-      if( sp->ringLag_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLMATHOLD_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringLag_BodyShortTrailingIdx < 0 || sp->ringCap_BodyShortTrailingIdx > historyLen ) { TA_CDLMATHOLD_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(275); }
       { size_t allocN = (size_t)(sp->ringCap_BodyShortTrailingIdx > 0 ? sp->ringCap_BodyShortTrailingIdx : 1);
         sp->ring_BodyShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyShortTrailingIdx_derived ) { TA_CDLMATHOLD_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -643,9 +647,9 @@ TA_LIB_API TA_RetCode TA_CDLMATHOLD_Open( TA_CDLMATHOLD_Stream **stream, const d
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLMATHOLD_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outInteger );
 }
 
@@ -653,10 +657,9 @@ TA_LIB_API TA_RetCode TA_CDLMATHOLD_OpenAndFill( TA_CDLMATHOLD_Stream **stream, 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLMATHOLD_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, optInPenetration, outBegIdx, outNBElement, outInteger );
 }

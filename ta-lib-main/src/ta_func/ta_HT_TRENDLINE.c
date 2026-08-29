@@ -160,6 +160,8 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE( int    startIdx,
 
    if( !inReal )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
@@ -562,6 +564,8 @@ TA_RetCode TA_S_HT_TRENDLINE( int    startIdx,
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -1112,9 +1116,9 @@ static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stre
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -1558,7 +1562,7 @@ static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stre
       sp->smoothPeriod = smoothPeriod;
       sp->streamParity = historyLen % 2;
       sp->ringCap_trailingWMAIdx = (int)(today - trailingWMAIdx);
-      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(332); }
       { size_t allocN = (size_t)(sp->ringCap_trailingWMAIdx > 0 ? sp->ringCap_trailingWMAIdx : 1);
         sp->ring_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -1568,7 +1572,7 @@ static TA_RetCode TA_HT_TRENDLINE_OpenImpl( struct TA_HT_TRENDLINE_Stream **stre
       }
       sp->ringPos_trailingWMAIdx = 0;
       sp->winCap_i = (int)(50);
-      if( sp->winCap_i < 1 || sp->winCap_i > historyLen ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->winCap_i < 1 || sp->winCap_i > historyLen ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(333); }
       sp->win_i_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_i );
       if( !sp->win_i_inReal ) { TA_HT_TRENDLINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->winMirror_i_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->winCap_i );
@@ -1601,9 +1605,9 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_Open( TA_HT_TRENDLINE_Stream **stream, con
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outReal ) return TA_BAD_PARAM;
    return TA_HT_TRENDLINE_OpenInternal( stream, inReal, 0, historyLen, outReal );
 }
 
@@ -1611,10 +1615,9 @@ TA_LIB_API TA_RetCode TA_HT_TRENDLINE_OpenAndFill( TA_HT_TRENDLINE_Stream **stre
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inReal || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    return TA_HT_TRENDLINE_OpenAndFillInternal( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outReal );
 }

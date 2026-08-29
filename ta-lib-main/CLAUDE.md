@@ -52,6 +52,17 @@ See `ta_codegen/generator/CLAUDE.md` for ta_codegen internals and
 
 No hand-coded string literals for type definitions or scaffolding in the codegen.
 
+`generate` **writes back into this directory**, so a hand edit here is not
+always the last word:
+
+- Every `.c` is re-indented in place by a format pre-pass before anything else
+  runs. It changes whitespace only, but it does overwrite hand indentation — so
+  when the layout comes out wrong, fix `src/formatter.rs`, not the file.
+- `internal_error_ids.yaml` hands each C internal-error guard its
+  `TA_INTERNAL_ERROR(<id>)`, so the number a caller reports keeps naming the
+  same guard across releases. Append-only — a full C run assigns the new keys
+  and drops the dead ones; never renumber an existing entry by hand.
+
 The managed backends have **two** batch tiers: `public OutRange <N>(...)`, which
 validates array lengths and throws on a rejection, and `<N>_Impl` — the
 transcribed numerics, package-private in Java and `internal` in C#, keeping C's
@@ -65,21 +76,12 @@ step 5 deleted it.
 | `_Impl` | the numerics — a transcribed body, nothing else |
 | `_Internal` | a **variant** of an entry point, not a tier: the `startIdx`-anchored seams `_OpenInternal` / `_OpenAndFillInternal` |
 
-`_OpenPass` was a third word for the first meaning, and existed only because
-Java and C# put an adapter above the numerics and wore `_OpenImpl` on *that*.
-With the adapters gone the name is free, so the streaming numerics is
-`<N>_OpenImpl` in all four backends. `Core` and `Body` were rejected: `Core` is
-the struct a caller holds and the documented contrast with the Streaming API,
-and `Body` reads as markup. `Pass` was chosen (`408f7c23d`) for being
-descriptive where `_Impl` is relational — a real preference, retired because one
-word per concept beats it once the collision that forced it is gone.
-
-The step and release tiers were three more words for it — `_StepInternal` (C),
-`_step_internal` (Rust), `_StreamStep` (Java/C#) — and none of them was a variant
-of anything: no backend has a `<N>_Step` entry point. They are `<N>_StepImpl` in
-all four now, plus C-only `TA_<N>_ReleaseImpl` (Rust has `Drop`, the managed
-backends have GC). The tier is private everywhere, so no runtime gate can see the
-spelling — `the_transition_tier_is_step_impl_in_every_backend` is what pins it.
+Those two are the whole vocabulary, deliberately — one word per concept. So the
+streaming numerics is `<N>_OpenImpl` in all four backends, and the transition
+tier is `<N>_StepImpl` in all four, plus C-only `TA_<N>_ReleaseImpl` (Rust has
+`Drop`, the managed backends have GC). Neither tier is public anywhere, so no
+runtime gate can see the spelling —
+`the_transition_tier_is_step_impl_in_every_backend` is what pins it.
 
 **The `_Open*` family is five methods, symmetric, two hops deep:**
 
@@ -91,27 +93,72 @@ PKG  <N>_OpenAndFillInternal(in, sIdx, ..)  -> <N>_OpenImpl(.., 1)
 PRV  <N>_OpenImpl(sp, in, sIdx, params, outBeg, outNb, outs, outStride)
 ```
 
-Both public entries delegate at anchor 0, so **no seam is emitted unreachable** —
-before that symmetry, 159 of 175 `_OpenAndFillInternal` had no caller at all in
-every backend. The guard sits on the public frame because that is the only one
-handed an array it did not vet: the plain open sinks into fresh arrays, and a
+Both public entries delegate at anchor 0, so **no seam is emitted unreachable**.
+The guard sits on the public frame because that is the only one handed an array
+it did not vet: the plain open sinks into fresh arrays, and a
 composed call's destination is already proved disjoint by
 `SubCallStep::is_fusable`. `MA` (Dispatch) and `MAVP` (PeriodBank) are exempt and
 hand-roll a body per entry point — theirs differ by which callee tier they call
 and by an anchor clamp, not by a stride — so their `_OpenImpl` takes no
 `outStride`, which is the discriminator the gates key on rather than a name list.
 
-A cross-call inside a body calls the callee's *public* tier and lets its
-rejection throw, so the callers that need a code back convert it themselves:
-the JSON-RPC servers, and C#'s `FunctionCall.TryInvoke`. That conversion is
-live only while cross-calls go through the public tier — the same fact that
-withholds `MA` from `NoPhantomIoTest`'s sweep — so the two move together.
+A cross-call inside a body calls the callee's *public* tier — in all four
+backends since #267 — and lets its rejection surface: a throw in Java and C#, an
+`Err(RetCode)` in Rust, a returned code in C. The callers that need a code back
+convert it themselves: the JSON-RPC servers, and C#'s `FunctionCall.TryInvoke`.
+`TryInvoke`'s conversion is now the *direct* path's too — since #265 its thunk
+calls the function's own public overload, like C's frames and Java's `Dispatch`.
+
+**Every metadata tier calls the public tier.** C (`ta_frame.c`), Java
+(`Dispatch`), C# (`FunctionCatalog`'s `invoke` thunk) and Rust
+(`ParamHolder::call`) all do, so binding a leg shorter than the requested range
+is `TA_BAD_PARAM` in three of them and inexpressible in the fourth — C's setters
+take a bare pointer and carry no length (#265).
+
+**And a rejected setter leaves the holder as it found it** — the price setter
+validates every consumed component before it writes any (#266). The case that
+makes it worth a rule is a *re-bind*: on a fresh holder a partial write is masked
+by the unbound-component report, but over a bundle that already worked the
+rejected call left the components at and after the offending one holding the
+previous bundle, and the next call succeeded over a mixture of the two — in C#
+with no code and no exception. C is deliberately NOT the ports' whole-struct
+assignment: its macro keeps the flag guard so an unconsumed component is skipped
+rather than clobbered, which makes the fix a no-op on every call that succeeds.
+`metadata_price_setter_validates_before_writing` pins all four on the PR gate,
+because the four runtime probes are nightly-only.
 
 Do not hand-edit **generated** files under `ta_codegen/output/` — they are
 overwritten on the next `generate`. The converse trap: some hand-written source
 lives under `output/` too (the Java shared types, `pom.xml`, `Core.java` outside
 the GENCODE markers, the test suites, the C# `TALib.csproj`); the generator
 preserves those and never overwrites them.
+
+## Comments and docs: guidance, not narration
+
+Assume the reader is an AI that can read the code faster than the prose about
+it. A comment or a `.md` earns its place only by saying something the code
+cannot:
+
+- **Guidance, not description.** Why this shape, what breaks if you change it,
+  which invariant is load-bearing. Not what the lines below do.
+- **Never re-explain another file.** That copy goes stale the moment the
+  original moves, and a stale description costs a reader either a wrong belief
+  or a re-verification. When you find one that has drifted, delete it — do not
+  re-sync it. Drift is the symptom; the duplication is the defect.
+- **Delete the scaffolding of solved problems.** A workaround that is gone, a
+  bug that is fixed, a tier that was retired: the post-mortem belongs in the
+  issue and the commit message, which are timestamped and do not pretend to be
+  current.
+- **A real pitfall is worth writing down** — but state the rule, not the
+  history. "Keep every `(int)` cast the whole right-hand side" beats a paragraph
+  naming the emitter function that used to get it wrong.
+- **Named internals are the tell** — a function, a struct field, a symbol out of
+  a compiler error. They are the part most likely to be renamed out from under
+  the comment, and naming them is usually description wearing a rule's clothes.
+
+Applies to `ta_codegen/input/**` headers and `.md` files as much as to the
+generator's own source. `ta_codegen/generator/input_synth/README.md` states the
+gate-fixture form of the rule.
 
 ## Quick Reference Commands
 
@@ -185,12 +232,20 @@ Generated Rust lives in `ta_codegen/output/rust/` — a Cargo workspace: `librar
 is the shipped `ta-lib` crate, `tools/` holds the JSON-RPC server/bench.
 Indicators are methods on a `Core` struct, one file per indicator.
 
+- **The public batch API is `pub fn <N>(...) -> Result<OutRange, RetCode>`, and
+  it owns the argument contract** — index range, parameters, then every buffer
+  length, answering `BadParam` (#265). Its input bound takes no sub-lookback
+  escape, so it is strictly stronger than the assert below and a `pub fn` call
+  cannot reach one that would reject it. Since #267 it is also the tier every
+  cross-indicator call enters, so the same bound holds on the composed path.
 - Indexing is safe: the crate is `#![forbid(unsafe_code)]`, so a violated bounds
   precondition panics — never undefined behavior. Each body carries a
   bounds-assert preamble (the LLVM proof that elides per-access bounds checks);
   it is skipped when the lookback clamp means the call computes nothing, so a
-  call that returns `Success` with zero elements cannot panic.
-- **Cross-indicator calls target `<N>_Impl`**, the crate-private entry point that keeps C's `RetCode` + out-param shape. (It validates parameters and the index range; array bounds are the `assert!` preamble above, not a length check — say which, because "guarded" once contrasted with a retired `Unguarded` tier and now has no anchor.) The public batch API is `pub fn <N>(...) -> Result<OutRange, RetCode>`. **Rust alone.** Java and C# route a cross-call to the callee's PUBLIC entry point (#236 step 3), which is what C has always done; Rust did not follow because its public tier is a thin `Result` adapter that adds no checks the body's asserts do not already make, so the move would buy nothing and would still owe the in-place `mem::swap` shim.
+  call that returns `Success` with zero elements cannot panic. Nothing but
+  `pub fn <N>` and the phantom-I/O sweep reaches it now (#267), so a panic there
+  is a generator bug, which is what an `assert!` is for.
+- **Cross-indicator calls target the callee's PUBLIC entry point**, as in C, Java and C# (#267). `<N>_Impl` stays the crate-private numerics tier — C's `RetCode` + out-param shape, which is what the transcription is written against — but nothing calls it any more except `pub fn <N>` and the phantom-I/O sweep. `?` is unavailable in the 33 sites inside `<N>_Impl`, which returns a bare `RetCode`, so each of the 36 sites binds the returned range with a `match` and assigns both out-params from it, then sets `retCode = RetCode::Success`. The guard that followed is dead in all three ported backends and is folded out of the body (`ir_cleanup::drop_answered_cross_call_guards`); the assignment stays, because 10 of the sites fold "success with zero output" into the same conditional and that half survives alone. (The three sites in a `Result`-returning `<N>_OpenImpl` spell the error arm `return Err(_e)`.) The `mem::swap` shim for an in-place callee is unchanged and still owed. **This reverses the answer #236 step 3 and #265 both gave.** Two of #265's three reasons were costs, not correctness — the checks are redundant on a generator-built argument list, and `MAVP` pays them once per distinct period — and are measured, not asserted. The third was reach: `no_phantom_io` probes `<N>_Impl`, so a callee's public input bound answering before any array is touched would blind it exactly as it blinded Java's. #267 part 1 removed that: `analyze_dispatch` now admits a leading "nothing to produce" guard, `ma.c` carries one, and with it `CROSS_CALL_GUARDED` was **deleted** from the Java and C# suites rather than imported into Rust's. C cannot converge the other way — a cross-call is cross-TU there, so a C `_Impl` could not be `static` and would be new ABI in the shipped `.so`.
 - Rustdoc, including a runnable doctest per function, is generated from each
   function's canonical `<name>.md`. Verify with `cargo doc --no-deps`
   (warning-free) and `cargo test --doc` in the crate.

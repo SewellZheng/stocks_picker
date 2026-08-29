@@ -160,15 +160,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ADOSC
     * @see Core#OBV
@@ -182,9 +181,9 @@
                        double outReal[] )
    {
       requireIndexRange("AD", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, AD_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("AD", startIdx, AD_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("AD", "inHigh", inHigh, guardInLen);
       requireLength("AD", "inLow", inLow, guardInLen);
       requireLength("AD", "inClose", inClose, guardInLen);
@@ -229,15 +228,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ADOSC
     * @see Core#OBV
@@ -251,9 +249,9 @@
                        double outReal[] )
    {
       requireIndexRange("AD", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, AD_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("AD", startIdx, AD_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("AD", "inHigh", inHigh, guardInLen);
       requireLength("AD", "inLow", inLow, guardInLen);
       requireLength("AD", "inClose", inClose, guardInLen);
@@ -353,6 +351,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], double outReal[] ) {
+         requireArgument("AD updateAndFill", "inHigh", inHigh);
+         requireArgument("AD updateAndFill", "inLow", inLow);
+         requireArgument("AD updateAndFill", "inClose", inClose);
+         requireArgument("AD updateAndFill", "inVolume", inVolume);
+         requireArgument("AD updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("AD updateAndFill: BadParam", RetCode.BadParam);
@@ -424,11 +427,14 @@
       double ad = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -520,10 +526,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public AD_Stream AD_Open( double inHigh[], double inLow[], double inClose[], double inVolume[] )
    {
+      requireArgument("AD open", "inHigh", inHigh);
+      requireHistory("AD open", inHigh.length);
+      requireArgument("AD open", "inLow", inLow);
+      requireArgument("AD open", "inClose", inClose);
+      requireArgument("AD open", "inVolume", inVolume);
+      requireHistoryLength("AD open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("AD open", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("AD open", "inVolume", inVolume.length, inHigh.length);
       return AD_OpenInternal(inHigh, inLow, inClose, inVolume, 0);
    }
    /**
@@ -531,12 +548,24 @@
     * to {@link Core#AD} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link AD_Stream#outRange()}.
     */
    public AD_Stream AD_OpenAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], double outReal[] )
    {
+      requireArgument("AD openAndFill", "inHigh", inHigh);
+      requireHistory("AD openAndFill", inHigh.length);
+      requireArgument("AD openAndFill", "inLow", inLow);
+      requireArgument("AD openAndFill", "inClose", inClose);
+      requireArgument("AD openAndFill", "inVolume", inVolume);
+      int guardOutLen = openFillCount("AD openAndFill", inHigh.length, AD_Lookback());
+      requireHistoryLength("AD openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("AD openAndFill", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("AD openAndFill", "inVolume", inVolume.length, inHigh.length);
+      requireLength("AD openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
          throw new TaLibArgumentException("AD openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

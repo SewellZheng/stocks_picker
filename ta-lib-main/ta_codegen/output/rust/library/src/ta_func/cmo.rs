@@ -46,6 +46,7 @@
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
  *  BT       Barry Tsung
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
@@ -53,6 +54,9 @@
  *  -------------------------------------------------------------------
  *  112605 MF      Initial version.
  *  021806 MF,BT   Fix #1434450 reported by BT.
+ *  082326 MF,CC   Fix #253. Test the gain+loss total exactly instead of against
+ *                 the fixed TA_IS_ZERO band, which zeroed the oscillator for any
+ *                 instrument quoted small enough to fall under it.
  */
 
 // Import types from parent module
@@ -73,24 +77,27 @@ impl Core {
     /// * `optInTimePeriod` — Bars over which gains/losses are smoothed (default 14, range
     ///   2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn CMO_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn CMO_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         let mut retValue: usize = 0_usize;
         retValue = (optInTimePeriod + self.unstable_period[FuncUnstId::CMO as usize]) as usize;
         if self.compatibility == Compatibility::Metastock {
             retValue -= 1;
         }
-        return retValue;
+        return Ok(retValue);
     }
     /// C-shaped body behind [`Core::CMO`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn CMO_Impl(
         &self,
         startIdx: usize,
@@ -112,7 +119,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.CMO_Lookback(optInTimePeriod);
+        let _assertLb = self.CMO_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -142,7 +149,7 @@ impl Core {
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.CMO_Lookback(optInTimePeriod);
+        lookbackTotal = self.CMO_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -213,7 +220,15 @@ impl Core {
             tempValue3 = tempValue2 - tempValue1;
             tempValue4 = tempValue1 + tempValue2;
             // Write the output.
-            if !((tempValue4).abs() < 1e-14) {
+            //
+            // Both halves are averages of non-negative magnitudes, so the total is
+            // zero only when every change since the seed was exactly zero -- test it
+            // exactly, do not compare it to a fixed band.  A gain carries the quote
+            // unit, so any constant put against it is a constant in some arbitrary
+            // unit, and zeroes a healthy oscillator for an instrument quoted below it
+            // (issue #253).  Wilder's smoothing only ever adds non-negative terms, so
+            // unlike a sliding sum this total cannot hold cancellation residue.
+            if tempValue4 > 0.0 {
                 outReal[outIdx] = 100_f64 * (tempValue3 / tempValue4);
                 outIdx += 1;
             } else {
@@ -264,7 +279,7 @@ impl Core {
         // The second equation is used here for speed optimization.
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[outIdx] = 100.0 * ((prevGain - prevLoss) / tempValue1);
                 outIdx += 1;
             } else {
@@ -306,7 +321,7 @@ impl Core {
             prevLoss /= ((optInTimePeriod) as f64);
             prevGain /= ((optInTimePeriod) as f64);
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[outIdx] = 100.0 * ((prevGain - prevLoss) / tempValue1);
                 outIdx += 1;
             } else {
@@ -358,11 +373,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -398,6 +411,21 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CMO_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.CMO_Impl(
@@ -427,7 +455,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CMO_Stream")]
 pub struct CMO_Stream {
-    core: Core,
     state: CMO_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -438,7 +465,6 @@ impl CMO_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `CMO_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -472,7 +498,7 @@ impl CMO_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn CMO_step_impl(&self, sp: &mut CMO_StreamState, inReal: f64, outReal: &mut f64) {
+    fn CMO_step_impl(sp: &mut CMO_StreamState, inReal: f64, outReal: &mut f64) {
         let mut tempValue1: f64 = 0.0_f64;
         let mut tempValue2: f64 = 0.0_f64;
         if sp.optInTimePeriod == 1 {
@@ -492,7 +518,7 @@ impl Core {
         sp.prevLoss /= ((sp.optInTimePeriod) as f64);
         sp.prevGain /= ((sp.optInTimePeriod) as f64);
         tempValue1 = sp.prevGain + sp.prevLoss;
-        if !((tempValue1).abs() < 1e-14) {
+        if tempValue1 > 0.0 {
             (*outReal) = 100.0 * ((sp.prevGain - sp.prevLoss) / tempValue1);
         } else {
             (*outReal) = 0.0;
@@ -505,7 +531,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<CMO_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -526,7 +552,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
-            let fillLb: usize = self.CMO_Lookback(optInTimePeriod);
+            let fillLb: usize = self.CMO_Lookback(optInTimePeriod)?;
             let fillLb = if startIdx > fillLb { startIdx } else { fillLb };
             if historyLen < fillLb + 1 {
                 return Err(RetCode::InsufficientHistory);
@@ -548,7 +574,7 @@ impl Core {
                     fillIdx += 1;
                 }
             }
-            return Ok(CMO_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
+            return Ok(CMO_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
         }
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
@@ -575,7 +601,7 @@ impl Core {
         (*outBegIdx) = 0;
         (*outNBElement) = 0;
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.CMO_Lookback(optInTimePeriod);
+        lookbackTotal = self.CMO_Lookback(optInTimePeriod)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -627,7 +653,15 @@ impl Core {
             tempValue3 = tempValue2 - tempValue1;
             tempValue4 = tempValue1 + tempValue2;
             // Write the output.
-            if !((tempValue4).abs() < 1e-14) {
+            //
+            // Both halves are averages of non-negative magnitudes, so the total is
+            // zero only when every change since the seed was exactly zero -- test it
+            // exactly, do not compare it to a fixed band.  A gain carries the quote
+            // unit, so any constant put against it is a constant in some arbitrary
+            // unit, and zeroes a healthy oscillator for an instrument quoted below it
+            // (issue #253).  Wilder's smoothing only ever adds non-negative terms, so
+            // unlike a sliding sum this total cannot hold cancellation residue.
+            if tempValue4 > 0.0 {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 100_f64 * (tempValue3 / tempValue4);
             } else {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0;
@@ -676,7 +710,7 @@ impl Core {
         // The second equation is used here for speed optimization.
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 100.0 * ((prevGain - prevLoss) / tempValue1);
             } else {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0;
@@ -716,7 +750,7 @@ impl Core {
             prevLoss /= ((optInTimePeriod) as f64);
             prevGain /= ((optInTimePeriod) as f64);
             tempValue1 = prevGain + prevLoss;
-            if !((tempValue1).abs() < 1e-14) {
+            if tempValue1 > 0.0 {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 100.0 * ((prevGain - prevLoss) / tempValue1);
             } else {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0;
@@ -732,7 +766,7 @@ impl Core {
             prevLoss,
             prevValue,
         };
-        Ok(CMO_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(CMO_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::CMO_Open`] (composition seam).
@@ -753,8 +787,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -777,12 +812,29 @@ impl Core {
 
     /// [`Core::CMO_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::CMO`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::CMO_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_CMO_OpenAndFill")]
     pub fn CMO_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(CMO_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CMO_Lookback(optInTimePeriod)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.CMO_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -819,7 +871,7 @@ impl CMO_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.CMO_step_impl(&mut self.state, inReal, &mut outReal);
+        Core::CMO_step_impl(&mut self.state, inReal, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -852,7 +904,7 @@ impl CMO_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.CMO_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            Core::CMO_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

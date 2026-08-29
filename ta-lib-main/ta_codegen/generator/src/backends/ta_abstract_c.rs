@@ -1,6 +1,8 @@
 //! Generate the `ta_abstract` C layer from YAML-derived IR.
 //!
-//! Produces all files under `ta_codegen/output/c/ta_abstract/`:
+//! Produces all files under `src/ta_abstract/` — the shipped library, in place —
+//! plus `include/ta_func.h`. **None of them carries a generated banner**, so grep
+//! here before hand-editing anything in that directory; `generate` reverts it:
 //! - `ta_def_ui.h` / `ta_def_ui.c`
 //! - `ta_frame_priv.h`
 //! - `frames/ta_frame.h` / `frames/ta_frame.c`
@@ -73,7 +75,7 @@ const GROUPS: &[(&str, &str)] = &[
 // Public entry point
 // ---------------------------------------------------------------------------
 
-/// Generate all `ta_abstract` C files into `out_base/c/ta_abstract/`.
+/// Generate all `ta_abstract` C files into `src/ta_abstract/`, in place.
 #[allow(clippy::implicit_hasher)]
 pub fn generate(
     funcs: &[FuncDef],
@@ -1815,6 +1817,13 @@ fn gen_group_idx(sorted: &[&FuncDef], groups: &[Vec<&FuncDef>]) -> String {
 // File 8: ta_abstract.c
 // ---------------------------------------------------------------------------
 
+/// `src/ta_abstract/ta_abstract.c`'s text, without writing it — so a test can
+/// assert on the emitted binder. The file carries no generated banner; this is
+/// the emitter.
+pub fn render_ta_abstract_c() -> String {
+    gen_ta_abstract_c()
+}
+
 #[allow(clippy::too_many_lines)]
 fn gen_ta_abstract_c() -> String {
     let mut o = String::new();
@@ -2515,7 +2524,21 @@ fn gen_ta_abstract_c() -> String {
          \x20  {\n\
          \x20     return TA_INVALID_PARAM_HOLDER_TYPE;\n\
          \x20  }\n\n\
-         \x20  #define SET_PARAM_INFO(lowerParam,upperParam) \\\n\
+         \x20  /* Two passes: check every consumed component, then write them.\n\
+         \x20   * Interleaved, a rejection had already committed the components\n\
+         \x20   * ahead of the offending one -- and because the bitmaps only ever\n\
+         \x20   * clear (there is no unbind), a caller re-binding a bundle that\n\
+         \x20   * already worked then had TA_CallFunc succeed over a mixture of\n\
+         \x20   * the two. Issue #266.\n\
+         \x20   *\n\
+         \x20   * Not a whole-struct assignment of TA_PricePtrs, which is what the\n\
+         \x20   * ports do: that would also overwrite the components this function\n\
+         \x20   * does not consume, where CHECK/SET skip them entirely.\n\
+         \x20   * Unobservable either way -- nothing reads a component it did not\n\
+         \x20   * declare -- but this shape is a no-op on every call that succeeds\n\
+         \x20   * today: same writes, same order, same bitmap.\n\
+         \x20   */\n\
+         \x20  #define CHECK_PARAM_INFO(lowerParam,upperParam) \\\n\
          \x20  { \\\n\
          \x20     if( paramInfo->flags & TA_IN_PRICE_##upperParam ) \\\n\
          \x20     { \\\n\
@@ -2523,6 +2546,19 @@ fn gen_ta_abstract_c() -> String {
          \x20        { \\\n\
          \x20           return TA_BAD_PARAM; \\\n\
          \x20        } \\\n\
+         \x20     } \\\n\
+         \x20  }\n\n\
+         \x20  CHECK_PARAM_INFO(open, OPEN );\n\
+         \x20  CHECK_PARAM_INFO(high, HIGH );\n\
+         \x20  CHECK_PARAM_INFO(low, LOW );\n\
+         \x20  CHECK_PARAM_INFO(close, CLOSE );\n\
+         \x20  CHECK_PARAM_INFO(volume, VOLUME );\n\
+         \x20  CHECK_PARAM_INFO(openInterest, OPENINTEREST );\n\n\
+         \x20  #undef CHECK_PARAM_INFO\n\n\
+         \x20  #define SET_PARAM_INFO(lowerParam,upperParam) \\\n\
+         \x20  { \\\n\
+         \x20     if( paramInfo->flags & TA_IN_PRICE_##upperParam ) \\\n\
+         \x20     { \\\n\
          \x20        paramHolderPriv->in[paramIndex].data.inPrice.lowerParam = lowerParam; \\\n\
          \x20     } \\\n\
          \x20  }\n\n\

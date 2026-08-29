@@ -276,15 +276,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#AROONOSC
     * @see Core#MINMAXINDEX
@@ -300,9 +299,9 @@
                           double outAroonUp[] )
    {
       requireIndexRange("AROON", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, AROON_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("AROON", startIdx, AROON_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("AROON", "inHigh", inHigh, guardInLen);
       requireLength("AROON", "inLow", inLow, guardInLen);
       requireLength("AROON", "outAroonDown", outAroonDown, guardOutLen);
@@ -351,15 +350,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#AROONOSC
     * @see Core#MINMAXINDEX
@@ -375,9 +373,9 @@
                           double outAroonUp[] )
    {
       requireIndexRange("AROON", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, AROON_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("AROON", startIdx, AROON_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("AROON", "inHigh", inHigh, guardInLen);
       requireLength("AROON", "inLow", inLow, guardInLen);
       requireLength("AROON", "outAroonDown", outAroonDown, guardOutLen);
@@ -540,6 +538,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double outAroonDown[], double outAroonUp[] ) {
+         requireArgument("AROON updateAndFill", "inHigh", inHigh);
+         requireArgument("AROON updateAndFill", "inLow", inLow);
+         requireArgument("AROON updateAndFill", "outAroonDown", outAroonDown);
+         requireArgument("AROON updateAndFill", "outAroonUp", outAroonUp);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || outAroonDown.length < barCount || outAroonUp.length < barCount || (Object)outAroonDown == (Object)inHigh || (Object)outAroonDown == (Object)inLow || (Object)outAroonUp == (Object)inHigh || (Object)outAroonUp == (Object)inLow || (Object)outAroonDown == (Object)outAroonUp )
             throw new TaLibArgumentException("AROON updateAndFill: BadParam", RetCode.BadParam);
@@ -668,11 +670,14 @@
       int i = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -843,10 +848,17 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public AROON_Stream AROON_Open( double inHigh[], double inLow[], int optInTimePeriod )
    {
+      requireArgument("AROON open", "inHigh", inHigh);
+      requireHistory("AROON open", inHigh.length);
+      requireArgument("AROON open", "inLow", inLow);
+      requireHistoryLength("AROON open", "inLow", inLow.length, inHigh.length);
       return AROON_OpenInternal(inHigh, inLow, 0, optInTimePeriod);
    }
    /**
@@ -854,12 +866,21 @@
     * to {@link Core#AROON} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link AROON_Stream#outRange()}.
     */
    public AROON_Stream AROON_OpenAndFill( double inHigh[], double inLow[], int optInTimePeriod, double outAroonDown[], double outAroonUp[] )
    {
+      requireArgument("AROON openAndFill", "inHigh", inHigh);
+      requireHistory("AROON openAndFill", inHigh.length);
+      requireArgument("AROON openAndFill", "inLow", inLow);
+      int guardOutLen = openFillCount("AROON openAndFill", inHigh.length, AROON_Lookback(optInTimePeriod));
+      requireHistoryLength("AROON openAndFill", "inLow", inLow.length, inHigh.length);
+      requireLength("AROON openAndFill", "outAroonDown", outAroonDown, guardOutLen);
+      requireLength("AROON openAndFill", "outAroonUp", outAroonUp, guardOutLen);
       if( (Object)outAroonDown == (Object)inHigh || (Object)outAroonDown == (Object)inLow || (Object)outAroonUp == (Object)inHigh || (Object)outAroonUp == (Object)inLow || (Object)outAroonDown == (Object)outAroonUp ) {
          throw new TaLibArgumentException("AROON openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

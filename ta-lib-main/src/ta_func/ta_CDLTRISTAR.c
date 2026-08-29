@@ -97,6 +97,8 @@ TA_LIB_API TA_RetCode TA_CDLTRISTAR( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
 
@@ -204,6 +206,8 @@ TA_RetCode TA_S_CDLTRISTAR( int    startIdx,
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -343,9 +347,9 @@ static TA_RetCode TA_CDLTRISTAR_OpenImpl( struct TA_CDLTRISTAR_Stream **stream, 
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -442,7 +446,7 @@ static TA_RetCode TA_CDLTRISTAR_OpenImpl( struct TA_CDLTRISTAR_Stream **stream, 
       memset( sp, 0, sizeof(*sp) );
       sp->BodyPeriodTotal = BodyPeriodTotal;
       sp->ringCap_BodyTrailingIdx = (int)(i - BodyTrailingIdx);
-      if( sp->ringCap_BodyTrailingIdx < 0 || sp->ringCap_BodyTrailingIdx > historyLen ) { TA_CDLTRISTAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_BodyTrailingIdx < 0 || sp->ringCap_BodyTrailingIdx > historyLen ) { TA_CDLTRISTAR_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(309); }
       { size_t allocN = (size_t)(sp->ringCap_BodyTrailingIdx > 0 ? sp->ringCap_BodyTrailingIdx : 1);
         sp->ring_BodyTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyTrailingIdx_derived ) { TA_CDLTRISTAR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -488,9 +492,9 @@ TA_LIB_API TA_RetCode TA_CDLTRISTAR_Open( TA_CDLTRISTAR_Stream **stream, const d
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLTRISTAR_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
 
@@ -498,10 +502,9 @@ TA_LIB_API TA_RetCode TA_CDLTRISTAR_OpenAndFill( TA_CDLTRISTAR_Stream **stream, 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLTRISTAR_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
 }

@@ -74,8 +74,16 @@ pub fn guarded_docs(
         d.bullet(&param_doc(opt, doc, enums));
     }
     for output in &func.outputs {
+        // A nullable output is the one place the signature alone does not say
+        // what `None` means, so the parameter line says it.
+        let declinable = if output.is_nullable() {
+            " Pass `None` to decline it: it is still computed where the \
+             algorithm needs it, but nothing is written out."
+        } else {
+            ""
+        };
         d.bullet(&format!(
-            "`{}` — {}",
+            "`{}` — {}{declinable}",
             output.name,
             output_desc(&output.name, doc)
         ));
@@ -115,14 +123,12 @@ pub fn guarded_docs(
              it is [`Ok`] with a zero [`OutRange::count`].",
         );
     }
-
-    d.blank();
-    d.paragraph("# Panics");
     d.blank();
     d.paragraph(
-        "Input slices must cover `startIdx..=endIdx` and output slices must hold the \
-         number of values produced for that range; an undersized slice panics. Sizing \
-         every output slice to the input length is always sufficient.",
+        "Also [`RetCode::BadParam`] when a slice is too short: every input must cover \
+         `startIdx..=endIdx`, and every output must hold the number of values produced \
+         for that range. Sizing every output slice to the input length is always \
+         sufficient.",
     );
 
     if let Some(example) = example_doctest(func, snake, enums) {
@@ -196,7 +202,9 @@ pub fn lookback_docs(func: &FuncDef, snake: &str, enums: &HashMap<String, EnumDe
             d.bullet(&param_doc(opt, doc, enums));
         }
         d.blank();
-        let mut sentence = String::from("Returns `usize::MAX` when a parameter is out of range.");
+        d.paragraph("# Errors");
+        d.blank();
+        let mut sentence = String::from("[`RetCode::BadParam`] when a parameter is out of range.");
         if let Some(extra) = default_sentinel_sentence(func) {
             sentence.push(' ');
             sentence.push_str(extra);
@@ -254,9 +262,10 @@ pub fn private_docs(func: &FuncDef, snake: &str) -> String {
     ));
     d.blank();
     d.paragraph(&format!(
-        "Unlike [`Core::{snake}`] the bounds assertions here are unconditional: an \
+        "Unlike `{snake}_Impl` the bounds assertions here are unconditional: an \
          `endIdx` beyond the input slice panics even when the lookback clamp means \
-         no element would be read."
+         no element would be read. [`Core::{snake}`] rejects that with \
+         [`RetCode::BadParam`] and never reaches either."
     ));
     d.finish()
 }
@@ -547,7 +556,14 @@ fn example_doctest(
             _ => "0.0",
         };
         lines.push(format!("let mut {var} = vec![{zero}; {EXAMPLE_LEN}];"));
-        out_args.push(format!("&mut {var}"));
+        // A nullable output takes `Option<&mut [T]>` (rule B6a). The example
+        // supplies it — `None` is documented on the parameter, and an example
+        // that declined an output would not show what the function produces.
+        out_args.push(if output.is_nullable() {
+            format!("Some(&mut {var})")
+        } else {
+            format!("&mut {var}")
+        });
     }
 
     lines.push(String::new());

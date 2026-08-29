@@ -112,6 +112,8 @@ TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER( int    startIdx,
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
 
@@ -241,6 +243,8 @@ TA_RetCode TA_S_CDLINVERTEDHAMMER( int    startIdx,
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outInteger )
       return TA_BAD_PARAM;
@@ -405,9 +409,9 @@ static TA_RetCode TA_CDLINVERTEDHAMMER_OpenImpl( struct TA_CDLINVERTEDHAMMER_Str
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -524,7 +528,7 @@ static TA_RetCode TA_CDLINVERTEDHAMMER_OpenImpl( struct TA_CDLINVERTEDHAMMER_Str
       sp->ShadowLongPeriodTotal = ShadowLongPeriodTotal;
       sp->ShadowVeryShortPeriodTotal = ShadowVeryShortPeriodTotal;
       sp->ringCap_BodyTrailingIdx = (int)(i - BodyTrailingIdx);
-      if( sp->ringCap_BodyTrailingIdx < 0 || sp->ringCap_BodyTrailingIdx > historyLen ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_BodyTrailingIdx < 0 || sp->ringCap_BodyTrailingIdx > historyLen ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(259); }
       { size_t allocN = (size_t)(sp->ringCap_BodyTrailingIdx > 0 ? sp->ringCap_BodyTrailingIdx : 1);
         sp->ring_BodyTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyTrailingIdx_derived ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -537,7 +541,7 @@ static TA_RetCode TA_CDLINVERTEDHAMMER_OpenImpl( struct TA_CDLINVERTEDHAMMER_Str
       }
       sp->ringPos_BodyTrailingIdx = 0;
       sp->ringCap_ShadowLongTrailingIdx = (int)(i - ShadowLongTrailingIdx);
-      if( sp->ringCap_ShadowLongTrailingIdx < 0 || sp->ringCap_ShadowLongTrailingIdx > historyLen ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_ShadowLongTrailingIdx < 0 || sp->ringCap_ShadowLongTrailingIdx > historyLen ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(260); }
       { size_t allocN = (size_t)(sp->ringCap_ShadowLongTrailingIdx > 0 ? sp->ringCap_ShadowLongTrailingIdx : 1);
         sp->ring_ShadowLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_ShadowLongTrailingIdx_derived ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -550,7 +554,7 @@ static TA_RetCode TA_CDLINVERTEDHAMMER_OpenImpl( struct TA_CDLINVERTEDHAMMER_Str
       }
       sp->ringPos_ShadowLongTrailingIdx = 0;
       sp->ringCap_ShadowVeryShortTrailingIdx = (int)(i - ShadowVeryShortTrailingIdx);
-      if( sp->ringCap_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_ShadowVeryShortTrailingIdx < 0 || sp->ringCap_ShadowVeryShortTrailingIdx > historyLen ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(261); }
       { size_t allocN = (size_t)(sp->ringCap_ShadowVeryShortTrailingIdx > 0 ? sp->ringCap_ShadowVeryShortTrailingIdx : 1);
         sp->ring_ShadowVeryShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_ShadowVeryShortTrailingIdx_derived ) { TA_CDLINVERTEDHAMMER_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -590,9 +594,9 @@ TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER_Open( TA_CDLINVERTEDHAMMER_Stream **s
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
    return TA_CDLINVERTEDHAMMER_OpenInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outInteger );
 }
 
@@ -600,10 +604,9 @@ TA_LIB_API TA_RetCode TA_CDLINVERTEDHAMMER_OpenAndFill( TA_CDLINVERTEDHAMMER_Str
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inOpen || !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outInteger ) return TA_BAD_PARAM;
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_CDLINVERTEDHAMMER_OpenAndFillInternal( stream, inOpen, inHigh, inLow, inClose, 0, historyLen, outBegIdx, outNBElement, outInteger );
 }

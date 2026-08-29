@@ -331,15 +331,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#AD
     * @see Core#EMA
@@ -355,9 +354,9 @@
                           double outReal[] )
    {
       requireIndexRange("ADOSC", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ADOSC_Lookback(optInFastPeriod, optInSlowPeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ADOSC", startIdx, ADOSC_Lookback(optInFastPeriod, optInSlowPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ADOSC", "inHigh", inHigh, guardInLen);
       requireLength("ADOSC", "inLow", inLow, guardInLen);
       requireLength("ADOSC", "inClose", inClose, guardInLen);
@@ -409,15 +408,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#AD
     * @see Core#EMA
@@ -433,9 +431,9 @@
                           double outReal[] )
    {
       requireIndexRange("ADOSC", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ADOSC_Lookback(optInFastPeriod, optInSlowPeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ADOSC", startIdx, ADOSC_Lookback(optInFastPeriod, optInSlowPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ADOSC", "inHigh", inHigh, guardInLen);
       requireLength("ADOSC", "inLow", inLow, guardInLen);
       requireLength("ADOSC", "inClose", inClose, guardInLen);
@@ -559,6 +557,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], double outReal[] ) {
+         requireArgument("ADOSC updateAndFill", "inHigh", inHigh);
+         requireArgument("ADOSC updateAndFill", "inLow", inLow);
+         requireArgument("ADOSC updateAndFill", "inClose", inClose);
+         requireArgument("ADOSC updateAndFill", "inVolume", inVolume);
+         requireArgument("ADOSC updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("ADOSC updateAndFill: BadParam", RetCode.BadParam);
@@ -639,11 +642,14 @@
       double ad = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInFastPeriod == Integer.MIN_VALUE ) {
          optInFastPeriod = 3;
@@ -819,10 +825,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public ADOSC_Stream ADOSC_Open( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInFastPeriod, int optInSlowPeriod )
    {
+      requireArgument("ADOSC open", "inHigh", inHigh);
+      requireHistory("ADOSC open", inHigh.length);
+      requireArgument("ADOSC open", "inLow", inLow);
+      requireArgument("ADOSC open", "inClose", inClose);
+      requireArgument("ADOSC open", "inVolume", inVolume);
+      requireHistoryLength("ADOSC open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ADOSC open", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("ADOSC open", "inVolume", inVolume.length, inHigh.length);
       return ADOSC_OpenInternal(inHigh, inLow, inClose, inVolume, 0, optInFastPeriod, optInSlowPeriod);
    }
    /**
@@ -830,12 +847,24 @@
     * to {@link Core#ADOSC} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link ADOSC_Stream#outRange()}.
     */
    public ADOSC_Stream ADOSC_OpenAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInFastPeriod, int optInSlowPeriod, double outReal[] )
    {
+      requireArgument("ADOSC openAndFill", "inHigh", inHigh);
+      requireHistory("ADOSC openAndFill", inHigh.length);
+      requireArgument("ADOSC openAndFill", "inLow", inLow);
+      requireArgument("ADOSC openAndFill", "inClose", inClose);
+      requireArgument("ADOSC openAndFill", "inVolume", inVolume);
+      int guardOutLen = openFillCount("ADOSC openAndFill", inHigh.length, ADOSC_Lookback(optInFastPeriod, optInSlowPeriod));
+      requireHistoryLength("ADOSC openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ADOSC openAndFill", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("ADOSC openAndFill", "inVolume", inVolume.length, inHigh.length);
+      requireLength("ADOSC openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
          throw new TaLibArgumentException("ADOSC openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

@@ -61,6 +61,10 @@
  *                KAMA math at period=1 would be a fixed-alpha EMA
  *                (efficiency ratio is always 1), which would disagree
  *                with TA_MA's period-1 copy, so identity is explicit.
+ *  082326 MF,CC  Fix #253. Recognize a flat window by counting bars and drop
+ *                the fixed TA_IS_ZERO band beside the efficiency ratio, which
+ *                forced the fastest adaptation on any instrument quoted small
+ *                enough to fall under it.
  */
 
 // Import types from parent module
@@ -81,22 +85,25 @@ impl Core {
     /// * `optInTimePeriod` — Lookback window for the efficiency ratio (default 30, range
     ///   1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn KAMA_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn KAMA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 30;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInTimePeriod == 1 {
-            return (self.unstable_period[FuncUnstId::KAMA as usize]) as usize;
+            return Ok((self.unstable_period[FuncUnstId::KAMA as usize]) as usize);
         }
-        return (optInTimePeriod + self.unstable_period[FuncUnstId::KAMA as usize]) as usize;
+        return Ok((optInTimePeriod + self.unstable_period[FuncUnstId::KAMA as usize]) as usize);
     }
     /// C-shaped body behind [`Core::KAMA`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn KAMA_Impl(
         &self,
         startIdx: usize,
@@ -148,7 +155,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.KAMA_Lookback(optInTimePeriod);
+        let _assertLb = self.KAMA_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -165,6 +172,7 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
+        let mut nullRun: usize = 0_usize;
         let mut trailingValue: f64 = 0.0_f64;
         constMax = 2.0 / (30.0 + 1.0);
         constDiff = 2.0 / (2.0 + 1.0) - constMax;
@@ -209,6 +217,13 @@ impl Core {
         // Initialize the variables by going through
         // the lookback period.
         sumROC1 = 0.0;
+        // Consecutive 1-day changes of exactly zero, counted so that a flat window
+        // can be recognized exactly (the shape #244 needed for MFI). sumROC1 cannot
+        // answer that question itself once the window starts sliding: it is
+        // maintained by add-then-subtract, so a window that has gone flat leaves it
+        // holding rounding residue of arbitrary sign rather than zero, and the
+        // efficiency ratio then divides that residue into itself.
+        nullRun = 0;
         today = startIdx - lookbackTotal;
         trailingIdx = today;
         i = (optInTimePeriod) as usize;
@@ -216,6 +231,11 @@ impl Core {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
             tempReal -= inReal[today];
             sumROC1 += (tempReal).abs();
+            if tempReal == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
         }
         // At this point sumROC1 represent the
         // summation of the 1-day price difference
@@ -229,8 +249,15 @@ impl Core {
         // Save the trailing value. Do this because inReal
         // and outReal can be pointers to the same buffer.
         trailingValue = tempReal2;
-        // Calculate the efficiency ratio
-        if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
+        // Calculate the efficiency ratio.
+        //
+        // The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
+        // both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
+        // sit beside it was not -- it declared the window flat, and forced the
+        // fastest adaptation, for every window of an instrument quoted below it
+        // (issue #253). A genuinely flat window is now recognized by the exact bar
+        // count above instead.
+        if sumROC1 <= periodROC {
             tempReal = 1.0;
         } else {
             tempReal = (periodROC / sumROC1).abs();
@@ -254,11 +281,25 @@ impl Core {
             //  - Add new ROC1
             sumROC1 -= (trailingValue - tempReal2).abs();
             sumROC1 += (tempReal - inReal[today - 1]).abs();
+            // Once a whole window of flat bars has gone by, every 1-day change it
+            // spans is exactly zero, so the sum is known to be exactly zero and the
+            // residue can be dropped. That is what lets the efficiency ratio be
+            // decided by `sumROC1 <= periodROC` alone: a window that flat has
+            // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+            if tempReal - inReal[today - 1] == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((optInTimePeriod) as usize) {
+                nullRun = (optInTimePeriod) as usize;
+                sumROC1 = 0.0;
+            }
             // Save the trailing value. Do this because inReal
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
+            if sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
@@ -284,11 +325,25 @@ impl Core {
             //  - Add new ROC1
             sumROC1 -= (trailingValue - tempReal2).abs();
             sumROC1 += (tempReal - inReal[today - 1]).abs();
+            // Once a whole window of flat bars has gone by, every 1-day change it
+            // spans is exactly zero, so the sum is known to be exactly zero and the
+            // residue can be dropped. That is what lets the efficiency ratio be
+            // decided by `sumROC1 <= periodROC` alone: a window that flat has
+            // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+            if tempReal - inReal[today - 1] == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((optInTimePeriod) as usize) {
+                nullRun = (optInTimePeriod) as usize;
+                sumROC1 = 0.0;
+            }
             // Save the trailing value. Do this because inReal
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
+            if sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
@@ -350,11 +405,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -392,6 +445,21 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.KAMA_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.KAMA_Impl(
@@ -421,7 +489,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_KAMA_Stream")]
 pub struct KAMA_Stream {
-    core: Core,
     state: KAMA_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -432,7 +499,6 @@ impl KAMA_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `KAMA_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -446,6 +512,7 @@ struct KAMA_StreamState {
     constDiff: f64,
     sumROC1: f64,
     prevKAMA: f64,
+    nullRun: usize,
     trailingValue: f64,
     lag1_inReal: f64,
     ringPos_trailingIdx: usize,
@@ -463,6 +530,7 @@ impl KAMA_StreamState {
         self.constDiff = src.constDiff;
         self.sumROC1 = src.sumROC1;
         self.prevKAMA = src.prevKAMA;
+        self.nullRun = src.nullRun;
         self.trailingValue = src.trailingValue;
         self.lag1_inReal = src.lag1_inReal;
         self.ringPos_trailingIdx = src.ringPos_trailingIdx;
@@ -478,7 +546,7 @@ impl KAMA_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn KAMA_step_impl(&self, sp: &mut KAMA_StreamState, inReal: f64, outReal: &mut f64) {
+    fn KAMA_step_impl(sp: &mut KAMA_StreamState, inReal: f64, outReal: &mut f64) {
         let mut tempReal: f64 = 0.0_f64;
         let mut tempReal2: f64 = 0.0_f64;
         let mut periodROC: f64 = 0.0_f64;
@@ -497,11 +565,25 @@ impl Core {
         //  - Add new ROC1
         sp.sumROC1 -= (sp.trailingValue - tempReal2).abs();
         sp.sumROC1 += (tempReal - sp.lag1_inReal).abs();
+        // Once a whole window of flat bars has gone by, every 1-day change it
+        // spans is exactly zero, so the sum is known to be exactly zero and the
+        // residue can be dropped. That is what lets the efficiency ratio be
+        // decided by `sumROC1 <= periodROC` alone: a window that flat has
+        // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+        if tempReal - sp.lag1_inReal == 0.0 {
+            sp.nullRun += 1;
+        } else {
+            sp.nullRun = 0;
+        }
+        if sp.nullRun >= ((sp.optInTimePeriod) as usize) {
+            sp.nullRun = (sp.optInTimePeriod) as usize;
+            sp.sumROC1 = 0.0;
+        }
         // Save the trailing value. Do this because inReal
         // and outReal can be pointers to the same buffer.
         sp.trailingValue = tempReal2;
         // Calculate the efficiency ratio
-        if sp.sumROC1 <= periodROC || (sp.sumROC1).abs() < 1e-14 {
+        if sp.sumROC1 <= periodROC {
             tempReal = 1.0;
         } else {
             tempReal = (periodROC / sp.sumROC1).abs();
@@ -527,7 +609,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<KAMA_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -548,7 +630,7 @@ impl Core {
         let mut dummyBegIdx: usize = 0;
         let mut dummyNBElement: usize = 0;
         if optInTimePeriod == 1 {
-            let fillLb: usize = self.KAMA_Lookback(optInTimePeriod);
+            let fillLb: usize = self.KAMA_Lookback(optInTimePeriod)?;
             let fillLb = if startIdx > fillLb { startIdx } else { fillLb };
             if historyLen < fillLb + 1 {
                 return Err(RetCode::InsufficientHistory);
@@ -559,6 +641,7 @@ impl Core {
                 constDiff: 0.0_f64,
                 sumROC1: 0.0_f64,
                 prevKAMA: 0.0_f64,
+                nullRun: 0_usize,
                 trailingValue: 0.0_f64,
                 lag1_inReal: 0.0_f64,
                 ringPos_trailingIdx: 0_usize,
@@ -576,7 +659,7 @@ impl Core {
                     fillIdx += 1;
                 }
             }
-            return Ok(KAMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
+            return Ok(KAMA_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } });
         }
         let mut constMax: f64 = 0.0_f64;
         let mut constDiff: f64 = 0.0_f64;
@@ -590,6 +673,7 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
+        let mut nullRun: usize = 0_usize;
         let mut trailingValue: f64 = 0.0_f64;
         constMax = 2.0 / (30.0 + 1.0);
         constDiff = 2.0 / (2.0 + 1.0) - constMax;
@@ -613,6 +697,13 @@ impl Core {
         // Initialize the variables by going through
         // the lookback period.
         sumROC1 = 0.0;
+        // Consecutive 1-day changes of exactly zero, counted so that a flat window
+        // can be recognized exactly (the shape #244 needed for MFI). sumROC1 cannot
+        // answer that question itself once the window starts sliding: it is
+        // maintained by add-then-subtract, so a window that has gone flat leaves it
+        // holding rounding residue of arbitrary sign rather than zero, and the
+        // efficiency ratio then divides that residue into itself.
+        nullRun = 0;
         today = startIdx - lookbackTotal;
         trailingIdx = today;
         i = (optInTimePeriod) as usize;
@@ -620,6 +711,11 @@ impl Core {
             tempReal = inReal[{ let _v = today; today += 1; _v }];
             tempReal -= inReal[today];
             sumROC1 += (tempReal).abs();
+            if tempReal == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
         }
         // At this point sumROC1 represent the
         // summation of the 1-day price difference
@@ -633,8 +729,15 @@ impl Core {
         // Save the trailing value. Do this because inReal
         // and outReal can be pointers to the same buffer.
         trailingValue = tempReal2;
-        // Calculate the efficiency ratio
-        if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
+        // Calculate the efficiency ratio.
+        //
+        // The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
+        // both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
+        // sit beside it was not -- it declared the window flat, and forced the
+        // fastest adaptation, for every window of an instrument quoted below it
+        // (issue #253). A genuinely flat window is now recognized by the exact bar
+        // count above instead.
+        if sumROC1 <= periodROC {
             tempReal = 1.0;
         } else {
             tempReal = (periodROC / sumROC1).abs();
@@ -658,11 +761,25 @@ impl Core {
             //  - Add new ROC1
             sumROC1 -= (trailingValue - tempReal2).abs();
             sumROC1 += (tempReal - inReal[today - 1]).abs();
+            // Once a whole window of flat bars has gone by, every 1-day change it
+            // spans is exactly zero, so the sum is known to be exactly zero and the
+            // residue can be dropped. That is what lets the efficiency ratio be
+            // decided by `sumROC1 <= periodROC` alone: a window that flat has
+            // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+            if tempReal - inReal[today - 1] == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((optInTimePeriod) as usize) {
+                nullRun = (optInTimePeriod) as usize;
+                sumROC1 = 0.0;
+            }
             // Save the trailing value. Do this because inReal
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
+            if sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
@@ -688,11 +805,25 @@ impl Core {
             //  - Add new ROC1
             sumROC1 -= (trailingValue - tempReal2).abs();
             sumROC1 += (tempReal - inReal[today - 1]).abs();
+            // Once a whole window of flat bars has gone by, every 1-day change it
+            // spans is exactly zero, so the sum is known to be exactly zero and the
+            // residue can be dropped. That is what lets the efficiency ratio be
+            // decided by `sumROC1 <= periodROC` alone: a window that flat has
+            // periodROC == 0 too, so the test is 0 <= 0 and the ratio is 1.
+            if tempReal - inReal[today - 1] == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((optInTimePeriod) as usize) {
+                nullRun = (optInTimePeriod) as usize;
+                sumROC1 = 0.0;
+            }
             // Save the trailing value. Do this because inReal
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC || (sumROC1).abs() < 1e-14 {
+            if sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
@@ -722,13 +853,14 @@ impl Core {
             constDiff,
             sumROC1,
             prevKAMA,
+            nullRun,
             trailingValue,
             lag1_inReal: inReal[historyLen - 1],
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,
         };
-        Ok(KAMA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(KAMA_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::KAMA_Open`] (composition seam).
@@ -749,8 +881,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -773,12 +906,29 @@ impl Core {
 
     /// [`Core::KAMA_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::KAMA`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::KAMA_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_KAMA_OpenAndFill")]
     pub fn KAMA_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(KAMA_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.KAMA_Lookback(optInTimePeriod)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.KAMA_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -815,7 +965,7 @@ impl KAMA_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.KAMA_step_impl(&mut self.state, inReal, &mut outReal);
+        Core::KAMA_step_impl(&mut self.state, inReal, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -848,7 +998,7 @@ impl KAMA_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.KAMA_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            Core::KAMA_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

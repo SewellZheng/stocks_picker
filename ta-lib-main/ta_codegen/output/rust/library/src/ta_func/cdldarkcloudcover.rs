@@ -73,14 +73,16 @@ impl Core {
     ///   penetrate below close\[i-1]; larger values require deeper penetration (default 0.5,
     ///   minimum 0)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Real parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Real parameters accept
     /// [`Core::REAL_DEFAULT`] to select their default value.
     #[inline]
-    pub fn CDLDARKCLOUDCOVER_Lookback(&self, mut optInPenetration: f64) -> usize {
+    pub fn CDLDARKCLOUDCOVER_Lookback(&self, mut optInPenetration: f64) -> Result<usize, RetCode> {
         if optInPenetration == Self::REAL_DEFAULT {
             optInPenetration = 5e-1;
         } else if !((optInPenetration >= 0e0) && (optInPenetration <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
@@ -88,10 +90,11 @@ impl Core {
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
         #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        return (BodyLong_avgPeriod + 1) as usize;
+        return Ok((BodyLong_avgPeriod + 1) as usize);
     }
     /// C-shaped body behind [`Core::CDLDARKCLOUDCOVER`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn CDLDARKCLOUDCOVER_Impl(
         &self,
         startIdx: usize,
@@ -116,7 +119,7 @@ impl Core {
         } else if !((optInPenetration >= 0e0) && (optInPenetration <= Self::REAL_MAX)) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration);
+        let _assertLb = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
@@ -137,7 +140,7 @@ impl Core {
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration);
+        lookbackTotal = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration).unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -280,11 +283,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -329,6 +330,30 @@ impl Core {
         optInPenetration: f64,
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inOpen.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.CDLDARKCLOUDCOVER_Impl(
@@ -361,7 +386,8 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLDARKCLOUDCOVER_Stream")]
 pub struct CDLDARKCLOUDCOVER_Stream {
-    core: Core,
+    /// The `BodyLong` setting this stream was opened with.
+    cs_body_long: CandleSetting,
     state: CDLDARKCLOUDCOVER_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -372,7 +398,7 @@ impl CDLDARKCLOUDCOVER_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `CDLDARKCLOUDCOVER_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
+        self.cs_body_long = src.cs_body_long;
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -418,13 +444,13 @@ impl CDLDARKCLOUDCOVER_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn CDLDARKCLOUDCOVER_step_impl(&self, sp: &mut CDLDARKCLOUDCOVER_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
+    fn CDLDARKCLOUDCOVER_step_impl(sp: &mut CDLDARKCLOUDCOVER_StreamState, cs_body_long: &CandleSetting, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
+        let BodyLong_rangeType: i32 = cs_body_long.range_type as i32;
         #[allow(non_snake_case)]
-        let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
+        let BodyLong_avgPeriod: i32 = cs_body_long.avg_period;
         #[allow(non_snake_case)]
-        let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
+        let BodyLong_factor: f64 = cs_body_long.factor;
         let mut _candlerange_0: f64;
         match BodyLong_rangeType {
             0 => {
@@ -485,8 +511,8 @@ impl Core {
     pub(crate) fn CDLDARKCLOUDCOVER_OpenImpl(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInPenetration: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDLDARKCLOUDCOVER_Stream, RetCode> {
-        if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
-            return Err(RetCode::BadParam);
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -494,6 +520,9 @@ impl Core {
         if optInPenetration == Self::REAL_DEFAULT {
             optInPenetration = 5e-1;
         } else if !((optInPenetration >= 0e0) && (optInPenetration <= Self::REAL_MAX)) {
+            return Err(RetCode::BadParam);
+        }
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
@@ -519,7 +548,7 @@ impl Core {
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration);
+        lookbackTotal = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration)?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -647,7 +676,7 @@ impl Core {
             ringLag_BodyLongTrailingIdx: capLag_BodyLongTrailingIdx as usize,
             ring_BodyLongTrailingIdx_derived,
         };
-        Ok(CDLDARKCLOUDCOVER_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(CDLDARKCLOUDCOVER_Stream { cs_body_long: self.candle_settings.body_long, state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::CDLDARKCLOUDCOVER_Open`] (composition seam).
@@ -668,8 +697,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -699,12 +729,32 @@ impl Core {
 
     /// [`Core::CDLDARKCLOUDCOVER_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::CDLDARKCLOUDCOVER`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::CDLDARKCLOUDCOVER_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_CDLDARKCLOUDCOVER_OpenAndFill")]
     pub fn CDLDARKCLOUDCOVER_OpenAndFill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInPenetration: f64, outInteger: &mut [i32],
     ) -> Result<(CDLDARKCLOUDCOVER_Stream, OutRange), RetCode> {
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inOpen.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLDARKCLOUDCOVER_Lookback(optInPenetration)?;
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inOpen.len().saturating_sub(_guardLb);
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.CDLDARKCLOUDCOVER_OpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, optInPenetration, &mut outBegIdx, &mut outNBElement, outInteger)?;
@@ -741,7 +791,7 @@ impl CDLDARKCLOUDCOVER_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.CDLDARKCLOUDCOVER_step_impl(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
+        Core::CDLDARKCLOUDCOVER_step_impl(&mut self.state, &self.cs_body_long, inOpen, inHigh, inLow, inClose, &mut outInteger);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -774,7 +824,7 @@ impl CDLDARKCLOUDCOVER_Stream {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.CDLDARKCLOUDCOVER_step_impl(&mut self.state, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
+            Core::CDLDARKCLOUDCOVER_step_impl(&mut self.state, &self.cs_body_long, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

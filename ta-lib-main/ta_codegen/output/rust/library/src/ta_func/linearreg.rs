@@ -56,6 +56,8 @@
  *                (numerics-changing). See issue #103.
  *  072026 MF,CC  Read the departing value before the output write so in-place
  *                (outReal==inReal) calls stay correct. See issue #130.
+ *  082426 MF,CC  Fix #254. Re-anchor the running sums: every 32*period bars,
+ *                and on the bar a large value leaves the window.
  */
 
 // Import types from parent module
@@ -76,19 +78,22 @@ impl Core {
     /// * `optInTimePeriod` — Number of bars in each regression window (default 14, range
     ///   2..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn LINEARREG_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn LINEARREG_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 14;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
-        return (optInTimePeriod - 1) as usize;
+        return Ok((optInTimePeriod - 1) as usize);
     }
     /// C-shaped body behind [`Core::LINEARREG`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn LINEARREG_Impl(
         &self,
         startIdx: usize,
@@ -140,7 +145,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.LINEARREG_Lookback(optInTimePeriod);
+        let _assertLb = self.LINEARREG_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -157,8 +162,14 @@ impl Core {
         let mut m: f64 = 0.0_f64;
         let mut b: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
+        let mut j: usize = 0_usize;
+        let mut windowStart: usize = 0_usize;
+        let mut barsSinceReseed: usize = 0_usize;
         let mut tempValue1: f64 = 0.0_f64;
+        let mut tempValue2: f64 = 0.0_f64;
         let mut trailingValue: f64 = 0.0_f64;
+        let mut weightedTrailing: f64 = 0.0_f64;
+        let mut sumAbs: f64 = 0.0_f64;
         // Linear Regression is a concept also known as the
         // "least squares method" or "best fit." Linear
         // Regression attempts to fit a straight line between
@@ -175,7 +186,7 @@ impl Core {
         // TA_LINEARREG_INTERCEPT: Returns 'b'
         // TA_TSF                : Returns b+m*(period)
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.LINEARREG_Lookback(optInTimePeriod);
+        lookbackTotal = self.LINEARREG_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -198,16 +209,20 @@ impl Core {
         // 0..period-1 position).
         SumXY = 0.0;
         SumY = 0.0;
+        sumAbs = 0.0;
         // for( i = (optInTimePeriod) as usize; { let _v = i; i = i.wrapping_sub(1); _v } != 0;  )
         i = (optInTimePeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } != 0 {
             tempValue1 = inReal[today - i];
             SumY += tempValue1;
             SumXY += (i as f64) * tempValue1;
+            sumAbs += (tempValue1).abs();
         }
         m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
         b = (SumY - m * SumX) / (optInTimePeriod as f64);
-        trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
+        barsSinceReseed = (32 * optInTimePeriod) as usize;
+        trailingValue = inReal[trailingIdx];
+        trailingIdx += 1;
         outReal[outIdx] = (m as f64).mul_add((optInTimePeriod - 1) as f64, b);
         outIdx += 1;
         today += 1;
@@ -220,11 +235,89 @@ impl Core {
         // with outReal==inReal (in-place, #130) that write lands on the cell the
         // next iteration departs from.
         while today <= endIdx {
-            SumXY = SumXY + SumY - (optInTimePeriod as f64) * trailingValue;
+            weightedTrailing = (optInTimePeriod as f64) * trailingValue;
+            SumXY = SumXY + SumY - weightedTrailing;
             SumY = SumY - trailingValue + inReal[today];
+            sumAbs = sumAbs - (trailingValue).abs() + (inReal[today]).abs();
+            // Re-anchor: rebuild both sums from the window itself. #103 left them as
+            // running totals that are never rebuilt, so each bar's rounding joins a
+            // residue no later bar can subtract -- unbounded in the length of the
+            // call, and scaled by the largest value the sums have EVER held rather
+            // than by what the window holds now. Two triggers, and they cover
+            // different failures (issue #254):
+            //
+            //   - every 32*period bars, so a slow drift stays bounded however long
+            //     the series runs. Same interval as TA_VAR / TA_CORREL / TA_BETA.
+            //
+            //   - when the value the window just dropped carries more weight than
+            //     everything left in it. That is the one the interval cannot cover:
+            //     one large print inflates the residue for up to 32*period bars
+            //     after it is gone (measured 31x at period 5), and this rebuilds on
+            //     the bar it leaves instead.
+            //
+            // The threshold compares two DEGREE-1 quantities, which is why it is 100
+            // and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
+            // against a sum of squares. On ordinary prices the ratio is ~1 and this
+            // never fires; it is a compare, not work. The constant is 100 rather than
+            // 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
+            // measured accuracy gain.
+            //
+            // THE DENOMINATOR IS sumAbs, NOT SumY, AND THAT IS THE WHOLE POINT.
+            // SumY is a CANCELLING sum: on a zero-mean window it collapses toward 0
+            // while the departing value does not, so |weightedTrailing|/|SumY| is
+            // unbounded and the rebuild fires on EVERY bar -- an alternating +/-1
+            // series measured 10.9x slower at period 30, which is precisely the
+            // O(n*period) cost #103 removed. Same shape of error as #242's absolute
+            // guard on a quartic quantity: a ratio test is ill-posed when its
+            // denominator can cancel. sumAbs is a sum of magnitudes, so it is 0 only
+            // when every value in the window is 0 -- and then the numerator is 0 too
+            // and the test is false. There is no window it can misjudge.
+            //
+            // It is also the RIGHT quantity on the merits, not just the safe one: a
+            // fresh rebuild's own error is ~eps*sum|y|, so comparing the departing
+            // term against sum|y| asks exactly "would rebuilding beat what we are
+            // carrying?".
+            //
+            // Carrying it is free in practice. Measured on the shipped libta-lib.a it
+            // costs nothing against the |SumY| form on a price series (1.541 vs 1.605
+            // ns/bar at period 14) because the update is INDEPENDENT of the serial
+            // SumXY -> SumY dependency chain and fills slots that were idle. The
+            // rejected alternative -- keeping |SumY| and rate-limiting the trigger to
+            // once per `period` bars -- bounded the cliff at 1.2x rather than removing
+            // it, and silently dropped any print departing within `period` bars of a
+            // rebuild (~3% of them).
+            //
+            // The scan walks the window oldest-first with the weight counting DOWN,
+            // which is the priming scan's order and weighting -- so a reseeded bar is
+            // bit-identical to the same bar computed by a call that started there.
+            // That identity is the whole point: it is what the range-stability
+            // contract measures.
+            //
+            // Reading the window is safe when outReal aliases inReal (#130): the
+            // outputs written so far occupy [0, outIdx-1], and windowStart is
+            // today-lookbackTotal, which is >= outIdx because startIdx was clamped
+            // to at least lookbackTotal.
+            barsSinceReseed -= 1;
+            if barsSinceReseed <= 0 || (weightedTrailing).abs() > 100.0 * sumAbs {
+                barsSinceReseed = (32 * optInTimePeriod) as usize;
+                windowStart = today - lookbackTotal;
+                SumY = 0.0;
+                SumXY = 0.0;
+                sumAbs = 0.0;
+                tempValue2 = lookbackTotal as f64;
+                for j in (windowStart as usize)..(today as usize) + 1 {
+                    tempValue1 = inReal[j];
+                    SumY += tempValue1;
+                    SumXY += tempValue2 * tempValue1;
+                    sumAbs += (tempValue1).abs();
+                    tempValue2 -= 1.0;
+                }
+                j = (today as usize) + 1;
+            }
             m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
             b = (SumY - m * SumX) / (optInTimePeriod as f64);
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
+            trailingValue = inReal[trailingIdx];
+            trailingIdx += 1;
             outReal[outIdx] = (m as f64).mul_add((optInTimePeriod - 1) as f64, b);
             outIdx += 1;
             today += 1;
@@ -261,11 +354,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -300,6 +391,21 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.LINEARREG_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.LINEARREG_Impl(
@@ -329,7 +435,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_LINEARREG_Stream")]
 pub struct LINEARREG_Stream {
-    core: Core,
     state: LINEARREG_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -340,7 +445,6 @@ impl LINEARREG_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `LINEARREG_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -350,14 +454,19 @@ impl LINEARREG_Stream {
 #[allow(non_snake_case, dead_code)]
 struct LINEARREG_StreamState {
     optInTimePeriod: i32,
+    lookbackTotal: usize,
+    trailingIdx: i32,
     SumX: f64,
     SumXY: f64,
     SumY: f64,
     Divisor: f64,
+    barsSinceReseed: usize,
     trailingValue: f64,
-    ringPos_trailingIdx: usize,
-    ringCap_trailingIdx: usize,
-    ring_trailingIdx_inReal: Vec<f64>,
+    sumAbs: f64,
+    j: i32,
+    today: i32,
+    xMask: i32,
+    x_inReal: Vec<f64>,
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -366,14 +475,19 @@ impl LINEARREG_StreamState {
     /// instead of allocating new ones — `peek`'s scratch restore.
     fn restore_from(&mut self, src: &Self) {
         self.optInTimePeriod = src.optInTimePeriod;
+        self.lookbackTotal = src.lookbackTotal;
+        self.trailingIdx = src.trailingIdx;
         self.SumX = src.SumX;
         self.SumXY = src.SumXY;
         self.SumY = src.SumY;
         self.Divisor = src.Divisor;
+        self.barsSinceReseed = src.barsSinceReseed;
         self.trailingValue = src.trailingValue;
-        self.ringPos_trailingIdx = src.ringPos_trailingIdx;
-        self.ringCap_trailingIdx = src.ringCap_trailingIdx;
-        self.ring_trailingIdx_inReal.clone_from(&src.ring_trailingIdx_inReal);
+        self.sumAbs = src.sumAbs;
+        self.j = src.j;
+        self.today = src.today;
+        self.xMask = src.xMask;
+        self.x_inReal.clone_from(&src.x_inReal);
     }
 }
 
@@ -384,23 +498,107 @@ impl LINEARREG_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn LINEARREG_step_impl(&self, sp: &mut LINEARREG_StreamState, inReal: f64, outReal: &mut f64) {
+    fn LINEARREG_step_impl(sp: &mut LINEARREG_StreamState, inReal: f64, outReal: &mut f64) {
         let mut m: f64 = 0.0_f64;
         let mut b: f64 = 0.0_f64;
-        if sp.ringCap_trailingIdx == 0 {
-            sp.ring_trailingIdx_inReal[0] = inReal;
+        let mut windowStart: usize = 0_usize;
+        let mut tempValue1: f64 = 0.0_f64;
+        let mut tempValue2: f64 = 0.0_f64;
+        let mut weightedTrailing: f64 = 0.0_f64;
+        if sp.today >= 1073741824 {
+            let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
+            sp.today -= rebaseShift;
+            sp.trailingIdx -= rebaseShift;
+            sp.j -= rebaseShift;
         }
-        sp.SumXY = sp.SumXY + sp.SumY - (sp.optInTimePeriod as f64) * sp.trailingValue;
-        sp.SumY = sp.SumY - sp.trailingValue + inReal;
+        sp.x_inReal[(sp.today & sp.xMask) as usize] = inReal;
+        weightedTrailing = (sp.optInTimePeriod as f64) * sp.trailingValue;
+        sp.SumXY = sp.SumXY + sp.SumY - weightedTrailing;
+        sp.SumY = sp.SumY - sp.trailingValue + sp.x_inReal[(sp.today & sp.xMask) as usize];
+        sp.sumAbs = sp.sumAbs - (sp.trailingValue).abs() + (sp.x_inReal[(sp.today & sp.xMask) as usize]).abs();
+        // Re-anchor: rebuild both sums from the window itself. #103 left them as
+        // running totals that are never rebuilt, so each bar's rounding joins a
+        // residue no later bar can subtract -- unbounded in the length of the
+        // call, and scaled by the largest value the sums have EVER held rather
+        // than by what the window holds now. Two triggers, and they cover
+        // different failures (issue #254):
+        //
+        //   - every 32*period bars, so a slow drift stays bounded however long
+        //     the series runs. Same interval as TA_VAR / TA_CORREL / TA_BETA.
+        //
+        //   - when the value the window just dropped carries more weight than
+        //     everything left in it. That is the one the interval cannot cover:
+        //     one large print inflates the residue for up to 32*period bars
+        //     after it is gone (measured 31x at period 5), and this rebuilds on
+        //     the bar it leaves instead.
+        //
+        // The threshold compares two DEGREE-1 quantities, which is why it is 100
+        // and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
+        // against a sum of squares. On ordinary prices the ratio is ~1 and this
+        // never fires; it is a compare, not work. The constant is 100 rather than
+        // 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
+        // measured accuracy gain.
+        //
+        // THE DENOMINATOR IS sumAbs, NOT SumY, AND THAT IS THE WHOLE POINT.
+        // SumY is a CANCELLING sum: on a zero-mean window it collapses toward 0
+        // while the departing value does not, so |weightedTrailing|/|SumY| is
+        // unbounded and the rebuild fires on EVERY bar -- an alternating +/-1
+        // series measured 10.9x slower at period 30, which is precisely the
+        // O(n*period) cost #103 removed. Same shape of error as #242's absolute
+        // guard on a quartic quantity: a ratio test is ill-posed when its
+        // denominator can cancel. sumAbs is a sum of magnitudes, so it is 0 only
+        // when every value in the window is 0 -- and then the numerator is 0 too
+        // and the test is false. There is no window it can misjudge.
+        //
+        // It is also the RIGHT quantity on the merits, not just the safe one: a
+        // fresh rebuild's own error is ~eps*sum|y|, so comparing the departing
+        // term against sum|y| asks exactly "would rebuilding beat what we are
+        // carrying?".
+        //
+        // Carrying it is free in practice. Measured on the shipped libta-lib.a it
+        // costs nothing against the |SumY| form on a price series (1.541 vs 1.605
+        // ns/bar at period 14) because the update is INDEPENDENT of the serial
+        // SumXY -> SumY dependency chain and fills slots that were idle. The
+        // rejected alternative -- keeping |SumY| and rate-limiting the trigger to
+        // once per `period` bars -- bounded the cliff at 1.2x rather than removing
+        // it, and silently dropped any print departing within `period` bars of a
+        // rebuild (~3% of them).
+        //
+        // The scan walks the window oldest-first with the weight counting DOWN,
+        // which is the priming scan's order and weighting -- so a reseeded bar is
+        // bit-identical to the same bar computed by a call that started there.
+        // That identity is the whole point: it is what the range-stability
+        // contract measures.
+        //
+        // Reading the window is safe when outReal aliases inReal (#130): the
+        // outputs written so far occupy [0, outIdx-1], and windowStart is
+        // today-lookbackTotal, which is >= outIdx because startIdx was clamped
+        // to at least lookbackTotal.
+        sp.barsSinceReseed -= 1;
+        if sp.barsSinceReseed <= 0 || (weightedTrailing).abs() > 100.0 * sp.sumAbs {
+            sp.barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
+            windowStart = (sp.today - ((sp.lookbackTotal) as i32)) as usize;
+            sp.SumY = 0.0;
+            sp.SumXY = 0.0;
+            sp.sumAbs = 0.0;
+            tempValue2 = sp.lookbackTotal as f64;
+            // for( sp.j = (windowStart) as i32; sp.j <= sp.today; sp.j += 1 )
+            sp.j = (windowStart) as i32;
+            while sp.j <= sp.today {
+                tempValue1 = sp.x_inReal[(sp.j & sp.xMask) as usize];
+                sp.SumY += tempValue1;
+                sp.SumXY += tempValue2 * tempValue1;
+                sp.sumAbs += (tempValue1).abs();
+                tempValue2 -= 1.0;
+                sp.j += 1;
+            }
+        }
         m = (((sp.optInTimePeriod) as f64) * sp.SumXY - sp.SumX * sp.SumY) / sp.Divisor;
         b = (sp.SumY - m * sp.SumX) / (sp.optInTimePeriod as f64);
-        sp.trailingValue = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
+        sp.trailingValue = sp.x_inReal[(sp.trailingIdx & sp.xMask) as usize];
+        sp.trailingIdx += 1;
         (*outReal) = (m as f64).mul_add((sp.optInTimePeriod - 1) as f64, b);
-        sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
-        sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
-        if sp.ringPos_trailingIdx >= sp.ringCap_trailingIdx {
-            sp.ringPos_trailingIdx = 0;
-        }
+        sp.today += 1;
     }
 
     /// The single whole-history transcription behind [`Core::LINEARREG_OpenInternal`]
@@ -409,7 +607,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<LINEARREG_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -441,8 +639,14 @@ impl Core {
         let mut m: f64 = 0.0_f64;
         let mut b: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
+        let mut j: usize = 0_usize;
+        let mut windowStart: usize = 0_usize;
+        let mut barsSinceReseed: usize = 0_usize;
         let mut tempValue1: f64 = 0.0_f64;
+        let mut tempValue2: f64 = 0.0_f64;
         let mut trailingValue: f64 = 0.0_f64;
+        let mut weightedTrailing: f64 = 0.0_f64;
+        let mut sumAbs: f64 = 0.0_f64;
         // Linear Regression is a concept also known as the
         // "least squares method" or "best fit." Linear
         // Regression attempts to fit a straight line between
@@ -459,7 +663,7 @@ impl Core {
         // TA_LINEARREG_INTERCEPT: Returns 'b'
         // TA_TSF                : Returns b+m*(period)
         // Adjust startIdx to account for the lookback period.
-        lookbackTotal = self.LINEARREG_Lookback(optInTimePeriod);
+        lookbackTotal = self.LINEARREG_Lookback(optInTimePeriod)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -482,16 +686,20 @@ impl Core {
         // 0..period-1 position).
         SumXY = 0.0;
         SumY = 0.0;
+        sumAbs = 0.0;
         // for( i = (optInTimePeriod) as usize; { let _v = i; i = i.wrapping_sub(1); _v } != 0;  )
         i = (optInTimePeriod) as usize;
         while { let _v = i; i = i.wrapping_sub(1); _v } != 0 {
             tempValue1 = inReal[today - i];
             SumY += tempValue1;
             SumXY += (i as f64) * tempValue1;
+            sumAbs += (tempValue1).abs();
         }
         m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
         b = (SumY - m * SumX) / (optInTimePeriod as f64);
-        trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
+        barsSinceReseed = (32 * optInTimePeriod) as usize;
+        trailingValue = inReal[trailingIdx];
+        trailingIdx += 1;
         outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (m as f64).mul_add((optInTimePeriod - 1) as f64, b);
         today += 1;
         // Slide the window one bar at a time, keeping both sums in O(1): advancing
@@ -503,11 +711,89 @@ impl Core {
         // with outReal==inReal (in-place, #130) that write lands on the cell the
         // next iteration departs from.
         while today <= endIdx {
-            SumXY = SumXY + SumY - (optInTimePeriod as f64) * trailingValue;
+            weightedTrailing = (optInTimePeriod as f64) * trailingValue;
+            SumXY = SumXY + SumY - weightedTrailing;
             SumY = SumY - trailingValue + inReal[today];
+            sumAbs = sumAbs - (trailingValue).abs() + (inReal[today]).abs();
+            // Re-anchor: rebuild both sums from the window itself. #103 left them as
+            // running totals that are never rebuilt, so each bar's rounding joins a
+            // residue no later bar can subtract -- unbounded in the length of the
+            // call, and scaled by the largest value the sums have EVER held rather
+            // than by what the window holds now. Two triggers, and they cover
+            // different failures (issue #254):
+            //
+            //   - every 32*period bars, so a slow drift stays bounded however long
+            //     the series runs. Same interval as TA_VAR / TA_CORREL / TA_BETA.
+            //
+            //   - when the value the window just dropped carries more weight than
+            //     everything left in it. That is the one the interval cannot cover:
+            //     one large print inflates the residue for up to 32*period bars
+            //     after it is gone (measured 31x at period 5), and this rebuilds on
+            //     the bar it leaves instead.
+            //
+            // The threshold compares two DEGREE-1 quantities, which is why it is 100
+            // and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
+            // against a sum of squares. On ordinary prices the ratio is ~1 and this
+            // never fires; it is a compare, not work. The constant is 100 rather than
+            // 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
+            // measured accuracy gain.
+            //
+            // THE DENOMINATOR IS sumAbs, NOT SumY, AND THAT IS THE WHOLE POINT.
+            // SumY is a CANCELLING sum: on a zero-mean window it collapses toward 0
+            // while the departing value does not, so |weightedTrailing|/|SumY| is
+            // unbounded and the rebuild fires on EVERY bar -- an alternating +/-1
+            // series measured 10.9x slower at period 30, which is precisely the
+            // O(n*period) cost #103 removed. Same shape of error as #242's absolute
+            // guard on a quartic quantity: a ratio test is ill-posed when its
+            // denominator can cancel. sumAbs is a sum of magnitudes, so it is 0 only
+            // when every value in the window is 0 -- and then the numerator is 0 too
+            // and the test is false. There is no window it can misjudge.
+            //
+            // It is also the RIGHT quantity on the merits, not just the safe one: a
+            // fresh rebuild's own error is ~eps*sum|y|, so comparing the departing
+            // term against sum|y| asks exactly "would rebuilding beat what we are
+            // carrying?".
+            //
+            // Carrying it is free in practice. Measured on the shipped libta-lib.a it
+            // costs nothing against the |SumY| form on a price series (1.541 vs 1.605
+            // ns/bar at period 14) because the update is INDEPENDENT of the serial
+            // SumXY -> SumY dependency chain and fills slots that were idle. The
+            // rejected alternative -- keeping |SumY| and rate-limiting the trigger to
+            // once per `period` bars -- bounded the cliff at 1.2x rather than removing
+            // it, and silently dropped any print departing within `period` bars of a
+            // rebuild (~3% of them).
+            //
+            // The scan walks the window oldest-first with the weight counting DOWN,
+            // which is the priming scan's order and weighting -- so a reseeded bar is
+            // bit-identical to the same bar computed by a call that started there.
+            // That identity is the whole point: it is what the range-stability
+            // contract measures.
+            //
+            // Reading the window is safe when outReal aliases inReal (#130): the
+            // outputs written so far occupy [0, outIdx-1], and windowStart is
+            // today-lookbackTotal, which is >= outIdx because startIdx was clamped
+            // to at least lookbackTotal.
+            barsSinceReseed -= 1;
+            if barsSinceReseed <= 0 || (weightedTrailing).abs() > 100.0 * sumAbs {
+                barsSinceReseed = (32 * optInTimePeriod) as usize;
+                windowStart = today - lookbackTotal;
+                SumY = 0.0;
+                SumXY = 0.0;
+                sumAbs = 0.0;
+                tempValue2 = lookbackTotal as f64;
+                for j in (windowStart as usize)..(today as usize) + 1 {
+                    tempValue1 = inReal[j];
+                    SumY += tempValue1;
+                    SumXY += tempValue2 * tempValue1;
+                    sumAbs += (tempValue1).abs();
+                    tempValue2 -= 1.0;
+                }
+                j = (today as usize) + 1;
+            }
             m = (((optInTimePeriod) as f64) * SumXY - SumX * SumY) / Divisor;
             b = (SumY - m * SumX) / (optInTimePeriod as f64);
-            trailingValue = inReal[{ let _v = trailingIdx; trailingIdx += 1; _v }];
+            trailingValue = inReal[trailingIdx];
+            trailingIdx += 1;
             outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (m as f64).mul_add((optInTimePeriod - 1) as f64, b);
             today += 1;
         }
@@ -515,26 +801,39 @@ impl Core {
         (*outNBElement) = outIdx;
 
         // Capture the live batch state into the handle.
-        let cap_trailingIdx: i64 = (today as i64) - (trailingIdx as i64);
-        if cap_trailingIdx < 0 || cap_trailingIdx > historyLen as i64 {
+        let capX: i64 = (today as i64) - (trailingIdx as i64) + 1;
+        if capX < 1 || capX > historyLen as i64 {
             return Err(RetCode::InternalError);
         }
-        let allocN_trailingIdx: usize = if cap_trailingIdx > 0 { cap_trailingIdx as usize } else { 1 };
-        let mut ring_trailingIdx_inReal: Vec<f64> = vec![0.0_f64; allocN_trailingIdx];
-        ring_trailingIdx_inReal[..cap_trailingIdx as usize]
-            .copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);
+        let mut physX: i64 = 1;
+        while physX < capX {
+            physX <<= 1;
+        }
+        let mut x_inReal: Vec<f64> = vec![0.0_f64; physX as usize];
+        {
+            let mut fillJ: usize = historyLen - capX as usize;
+            while fillJ < historyLen {
+                x_inReal[fillJ & (physX as usize - 1)] = inReal[fillJ];
+                fillJ += 1;
+            }
+        }
         let state = LINEARREG_StreamState {
             optInTimePeriod,
+            lookbackTotal,
+            trailingIdx: (trailingIdx) as i32,
             SumX,
             SumXY,
             SumY,
             Divisor,
+            barsSinceReseed,
             trailingValue,
-            ringPos_trailingIdx: 0_usize,
-            ringCap_trailingIdx: cap_trailingIdx as usize,
-            ring_trailingIdx_inReal,
+            sumAbs,
+            j: (j) as i32,
+            today: (today) as i32,
+            xMask: (physX - 1) as i32,
+            x_inReal,
         };
-        Ok(LINEARREG_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(LINEARREG_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::LINEARREG_Open`] (composition seam).
@@ -555,8 +854,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -579,12 +879,29 @@ impl Core {
 
     /// [`Core::LINEARREG_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::LINEARREG`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::LINEARREG_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_LINEARREG_OpenAndFill")]
     pub fn LINEARREG_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(LINEARREG_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.LINEARREG_Lookback(optInTimePeriod)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.LINEARREG_OpenAndFillInternal(inReal, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -621,7 +938,7 @@ impl LINEARREG_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.LINEARREG_step_impl(&mut self.state, inReal, &mut outReal);
+        Core::LINEARREG_step_impl(&mut self.state, inReal, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -654,7 +971,7 @@ impl LINEARREG_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.LINEARREG_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
+            Core::LINEARREG_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

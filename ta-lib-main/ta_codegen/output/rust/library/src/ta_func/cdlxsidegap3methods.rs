@@ -66,11 +66,12 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLXSIDEGAP3METHODS`]: the number of leading input values
     /// consumed before the first output value can be produced.
-    pub fn CDLXSIDEGAP3METHODS_Lookback(&self) -> usize {
-        return (2) as usize;
+    pub fn CDLXSIDEGAP3METHODS_Lookback(&self) -> Result<usize, RetCode> {
+        return Ok((2) as usize);
     }
     /// C-shaped body behind [`Core::CDLXSIDEGAP3METHODS`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn CDLXSIDEGAP3METHODS_Impl(
         &self,
         startIdx: usize,
@@ -89,9 +90,11 @@ impl Core {
         if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        let _assertLb = self.CDLXSIDEGAP3METHODS_Lookback();
+        let _assertLb = self.CDLXSIDEGAP3METHODS_Lookback().unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
+        assert!(_assertStart > endIdx || endIdx < inHigh.len());
+        assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outInteger.len());
         let mut startIdx = startIdx;
@@ -100,7 +103,7 @@ impl Core {
         let mut lookbackTotal: usize = 0_usize;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLXSIDEGAP3METHODS_Lookback();
+        lookbackTotal = self.CDLXSIDEGAP3METHODS_Lookback().unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -188,11 +191,9 @@ impl Core {
     /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -238,6 +239,30 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLXSIDEGAP3METHODS_Lookback()?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inOpen.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.CDLXSIDEGAP3METHODS_Impl(
@@ -269,7 +294,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLXSIDEGAP3METHODS_Stream")]
 pub struct CDLXSIDEGAP3METHODS_Stream {
-    core: Core,
     state: CDLXSIDEGAP3METHODS_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -280,7 +304,6 @@ impl CDLXSIDEGAP3METHODS_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `CDLXSIDEGAP3METHODS_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -314,7 +337,7 @@ impl CDLXSIDEGAP3METHODS_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn CDLXSIDEGAP3METHODS_step_impl(&self, sp: &mut CDLXSIDEGAP3METHODS_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
+    fn CDLXSIDEGAP3METHODS_step_impl(sp: &mut CDLXSIDEGAP3METHODS_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         if (if sp.lag2_inClose >= sp.lag2_inOpen { 1 } else { 0 - 1 }) == (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) && // 1st and 2nd of same color
            (if sp.lag1_inClose >= sp.lag1_inOpen { 1 } else { 0 - 1 }) == 0 - (if inClose >= inOpen { 1 } else { 0 - 1 }) && // 3rd opposite color
            inOpen < (sp.lag1_inClose).max(sp.lag1_inOpen) &&  // 3rd opens within 2nd rb
@@ -340,11 +363,14 @@ impl Core {
     pub(crate) fn CDLXSIDEGAP3METHODS_OpenImpl(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDLXSIDEGAP3METHODS_Stream, RetCode> {
-        if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
-            return Err(RetCode::BadParam);
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
+        }
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
         let endIdx: usize = historyLen - 1;
@@ -361,7 +387,7 @@ impl Core {
         let mut lookbackTotal: usize = 0_usize;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLXSIDEGAP3METHODS_Lookback();
+        lookbackTotal = self.CDLXSIDEGAP3METHODS_Lookback()?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -415,7 +441,7 @@ impl Core {
             lag1_inClose: inClose[historyLen - 1],
             lag2_inClose: inClose[historyLen - 2],
         };
-        Ok(CDLXSIDEGAP3METHODS_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(CDLXSIDEGAP3METHODS_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::CDLXSIDEGAP3METHODS_Open`] (composition seam).
@@ -436,8 +462,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -467,12 +494,32 @@ impl Core {
 
     /// [`Core::CDLXSIDEGAP3METHODS_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::CDLXSIDEGAP3METHODS`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::CDLXSIDEGAP3METHODS_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_CDLXSIDEGAP3METHODS_OpenAndFill")]
     pub fn CDLXSIDEGAP3METHODS_OpenAndFill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32],
     ) -> Result<(CDLXSIDEGAP3METHODS_Stream, OutRange), RetCode> {
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inOpen.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLXSIDEGAP3METHODS_Lookback()?;
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inOpen.len().saturating_sub(_guardLb);
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.CDLXSIDEGAP3METHODS_OpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outInteger)?;
@@ -509,7 +556,7 @@ impl CDLXSIDEGAP3METHODS_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.CDLXSIDEGAP3METHODS_step_impl(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
+        Core::CDLXSIDEGAP3METHODS_step_impl(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -542,7 +589,7 @@ impl CDLXSIDEGAP3METHODS_Stream {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.CDLXSIDEGAP3METHODS_step_impl(&mut self.state, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
+            Core::CDLXSIDEGAP3METHODS_step_impl(&mut self.state, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

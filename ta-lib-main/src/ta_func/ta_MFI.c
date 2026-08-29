@@ -118,6 +118,10 @@ TA_LIB_API TA_RetCode TA_MFI( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
@@ -126,15 +130,13 @@ TA_LIB_API TA_RetCode TA_MFI( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
    /* Id, Type, Static Size */
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(351);
    if( (int)optInTimePeriod > (int)(sizeof(local_mflow_positive)/sizeof(double)) )
    {
       mflow_positive = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -347,6 +349,10 @@ TA_RetCode TA_S_MFI( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
@@ -355,14 +361,12 @@ TA_RetCode TA_S_MFI( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
 
-   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+   if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(351);
    if( (int)optInTimePeriod > (int)(sizeof(local_mflow_positive)/sizeof(double)) )
    {
       mflow_positive = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -581,9 +585,9 @@ static TA_RetCode TA_MFI_OpenImpl( struct TA_MFI_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -617,7 +621,7 @@ static TA_RetCode TA_MFI_OpenImpl( struct TA_MFI_Stream **stream, const double i
       int today;
       int nullRun = 0;
       /* Id, Type, Static Size */
-      if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(137);
+      if( optInTimePeriod < 1 ) return TA_INTERNAL_ERROR(351);
       if( (int)optInTimePeriod > (int)(sizeof(local_mflow_positive)/sizeof(double)) )
       {
          mflow_positive = TA_Malloc( sizeof(double)*optInTimePeriod );
@@ -800,7 +804,7 @@ static TA_RetCode TA_MFI_OpenImpl( struct TA_MFI_Stream **stream, const double i
       sp->mflow_Idx = mflow_Idx;
       sp->maxIdx_mflow = maxIdx_mflow;
       sp->cbSize_mflow = maxIdx_mflow + 1;
-      if( sp->cbSize_mflow < 1 || sp->cbSize_mflow > historyLen + 1 ) { if( mflow_positive != &local_mflow_positive[0] ) TA_Free( mflow_positive ); if( mflow_negative != &local_mflow_negative[0] ) TA_Free( mflow_negative ); TA_MFI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_mflow < 1 || sp->cbSize_mflow > historyLen + 1 ) { if( mflow_positive != &local_mflow_positive[0] ) TA_Free( mflow_positive ); if( mflow_negative != &local_mflow_negative[0] ) TA_Free( mflow_negative ); TA_MFI_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(352); }
       sp->cb_mflow_positive = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mflow );
       if( !sp->cb_mflow_positive ) { if( mflow_positive != &local_mflow_positive[0] ) TA_Free( mflow_positive ); if( mflow_negative != &local_mflow_negative[0] ) TA_Free( mflow_negative ); TA_MFI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_mflow_positive = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_mflow );
@@ -838,9 +842,9 @@ TA_LIB_API TA_RetCode TA_MFI_Open( TA_MFI_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_MFI_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -848,10 +852,9 @@ TA_LIB_API TA_RetCode TA_MFI_OpenAndFill( TA_MFI_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_MFI_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

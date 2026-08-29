@@ -18,6 +18,9 @@
  *               + reseed) and a scale-relative denominator test.
  *  082326 MF,CC #242 follow-up: restore TA_VAR's outlier trigger, at 1e3,
  *               on BOTH axes -- the output reads S_xy and S_y too.
+ *  082326 MF,CC Fix #253. Test the base price of a return exactly instead of
+ *               against the fixed TA_IS_ZERO band, which collapsed beta to
+ *               zero for any instrument quoted small enough to fall under it.
  */
 
    /**
@@ -178,22 +181,28 @@
        * afford before the sums exist.
        */
       i = ++trailingIdx;
-      if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+      /* A return needs a non-zero base price and nothing more: the test is exact,
+       * not the fixed TA_IS_ZERO band it used to be. A price carries the quote
+       * unit, so that band declared every bar of a small-quoted instrument
+       * "no previous price", left every return at -shift, and collapsed beta to
+       * zero (issue #253).
+       */
+      if( last_price_x != 0.0 ) {
          shift_x = (inReal0[i] - last_price_x) / last_price_x;
       }
-      if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+      if( last_price_y != 0.0 ) {
          shift_y = (inReal1[i] - last_price_y) / last_price_y;
       }
       while( i < startIdx ) {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -211,14 +220,14 @@
       barsSinceReseed = 32 * optInTimePeriod;
       do {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -292,11 +301,11 @@
             tmp_real = 0.0;
             shift_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   tmp_real += (inReal0[j] - prev_x) / prev_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   shift_y += (inReal1[j] - prev_y) / prev_y;
                }
                prev_y = inReal1[j];
@@ -311,13 +320,13 @@
             S_x = 0.0;
             S_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
                   x = 0 - shift_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
                   y = 0 - shift_y;
@@ -347,7 +356,7 @@
           * buffer can be the same.
           */
          tmp_real = inReal0[trailingIdx];
-         if( !((-0.00000000000001 < trailing_last_price_x) && (trailing_last_price_x < 0.00000000000001)) ) {
+         if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
@@ -355,7 +364,7 @@
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
          trailingIdx += 1;
-         if( !((-0.00000000000001 < trailing_last_price_y) && (trailing_last_price_y < 0.00000000000001)) ) {
+         if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -470,22 +479,22 @@
       trailing_last_price_y = (double)inReal1[trailingIdx];
       last_price_y = trailing_last_price_y;
       i = ++trailingIdx;
-      if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+      if( last_price_x != 0.0 ) {
          shift_x = ((double)inReal0[i] - last_price_x) / last_price_x;
       }
-      if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+      if( last_price_y != 0.0 ) {
          shift_y = ((double)inReal1[i] - last_price_y) / last_price_y;
       }
       while( i < startIdx ) {
          tmp_real = (double)inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -502,14 +511,14 @@
       barsSinceReseed = 32 * optInTimePeriod;
       do {
          tmp_real = (double)inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = (double)inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -531,11 +540,11 @@
             tmp_real = 0.0;
             shift_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   tmp_real += ((double)inReal0[j] - prev_x) / prev_x;
                }
                prev_x = (double)inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   shift_y += ((double)inReal1[j] - prev_y) / prev_y;
                }
                prev_y = (double)inReal1[j];
@@ -550,13 +559,13 @@
             S_x = 0.0;
             S_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   x = ((double)inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
                   x = 0 - shift_x;
                }
                prev_x = (double)inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   y = ((double)inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
                   y = 0 - shift_y;
@@ -575,7 +584,7 @@
             }
          }
          tmp_real = (double)inReal0[trailingIdx];
-         if( !((-0.00000000000001 < trailing_last_price_x) && (trailing_last_price_x < 0.00000000000001)) ) {
+         if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
@@ -583,7 +592,7 @@
          trailing_last_price_x = tmp_real;
          tmp_real = (double)inReal1[trailingIdx];
          trailingIdx += 1;
-         if( !((-0.00000000000001 < trailing_last_price_y) && (trailing_last_price_y < 0.00000000000001)) ) {
+         if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -636,15 +645,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CORREL
     * @see Core#LINEARREG_SLOPE
@@ -659,9 +667,9 @@
                          double outReal[] )
    {
       requireIndexRange("BETA", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, BETA_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("BETA", startIdx, BETA_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BETA", "inReal0", inReal0, guardInLen);
       requireLength("BETA", "inReal1", inReal1, guardInLen);
       requireLength("BETA", "outReal", outReal, guardOutLen);
@@ -706,15 +714,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CORREL
     * @see Core#LINEARREG_SLOPE
@@ -729,9 +736,9 @@
                          double outReal[] )
    {
       requireIndexRange("BETA", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, BETA_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("BETA", startIdx, BETA_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("BETA", "inReal0", inReal0, guardInLen);
       requireLength("BETA", "inReal1", inReal1, guardInLen);
       requireLength("BETA", "outReal", outReal, guardOutLen);
@@ -903,6 +910,9 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal0[], double inReal1[], double outReal[] ) {
+         requireArgument("BETA updateAndFill", "inReal0", inReal0);
+         requireArgument("BETA updateAndFill", "inReal1", inReal1);
+         requireArgument("BETA updateAndFill", "outReal", outReal);
          final int barCount = inReal0.length;
          if( inReal1.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 )
             throw new TaLibArgumentException("BETA updateAndFill: BadParam", RetCode.BadParam);
@@ -974,14 +984,14 @@
       sp.x_inReal0[sp.i & sp.xMask] = inReal0;
       sp.x_inReal1[sp.i & sp.xMask] = inReal1;
       tmp_real = sp.x_inReal0[sp.i & sp.xMask];
-      if( !((-0.00000000000001 < sp.last_price_x) && (sp.last_price_x < 0.00000000000001)) ) {
+      if( sp.last_price_x != 0.0 ) {
          x = (tmp_real - sp.last_price_x) / sp.last_price_x - sp.shift_x;
       } else {
          x = 0 - sp.shift_x;
       }
       sp.last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.i++ & sp.xMask];
-      if( !((-0.00000000000001 < sp.last_price_y) && (sp.last_price_y < 0.00000000000001)) ) {
+      if( sp.last_price_y != 0.0 ) {
          y = (tmp_real - sp.last_price_y) / sp.last_price_y - sp.shift_y;
       } else {
          y = 0 - sp.shift_y;
@@ -1055,11 +1065,11 @@
          tmp_real = 0.0;
          sp.shift_y = 0.0;
          for( sp.j = windowStart; sp.j < sp.i; sp.j += 1 ) {
-            if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+            if( prev_x != 0.0 ) {
                tmp_real += (sp.x_inReal0[sp.j & sp.xMask] - prev_x) / prev_x;
             }
             prev_x = sp.x_inReal0[sp.j & sp.xMask];
-            if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+            if( prev_y != 0.0 ) {
                sp.shift_y += (sp.x_inReal1[sp.j & sp.xMask] - prev_y) / prev_y;
             }
             prev_y = sp.x_inReal1[sp.j & sp.xMask];
@@ -1074,13 +1084,13 @@
          sp.S_x = 0.0;
          sp.S_y = 0.0;
          for( sp.j = windowStart; sp.j < sp.i; sp.j += 1 ) {
-            if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+            if( prev_x != 0.0 ) {
                x = (sp.x_inReal0[sp.j & sp.xMask] - prev_x) / prev_x - sp.shift_x;
             } else {
                x = 0 - sp.shift_x;
             }
             prev_x = sp.x_inReal0[sp.j & sp.xMask];
-            if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+            if( prev_y != 0.0 ) {
                y = (sp.x_inReal1[sp.j & sp.xMask] - prev_y) / prev_y - sp.shift_y;
             } else {
                y = 0 - sp.shift_y;
@@ -1110,7 +1120,7 @@
        * buffer can be the same.
        */
       tmp_real = sp.x_inReal0[sp.trailingIdx & sp.xMask];
-      if( !((-0.00000000000001 < sp.trailing_last_price_x) && (sp.trailing_last_price_x < 0.00000000000001)) ) {
+      if( sp.trailing_last_price_x != 0.0 ) {
          x = (tmp_real - sp.trailing_last_price_x) / sp.trailing_last_price_x - sp.shift_x;
       } else {
          x = 0 - sp.shift_x;
@@ -1118,7 +1128,7 @@
       sp.trailing_last_price_x = tmp_real;
       tmp_real = sp.x_inReal1[sp.trailingIdx & sp.xMask];
       sp.trailingIdx += 1;
-      if( !((-0.00000000000001 < sp.trailing_last_price_y) && (sp.trailing_last_price_y < 0.00000000000001)) ) {
+      if( sp.trailing_last_price_y != 0.0 ) {
          y = (tmp_real - sp.trailing_last_price_y) / sp.trailing_last_price_y - sp.shift_y;
       } else {
          y = 0 - sp.shift_y;
@@ -1178,11 +1188,14 @@
       int nbInitialElementNeeded = 0;
       int historyLen = inReal0.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inReal1.length != inReal0.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inReal1.length != inReal0.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 5;
@@ -1282,22 +1295,28 @@
        * afford before the sums exist.
        */
       i = ++trailingIdx;
-      if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+      /* A return needs a non-zero base price and nothing more: the test is exact,
+       * not the fixed TA_IS_ZERO band it used to be. A price carries the quote
+       * unit, so that band declared every bar of a small-quoted instrument
+       * "no previous price", left every return at -shift, and collapsed beta to
+       * zero (issue #253).
+       */
+      if( last_price_x != 0.0 ) {
          shift_x = (inReal0[i] - last_price_x) / last_price_x;
       }
-      if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+      if( last_price_y != 0.0 ) {
          shift_y = (inReal1[i] - last_price_y) / last_price_y;
       }
       while( i < startIdx ) {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -1315,14 +1334,14 @@
       barsSinceReseed = 32 * optInTimePeriod;
       do {
          tmp_real = inReal0[i];
-         if( !((-0.00000000000001 < last_price_x) && (last_price_x < 0.00000000000001)) ) {
+         if( last_price_x != 0.0 ) {
             x = (tmp_real - last_price_x) / last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
          }
          last_price_x = tmp_real;
          tmp_real = inReal1[i++];
-         if( !((-0.00000000000001 < last_price_y) && (last_price_y < 0.00000000000001)) ) {
+         if( last_price_y != 0.0 ) {
             y = (tmp_real - last_price_y) / last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -1396,11 +1415,11 @@
             tmp_real = 0.0;
             shift_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   tmp_real += (inReal0[j] - prev_x) / prev_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   shift_y += (inReal1[j] - prev_y) / prev_y;
                }
                prev_y = inReal1[j];
@@ -1415,13 +1434,13 @@
             S_x = 0.0;
             S_y = 0.0;
             for( j = windowStart; j < i; j += 1 ) {
-               if( !((-0.00000000000001 < prev_x) && (prev_x < 0.00000000000001)) ) {
+               if( prev_x != 0.0 ) {
                   x = (inReal0[j] - prev_x) / prev_x - shift_x;
                } else {
                   x = 0 - shift_x;
                }
                prev_x = inReal0[j];
-               if( !((-0.00000000000001 < prev_y) && (prev_y < 0.00000000000001)) ) {
+               if( prev_y != 0.0 ) {
                   y = (inReal1[j] - prev_y) / prev_y - shift_y;
                } else {
                   y = 0 - shift_y;
@@ -1451,7 +1470,7 @@
           * buffer can be the same.
           */
          tmp_real = inReal0[trailingIdx];
-         if( !((-0.00000000000001 < trailing_last_price_x) && (trailing_last_price_x < 0.00000000000001)) ) {
+         if( trailing_last_price_x != 0.0 ) {
             x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
          } else {
             x = 0 - shift_x;
@@ -1459,7 +1478,7 @@
          trailing_last_price_x = tmp_real;
          tmp_real = inReal1[trailingIdx];
          trailingIdx += 1;
-         if( !((-0.00000000000001 < trailing_last_price_y) && (trailing_last_price_y < 0.00000000000001)) ) {
+         if( trailing_last_price_y != 0.0 ) {
             y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
          } else {
             y = 0 - shift_y;
@@ -1577,10 +1596,17 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public BETA_Stream BETA_Open( double inReal0[], double inReal1[], int optInTimePeriod )
    {
+      requireArgument("BETA open", "inReal0", inReal0);
+      requireHistory("BETA open", inReal0.length);
+      requireArgument("BETA open", "inReal1", inReal1);
+      requireHistoryLength("BETA open", "inReal1", inReal1.length, inReal0.length);
       return BETA_OpenInternal(inReal0, inReal1, 0, optInTimePeriod);
    }
    /**
@@ -1588,12 +1614,20 @@
     * to {@link Core#BETA} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link BETA_Stream#outRange()}.
     */
    public BETA_Stream BETA_OpenAndFill( double inReal0[], double inReal1[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("BETA openAndFill", "inReal0", inReal0);
+      requireHistory("BETA openAndFill", inReal0.length);
+      requireArgument("BETA openAndFill", "inReal1", inReal1);
+      int guardOutLen = openFillCount("BETA openAndFill", inReal0.length, BETA_Lookback(optInTimePeriod));
+      requireHistoryLength("BETA openAndFill", "inReal1", inReal1.length, inReal0.length);
+      requireLength("BETA openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 ) {
          throw new TaLibArgumentException("BETA openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

@@ -213,12 +213,10 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, lib_src: &P
 
 /// `TA_FunctionDescriptionXML`'s analog, carrying the real XML.
 ///
-/// The server used to answer the XML RPC with a `(length, checksum)` pair the
-/// generator baked at generation time. `test_abstract.c` compares those two
-/// numbers against C's actual bytes — but comparing a constant the generator
-/// computed from the same string C's table is built from is the generator
-/// agreeing with itself, and could not fail. Java now ships the XML the way
-/// Rust does, so the gate compares two real copies (#164).
+/// Ships the real XML, never a `(length, checksum)` pair baked at generation
+/// time: `test_abstract.c` compares it against C's actual bytes, and a constant
+/// the generator computed from the same string C's table is built from is the
+/// generator agreeing with itself — a gate that cannot fail (#164).
 ///
 /// Split across parts because a `CONSTANT_Utf8` entry is length-prefixed with a
 /// `u2`: one 195 KB literal does not fit in a class file. They are joined at
@@ -801,6 +799,12 @@ fn output_type_name(kind: OutputKind) -> &'static str {
 // generated switch over the typed public wrappers: no reflection, so it survives
 // AOT/jlink and cannot desync from the real signatures.
 
+/// `ParamHolder.java`'s text, without writing it — so a test can assert on the
+/// emitted binder.
+pub fn render_param_holder() -> String {
+    param_holder_class()
+}
+
 #[allow(clippy::too_many_lines)]
 fn param_holder_class() -> String {
     let mut s = header("MF,CC");
@@ -945,7 +949,6 @@ public final class ParamHolder {
    /** Binds an {@link OptInputType#INTEGER_RANGE} or {@link OptInputType#INTEGER_LIST} parameter. */
    public ParamHolder setOptInput(int idx, int value) {
       checkOpt(idx, OptInputType.INTEGER_RANGE, OptInputType.INTEGER_LIST);
-      intOpts[idx] = value;
       if (info.optInputs().get(idx).type() == OptInputType.INTEGER_LIST) {
          MAType[] all = MAType.values();
          /* Setting a parameter to its documented default THROUGH the abstract
@@ -960,11 +963,20 @@ public final class ParamHolder {
             maTypeOpts[idx] = all[declared];
             intOpts[idx] = declared;
          } else if (value < 0 || value >= all.length) {
+            /* Ahead of the write below, not after it. Reversed, a rejected ordinal
+               left `value` in intOpts -- unobservable, since resolveUnsetOptInputs
+               rewrites an unset slot and Dispatch reads a choice list through
+               maTypeOpt(), never intOpt() -- but it broke the same rule
+               setPriceInput breaks visibly: a rejected setter must leave the
+               holder as it found it (issue #266). */
             throw new IllegalArgumentException(
                info.name() + " optInput " + idx + ": " + value + " is not a valid MAType ordinal");
          } else {
             maTypeOpts[idx] = all[value];
+            intOpts[idx] = value;
          }
+      } else {
+         intOpts[idx] = value;
       }
       optSet[idx] = true;
       return this;
@@ -1150,15 +1162,11 @@ final class Dispatch {
 
         // Argument order comes STRAIGHT from the row the registry publishes:
         // a price bundle is one slot, and `signature_components` is the order
-        // the typed method takes its arrays in. This used to re-fold `FuncDef`
-        // with a second `price_bundle::group` pass, whose agreement with the
-        // row's own slot numbering nothing checked.
-        //
-        // Not merely equivalent to the old fold — strictly safer than it. That
-        // one keyed a `HashMap<String, _>` on the input NAME, which is derived
-        // from the price component, so two bundles sharing a component would
-        // have collided and pointed both at one slot. Reading the row cannot:
-        // the slot IS the row's index.
+        // the typed method takes its arrays in. Do not re-fold `FuncDef` with a
+        // second `price_bundle::group` pass here — nothing would check its
+        // agreement with the row's own slot numbering, and keying that fold by
+        // input NAME collides for two bundles sharing a component. Reading the
+        // row cannot: the slot IS the row's index.
         let mut args: Vec<String> = vec!["startIdx".into(), "endIdx".into()];
         for (slot, inp) in f.inputs.iter().enumerate() {
             match inp.kind {

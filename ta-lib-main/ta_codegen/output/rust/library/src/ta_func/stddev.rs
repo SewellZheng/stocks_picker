@@ -76,26 +76,29 @@ impl Core {
     /// * `optInTimePeriod` — Window length (default 5, range 2..=100000)
     /// * `optInNbDev` — Multiplier applied to the standard deviation (default 1)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`], and real parameters [`Core::REAL_DEFAULT`], to select their
     /// default value.
     #[inline]
-    pub fn STDDEV_Lookback(&self, mut optInTimePeriod: i32, mut optInNbDev: f64) -> usize {
+    pub fn STDDEV_Lookback(&self, mut optInTimePeriod: i32, mut optInNbDev: f64) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
         } else if (((optInTimePeriod) as i32) < 2) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInNbDev == Self::REAL_DEFAULT {
             optInNbDev = 1e0;
         } else if !((optInNbDev >= Self::REAL_MIN) && (optInNbDev <= Self::REAL_MAX)) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         // Lookback is driven by the variance.
-        return self.VAR_Lookback(optInTimePeriod, optInNbDev);
+        return Ok(self.VAR_Lookback(optInTimePeriod, optInNbDev)?);
     }
     /// C-shaped body behind [`Core::STDDEV`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn STDDEV_Impl(
         &self,
         startIdx: usize,
@@ -123,7 +126,7 @@ impl Core {
         } else if !((optInNbDev >= Self::REAL_MIN) && (optInNbDev <= Self::REAL_MAX)) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.STDDEV_Lookback(optInTimePeriod, optInNbDev);
+        let _assertLb = self.STDDEV_Lookback(optInTimePeriod, optInNbDev).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outReal.len());
@@ -138,16 +141,16 @@ impl Core {
         // without reading. Observably identical, but it makes "a range shorter than
         // the lookback reads nothing" true of stddev itself rather than only of var.
         // Pinned by the zero-length no-I/O probe over every guarded core.
-        if self.STDDEV_Lookback(optInTimePeriod, optInNbDev) > endIdx {
+        if self.STDDEV_Lookback(optInTimePeriod, optInNbDev).unwrap_or(usize::MAX) > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return RetCode::Success;
         }
         // Calculate the variance.
-        retCode = self.VAR_Impl(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outBegIdx, outNBElement, outReal);
-        if retCode != RetCode::Success {
-            return retCode;
-        }
+        let _xr0 = match self.VAR(startIdx, endIdx, inReal, optInTimePeriod, 1.0, outReal) { Ok(_r) => _r, Err(_e) => return _e };
+        (*outBegIdx) = _xr0.beg_idx;
+        (*outNBElement) = _xr0.count;
+        retCode = RetCode::Success;
         // Calculate the square root of each variance, this
         // is the standard deviation.
         //
@@ -219,11 +222,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -258,6 +259,21 @@ impl Core {
         optInNbDev: f64,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.STDDEV_Lookback(optInTimePeriod, optInNbDev)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.STDDEV_Impl(
@@ -288,7 +304,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_STDDEV_Stream")]
 pub struct STDDEV_Stream {
-    core: Core,
     state: STDDEV_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -299,7 +314,6 @@ impl STDDEV_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `STDDEV_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -331,7 +345,7 @@ impl STDDEV_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn STDDEV_step_impl(&self, sp: &mut STDDEV_StreamState, inReal: f64, outReal: &mut f64) -> Result<(), RetCode> {
+    fn STDDEV_step_impl(sp: &mut STDDEV_StreamState, inReal: f64, outReal: &mut f64) -> Result<(), RetCode> {
         let mut cur_outReal: f64 = 0.0_f64;
 
         // Pipeline the new bar through the sub-streams (batch tail order).
@@ -352,7 +366,7 @@ impl Core {
         &self, inReal: &[f64], startIdx: usize, mut optInTimePeriod: i32, mut optInNbDev: f64, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<STDDEV_Stream, RetCode> {
         if inReal.is_empty() {
-            return Err(RetCode::BadParam);
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -391,7 +405,7 @@ impl Core {
         // without reading. Observably identical, but it makes "a range shorter than
         // the lookback reads nothing" true of stddev itself rather than only of var.
         // Pinned by the zero-length no-I/O probe over every guarded core.
-        if self.STDDEV_Lookback(optInTimePeriod, optInNbDev) > endIdx {
+        if self.STDDEV_Lookback(optInTimePeriod, optInNbDev)? > endIdx {
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
@@ -401,9 +415,6 @@ impl Core {
         // sub-call's own startIdx (the seeding point).
         let sub0 = self.VAR_OpenAndFillInternal(&inReal[..((endIdx) as usize) + 1], ((startIdx) as usize), optInTimePeriod, 1.0, outBegIdx, outNBElement, &mut sc_outReal[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success {
-            return Err(retCode);
-        }
         // Calculate the square root of each variance, this
         // is the standard deviation.
         //
@@ -447,7 +458,7 @@ impl Core {
             let last_sc_outReal = sc_outReal[*outNBElement - 1];
             outReal[0] = last_sc_outReal;
         }
-        Ok(STDDEV_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(STDDEV_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::STDDEV_Open`] (composition seam).
@@ -468,8 +479,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -492,12 +504,29 @@ impl Core {
 
     /// [`Core::STDDEV_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::STDDEV`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::STDDEV_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_STDDEV_OpenAndFill")]
     pub fn STDDEV_OpenAndFill(
         &self, inReal: &[f64], mut optInTimePeriod: i32, mut optInNbDev: f64, outReal: &mut [f64],
     ) -> Result<(STDDEV_Stream, OutRange), RetCode> {
+        if inReal.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.STDDEV_Lookback(optInTimePeriod, optInNbDev)?;
+        let _guardOutLen = inReal.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.STDDEV_OpenAndFillInternal(inReal, 0, optInTimePeriod, optInNbDev, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -534,7 +563,7 @@ impl STDDEV_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.STDDEV_step_impl(&mut self.state, inReal, &mut outReal)?;
+        Core::STDDEV_step_impl(&mut self.state, inReal, &mut outReal)?;
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -567,7 +596,7 @@ impl STDDEV_Stream {
             if !inReal[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.STDDEV_step_impl(&mut self.state, inReal[i], &mut outReal[i])?;
+            Core::STDDEV_step_impl(&mut self.state, inReal[i], &mut outReal[i])?;
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

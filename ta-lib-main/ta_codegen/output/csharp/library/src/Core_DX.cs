@@ -49,15 +49,19 @@ public partial class Core
     *  MF       Mario Fortier
     *  AM       Adrian Michel
     *  MIF      Mirek Fontan (mira@fontan.cz)
+    *  CC       Claude Code (AI assistant)
     *
     * Change history:
     *
-    *  MMDDYY BY   Description
+    *  MMDDYY BY    Description
     *  -------------------------------------------------------------------
-    *  010802 MF   Template creation.
-    *  052603 MF   Adapt code to compile with .NET Managed C++
-    *  082303 MF   Fix #792298. Remove rounding. Bug reported by AM.
-    *  062704 MF   Fix #965557. Div by zero bug reported by MIF.
+    *  010802 MF    Template creation.
+    *  052603 MF    Adapt code to compile with .NET Managed C++
+    *  082303 MF    Fix #792298. Remove rounding. Bug reported by AM.
+    *  062704 MF    Fix #965557. Div by zero bug reported by MIF.
+    *  082326 MF,CC Fix #253. Test the true-range sum exactly instead of against
+    *               the fixed TA_IS_ZERO band, which zeroed the index for any
+    *               instrument quoted small enough to fall under it.
     */
    /// <summary>
    /// Number of leading input bars <c>DX</c> consumes before it can produce its
@@ -332,8 +336,18 @@ public partial class Core
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
       }
-      /* Write the first DX output */
-      if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+      /* Write the first DX output.
+       *
+       * prevTR is a running sum of true ranges: non-negative by construction and
+       * built only by adding, so it carries no cancellation residue and reaches
+       * zero only for a window whose every range is exactly zero. Test it exactly.
+       * A true range carries the quote unit, so the fixed TA_IS_ZERO band it used
+       * to be compared against was a constant in some arbitrary unit, and zeroed
+       * the index for any instrument quoted below it (issue #253). The DI legs it
+       * feeds are ratios -- dimensionless -- so the fixed band on THEIR sum is
+       * scale-invariant and stays.
+       */
+      if( prevTR > 0.0 ) {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
          tempReal = minusDI + plusDI;
@@ -382,7 +396,7 @@ public partial class Core
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
          /* Calculate the DX. The value is rounded (see Wilder book). */
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             /* This loop is just to accumulate the initial DX */
@@ -522,7 +536,7 @@ public partial class Core
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = (double)inClose[today];
       }
-      if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+      if( prevTR > 0.0 ) {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
          tempReal = minusDI + plusDI;
@@ -564,7 +578,7 @@ public partial class Core
          tempReal = _true_range_2;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = (double)inClose[today];
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             tempReal = minusDI + plusDI;
@@ -619,14 +633,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange DX( int startIdx,
@@ -694,14 +710,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange DX( int startIdx,
@@ -932,7 +950,7 @@ public partial class Core
       sp.prevTR = sp.prevTR - sp.prevTR / sp.optInTimePeriod + tempReal;
       sp.prevClose = inClose;
       /* Calculate the DX. The value is rounded (see Wilder book). */
-      if( !((-0.00000000000001 < sp.prevTR) && (sp.prevTR < 0.00000000000001)) ) {
+      if( sp.prevTR > 0.0 ) {
          minusDI = (100.0 * (sp.prevMinusDM / sp.prevTR));
          plusDI = (100.0 * (sp.prevPlusDM / sp.prevTR));
          /* This loop is just to accumulate the initial DX */
@@ -970,11 +988,14 @@ public partial class Core
       int i = 0;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 14;
@@ -1187,8 +1208,18 @@ public partial class Core
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
       }
-      /* Write the first DX output */
-      if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+      /* Write the first DX output.
+       *
+       * prevTR is a running sum of true ranges: non-negative by construction and
+       * built only by adding, so it carries no cancellation residue and reaches
+       * zero only for a window whose every range is exactly zero. Test it exactly.
+       * A true range carries the quote unit, so the fixed TA_IS_ZERO band it used
+       * to be compared against was a constant in some arbitrary unit, and zeroed
+       * the index for any instrument quoted below it (issue #253). The DI legs it
+       * feeds are ratios -- dimensionless -- so the fixed band on THEIR sum is
+       * scale-invariant and stays.
+       */
+      if( prevTR > 0.0 ) {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
          tempReal = minusDI + plusDI;
@@ -1237,7 +1268,7 @@ public partial class Core
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
          /* Calculate the DX. The value is rounded (see Wilder book). */
-         if( !((-0.00000000000001 < prevTR) && (prevTR < 0.00000000000001)) ) {
+         if( prevTR > 0.0 ) {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
             /* This loop is just to accumulate the initial DX */
@@ -1310,13 +1341,17 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>DX_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public DX_Stream DX_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "DX open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "DX open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("DX open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("DX open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("DX", "open", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("DX", "open", "inClose", inClose.Length, inHigh.Length);
       return DX_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
 
@@ -1328,7 +1363,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - DX_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="DX_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -1342,15 +1379,21 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>DX_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public DX_Stream DX_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "DX openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "DX openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("DX openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("DX openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("DX", "openAndFill", inHigh.Length, DX_Lookback(optInTimePeriod));
+      RequireHistoryLength("DX", "openAndFill", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("DX", "openAndFill", "inClose", inClose.Length, inHigh.Length);
+      RequireFillLength("DX", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
          throw StreamFailure("DX", "openAndFill", RetCode.BadParam);
       }

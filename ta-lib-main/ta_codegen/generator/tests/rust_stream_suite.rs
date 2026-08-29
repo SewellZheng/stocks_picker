@@ -71,7 +71,10 @@ fn test_rust_sma_ring_stream_section() {
     let s = rust_stream_section("sma");
     // Handle + state struct shapes.
     assert!(s.contains("pub struct SMA_Stream {"));
-    assert!(s.contains("core: Core,"));
+    // No `Core` on the handle: SMA's step reads no candle setting, so it
+    // carries none (#274). `backend_suite`'s handle gate owns that claim
+    // across the tiers that do read one.
+    assert!(!s.contains("core: Core,"));
     assert!(s.contains("state: SMA_StreamState,"));
     assert!(s.contains("struct SMA_StreamState {"));
     assert!(s.contains("ring_trailingIdx_inReal: Vec<f64>,"));
@@ -81,7 +84,7 @@ fn test_rust_sma_ring_stream_section() {
     assert!(!s.contains("peekMode"), "no peekMode in the Rust tier");
     assert!(!s.contains("unsafe"), "stream sections are safe Rust");
     // Step: ring read-old-then-push order, `(*outReal)` write.
-    assert!(s.contains("fn SMA_step_impl(&self, sp: &mut SMA_StreamState, inReal: f64, outReal: &mut f64)"));
+    assert!(s.contains("fn SMA_step_impl(sp: &mut SMA_StreamState, inReal: f64, outReal: &mut f64)"));
     // `tempReal` is step-local scratch, not a handle field (#252).
     assert!(s.contains("(*outReal) = tempReal / (sp.optInTimePeriod as f64);"));
     assert!(!s.contains("tempReal: f64,"), "no scratch field on the state struct");
@@ -236,7 +239,7 @@ fn test_rust_identity_fast_path_t3() {
     // check via lookback, passthrough value, default state. The anchor is
     // max(startIdx, lookback), like the batch call this path stands in for —
     // a no-op for the public openers, which pass 0 (#241).
-    assert!(s.contains("let fillLb: usize = self.T3_Lookback(optInTimePeriod, optInVFactor);"));
+    assert!(s.contains("let fillLb: usize = self.T3_Lookback(optInTimePeriod, optInVFactor)?;"));
     assert!(s.contains("let fillLb = if startIdx > fillLb { startIdx } else { fillLb };"));
     assert!(s.contains("if historyLen < fillLb + 1 {"));
     // Stride 0 short-circuits to the last bar; only the fill arm loops. Letting
@@ -325,7 +328,10 @@ fn rust_open_family_is_one_core_with_three_entries() {
         ("pub fn CDLHAMMER_OpenAndFill(", "CDLHAMMER_OpenAndFillInternal("),
     ] {
         let at = s.find(w).unwrap_or_else(|| panic!("missing {w}"));
-        let body = &s[at..at + 900.min(s.len() - at)];
+        // To the frame's end, not to a byte budget: a frame grows when a rule
+        // is added to it, and a budget turns that into a false failure.
+        let end = s[at..].find("\n    }\n").map_or(s.len() - at, |e| e + 6);
+        let body = &s[at..at + end];
         assert!(body.contains(callee), "{w} delegates to {callee}");
         assert!(
             !body.contains("BodyPeriodTotal"),
@@ -360,11 +366,16 @@ fn rust_fill_wrapper_keeps_the_output_distinctness_guard() {
     // output-vs-input, but not output-vs-output.
     let s = rust_stream_section("minmax");
     let at = s.find("pub fn MINMAX_OpenAndFill(").expect("fill wrapper");
-    let body = &s[at..at + 700.min(s.len() - at)];
+    let end = s[at..].find("\n    }\n").map_or(s.len() - at, |e| e + 6);
+    let body = &s[at..at + end];
     assert!(
         body.contains("outMin.as_ptr() == outMax.as_ptr()"),
         "output distinctness survives on the fill wrapper:\n{body}"
     );
+    // ...and after the capacity check, which the specified order puts first.
+    let cap = body.find("if outMax.len() < _guardOutLen").expect("S5 on the fill wrapper");
+    let alias = body.find("outMin.as_ptr() == outMax.as_ptr()").unwrap();
+    assert!(cap < alias, "S5 is specified ahead of S6:\n{body}");
     // The scalar wrapper's sinks are its own locals — it must not pay for it.
     let sat = s.find("fn MINMAX_OpenInternal(").expect("scalar wrapper");
     let sbody = &s[sat..sat + 700.min(s.len() - sat)];
@@ -417,7 +428,7 @@ fn rust_dispatch_open_modes_differ_only_where_intended() {
     assert!(!scalar.contains("outBegIdx"), "the scalar open has no out-meta:\n{scalar}");
     assert!(!fill.contains("outBegIdx"), "the public fill carries no out-meta pair:\n{fill}");
     assert!(
-        fill.contains("Ok((MA_Stream { core: self.clone(), state, out: fillRange }, fillRange))"),
+        fill.contains("Ok((MA_Stream { state, out: fillRange }, fillRange))"),
         "the public fill returns the arm's own range beside the handle, and keeps it \
          on the handle too (#241):\n{fill}"
     );

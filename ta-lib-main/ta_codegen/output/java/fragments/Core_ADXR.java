@@ -105,9 +105,6 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
        * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
        * is adx[k]; the ADX range holds (period-1) more elements than the output.
@@ -160,9 +157,6 @@
       outBegIdx.value = _xr0.begIdx();
       outNBElement.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       nbElement = outNBElement.value - (optInTimePeriod - 1);
       for( outIdx = 0; outIdx < nbElement; outIdx += 1 ) {
          outReal[outIdx] = ((adx[outIdx + (optInTimePeriod - 1)] + adx[outIdx]) / 2.0);
@@ -205,15 +199,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ADX
     * @see Core#DX
@@ -229,9 +222,9 @@
                          double outReal[] )
    {
       requireIndexRange("ADXR", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ADXR_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ADXR", startIdx, ADXR_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ADXR", "inHigh", inHigh, guardInLen);
       requireLength("ADXR", "inLow", inLow, guardInLen);
       requireLength("ADXR", "inClose", inClose, guardInLen);
@@ -281,15 +274,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ADX
     * @see Core#DX
@@ -305,9 +297,9 @@
                          double outReal[] )
    {
       requireIndexRange("ADXR", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ADXR_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ADXR", startIdx, ADXR_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ADXR", "inHigh", inHigh, guardInLen);
       requireLength("ADXR", "inLow", inLow, guardInLen);
       requireLength("ADXR", "inClose", inClose, guardInLen);
@@ -426,6 +418,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         requireArgument("ADXR updateAndFill", "inHigh", inHigh);
+         requireArgument("ADXR updateAndFill", "inLow", inLow);
+         requireArgument("ADXR updateAndFill", "inClose", inClose);
+         requireArgument("ADXR updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("ADXR updateAndFill: BadParam", RetCode.BadParam);
@@ -491,11 +487,14 @@
       RetCode retCode;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -545,9 +544,6 @@
        * sub-call's own startIdx (the seeding point). */
       ADX_Stream sub0 = ADX_OpenAndFillInternal(inHigh, inLow, inClose, startIdx - (optInTimePeriod - 1), optInTimePeriod, outBegIdx, outNBElement, adx);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* ADXR[k] = (ADX[k] + ADX[k-(period-1)]) / 2. Walking a single cursor over
        * the ADXR output, the current ADX is adx[k+(period-1)] and the lagged one
        * is adx[k]; the ADX range holds (period-1) more elements than the output.
@@ -622,10 +618,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public ADXR_Stream ADXR_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
+      requireArgument("ADXR open", "inHigh", inHigh);
+      requireHistory("ADXR open", inHigh.length);
+      requireArgument("ADXR open", "inLow", inLow);
+      requireArgument("ADXR open", "inClose", inClose);
+      requireHistoryLength("ADXR open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ADXR open", "inClose", inClose.length, inHigh.length);
       return ADXR_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
@@ -633,12 +638,22 @@
     * to {@link Core#ADXR} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link ADXR_Stream#outRange()}.
     */
    public ADXR_Stream ADXR_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("ADXR openAndFill", "inHigh", inHigh);
+      requireHistory("ADXR openAndFill", inHigh.length);
+      requireArgument("ADXR openAndFill", "inLow", inLow);
+      requireArgument("ADXR openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("ADXR openAndFill", inHigh.length, ADXR_Lookback(optInTimePeriod));
+      requireHistoryLength("ADXR openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ADXR openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("ADXR openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          throw new TaLibArgumentException("ADXR openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

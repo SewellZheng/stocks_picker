@@ -297,15 +297,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#AD
     * @see Core#EMA
@@ -321,9 +320,9 @@
                         double outReal[] )
    {
       requireIndexRange("EFI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, EFI_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("EFI", startIdx, EFI_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("EFI", "inClose", inClose, guardInLen);
       requireLength("EFI", "inVolume", inVolume, guardInLen);
       requireLength("EFI", "outReal", outReal, guardOutLen);
@@ -376,15 +375,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#AD
     * @see Core#EMA
@@ -400,9 +398,9 @@
                         double outReal[] )
    {
       requireIndexRange("EFI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, EFI_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("EFI", startIdx, EFI_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("EFI", "inClose", inClose, guardInLen);
       requireLength("EFI", "inVolume", inVolume, guardInLen);
       requireLength("EFI", "outReal", outReal, guardOutLen);
@@ -509,6 +507,9 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inClose[], double inVolume[], double outReal[] ) {
+         requireArgument("EFI updateAndFill", "inClose", inClose);
+         requireArgument("EFI updateAndFill", "inVolume", inVolume);
+         requireArgument("EFI updateAndFill", "outReal", outReal);
          final int barCount = inClose.length;
          if( inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("EFI updateAndFill: BadParam", RetCode.BadParam);
@@ -572,11 +573,14 @@
    {
       int historyLen = inClose.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inVolume.length != inClose.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inVolume.length != inClose.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 13;
@@ -819,10 +823,17 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public EFI_Stream EFI_Open( double inClose[], double inVolume[], int optInTimePeriod )
    {
+      requireArgument("EFI open", "inClose", inClose);
+      requireHistory("EFI open", inClose.length);
+      requireArgument("EFI open", "inVolume", inVolume);
+      requireHistoryLength("EFI open", "inVolume", inVolume.length, inClose.length);
       return EFI_OpenInternal(inClose, inVolume, 0, optInTimePeriod);
    }
    /**
@@ -830,12 +841,20 @@
     * to {@link Core#EFI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link EFI_Stream#outRange()}.
     */
    public EFI_Stream EFI_OpenAndFill( double inClose[], double inVolume[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("EFI openAndFill", "inClose", inClose);
+      requireHistory("EFI openAndFill", inClose.length);
+      requireArgument("EFI openAndFill", "inVolume", inVolume);
+      int guardOutLen = openFillCount("EFI openAndFill", inClose.length, EFI_Lookback(optInTimePeriod));
+      requireHistoryLength("EFI openAndFill", "inVolume", inVolume.length, inClose.length);
+      requireLength("EFI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
          throw new TaLibArgumentException("EFI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

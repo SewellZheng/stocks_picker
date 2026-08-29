@@ -14,6 +14,9 @@
  *                from the wrong bar (TR-buffer-relative index).
  *  070626 MF,CC  Speed optimization: True Range computed inline in a
  *                single pass (bit-exact, no temporary buffer).
+ *  082326 MF,CC  Fix #253. Test the close exactly instead of against the fixed
+ *                TA_IS_ZERO band, which zeroed the output for any instrument
+ *                quoted small enough to fall under it.
  */
 
    /**
@@ -211,8 +214,13 @@
          /* No smoothing: emit the raw True Range (unnormalized). */
          outReal[0] = prevATR;
       } else {
+         /* NATR is the ATR as a percentage of the close, so it is scale-free and
+          * the divisor only has to be non-zero. An exact test, not the fixed
+          * TA_IS_ZERO band it used to be: a close carries the quote unit, and that
+          * band zeroed the whole output for any instrument quoted below it (#253).
+          */
          tempValue = inClose[startIdx];
-         if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+         if( tempValue != 0.0 ) {
             outReal[0] = prevATR / tempValue * 100.0;
          } else {
             outReal[0] = 0.0;
@@ -243,7 +251,7 @@
             outReal[outIdx] = prevATR;
          } else {
             tempValue = inClose[today];
-            if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+            if( tempValue != 0.0 ) {
                outReal[outIdx] = prevATR / tempValue * 100.0;
             } else {
                outReal[outIdx] = 0.0;
@@ -345,7 +353,7 @@
          outReal[0] = prevATR;
       } else {
          tempValue = (double)inClose[startIdx];
-         if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+         if( tempValue != 0.0 ) {
             outReal[0] = prevATR / tempValue * 100.0;
          } else {
             outReal[0] = 0.0;
@@ -372,7 +380,7 @@
             outReal[outIdx] = prevATR;
          } else {
             tempValue = (double)inClose[today];
-            if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+            if( tempValue != 0.0 ) {
                outReal[outIdx] = prevATR / tempValue * 100.0;
             } else {
                outReal[outIdx] = 0.0;
@@ -416,15 +424,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ATR
     * @see Core#TRANGE
@@ -439,9 +446,9 @@
                          double outReal[] )
    {
       requireIndexRange("NATR", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, NATR_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("NATR", startIdx, NATR_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("NATR", "inHigh", inHigh, guardInLen);
       requireLength("NATR", "inLow", inLow, guardInLen);
       requireLength("NATR", "inClose", inClose, guardInLen);
@@ -488,15 +495,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ATR
     * @see Core#TRANGE
@@ -511,9 +517,9 @@
                          double outReal[] )
    {
       requireIndexRange("NATR", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, NATR_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("NATR", startIdx, NATR_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("NATR", "inHigh", inHigh, guardInLen);
       requireLength("NATR", "inLow", inLow, guardInLen);
       requireLength("NATR", "inClose", inClose, guardInLen);
@@ -618,6 +624,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         requireArgument("NATR updateAndFill", "inHigh", inHigh);
+         requireArgument("NATR updateAndFill", "inLow", inLow);
+         requireArgument("NATR updateAndFill", "inClose", inClose);
+         requireArgument("NATR updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("NATR updateAndFill: BadParam", RetCode.BadParam);
@@ -693,7 +703,7 @@
          sp.cur_outReal = sp.prevATR;
       } else {
          tempValue = inClose;
-         if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+         if( tempValue != 0.0 ) {
             sp.cur_outReal = sp.prevATR / tempValue * 100.0;
          } else {
             sp.cur_outReal = 0.0;
@@ -719,11 +729,14 @@
       double tempHT = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -863,8 +876,13 @@
          /* No smoothing: emit the raw True Range (unnormalized). */
          outReal[0 * outStride] = prevATR;
       } else {
+         /* NATR is the ATR as a percentage of the close, so it is scale-free and
+          * the divisor only has to be non-zero. An exact test, not the fixed
+          * TA_IS_ZERO band it used to be: a close carries the quote unit, and that
+          * band zeroed the whole output for any instrument quoted below it (#253).
+          */
          tempValue = inClose[startIdx];
-         if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+         if( tempValue != 0.0 ) {
             outReal[0 * outStride] = prevATR / tempValue * 100.0;
          } else {
             outReal[0 * outStride] = 0.0;
@@ -895,7 +913,7 @@
             outReal[outIdx * outStride] = prevATR;
          } else {
             tempValue = inClose[today];
-            if( !((-0.00000000000001 < tempValue) && (tempValue < 0.00000000000001)) ) {
+            if( tempValue != 0.0 ) {
                outReal[outIdx * outStride] = prevATR / tempValue * 100.0;
             } else {
                outReal[outIdx * outStride] = 0.0;
@@ -960,10 +978,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public NATR_Stream NATR_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod )
    {
+      requireArgument("NATR open", "inHigh", inHigh);
+      requireHistory("NATR open", inHigh.length);
+      requireArgument("NATR open", "inLow", inLow);
+      requireArgument("NATR open", "inClose", inClose);
+      requireHistoryLength("NATR open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("NATR open", "inClose", inClose.length, inHigh.length);
       return NATR_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
    /**
@@ -971,12 +998,22 @@
     * to {@link Core#NATR} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link NATR_Stream#outRange()}.
     */
    public NATR_Stream NATR_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("NATR openAndFill", "inHigh", inHigh);
+      requireHistory("NATR openAndFill", inHigh.length);
+      requireArgument("NATR openAndFill", "inLow", inLow);
+      requireArgument("NATR openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("NATR openAndFill", inHigh.length, NATR_Lookback(optInTimePeriod));
+      requireHistoryLength("NATR openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("NATR openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("NATR openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          throw new TaLibArgumentException("NATR openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

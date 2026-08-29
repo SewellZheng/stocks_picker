@@ -167,6 +167,36 @@ public partial class Core
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
          return RetCode.BadParam ;
       }
+      /* Nothing to produce: the range is shorter than the lookback. Answer here
+       * rather than forwarding.
+       *
+       * The VALUE is the same either way: ma_lookback returns exactly the lookback
+       * the arm's callee computes for itself, from the same arguments the arm
+       * passes it, and every callee clamps startIdx to that lookback and yields
+       * 0,0 without reading. What changes is whose frame answers, and that is
+       * visible to one caller only - the zero-length no-I/O probe. It hands the
+       * body empty arrays on this range to check that nothing is read; forwarding
+       * makes the callee's PUBLIC input bound (endIdx + 1 elements, no
+       * sub-lookback escape) answer TA_BAD_PARAM before any array is reached, so
+       * the probe cannot tell "read nothing" from "never ran". ma was the last
+       * core withheld from that sweep for exactly this reason; apo, bbands, ppo,
+       * pvo and stddev already carried this guard. No legitimate caller is
+       * affected: ma's own public tier already requires endIdx + 1 input elements,
+       * and on this range the callee's OUTPUT bound is 0, so a caller sizing by
+       * the published formula was never rejected by it.
+       *
+       * It cannot mask a TA_BAD_PARAM. An optInMAType outside the enum is refused
+       * by the generated entry point above this guard. An in-range member with no
+       * arm here would reach ma_lookback's own default and get 0, and 0 > endIdx
+       * is false for every endIdx the entry point admits, so control still reaches
+       * the switch and still answers TA_BAD_PARAM. The identity path below is out
+       * of the guard's reach for the same reason - its lookback is 0.
+       */
+      if( MA_Lookback(optInTimePeriod, optInMAType) > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.Success ;
+      }
       /* No-smoothing identity: period 1 (every MA type) or the explicit
        * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
        */
@@ -228,7 +258,7 @@ public partial class Core
          /* The optInTimePeriod is ignored. FAMA is a nullable output
           * (issue #125): pass NULL to compute only the MAMA line into outReal.
           */
-         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, new double[(int)(endIdx - startIdx + 1)]);
+         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, default);
          outBegIdx = _xr7.BegIdx;
          outNBElement = _xr7.Count;
          retCode = RetCode.Success;
@@ -281,6 +311,11 @@ public partial class Core
          optInMAType = MAType.SMA;
       } else if( (int)optInMAType < MATypes.Min || (int)optInMAType > MATypes.Max ) {
          return RetCode.BadParam;
+      }
+      if( MA_Lookback(optInTimePeriod, optInMAType) > endIdx ) {
+         outBegIdx = 0;
+         outNBElement = 0;
+         return RetCode.Success ;
       }
       if( optInTimePeriod == 1 || optInMAType == MAType.DISABLED ) {
          nbElement = endIdx - startIdx + 1;
@@ -336,7 +371,7 @@ public partial class Core
          retCode = RetCode.Success;
          break;
       case MAType.MAMA:
-         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, new double[(int)(endIdx - startIdx + 1)]);
+         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, default);
          outBegIdx = _xr7.BegIdx;
          outNBElement = _xr7.Count;
          retCode = RetCode.Success;
@@ -399,14 +434,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MA( int startIdx,
@@ -473,14 +510,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MA( int startIdx,
@@ -830,7 +869,7 @@ public partial class Core
    {
       int historyLen = inReal.Length;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -961,7 +1000,7 @@ public partial class Core
       outNBElement = 0;
       int historyLen = inReal.Length;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1057,7 +1096,7 @@ public partial class Core
          break;
       }
       case MAType.MAMA: {
-         MAMA_Stream sub = MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, new double[historyLen]);
+         MAMA_Stream sub = MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, default);
          outBegIdx = sub.outRangeBegIdx;
          outNBElement = sub.outRangeCount;
          sp.sub = sub;
@@ -1094,7 +1133,7 @@ public partial class Core
       outNBElement = 0;
       int historyLen = inReal.Length;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1177,7 +1216,7 @@ public partial class Core
          break;
       }
       case MAType.MAMA: {
-         MAMA_Stream sub = MAMA_OpenAndFillInternal(inReal, startIdx, 0.5, 0.05, out outBegIdx, out outNBElement, outReal, new double[historyLen]);
+         MAMA_Stream sub = MAMA_OpenAndFillInternal(inReal, startIdx, 0.5, 0.05, out outBegIdx, out outNBElement, outReal, default);
          sp.sub = sub;
          sp.cur_outReal = sub.cur_outMAMA;
          break;
@@ -1230,11 +1269,13 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MA_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public MA_Stream MA_Open( ReadOnlySpan<double> inReal, int optInTimePeriod, MAType optInMAType )
    {
-      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inReal.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MA open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MA open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
       return MA_OpenInternal(inReal, 0, optInTimePeriod, optInMAType);
    }
 
@@ -1246,7 +1287,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - MA_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="MA_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -1260,13 +1303,17 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MA_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public MA_Stream MA_OpenAndFill( ReadOnlySpan<double> inReal, int optInTimePeriod, MAType optInMAType, Span<double> outReal )
    {
-      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inReal.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MA openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      int guardOutLen = OpenFillCount("MA", "openAndFill", inReal.Length, MA_Lookback(optInTimePeriod, optInMAType));
+      RequireFillLength("MA", "openAndFill", "outReal", outReal.Length, guardOutLen);
       MA_Stream sp = new MA_Stream(this);
       RetCode retCode = MA_OpenAndFillImpl(sp, inReal, optInTimePeriod, optInMAType, out int outBegIdx, out int outNBElement, outReal);
       sp.outRangeBegIdx = outBegIdx;

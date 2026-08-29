@@ -379,15 +379,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MACD
     * @see Core#MACDEXT
@@ -403,9 +402,9 @@
                             double outMACDHist[] )
    {
       requireIndexRange("MACDFIX", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, MACDFIX_Lookback(optInSignalPeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MACDFIX", startIdx, MACDFIX_Lookback(optInSignalPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MACDFIX", "inReal", inReal, guardInLen);
       requireLength("MACDFIX", "outMACD", outMACD, guardOutLen);
       requireLength("MACDFIX", "outMACDSignal", outMACDSignal, guardOutLen);
@@ -457,15 +456,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#MACD
     * @see Core#MACDEXT
@@ -481,9 +479,9 @@
                             double outMACDHist[] )
    {
       requireIndexRange("MACDFIX", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, MACDFIX_Lookback(optInSignalPeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MACDFIX", startIdx, MACDFIX_Lookback(optInSignalPeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MACDFIX", "inReal", inReal, guardInLen);
       requireLength("MACDFIX", "outMACD", outMACD, guardOutLen);
       requireLength("MACDFIX", "outMACDSignal", outMACDSignal, guardOutLen);
@@ -624,6 +622,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outMACD[], double outMACDSignal[], double outMACDHist[] ) {
+         requireArgument("MACDFIX updateAndFill", "inReal", inReal);
+         requireArgument("MACDFIX updateAndFill", "outMACD", outMACD);
+         requireArgument("MACDFIX updateAndFill", "outMACDSignal", outMACDSignal);
+         requireArgument("MACDFIX updateAndFill", "outMACDHist", outMACDHist);
          final int barCount = inReal.length;
          if( outMACD.length < barCount || outMACDSignal.length < barCount || outMACDHist.length < barCount || (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist )
             throw new TaLibArgumentException("MACDFIX updateAndFill: BadParam", RetCode.BadParam);
@@ -713,7 +715,7 @@
       int historyLen = inReal.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -931,10 +933,15 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public MACDFIX_Stream MACDFIX_Open( double inReal[], int optInSignalPeriod )
    {
+      requireArgument("MACDFIX open", "inReal", inReal);
+      requireHistory("MACDFIX open", inReal.length);
       return MACDFIX_OpenInternal(inReal, 0, optInSignalPeriod);
    }
    /**
@@ -942,12 +949,20 @@
     * to {@link Core#MACDFIX} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link MACDFIX_Stream#outRange()}.
     */
    public MACDFIX_Stream MACDFIX_OpenAndFill( double inReal[], int optInSignalPeriod, double outMACD[], double outMACDSignal[], double outMACDHist[] )
    {
+      requireArgument("MACDFIX openAndFill", "inReal", inReal);
+      requireHistory("MACDFIX openAndFill", inReal.length);
+      int guardOutLen = openFillCount("MACDFIX openAndFill", inReal.length, MACDFIX_Lookback(optInSignalPeriod));
+      requireLength("MACDFIX openAndFill", "outMACD", outMACD, guardOutLen);
+      requireLength("MACDFIX openAndFill", "outMACDSignal", outMACDSignal, guardOutLen);
+      requireLength("MACDFIX openAndFill", "outMACDHist", outMACDHist, guardOutLen);
       if( (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist ) {
          throw new TaLibArgumentException("MACDFIX openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

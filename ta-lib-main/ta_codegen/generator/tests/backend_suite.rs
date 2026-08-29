@@ -471,21 +471,23 @@ fn test_ma_rust_cross_calls() {
         r.contains("self.EMA_Lookback("),
         "Rust: MA should call self.EMA_Lookback"
     );
-    // Bare cross-indicator calls go to the guarded, C-shaped entry point --
-    // never the public `Result`-returning wrapper, whose OutRange the
-    // transcribed body has nowhere to put. `self.` makes these calls rather
-    // than definitions, so the negatives below are real.
+    // Bare cross-indicator calls resolve to the callee's PUBLIC entry point
+    // (#267), as they do in C, Java and C#: the returned OutRange is bound to a
+    // `_xrN` local and both out-params are assigned from it. `match self.SMA(`
+    // anchors the call site so the dispatch arms cannot substring-shadow one
+    // another, and `self.` makes these calls rather than definitions, so the
+    // negatives below are real.
     assert!(
-        r.contains("self.SMA_Impl("),
-        "Rust: MA should call self.SMA_Impl"
+        r.contains("match self.SMA("),
+        "Rust: MA should call the public self.SMA"
     );
     assert!(
-        r.contains("self.EMA_Impl("),
-        "Rust: MA should call self.EMA_Impl"
+        r.contains("match self.EMA("),
+        "Rust: MA should call the public self.EMA"
     );
     assert!(
-        !r.contains("self.SMA(") && !r.contains("self.EMA("),
-        "Rust: MA must not call the public Result-returning wrappers"
+        !r.contains("self.SMA_Impl(") && !r.contains("self.EMA_Impl("),
+        "Rust: MA must not call a callee's C-shaped tier"
     );
     assert!(
         !r.contains("self.sma_unguarded(") && !r.contains("self.ema_unguarded("),
@@ -574,6 +576,999 @@ fn test_c_synth_private_omits_validation() {
     );
 }
 
+/// The validation prologue of one C batch entry point: from the `startIdx` guard
+/// to the blank line that closes the checks. The index guards are followed by a
+/// blank line of their own, so the prologue ends at the SECOND one.
+fn c_batch_prologues(c: &str) -> Vec<&str> {
+    const HEAD: &str = "if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = c[from..].find(HEAD) {
+        let start = from + rel;
+        let first = start
+            + c[start..]
+                .find("\n\n")
+                .expect("the index guards end in a blank line");
+        let end = first
+            + 2
+            + c[first + 2..]
+                .find("\n\n")
+                .expect("a prologue ends in a blank line");
+        out.push(&c[start..end]);
+        from = end;
+    }
+    out
+}
+
+/// `docs/error-handling-spec.md` 2.2: B1, B2, then B3 — an optional parameter
+/// outside its documented domain — and only then B4, a required argument that was
+/// not supplied.
+///
+/// The parameter rule leads because it is the one every backend can express: a
+/// Rust slice and a C# span cannot be absent, so B4 is C's and Java's alone, and
+/// putting it last is what lets a multi-fault call report the same condition in
+/// all four.
+///
+/// Structural, and it has to be: B3 and B4 both answer `TA_BAD_PARAM`, so no
+/// runtime probe can see the order between them. The range out-parameters are
+/// part of B4 — an absent one used to be dereferenced.
+#[test]
+fn c_batch_prologue_orders_parameters_before_presence() {
+    const OUT_META: &str = "if( !outBegIdx || !outNBElement )";
+    let mut prologues = 0usize;
+    let mut with_params = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, enums)) = try_load_indicator(&name) else {
+            continue;
+        };
+        let Some(out) = try_generate_all(&func, &enums) else {
+            continue;
+        };
+        for prologue in c_batch_prologues(&out.c) {
+            prologues += 1;
+            let where_ = format!("{}: {prologue}", func.name);
+
+            let start = prologue
+                .find("TA_OUT_OF_RANGE_START_INDEX")
+                .unwrap_or_else(|| panic!("{where_}\nno startIdx guard"));
+            let end = prologue
+                .find("TA_OUT_OF_RANGE_END_INDEX")
+                .unwrap_or_else(|| panic!("{where_}\nno endIdx guard"));
+            assert!(start < end, "{where_}\nB1 must precede B2");
+
+            let meta = prologue
+                .find(OUT_META)
+                .unwrap_or_else(|| panic!("{where_}\nthe range out-parameters are unchecked"));
+            let mut presence = vec![meta];
+            let mut inputs = Vec::new();
+            for input in &func.inputs {
+                let at = prologue
+                    .find(&format!("if( !{} )", input.name))
+                    .unwrap_or_else(|| panic!("{where_}\n{} is unchecked", input.name));
+                inputs.push(at);
+                presence.push(at);
+            }
+            let mut outputs = Vec::new();
+            for output in &func.outputs {
+                if output.is_nullable() {
+                    continue;
+                }
+                let at = prologue
+                    .find(&format!("if( !{} )", output.name))
+                    .unwrap_or_else(|| panic!("{where_}\n{} is unchecked", output.name));
+                outputs.push(at);
+                presence.push(at);
+            }
+            let first_presence = *presence.iter().min().expect("out-meta is always present");
+            assert!(end < first_presence, "{where_}\nB2 must precede B4");
+
+            // The last sentinel substitution sits in the last parameter's block,
+            // and its range check is the line right after it — so every presence
+            // check has to follow it.
+            let last_param = prologue
+                .rfind("TA_INTEGER_DEFAULT")
+                .into_iter()
+                .chain(prologue.rfind("TA_REAL_DEFAULT"))
+                .max();
+            if let Some(at) = last_param {
+                with_params += 1;
+                assert!(end < at, "{where_}\nB2 must precede B3");
+                assert!(at < first_presence, "{where_}\nB3 must precede B4");
+            }
+            if let (Some(last_in), Some(first_out)) =
+                (inputs.iter().max(), outputs.iter().min())
+            {
+                assert!(last_in < first_out, "{where_}\ninputs precede outputs");
+            }
+        }
+    }
+
+    // Two per function, double and float. Literal floors: derived ones move with
+    // whatever the scan happens to find.
+    assert!(prologues >= 340, "only {prologues} C batch prologues scanned");
+    assert!(
+        with_params >= 150,
+        "only {with_params} prologues carried parameter validation — B3 is barely covered"
+    );
+}
+
+/// The output-distinctness guard of one Rust `_Impl`, reconstructed from the
+/// function's outputs exactly as `rust_lang::gen_guarded_func` writes it.
+///
+/// Reconstructed, not searched for: a transcribed body can hold an `as_ptr()`
+/// comparison of its own — BBANDS elects its scratch with one — so a substring
+/// match would find that instead and read the order backwards.
+fn rust_alias_guard(func: &ir::FuncDef) -> String {
+    // Both operands non-empty: two zero-length slices cannot clobber each other,
+    // and every unallocated `Vec` hands out the same dangling pointer, so a bare
+    // `as_ptr()` comparison rejected a call rules N1 and B5 both permit
+    // (Appendix D item 11, #262). A nullable output is an `Option` and
+    // contributes a term only when it was supplied (rule B6a).
+    let mut pairs: Vec<String> = Vec::new();
+    for i in 0..func.outputs.len() {
+        for j in (i + 1)..func.outputs.len() {
+            let (a, b) = (&func.outputs[i], &func.outputs[j]);
+            pairs.push(match (a.is_nullable(), b.is_nullable()) {
+                (false, false) => format!(
+                    "(!{0}.is_empty() && !{1}.is_empty() && {0}.as_ptr() == {1}.as_ptr())",
+                    a.name, b.name
+                ),
+                (true, false) => format!(
+                    "{0}.as_deref().is_some_and(|a| !a.is_empty() && !{1}.is_empty() && a.as_ptr() == {1}.as_ptr())",
+                    a.name, b.name
+                ),
+                (false, true) => format!(
+                    "{1}.as_deref().is_some_and(|b| !{0}.is_empty() && !b.is_empty() && {0}.as_ptr() == b.as_ptr())",
+                    a.name, b.name
+                ),
+                (true, true) => format!(
+                    "{0}.as_deref().zip({1}.as_deref()).is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.as_ptr() == b.as_ptr())",
+                    a.name, b.name
+                ),
+            });
+        }
+    }
+    format!(
+        "        if {} {{\n            return RetCode::BadParam;\n        }}\n",
+        pairs.join(" || ")
+    )
+}
+
+/// `docs/error-handling-spec.md` 2.2: B1, B2, B3, then B5 — a buffer too short —
+/// and only then B6, two outputs that are the same buffer.
+///
+/// Rust is the one backend where the order between those last two is
+/// *observable*, and it had them the wrong way round (#261). Here B5 is an
+/// `assert!` rather than a returned code — footnote [5], the LLVM proof that
+/// elides the per-access bounds checks — so a call that is both undersized and
+/// aliased answered `BadParam` where the specified order makes it a panic. C,
+/// Java and C# answer `TA_BAD_PARAM` for either, so no order is owed there.
+///
+/// **This tier, not the shipped one.** Since #265 the public entry point states
+/// B5 as a returned code ahead of both of these
+/// ([`rust_public_entry_orders_the_argument_contract`]), so a caller of the
+/// crate meets one code for either fault and cannot see the order at all. What
+/// this pins is `_Impl` as the phantom-I/O sweep reaches it — since #267 the
+/// only in-crate caller that does — where the distinction is still a panic
+/// against a return.
+///
+/// Structural, and it has to be: two `&mut [f64]` cannot alias, so safe code
+/// cannot build the multi-fault call this pins.
+#[test]
+fn rust_batch_impl_orders_capacity_before_aliasing() {
+    let mut scanned = 0usize;
+    let mut with_params = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, enums)) = try_load_indicator(&name) else {
+            continue;
+        };
+        // One output cannot alias a second one; the guard is not emitted.
+        if func.outputs.len() < 2 {
+            continue;
+        }
+        let Some(out) = try_generate_all(&func, &enums) else {
+            continue;
+        };
+        // Spans the FMA dispatch trio where there is one: the two wrappers carry
+        // no prologue, so the markers below still land in `_Impl_impl`.
+        let section = extract_section(
+            &out.rust,
+            &format!("pub(crate) fn {}_Impl(", func.name),
+            &format!("pub fn {}(", func.name),
+        );
+        scanned += 1;
+        let where_ = format!("{}: {section}", func.name);
+
+        let start = section
+            .find("RetCode::OutOfRangeStartIndex")
+            .unwrap_or_else(|| panic!("{where_}\nno startIdx guard"));
+        let end = section
+            .find("RetCode::OutOfRangeEndIndex")
+            .unwrap_or_else(|| panic!("{where_}\nno endIdx guard"));
+        assert!(start < end, "{where_}\nB1 must precede B2");
+
+        let preamble = section
+            .find("let _assertLb")
+            .unwrap_or_else(|| panic!("{where_}\nno bounds-assert preamble"));
+        assert!(end < preamble, "{where_}\nB2 must precede B5");
+
+        // The sentinel substitution opens each parameter's block and its range
+        // check is the arm right after, so the last one bounds all of B3.
+        // Reconstructed per parameter, like the guard below: a bare `i32::MIN`
+        // could come from a transcribed body. An enum parameter is skipped —
+        // it has no out-of-domain value, so it emits a substitution and no check.
+        let last_param = func
+            .optional_inputs
+            .iter()
+            .filter_map(|opt| {
+                let head = match opt.param_type {
+                    ir::ParamType::Integer => {
+                        format!("if (({}) as i32) == (i32::MIN) {{", opt.name)
+                    }
+                    ir::ParamType::Real => format!("if {} == Self::REAL_DEFAULT {{", opt.name),
+                    _ => return None,
+                };
+                section.find(&head)
+            })
+            .max();
+        if let Some(at) = last_param {
+            with_params += 1;
+            assert!(end < at, "{where_}\nB2 must precede B3");
+            assert!(at < preamble, "{where_}\nB3 must precede B5");
+        }
+
+        let guard_at = section
+            .find(&rust_alias_guard(&func))
+            .unwrap_or_else(|| panic!("{where_}\nthe outputs are not checked for aliasing"));
+        // Every output's capacity is B5, so the guard has to follow ALL of the
+        // asserts, not merely the first.
+        for output in &func.outputs {
+            // A declined output has no capacity to bound, so its assert asks the
+            // question only when one was supplied (rule B6a).
+            let cap = if output.is_nullable() {
+                format!(
+                    "assert!(_assertStart > endIdx || {}.as_deref().is_none_or(|o| endIdx - _assertStart < o.len()));",
+                    output.name
+                )
+            } else {
+                format!(
+                    "assert!(_assertStart > endIdx || endIdx - _assertStart < {}.len());",
+                    output.name
+                )
+            };
+            let cap_at = section
+                .find(&cap)
+                .unwrap_or_else(|| panic!("{where_}\n{} has no capacity assert", output.name));
+            assert!(cap_at < guard_at, "{where_}\nB5 must precede B6 ({})", output.name);
+        }
+    }
+
+    // Literal floors: derived ones move with whatever the scan happens to find.
+    assert!(scanned >= 15, "only {scanned} multi-output Rust bodies scanned");
+    assert!(
+        with_params >= 12,
+        "only {with_params} carried parameter validation — B3 is barely covered"
+    );
+}
+
+/// The Rust public entry point states the argument contract in the specified
+/// order: B1, B2, then B3, then B4/B5 — inputs before outputs (#265).
+///
+/// **The order is not a style choice.** `SMA(10, 9, ..)` with an eight-element
+/// series has two faults at once, and the specification says `endIdx < startIdx`
+/// answers first. Put the input bound at the top and it answers `BadParam`,
+/// where `test_index_range_xlang` requires `TA_OUT_OF_RANGE_END_INDEX` in every
+/// language — and that leg is also the sole producer of codes 12 and 13 for the
+/// retCode census floor, so getting it wrong fails two gates for one reason.
+/// B3 rides on the `<N>_Lookback(..)?`, which is what makes an out-of-range
+/// parameter answer ahead of a short buffer, as it does in Java and C#.
+///
+/// Structural, because the runtime leg reaches three functions
+/// (`TA_SMA`, `TA_BBANDS`, `TA_AD`) and this reaches all 176. It is the only
+/// STATIC pin: `test_index_range_xlang` covers the same order at run time, and
+/// covers it well — its five cases all run on a fixed eight-element series, so
+/// four of them pair a short input with a malformed or oversized range — but it
+/// needs a built server and a live oracle, which the PR gate has neither of.
+#[test]
+fn rust_public_entry_orders_the_argument_contract() {
+    let mut scanned = 0usize;
+    let mut with_params = 0usize;
+    let mut inputs_checked = 0usize;
+    let mut outputs_checked = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, enums)) = try_load_indicator(&name) else {
+            continue;
+        };
+        let Some(out) = try_generate_all(&func, &enums) else {
+            continue;
+        };
+        // Everything the public entry does BEFORE handing over to the numerics.
+        // Bounded by that call, so a check emitted after it cannot satisfy this.
+        let snake = func.name.clone();
+        let section = extract_section(
+            &out.rust,
+            &format!("    pub fn {snake}(\n"),
+            &format!("        let retCode = self.{snake}_Impl("),
+        );
+        scanned += 1;
+        let where_ = format!("{snake}: {section}");
+
+        let b1 = section
+            .find("return Err(RetCode::OutOfRangeStartIndex);")
+            .unwrap_or_else(|| panic!("{where_}\nno startIdx guard"));
+        let b2 = section
+            .find("return Err(RetCode::OutOfRangeEndIndex);")
+            .unwrap_or_else(|| panic!("{where_}\nno endIdx guard"));
+        assert!(b1 < b2, "{where_}\nB1 must precede B2");
+
+        // B3 arrives as the lookback's `?` — rule L2 makes the lookback's
+        // parameter decision this tier's own, so one call buys the check and the
+        // clamp. It has to sit below B2 and above every buffer bound.
+        let b3 = section
+            .find(&format!("let _guardLb = self.{snake}_Lookback("))
+            .unwrap_or_else(|| panic!("{where_}\nno lookback call to carry B3 and the clamp"));
+        assert!(b2 < b3, "{where_}\nB2 must precede B3");
+        if !func.optional_inputs.is_empty() {
+            with_params += 1;
+        }
+
+        let mut last_input = b3;
+        for input in &func.inputs {
+            let at = section
+                .find(&format!("if {}.len() < endIdx + 1 {{", input.name))
+                .unwrap_or_else(|| panic!("{where_}\n{} has no input bound", input.name));
+            assert!(b3 < at, "{where_}\nB3 must precede B5 ({})", input.name);
+            inputs_checked += 1;
+            last_input = last_input.max(at);
+        }
+        for output in &func.outputs {
+            let needle = if output.is_nullable() {
+                format!("if {}.as_deref().is_some_and(|o| o.len() < _guardOutLen) {{", output.name)
+            } else {
+                format!("if {}.len() < _guardOutLen {{", output.name)
+            };
+            let at = section
+                .find(&needle)
+                .unwrap_or_else(|| panic!("{where_}\n{} has no output bound", output.name));
+            assert!(
+                last_input < at,
+                "{where_}\nevery input is bounded before any output ({})",
+                output.name
+            );
+            outputs_checked += 1;
+        }
+    }
+
+    // Literal floors: derived ones move with whatever the scan happens to find.
+    assert!(scanned >= 170, "only {scanned} public entries scanned");
+    assert!(with_params >= 80, "only {with_params} carried optional parameters");
+    assert!(inputs_checked >= 380, "only {inputs_checked} input bounds found");
+    assert!(outputs_checked >= 190, "only {outputs_checked} output bounds found");
+}
+
+/// Rust's metadata tier calls the PUBLIC entry point, so every rule the batch
+/// contract states holds through the binder too (#265).
+///
+/// It called `<N>_Impl` and re-implemented one bound of its own —
+/// `end_idx - start_idx + 1`, the width of the requested range where B5 says the
+/// count actually produced — and checked no input length at all, so a leg
+/// shorter than the range reached the numerics and tripped their `assert!`: a
+/// panic out of a `Result`-typed method. C's frames and Java's `Dispatch` have
+/// always called the public tier; this is what made Rust's binder agree.
+///
+/// Structural, and it has to be: the runtime pin is `binder_tests` inside the
+/// generated crate, which only `cargo test --tests -p ta-lib` executes — a
+/// nightly step. This runs on the PR gate.
+#[test]
+fn rust_binder_calls_the_public_tier() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let funcs: Vec<ir::FuncDef> = discover_indicators()
+        .iter()
+        .map(|n| parser::yaml::parse_yaml(&base.join(format!("{n}/{n}.yaml"))))
+        .collect();
+    let out = backends::rust_abstract::render(&funcs, &enums);
+
+    let mut called = 0usize;
+    let mut guarded = 0usize;
+    for f in &funcs {
+        let n = &f.name;
+        assert!(
+            out.contains(&format!("let res = self.core.{n}(")),
+            "{n}: the binder arm does not call the public entry point"
+        );
+        assert!(
+            !out.contains(&format!("self.core.{n}_Impl(")),
+            "{n}: the binder arm still calls the numerics tier — the argument \
+             contract stops applying to it"
+        );
+        called += 1;
+    }
+    // Multi-output arms take their buffers one at a time, so presence has to be
+    // settled before the first take or a rejection leaves the holder with the
+    // earlier ones missing and every later call answers BadParam. Reconstructed
+    // from the row model, so the needle names the arm's own slots.
+    for r in all_abstract_rows() {
+        if r.outputs.len() < 2 {
+            continue;
+        }
+        let slots: Vec<String> = r
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(k, o)| {
+                let arr = match o.kind {
+                    ta_codegen_lib::backends::abstract_rows::OutputKind::Integer => "int_out",
+                    ta_codegen_lib::backends::abstract_rows::OutputKind::Real => "real_out",
+                };
+                format!("self.{arr}[{k}].is_none()")
+            })
+            .collect();
+        // The guard, then the first take, with nothing between them: emitted as
+        // one block, so this pins the ORDER and not merely the presence of both.
+        let arr0 = match r.outputs[0].kind {
+            ta_codegen_lib::backends::abstract_rows::OutputKind::Integer => "int_out",
+            ta_codegen_lib::backends::abstract_rows::OutputKind::Real => "real_out",
+        };
+        let needle = format!(
+            "if {} {{ return Err(RetCode::BadParam); }}\n                let mut o0 = self.{arr0}[0].take()",
+            slots.join(" || ")
+        );
+        assert!(
+            out.contains(&needle),
+            "{}: no presence guard immediately ahead of the first take — expected `{needle}`",
+            r.name
+        );
+        guarded += 1;
+    }
+    // The bound this tier stopped stating for itself must be gone, not merely
+    // unreachable: `need` was the requested width and rejected a caller who had
+    // sized by the published formula.
+    assert!(
+        !out.contains("let need = end_idx - start_idx + 1;") && !out.contains(".len() < need"),
+        "the binder's own output bound is back; there must be exactly one, and it \
+         is the public tier's"
+    );
+    assert!(called >= 170, "only {called} binder arms scanned");
+    assert!(guarded >= 12, "only {guarded} multi-output arms carried a presence guard");
+}
+
+/// The metadata tier's price setter validates every consumed component before
+/// writing any of them, in all four backends (#266).
+///
+/// A rejected setter has to leave the holder as it found it. Interleaved, it
+/// committed the components ahead of the offending one, and since the bitmaps
+/// only ever clear, a caller re-binding a bundle that already worked then
+/// computed over a mixture of the two -- in C# with no code and no exception.
+///
+/// Structural, and on the PR gate, because the four runtime probes are not:
+/// the C one needs a built `ta_regtest`, the Rust one runs under
+/// `cargo test --tests -p ta-lib`, and the Java and C# suites are compiled by no
+/// CI job at all. All four are nightly-only, so this is the one thing a PR sees.
+#[test]
+fn metadata_price_setter_validates_before_writing() {
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let enums = parser::enums::load_enums(&base.join("enums.yaml"));
+    let funcs: Vec<ir::FuncDef> = discover_indicators()
+        .iter()
+        .map(|n| parser::yaml::parse_yaml(&base.join(format!("{n}/{n}.yaml"))))
+        .collect();
+
+    // Each backend's setter, and the write that must not sit inside the
+    // validating loop. Whole-file needles: these are fixed scaffolding, emitted
+    // once, not per function.
+    let rust = backends::rust_abstract::render(&funcs, &enums);
+    let section = extract_section(&rust, "pub fn set_price_input(", "\n    /// Bind an optional parameter");
+    let check = section
+        .find("if flags.0 & (1u32 << i) != 0 && series.is_none() {")
+        .expect("rust: no per-component validation");
+    let write = section
+        .find("self.price[slot] = given;")
+        .expect("rust: the write is not the whole-bundle commit — an indexed write is \
+                 the interleaved shape #266 removed");
+    assert!(check < write, "rust: the bundle is committed before the last component is checked");
+
+    // C, from the same emitter that writes src/ta_abstract/ta_abstract.c. The
+    // two macro passes are the fix; one combined macro is the defect.
+    let c = backends::ta_abstract_c::render_ta_abstract_c();
+    let c_check = c.find("#define CHECK_PARAM_INFO").expect("c: no checking pass");
+    let c_write = c.find("#define SET_PARAM_INFO").expect("c: no writing pass");
+    assert!(c_check < c_write, "c: the writing macro is defined before the checking one");
+    assert!(
+        c.matches("CHECK_PARAM_INFO(").count() >= 7 && c.matches("SET_PARAM_INFO(").count() >= 7,
+        "c: each macro must be expanded for all six components (plus its #define)"
+    );
+    let last_check = c.rfind("CHECK_PARAM_INFO(openInterest").expect("c: no openInterest check");
+    let first_write = c
+        .find("SET_PARAM_INFO(open, OPEN )")
+        .expect("c: no open write");
+    assert!(
+        last_check < first_write,
+        "c: a component is written before the last one is checked"
+    );
+    // The writing macro must NOT carry the NULL test any more -- if it does, the
+    // two passes were merged back and the check pass is decoration.
+    let set_body = extract_section(&c, "#define SET_PARAM_INFO", "SET_PARAM_INFO(open, OPEN )");
+    assert!(
+        !set_body.contains("return TA_BAD_PARAM;"),
+        "c: the writing macro still rejects, so it is still the interleaved shape"
+    );
+    // ...and it must still skip an unconsumed component rather than clobbering it.
+    assert!(
+        set_body.contains("paramInfo->flags & TA_IN_PRICE_##upperParam"),
+        "c: the writing macro lost its flag guard, so it now overwrites components \
+         the function does not consume"
+    );
+
+    // C#: two loops, the writing one second.
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let _ = (&registry, &helpers);
+    let cs = backends::csharp_metadata::render_function_call();
+    let cs_sec = extract_section(&cs, "public FunctionCall SetPriceInput(int slot, double[]? open", "private OptInputInfo CheckOpt(");
+    let cs_check = cs_sec
+        .find("if (info.Requires(all[i]) && given[i] is null)")
+        .expect("csharp: no per-component validation");
+    let cs_write = cs_sec
+        .find("_price[slot][i] = given[i];")
+        .expect("csharp: no write");
+    assert!(
+        cs_check < cs_write,
+        "csharp: the write is inside the validating loop -- the interleaved shape"
+    );
+    assert_eq!(
+        cs_sec.matches("for (int i = 0; i < all.Length; i++)").count(),
+        2,
+        "csharp: the validating and writing passes must be two separate loops"
+    );
+
+    // Java was already correct; pin it so it stays the shape the other three copy.
+    let java = backends::java_metadata::render_param_holder();
+    let j_sec = extract_section(&java, "public ParamHolder setPriceInput(", "\n   /**");
+    let j_check = j_sec.find("throw new IllegalArgumentException(").expect("java: no validation");
+    let j_write = j_sec.find("priceInputs[idx] = c;").expect("java: no commit");
+    assert!(j_check < j_write, "java: the bundle is committed before validation");
+}
+
+/// Rust's transcribed bodies call their callee's PUBLIC entry point, as C, Java
+/// and C# do (#267).
+///
+/// They called `<N>_Impl`, which made Rust the one backend where a composed path
+/// did not meet the argument contract the public tier has owned since #265: the
+/// same undersized buffer was a `RetCode` through `pub fn` and a panic through a
+/// sibling. C cannot go the other way — a cross-call is cross-TU there, so a C
+/// `_Impl` could not be `static` and would be new ABI in the shipped `.so`.
+///
+/// Structural, and it has to be: the runtime pin is `no_phantom_io` inside the
+/// generated crate, which only `cargo test --tests -p ta-lib` executes — a
+/// nightly step. This runs on the PR gate.
+///
+/// Derived from the IR, not from a hand list: the callee names come from walking
+/// each body for a call whose arity matches the callee's full TA signature, so a
+/// new composed indicator is pinned the day it lands. Both directions per callee,
+/// so a half-applied change — one site the emitter moved and one it did not —
+/// fails rather than passing on the half that moved.
+///
+/// BOTH tiers, because `rust_lang::generate` emits only the batch one: SAR,
+/// SAREXT and STOCH cross-call from their streaming `<N>_OpenImpl` as well, and
+/// those three sites have no other structural cover — their only runtime cover is
+/// a `stream_verify` leg, which a PR run reaches none of.
+#[test]
+fn rust_cross_calls_target_the_public_tier() {
+    use ta_codegen_lib::streaming::CalleeLookup;
+
+    /// Every cross-indicator INVOCATION in `stmts`, in first-seen order. Arity is
+    /// what separates a scalar builtin from the same-named indicator: `sqrt(x)`
+    /// is libm's, `sqrt(startIdx, endIdx, in, &beg, &nb, out)` is TA_SQRT.
+    fn callees(stmts: &[ir::Statement], reg: &Registry, into: &mut Vec<String>) {
+        for st in stmts {
+            ta_codegen_lib::streaming::walk_stmt_exprs(st, &mut |top| {
+                ta_codegen_lib::streaming::walk_expr(top, &mut |e| {
+                    if let ir::Expr::FuncCall(name, args) = e {
+                        if let Some(sig) = reg.callee(name) {
+                            let arity = 2 + sig.n_inputs + sig.n_opts + 2 + sig.n_outputs;
+                            if args.len() == arity && !into.contains(name) {
+                                into.push(name.clone());
+                            }
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    let registry = make_registry();
+    let mut callers = 0usize;
+    let mut sites = 0usize;
+    let mut scanned = 0usize;
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        let mut found: Vec<String> = Vec::new();
+        callees(&func.body, &registry, &mut found);
+        callees(func.stream_source(), &registry, &mut found);
+        found.retain(|c| *c != name);
+        scanned += 1;
+        if found.is_empty() {
+            continue;
+        }
+        let mut rust = generate_all(&func, &enums).rust;
+        if func.streaming && backends::rust_stream::emits_stream(&func, &registry) {
+            rust.push_str(&backends::rust_stream::generate(
+                &func, &enums, &registry, &HelperRegistry::empty(),
+            ));
+        }
+        callers += 1;
+        for c in &found {
+            let public = registry.resolve_call(c, Lang::Rust);
+            assert!(
+                rust.contains(&format!("self.{public}(")),
+                "{name}: the cross-call to {public} does not name the public tier"
+            );
+            assert!(
+                !rust.contains(&format!("self.{public}_Impl(")),
+                "{name}: still calls {public}_Impl — the argument contract stops \
+                 applying to that path"
+            );
+        }
+        // The binding shape, counted once per site rather than per callee: an
+        // aliased call (STOCH's in-place `ma`) hides the callee name inside the
+        // `mem::swap` block, so a per-callee needle for `match self.NAME(` would
+        // be satisfied by a sibling site and go quiet on that one.
+        assert!(
+            rust.contains("let _xr"),
+            "{name}: cross-calls, but no OutRange binding — the out-params are \
+             still being passed"
+        );
+        sites += rust.matches("let _xr").count();
+    }
+
+    // The `&mut _dup_out` dummy existed only to give SAR/SAREXT a second mutable
+    // borrow of the scalar they passed as BOTH out-params. The public tier takes
+    // neither, so it must be gone, not merely unreachable.
+    let (sar, sar_enums) = load_indicator("sar");
+    assert!(
+        !generate_all(&sar, &sar_enums).rust.contains("_dup_out"),
+        "the duplicate-out-param dummy is back; the public tier takes no out-params"
+    );
+
+    // Literal floors: derived ones move with whatever the scan happens to find,
+    // and they are what makes this non-vacuous — `scanned` is incremented once
+    // per corpus entry and could only disagree with the corpus by panicking
+    // first, so it is these two that prove the sweep found anything at all.
+    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(callers >= 14, "only {callers} composed indicators scanned");
+    assert!(sites >= 39, "only {sites} cross-call sites scanned");
+}
+
+/// A cross-call's rejection is answered where the call is made, so the guard the
+/// C source puts after it is dead in all three ported backends and must not
+/// reach the output (#269 follow-up). C is exempt: it really does return a code.
+///
+/// Two tiers per backend, because a pin built on the batch emitter alone would
+/// pass while every `_OpenImpl` site stayed dirty -- the miss already recorded
+/// against #267. `assignments` carries a floor because "no dead guard" is
+/// satisfied just as well by an emitter that stopped emitting the assignment.
+///
+/// What this CANNOT see is whether the fold is selective -- whether a guard
+/// whose `|| count == 0` half is live kept that half. Text cannot tell that
+/// survivor from an unrelated `if`. The unit tests in `backends::ir_cleanup`
+/// carry that half, over IR, where it is decidable.
+#[test]
+fn an_answered_cross_call_guard_is_folded_in_every_ported_backend() {
+    /// `(assignments, dead)` over one rendered body.
+    ///
+    /// `dead` is the defect: an assignment of the success literal followed --
+    /// anywhere before that variable is next written -- by a test of it against
+    /// the same literal. Deliberately NOT an adjacency test: the fold's own
+    /// reason for skipping intervening statements is that `macdext.c` puts two
+    /// `free()` calls between the call and its guard, and an adjacency test is
+    /// blind to exactly the shape the fold exists to handle.
+    fn scan(src: &str, success: &str) -> (usize, usize) {
+        let lines: Vec<&str> = src.lines().collect();
+        let (mut assigns, mut dead) = (0usize, 0usize);
+        for (i, line) in lines.iter().enumerate() {
+            let t = line.trim();
+            let Some(var) = t
+                .strip_suffix(&format!(" = {success};"))
+                .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_alphanumeric() || c == '_'))
+            else {
+                continue;
+            };
+            assigns += 1;
+            let test = format!("{var} != {success}");
+            for later in &lines[i + 1..] {
+                let lt = later.trim();
+                if lt.contains(&test) {
+                    dead += 1;
+                    break;
+                }
+                // Any later write to the variable -- including the declaration
+                // that opens the next function, which is what bounds the window
+                // to one body without parsing one.
+                if lt.contains(var) && lt.contains('=') && !lt.contains("==") && !lt.contains("!=")
+                {
+                    break;
+                }
+            }
+        }
+        (assigns, dead)
+    }
+
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let (mut assigns, mut dead, mut scanned) = (0usize, 0usize, 0usize);
+
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        scanned += 1;
+
+        let mut rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+        let mut java = backends::java::generate(&func, &enums, &registry, &helpers);
+        let mut csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        if func.streaming {
+            if backends::rust_stream::emits_stream(&func, &registry) {
+                rust.push_str(&backends::rust_stream::generate(&func, &enums, &registry, &helpers));
+            }
+            if backends::java_stream::emits_stream(&func, &registry) {
+                java.push_str(&backends::java_stream::generate(&func, &enums, &registry, &helpers));
+            }
+            if backends::csharp_stream::emits_stream(&func, &registry) {
+                csharp
+                    .push_str(&backends::csharp_stream::generate(&func, &enums, &registry, &helpers));
+            }
+        }
+
+        for (src, success, lang) in [
+            (&rust, "RetCode::Success", "rust"),
+            (&java, "RetCode.Success", "java"),
+            (&csharp, "RetCode.Success", "csharp"),
+        ] {
+            let (a, d) = scan(src, success);
+            assert_eq!(
+                d, 0,
+                "{name}/{lang}: {d} answered cross-call guard(s) still emitted — \
+                 the fold did not reach this tier"
+            );
+            assigns += a;
+            dead += d;
+        }
+    }
+
+    assert_eq!(dead, 0, "{dead} dead guards survived");
+    // Literal floors. Without them an emitter that stopped assigning the literal
+    // would read green on a corpus with nothing left to check.
+    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(assigns >= 100, "only {assigns} success assignments seen — the sweep found nothing");
+}
+
+/// Deallocation is removed from the IR for the backends that have none, and the
+/// guard left behind goes with it — while C, which needs both, keeps both
+/// (#269 follow-up).
+///
+/// The second half is the one that matters: nothing else would catch a cleanup
+/// pass that leaked into `c.rs`, and the symptom would be a leaked buffer in the
+/// shipped library rather than an ugly diff.
+#[test]
+fn deallocation_is_dropped_only_where_the_backend_has_none() {
+    /// `if (...) {}` with nothing between the braces.
+    fn inert_guards(src: &str, open: &str) -> usize {
+        let lines: Vec<&str> = src.lines().map(str::trim).collect();
+        lines
+            .windows(2)
+            .filter(|w| w[0].starts_with("if") && w[0].ends_with(open) && w[1] == "}")
+            .count()
+    }
+
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let (mut ported_inert, mut c_guards, mut scanned) = (0usize, 0usize, 0usize);
+
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        scanned += 1;
+
+        let mut rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+        let mut java = backends::java::generate(&func, &enums, &registry, &helpers);
+        let mut csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        let c = backends::c::generate(&func, &enums, &registry, &helpers);
+        if func.streaming {
+            if backends::rust_stream::emits_stream(&func, &registry) {
+                rust.push_str(&backends::rust_stream::generate(&func, &enums, &registry, &helpers));
+            }
+            if backends::java_stream::emits_stream(&func, &registry) {
+                java.push_str(&backends::java_stream::generate(&func, &enums, &registry, &helpers));
+            }
+            if backends::csharp_stream::emits_stream(&func, &registry) {
+                csharp
+                    .push_str(&backends::csharp_stream::generate(&func, &enums, &registry, &helpers));
+            }
+        }
+
+        for (src, open, lang) in
+            [(&rust, "{", "rust"), (&java, ") {", "java"), (&csharp, ") {", "csharp")]
+        {
+            let n = inert_guards(src, open);
+            assert_eq!(n, 0, "{name}/{lang}: {n} guard(s) left with an empty body");
+            ported_inert += n;
+            assert!(
+                !src.contains("free("),
+                "{name}/{lang}: a free() reached the output — deallocation was not dropped"
+            );
+        }
+        c_guards += c.matches("free(").count();
+    }
+
+    assert_eq!(ported_inert, 0);
+    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    // C keeps every one. Without this floor the whole test is satisfied by a
+    // pass that ran on C too and freed nothing anywhere.
+    assert!(c_guards >= 10, "only {c_guards} free() call(s) left in C — the cleanup reached c.rs");
+}
+
+/// #269: a cross-indicator call's rejection must be answered before the body
+/// uses anything the call was supposed to have written.
+///
+/// STOCH ran its `memmove` into `outSlowK` eight lines ABOVE the `retCode`
+/// test, so a rejected `%D ma()` — which never wrote `*outNBElement` — copied
+/// %K's count and overran the caller's buffer by `lookbackDSlow` doubles while
+/// reporting an empty `OutRange`.
+///
+/// This is checked over the IR, not over one backend's text, because the IR is
+/// what every backend transcribes. **C is the only backend where it can still go
+/// wrong** — Rust, Java and C# answer the rejection at the call site now (#267)
+/// and `ir_cleanup` removes the guard entirely, so their emitted code cannot
+/// carry the defect and cannot witness it either.
+///
+/// The rule is deliberately narrow: only a statement that touches a DECLARED
+/// OUTPUT or an out-param may not sit between the call and its test. Measured
+/// over the corpus, the statements that legitimately sit there are an
+/// `if`/`else` Peek-vs-Update pair, `sp->sub = sub` (MA storing the sub handle
+/// so teardown can close it), and `free()` of a local scratch — none of which
+/// touches an output. Forbidding all of them instead would fail 52 sites that
+/// are correct.
+#[test]
+fn a_cross_call_rejection_is_answered_before_its_result_is_used() {
+    use ta_codegen_lib::streaming::CalleeLookup;
+
+    fn is_cross_call(v: &ir::Expr, reg: &Registry) -> Option<()> {
+        let ir::Expr::FuncCall(name, args) = v else { return None };
+        let sig = reg.callee(name)?;
+        let arity = 2 + sig.n_inputs + sig.n_opts + 2 + sig.n_outputs;
+        (args.len() == arity).then_some(())
+    }
+
+    /// Every name this statement mentions, in any spelling that carries one.
+    fn names(st: &ir::Statement) -> Vec<String> {
+        let mut out = Vec::new();
+        ta_codegen_lib::streaming::walk_stmt_exprs(st, &mut |top| {
+            ta_codegen_lib::streaming::walk_expr(top, &mut |e| match e {
+                ir::Expr::Var(n) | ir::Expr::PointerDeref(n) | ir::Expr::ArrayAccess(n, _) => {
+                    out.push(n.clone());
+                }
+                _ => {}
+            });
+        });
+        out
+    }
+
+    fn is_control_flow(s: &ir::Statement) -> bool {
+        matches!(
+            s,
+            ir::Statement::While { .. }
+                | ir::Statement::DoWhile { .. }
+                | ir::Statement::For { .. }
+                | ir::Statement::ForC { .. }
+                | ir::Statement::Switch { .. }
+                | ir::Statement::If { .. }
+                | ir::Statement::Return { .. }
+                | ir::Statement::Break
+                | ir::Statement::Continue
+        )
+    }
+
+    /// Walk one statement list, then recurse. Returns the offending statements.
+    fn scan(
+        body: &[ir::Statement],
+        outs: &[String],
+        reg: &Registry,
+        bad: &mut Vec<String>,
+    ) {
+        for (i, st) in body.iter().enumerate() {
+            if let ir::Statement::Assign { target: ir::Expr::Var(v), value, .. } = st {
+                if is_cross_call(value, reg).is_some() {
+                    for later in &body[i + 1..] {
+                        let touched = names(later);
+                        // The test itself: an `if` mentioning the code variable.
+                        if let ir::Statement::If { condition, .. } = later {
+                            let mut hit = false;
+                            ta_codegen_lib::streaming::walk_expr(condition, &mut |e| {
+                                if matches!(e, ir::Expr::Var(n) if n == v) {
+                                    hit = true;
+                                }
+                            });
+                            if hit {
+                                break;
+                            }
+                        }
+                        if touched.iter().any(|n| {
+                            outs.contains(n) || n == "outBegIdx" || n == "outNBElement"
+                        }) {
+                            bad.push(format!(
+                                "a statement touching {:?} sits between the call assigning \
+                                 `{v}` and its test",
+                                touched
+                                    .iter()
+                                    .filter(|n| outs.contains(n)
+                                        || *n == "outBegIdx"
+                                        || *n == "outNBElement")
+                                    .collect::<Vec<_>>()
+                            ));
+                            break;
+                        }
+                        if is_control_flow(later) {
+                            break;
+                        }
+                    }
+                }
+            }
+            // Recurse into every nested body.
+            match st {
+                ir::Statement::While { body, .. }
+                | ir::Statement::DoWhile { body, .. }
+                | ir::Statement::For { body, .. }
+                | ir::Statement::ForC { body, .. }
+                | ir::Statement::Block { body } => scan(body, outs, reg, bad),
+                ir::Statement::If { then_body, else_body, .. } => {
+                    scan(then_body, outs, reg, bad);
+                    scan(else_body, outs, reg, bad);
+                }
+                ir::Statement::Switch { cases, default, .. } => {
+                    for (_, b) in cases {
+                        scan(b, outs, reg, bad);
+                    }
+                    scan(default, outs, reg, bad);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let registry = make_registry();
+    let (mut scanned, mut composed) = (0usize, 0usize);
+    for name in discover_indicators() {
+        let (func, _enums) = load_indicator(&name);
+        scanned += 1;
+        let outs: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
+        let mut bad = Vec::new();
+        for body in [func.body.as_slice(), func.private_body.as_slice(), func.stream_source()] {
+            scan(body, &outs, &registry, &mut bad);
+        }
+        let mut any = false;
+        for body in [func.body.as_slice(), func.stream_source()] {
+            for st in body {
+                if let ir::Statement::Assign { value, .. } = st {
+                    if is_cross_call(value, &registry).is_some() {
+                        any = true;
+                    }
+                }
+            }
+        }
+        if any {
+            composed += 1;
+        }
+        assert!(
+            bad.is_empty(),
+            "{name}: {} — this is #269, and C is the backend it reaches",
+            bad.join("; ")
+        );
+    }
+    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(composed >= 10, "only {composed} composed indicators found — the sweep found nothing");
+}
+
 #[test]
 fn test_java_sma_guarded_has_validation() {
     let (func, enums) = load_indicator("sma");
@@ -652,7 +1647,7 @@ fn test_c_rsi_guarded_has_validation() {
 // 5. Indicator-specific feature tests
 // ---------------------------------------------------------------------------
 
-// --- RSI: unstable period + compatibility + IS_ZERO ---
+// --- RSI: unstable period + compatibility ---
 
 #[test]
 fn test_rsi_c_unstable_period() {
@@ -667,10 +1662,29 @@ fn test_rsi_c_unstable_period() {
         out.c.contains("TA_GLOBALS_COMPATIBILITY"),
         "C RSI should use TA_GLOBALS_COMPATIBILITY"
     );
-    // TA_IS_ZERO is preserved as a macro call — the C backend emits TA_IS_ZERO(x)
+}
+
+// The IS_ZERO family reaches C as a macro call rather than being expanded to a
+// literal comparison, so the epsilon has one definition (ta_utility.h) instead
+// of one per body. Checked on the two forms an indicator still uses: the fixed
+// band, which after #253 survives only where the guarded quantity is
+// dimensionless (ADX tests a sum of two ratios), and the operand-scaled one
+// that replaced it everywhere else (CCI tests a deviation against its own
+// price level).
+#[test]
+fn test_c_keeps_is_zero_family_as_macros() {
+    let (func, enums) = load_indicator("adx");
+    let out = generate_all(&func, &enums);
     assert!(
         out.c.contains("TA_IS_ZERO("),
-        "C RSI should use TA_IS_ZERO macro"
+        "C ADX should use the TA_IS_ZERO macro"
+    );
+
+    let (func, enums) = load_indicator("cci");
+    let out = generate_all(&func, &enums);
+    assert!(
+        out.c.contains("TA_IS_ZERO_SCALED("),
+        "C CCI should use the TA_IS_ZERO_SCALED macro"
     );
 }
 
@@ -3733,14 +4747,18 @@ fn rust_cross_indicator_call_via_generate() {
     let helpers = make_helpers();
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
-    // Cross-indicator calls resolve to the guarded, C-shaped entry point
+    // Cross-indicator calls resolve to the callee's PUBLIC entry point (#267)
     assert!(
-        rust_out.contains("self.SMA_Impl("),
-        "MA Rust should call self.SMA_Impl(): {rust_out}"
+        rust_out.contains("match self.SMA("),
+        "MA Rust should call the public self.SMA(): {rust_out}"
     );
     assert!(
-        rust_out.contains("self.EMA_Impl("),
-        "MA Rust should call self.EMA_Impl(): {rust_out}"
+        rust_out.contains("match self.EMA("),
+        "MA Rust should call the public self.EMA(): {rust_out}"
+    );
+    assert!(
+        !rust_out.contains("self.SMA_Impl(") && !rust_out.contains("self.EMA_Impl("),
+        "MA Rust must not call a callee's numerics tier: {rust_out}"
     );
     // `self.` makes this a call, not a definition, so the negative is real.
     // step 1 still emits — so the negative is real, not vacuous.
@@ -3791,8 +4809,8 @@ fn rust_private_cross_indicator_call() {
     let (func, enums) = load_indicator("ma");
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
     assert!(
-        rust_out.contains("self.EMA_Impl("),
-        "MA Rust dispatch should call self.EMA_Impl(): {rust_out}"
+        rust_out.contains("match self.EMA("),
+        "MA Rust dispatch should call the public self.EMA(): {rust_out}"
     );
 
     let synth_registry = make_synth_registry();
@@ -3882,7 +4900,7 @@ fn rust_cross_indicator_vec_input_gets_ref() {
     let rust_out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
     assert!(
-        rust_out.contains("self.MA_Impl(") && rust_out.contains("&tempBuffer"),
+        rust_out.contains("self.MA(") && rust_out.contains("&tempBuffer"),
         "STOCH Rust should pass &tempBuffer into self.MA(): {rust_out}"
     );
 }
@@ -4281,19 +5299,17 @@ fn rust_func_call_malloc_f64_default() {
     );
 }
 
+/// `free()` no longer reaches the Rust renderer at all: `drop_deallocation`
+/// removes it from the IR, and the renderer's arm is now the assertion that it
+/// did. The behaviour this used to check lives in `ir_cleanup`'s own tests; what
+/// is worth pinning here is the corpus-level property, which
+/// `deallocation_is_dropped_only_where_the_backend_has_none` carries.
 #[test]
-fn rust_func_call_free_is_noop() {
-    let stmt = ir::Statement::Expr(ir::Expr::FuncCall(
-        "free".to_string(),
-        vec![ir::Expr::Var("buf".to_string())],
-    ));
-    let rendered = render_rust_stmt(&stmt);
-    // free() is a no-op in Rust (returns empty string from render_func_call)
-    // The statement expression with an empty value should be skipped
-    assert!(
-        !rendered.contains("free("),
-        "free() should not appear in Rust output: {rendered}"
-    );
+fn rust_free_never_reaches_the_renderer() {
+    let (func, enums) = load_indicator("stoch");
+    let out = generate_all(&func, &enums);
+    assert!(!out.rust.contains("free("), "a free() survived into the Rust output");
+    assert!(out.c.contains("free("), "C must keep its deallocation");
 }
 
 #[test]
@@ -4720,8 +5736,8 @@ fn rust_lookback_none() {
 
     let lookback_section = extract_section(&rust_out, "_Lookback(", "pub(crate) fn TEST_Impl(");
     assert!(
-        lookback_section.contains("return 0"),
-        "None lookback should return 0: {lookback_section}"
+        lookback_section.contains("return Ok(0)"),
+        "None lookback should return Ok(0): {lookback_section}"
     );
 }
 
@@ -5618,54 +6634,82 @@ fn java_output_scalar_assignment() {
 // Java: Ternary expression rendering exercises lines 1450-1468
 // ---------------------------------------------------------------------------
 
+/// `(cond) ? 1 : 0` collapses to the bare condition — in BOOLEAN position.
+///
+/// The vehicle is an `if`, not an assignment. It used to be an assignment, which
+/// pinned the collapse in the one position where it is wrong: C has no booleans,
+/// so an assignment's destination is always an `int`, and `x = a > b;` does not
+/// compile in Java (#262). The collapse rule itself is unchanged and still what
+/// this asserts.
 #[test]
 fn java_ternary_bool_to_int_optimization() {
-    // (cond) ? 1 : 0 should simplify to just the condition
-    let stmt = ir::Statement::Assign {
-        target: ir::Expr::Var("x".to_string()),
-        value: ir::Expr::Ternary(
-            Box::new(ir::Expr::BinOp(
-                Box::new(ir::Expr::Var("a".to_string())),
-                ir::BinOp::Greater,
-                Box::new(ir::Expr::Var("b".to_string())),
-            )),
-            Box::new(ir::Expr::IntLiteral(1)),
-            Box::new(ir::Expr::IntLiteral(0)),
-        ),
-        compound: false,
-    };
-    let rendered = render_java_stmt(&stmt);
-    // Should NOT have ternary syntax, just the condition
+    let flag = ir::Expr::Ternary(
+        Box::new(ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("a".to_string())),
+            ir::BinOp::Greater,
+            Box::new(ir::Expr::Var("b".to_string())),
+        )),
+        Box::new(ir::Expr::IntLiteral(1)),
+        Box::new(ir::Expr::IntLiteral(0)),
+    );
+    let rendered = render_java_stmt(&ir::Statement::If {
+        condition: flag.clone(),
+        then_body: vec![],
+        else_body: vec![],
+        cond_comments: vec![],
+    });
     assert!(
-        !rendered.contains("?"),
-        "Java ternary (cond)?1:0 should simplify to just cond: {rendered}"
+        !rendered.contains('?'),
+        "Java ternary (cond)?1:0 in an `if` should simplify to just cond: {rendered}"
     );
     assert!(
         rendered.contains("a > b"),
         "Java ternary should contain the condition directly: {rendered}"
     );
+
+    // The other half of the same rule: stored, it keeps the int form.
+    let stored = render_java_stmt(&ir::Statement::Assign {
+        target: ir::Expr::Var("x".to_string()),
+        value: flag,
+        compound: false,
+    });
+    assert!(
+        stored.contains("? 1 : 0"),
+        "an assignment's destination is an int, so the ternary must survive: {stored}"
+    );
 }
 
+/// `(cond) ? 0 : 1` collapses to `!(cond)` — again, in boolean position only.
 #[test]
 fn java_ternary_inverted_bool_optimization() {
-    // (cond) ? 0 : 1 should simplify to !(condition)
-    let stmt = ir::Statement::Assign {
-        target: ir::Expr::Var("x".to_string()),
-        value: ir::Expr::Ternary(
-            Box::new(ir::Expr::BinOp(
-                Box::new(ir::Expr::Var("a".to_string())),
-                ir::BinOp::Less,
-                Box::new(ir::Expr::Var("b".to_string())),
-            )),
-            Box::new(ir::Expr::IntLiteral(0)),
-            Box::new(ir::Expr::IntLiteral(1)),
-        ),
-        compound: false,
-    };
-    let rendered = render_java_stmt(&stmt);
+    let flag = ir::Expr::Ternary(
+        Box::new(ir::Expr::BinOp(
+            Box::new(ir::Expr::Var("a".to_string())),
+            ir::BinOp::Less,
+            Box::new(ir::Expr::Var("b".to_string())),
+        )),
+        Box::new(ir::Expr::IntLiteral(0)),
+        Box::new(ir::Expr::IntLiteral(1)),
+    );
+    let rendered = render_java_stmt(&ir::Statement::If {
+        condition: flag.clone(),
+        then_body: vec![],
+        else_body: vec![],
+        cond_comments: vec![],
+    });
     assert!(
         rendered.contains("!("),
-        "Java ternary (cond)?0:1 should simplify to !(cond): {rendered}"
+        "Java ternary (cond)?0:1 in an `if` should simplify to !(cond): {rendered}"
+    );
+
+    let stored = render_java_stmt(&ir::Statement::Assign {
+        target: ir::Expr::Var("x".to_string()),
+        value: flag,
+        compound: false,
+    });
+    assert!(
+        stored.contains("? 0 : 1"),
+        "an assignment's destination is an int, so the ternary must survive: {stored}"
     );
 }
 
@@ -6506,17 +7550,12 @@ fn c_stochrsi_full_generate() {
 // Java: Assign to _ with free() should be empty (exercises lines 756-758)
 // ---------------------------------------------------------------------------
 
+/// See `rust_free_never_reaches_the_renderer` — same mechanism, same reason.
 #[test]
-fn java_assign_underscore_free_is_empty() {
-    let stmt = ir::Statement::Expr(ir::Expr::FuncCall(
-        "free".to_string(),
-        vec![ir::Expr::Var("buf".to_string())],
-    ));
-    let rendered = render_java_stmt(&stmt);
-    assert!(
-        rendered.is_empty(),
-        "Java Expr(free(buf)) should produce empty output: '{rendered}'"
-    );
+fn java_free_never_reaches_the_renderer() {
+    let (func, enums) = load_indicator("stoch");
+    let out = generate_all(&func, &enums);
+    assert!(!out.java.contains("free("), "a free() survived into the Java output");
 }
 
 // ---------------------------------------------------------------------------
@@ -7229,6 +8268,823 @@ fn test_c_ma_dispatch_stream_section() {
     );
 }
 
+/// `cond ? 1 : 0` collapses to the bare condition in Java and C#, and that is
+/// only valid where a boolean is wanted. C has no booleans, so the destination
+/// of an assignment never is — `outInteger[i] = a > b;` does not compile in
+/// either language.
+///
+/// Unreachable from the corpus: its four `? 1 : 0` are all
+/// `return (...) ? 1 : 0;` inside helper predicates, inlined into an `if`, where
+/// the collapse is right. A synthetic fixture storing a flag is what found it
+/// (#262), so the control below matters as much as the assertion — the collapse
+/// must still happen in boolean position, or this "fix" would churn every
+/// candlestick into `(x) != 0`.
+#[test]
+fn test_a_stored_bool_ternary_keeps_its_int_form() {
+    let (func, enums) = load_indicator("minmaxindex");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let out = func.outputs[0].name.clone();
+
+    let flag = || {
+        ir::Expr::Ternary(
+            Box::new(ir::Expr::BinOp(
+                Box::new(ir::Expr::Var("today".to_string())),
+                ir::BinOp::Greater,
+                Box::new(ir::Expr::IntLiteral(0)),
+            )),
+            Box::new(ir::Expr::IntLiteral(1)),
+            Box::new(ir::Expr::IntLiteral(0)),
+        )
+    };
+
+    // Stored into an integer output: the ternary has to survive.
+    // Streaming off on the mutated copies: appending a statement is not a shape
+    // the stream planner is asked to understand, and the batch emitters are the
+    // subject here.
+    let mut stored = func.clone();
+    stored.streaming = false;
+    stored.body.push(ir::Statement::Assign {
+        target: ir::Expr::ArrayAccess(
+            out.clone(),
+            Box::new(ir::Expr::Var("outIdx".to_string())),
+        ),
+        value: flag(),
+        compound: false,
+    });
+    for (lang, text) in [
+        ("Java", backends::java::generate(&stored, &enums, &registry, &helpers)),
+        ("C#", backends::csharp::generate(&stored, &enums, &registry, &helpers)),
+    ] {
+        assert!(
+            text.contains(&format!("{out}[outIdx] = (today > 0) ? 1 : 0;")),
+            "{lang}: a flag stored into an integer output must keep `? 1 : 0`"
+        );
+        assert!(
+            !text.contains(&format!("{out}[outIdx] = today > 0;")),
+            "{lang}: the collapsed form does not compile — the destination is an int"
+        );
+    }
+
+    // Control: in boolean position the collapse must still happen.
+    let mut tested = func.clone();
+    tested.streaming = false;
+    tested.body.push(ir::Statement::If {
+        condition: flag(),
+        // A body, because `ir_cleanup::drop_inert_guards` removes a guard that
+        // does nothing — which is the point of that pass, not a problem here.
+        // The subject is the condition's rendering, and it needs the `if` to
+        // survive to be seen.
+        then_body: vec![ir::Statement::Break],
+        else_body: vec![],
+        cond_comments: vec![],
+    });
+    for (lang, text) in [
+        ("Java", backends::java::generate(&tested, &enums, &registry, &helpers)),
+        ("C#", backends::csharp::generate(&tested, &enums, &registry, &helpers)),
+    ] {
+        assert!(
+            text.contains("if( today > 0 )"),
+            "{lang}: a ternary in boolean position must still collapse"
+        );
+    }
+}
+
+/// Guarding a nullable store is complete only while the `outIdx` advance rides a
+/// store that is always made. `mama.c` says so in a comment; this is what makes
+/// it true.
+///
+/// The failure it forbids is silent: with the advance on the declined store, a
+/// caller who declines gets `outNBElement = 0`, every other output written
+/// repeatedly to index 0, and `Success`. The JSON-RPC servers bind every declared
+/// output, so no cross-language gate ever makes that call — which is why the
+/// generator refuses to emit the shape rather than a gate catching it.
+///
+/// Driven through `generate` rather than the helper, because the point is that a
+/// contributor cannot reach the emitters without the check: every backend now
+/// asks one producer for the declinable set, and asking is what runs it.
+#[test]
+fn test_a_nullable_output_may_not_carry_the_cursor() {
+    let (func, enums) = load_indicator("mama");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    // Control: the shipped shape renders. Without this the refusals below would
+    // pass against a generator that refused MAMA outright.
+    let _ = backends::c::generate(&func, &enums, &registry, &helpers);
+    let _ = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+
+    // The forbidden store, built directly: `outFAMA[outIdx++] = fama;` where
+    // outFAMA is the declinable output.
+    let cursor_on_nullable = ir::Statement::Assign {
+        target: ir::Expr::ArrayAccess(
+            "outFAMA".to_string(),
+            Box::new(ir::Expr::PostIncrement(Box::new(ir::Expr::Var(
+                "outIdx".to_string(),
+            )))),
+        ),
+        value: ir::Expr::Var("fama".to_string()),
+        compound: false,
+    };
+    let mut moved = func.clone();
+    moved.body.push(cursor_on_nullable);
+    type Emit = fn(&ir::FuncDef, &HashMap<String, ir::EnumDef>, &Registry, &HelperRegistry) -> String;
+    for (lang, emit) in [
+        ("C", backends::c::generate as Emit),
+        ("Rust", backends::rust_lang::generate as Emit),
+        ("Java", backends::java::generate as Emit),
+        ("C#", backends::csharp::generate as Emit),
+    ] {
+        let moved = moved.clone();
+        let enums = enums.clone();
+        let err = std::panic::catch_unwind(move || {
+            emit(&moved, &enums, &make_registry(), &HelperRegistry::empty())
+        })
+        .expect_err("a nullable output carrying the cursor must be refused");
+        let msg = panic_message(&err);
+        assert!(
+            msg.contains("outFAMA") && msg.contains("PostIncrement"),
+            "{lang}: the refusal must name the output and the step, got: {msg}"
+        );
+    }
+
+    // And a function whose outputs are ALL declinable has nowhere to put it.
+    let mut all_nullable = func.clone();
+    for out in &mut all_nullable.outputs {
+        if !out.is_nullable() {
+            out.flags.push("nullable".to_string());
+        }
+    }
+    let e2 = enums.clone();
+    let err = std::panic::catch_unwind(move || {
+        backends::c::generate(&all_nullable, &e2, &make_registry(), &HelperRegistry::empty())
+    })
+    .expect_err("every output declinable leaves the cursor no store to ride");
+    assert!(
+        panic_message(&err).contains("every output"),
+        "the refusal must say why"
+    );
+}
+
+fn panic_message(err: &Box<dyn std::any::Any + Send>) -> String {
+    err.downcast_ref::<String>()
+        .cloned()
+        .or_else(|| err.downcast_ref::<&str>().map(|s| (*s).to_string()))
+        .unwrap_or_default()
+}
+
+/// Rule B6, Appendix E: a **cross-typed** output pair is out of scope, so the
+/// distinctness guard skips it in every backend.
+///
+/// Not reachable from a fixture, which is why it is a render pin. Three of the
+/// four backends cannot even compile such a term — `double * == int *` is a
+/// constraint violation in C, `double[] == int[]` is "incomparable types" in
+/// Java, `*const f64 == *const i32` is a type error in Rust — and C# has always
+/// skipped them because `Overlaps` is not defined across element types.
+/// SYNTH12 does declare a mixed-type function now, but it cannot stand in for
+/// this pin: its cross-typed pairs are exactly the ones the emitters drop, so
+/// the fixture shows the term ABSENT and never shows it absent *for this
+/// reason*. Re-typing an output here is what makes the omission attributable.
+///
+/// MINMAXINDEX is the vehicle: two integer outputs, one of them re-typed here,
+/// which turns its single same-typed pair into a single cross-typed one. The
+/// guard must then disappear entirely rather than emit an uncompilable term.
+/// The two frame emitters subscript `outReal[]` / `outInteger[]` by the output's
+/// DECLARATION position, and describe each output's type in a per-output
+/// `TA_VOutIsInt_<N>[]`.
+///
+/// Nothing else on the PR gate can see either property. On a type-homogeneous
+/// corpus the declaration index and a per-kind packed counter emit byte-identical
+/// text, so `regen-check` is blind to a revert, and the harnesses that would
+/// mis-read the table only run under the nightly synth gate. So this pins both
+/// against a mixed function built here — the shape SYNTH12 carries, reached
+/// without depending on the fixture, which lives outside `input/`.
+#[test]
+fn test_frames_index_outputs_by_declaration_position() {
+    let (mut func, enums) = load_indicator("minmaxindex");
+    assert_eq!(func.outputs.len(), 2, "MINMAXINDEX declares two outputs");
+    // [integer, real]: the real output sits at declaration index 1, where a
+    // per-kind counter would have called it outReal[0].
+    func.outputs[1].param_type = ir::ParamType::Real;
+    let (a, b) = (func.outputs[0].name.clone(), func.outputs[1].name.clone());
+
+    let rendered = backends::variant_frame::render(std::slice::from_ref(&func), &enums);
+    assert!(
+        rendered.contains(&format!("outInteger[0] /* {a} */")),
+        "output 0 is integer and must be outInteger[0]"
+    );
+    assert!(
+        rendered.contains(&format!("outReal[1] /* {b} */")),
+        "output 1 is real and must be outReal[1] — a per-kind counter would emit \
+         outReal[0], which the harnesses read as output 0's buffer"
+    );
+    assert!(
+        !rendered.contains(&format!("outReal[0] /* {b} */")),
+        "the packed spelling must not come back"
+    );
+    assert!(
+        rendered.contains("static const int TA_VOutIsInt_MINMAXINDEX[] = { 1, 0 };"),
+        "the per-output type vector must describe each output, in order"
+    );
+
+    // The stream table reuses that same vector rather than emitting a second one.
+    func.streaming = true;
+    let streamed = backends::stream_frame::render(std::slice::from_ref(&func));
+    assert!(
+        streamed.contains("TA_VOutIsInt_MINMAXINDEX"),
+        "the stream row must point at ta_variant_frame.h's vector"
+    );
+    assert!(
+        streamed.contains(&format!("outReal[1] /* {b} */")),
+        "the stream thunks must use the same declaration-position subscript"
+    );
+}
+
+#[test]
+fn test_cross_typed_output_pairs_are_not_compared() {
+    let (mut func, enums) = load_indicator("minmaxindex");
+    assert_eq!(func.outputs.len(), 2, "MINMAXINDEX declares two outputs");
+    assert!(
+        func.outputs.iter().all(|o| o.param_type == ir::ParamType::Integer),
+        "both are integer outputs, so the control below is a real control"
+    );
+    let (a, b) = (func.outputs[0].name.clone(), func.outputs[1].name.clone());
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    // Control: same-typed, so every backend compares the pair.
+    for (lang, out, needle) in [
+        ("C", backends::c::generate(&func, &enums, &registry, &helpers), format!("{a} == {b}")),
+        ("Java", backends::java::generate(&func, &enums, &registry, &helpers), format!("{a} == {b}")),
+        ("Rust", backends::rust_lang::generate(&func, &enums, &registry, &helpers), format!("{a}.as_ptr() == {b}.as_ptr()")),
+        ("C#", backends::csharp::generate(&func, &enums, &registry, &helpers), format!("{a}.Overlaps({b})")),
+    ] {
+        assert!(out.contains(&needle), "{lang}: a same-typed pair must be compared ({needle})");
+    }
+
+    // Re-type the second output. The pair is now cross-typed and must vanish.
+    func.outputs[1].param_type = ir::ParamType::Real;
+    for (lang, out) in [
+        ("C", backends::c::generate(&func, &enums, &registry, &helpers)),
+        ("Java", backends::java::generate(&func, &enums, &registry, &helpers)),
+        ("Rust", backends::rust_lang::generate(&func, &enums, &registry, &helpers)),
+        ("C#", backends::csharp::generate(&func, &enums, &registry, &helpers)),
+    ] {
+        for needle in [
+            format!("{a} == {b}"),
+            format!("{a}.as_ptr() == {b}.as_ptr()"),
+            format!("{a}.Overlaps({b})"),
+        ] {
+            assert!(
+                !out.contains(&needle),
+                "{lang}: a cross-typed pair must not be compared ({needle})"
+            );
+        }
+        // And nothing is left behind: no empty `if( )` where the guard was.
+        assert!(
+            !out.contains("if(  )") && !out.contains("if  {"),
+            "{lang}: dropping the only pair must drop the whole guard, not leave an empty one"
+        );
+    }
+}
+
+/// Rule B6a (`docs/error-handling-spec.md` 2.2, issue #262): an omitted output
+/// is accepted iff the .yaml marks it `nullable`. C has honoured it since #125;
+/// this pins the other three, each of which spells "declined" in its own way.
+///
+/// The pins are per-backend on purpose. The cross-language gates cannot see any
+/// of this: the servers always supply every output, so a backend that quietly
+/// went back to requiring `outFAMA` would stay green everywhere.
+#[test]
+fn test_mama_nullable_fama_is_declinable_in_every_backend() {
+    let (func, enums) = load_indicator("mama");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    // Rust: `Option<&mut [f64]>` — the one backend that can spell "declined"
+    // apart from "empty" and does, which leaves C# alone in overloading it.
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        rust.contains("outFAMA: Option<&mut [f64]>"),
+        "Rust declines a nullable output with None, not an empty slice"
+    );
+    assert!(
+        rust.contains("if let Some(outFAMA) = outFAMA.as_deref_mut() {"),
+        "every store into the declined output is guarded"
+    );
+    assert!(
+        rust.contains(
+            "assert!(_assertStart > endIdx || outFAMA.as_deref().is_none_or(|o| endIdx - _assertStart < o.len()));"
+        ),
+        "B5 asks for capacity only where an output was supplied"
+    );
+
+    // Java: `null`, and the length check has to be skipped for it and kept for
+    // outMAMA — the half a caller actually sees.
+    let java = backends::java::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        java.contains(
+            "if( outFAMA != null ) requireLength(\"MAMA\", \"outFAMA\", outFAMA, guardOutLen);"
+        ),
+        "Java requires a length only for a supplied output"
+    );
+    assert!(
+        java.contains("requireLength(\"MAMA\", \"outMAMA\", outMAMA, guardOutLen);")
+            && !java.contains("if( outMAMA != null ) requireLength"),
+        "the non-nullable output stays unconditionally required"
+    );
+    assert!(
+        java.contains("if( outFAMA != null )\n               outFAMA[outIdx] = fama;"),
+        "every store into the declined output is guarded"
+    );
+    assert!(
+        java.contains("if( outFAMA != null && outMAMA == outFAMA )"),
+        "two nulls compare equal, so the pair guard checks the nullable operand first"
+    );
+
+    // C#: an empty span IS the declination — a `Span<T>` is a ref struct and a
+    // null array converts to an empty one, so there is nothing else to use.
+    let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        csharp.contains(
+            "if( !outFAMA.IsEmpty ) RequireLength(\"MAMA\", \"outFAMA\", outFAMA.Length, guardOutLen);"
+        ),
+        "C# requires a length only for a supplied output"
+    );
+    assert!(
+        csharp.contains("if( !outFAMA.IsEmpty )\n               outFAMA[outIdx] = fama;"),
+        "every store into the declined output is guarded"
+    );
+    assert!(
+        csharp.contains("if( outMAMA.Overlaps(outFAMA) ) {")
+            && !csharp.contains("outMAMA.IsEmpty && outFAMA.IsEmpty"),
+        "the empty-pair rejection is gone: it made 'declined' unspellable (item 11)"
+    );
+
+    // And MA's cross-call declines rather than allocating a buffer to throw away.
+    let (ma, ma_enums) = load_indicator("ma");
+    for (lang, out, want) in [
+        ("Rust", backends::rust_lang::generate(&ma, &ma_enums, &registry, &helpers),
+         "MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, None)"),
+        ("Java", backends::java::generate(&ma, &ma_enums, &registry, &helpers),
+         "MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, null)"),
+        ("C#", backends::csharp::generate(&ma, &ma_enums, &registry, &helpers),
+         "MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, default)"),
+    ] {
+        assert!(out.contains(want), "{lang}: MA's MAMA arm must decline FAMA ({want})");
+        assert!(
+            !out.contains("new double[(int)(endIdx - startIdx + 1)]")
+                && !out.contains("&mut vec![0.0_f64; (endIdx - startIdx + 1) as usize][..]"),
+            "{lang}: the throwaway FAMA buffer must be gone, not merely unread"
+        );
+    }
+}
+
+/// The Java argument helpers exist TWICE — hand-written in the shipped
+/// `Core.java`, and as string literals in `server_gen.rs` that the JSON-RPC
+/// server's inlined `Core` gets — and nothing compared them until this.
+///
+/// Neither copy is reachable from the other's tests: the shipped one is what
+/// `BatchApiTest` drives, the server one is what `--codegen` and `--xlang-hash`
+/// drive, and every server request hands `OpenAndFill` a full-length output, so
+/// a divergence in the bound itself is invisible to both. Compared on tokens,
+/// not on text: the two are indented differently on purpose.
+#[test]
+fn the_java_argument_helpers_agree_between_the_library_and_the_server() {
+    fn method(src: &str, sig: &str, what: &str) -> String {
+        let at = src
+            .find(sig)
+            .unwrap_or_else(|| panic!("{what}: `{sig}` not found"));
+        let mut depth = 0usize;
+        let mut end = at;
+        for (i, ch) in src[at..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = at + i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert!(end > at, "{what}: `{sig}` has no body");
+        // Comments are not the contract: the shipped copy carries the prose,
+        // the spliced one is deliberately bare. Only the code has to agree.
+        let mut code = String::new();
+        let mut rest = &src[at..end];
+        while let Some(i) = [rest.find("//"), rest.find("/*")].into_iter().flatten().min() {
+            code.push_str(&rest[..i]);
+            rest = if rest[i..].starts_with("//") {
+                rest[i..].find('\n').map_or("", |j| &rest[i + j..])
+            } else {
+                rest[i..].find("*/").map_or("", |j| &rest[i + j + 2..])
+            };
+        }
+        code.push_str(rest);
+        code.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let core = std::fs::read_to_string(
+        root.join("ta_codegen/output/java/library/src/main/java/io/github/talib/Core.java"),
+    )
+    .expect("the shipped Core.java");
+    let server =
+        std::fs::read_to_string(root.join("ta_codegen/output/java/tools/TaCodegenServe.java"))
+            .expect("the generated Java server");
+
+    // All ten, not the four the gate started with: `checkLength` is where rule
+    // S5's rejection actually happens, and `failure` is the whole RetCode ->
+    // exception mapping. Adding one is a line (issue #271 item 3).
+    for sig in [
+        "static RuntimeException failure(String funcName, RetCode retCode) {",
+        "static int clampedStart(String funcName, int startIdx, int lookback) {",
+        "static void requireLength(String funcName, String argName, double[] array, int required) {",
+        "static void requireLength(String funcName, String argName, float[] array, int required) {",
+        "static void requireLength(String funcName, String argName, int[] array, int required) {",
+        "static void checkLength(String funcName, String argName, int actual, int required) {",
+        "static int openFillCount(String funcName, int historyLen, int lookback) {",
+        "static void requireHistoryLength(String funcName, String argName, int actual, int historyLen) {",
+        "static void requireHistory(String funcName, int historyLen) {",
+        "static void requireIndexRange(String funcName, int startIdx, int endIdx) {",
+        "static void requireArgument(String funcName, String argName, Object argument) {",
+    ] {
+        assert_eq!(
+            method(&core, sig, "Core.java"),
+            method(&server, sig, "TaCodegenServe.java"),
+            "the two copies of `{sig}` have drifted"
+        );
+    }
+}
+
+/// Rule B6a at the STREAMING opener, in all four backends: a nullable output
+/// may be declined there exactly as it may in the batch tier.
+///
+/// C has always allowed it; the other three rejected the declined output as a
+/// capacity fault the moment rule S5 arrived, which is the divergence this pins.
+/// Four clauses per backend, because three of them can pass while the feature is
+/// broken: the bound must be conditional, the fill's store must be guarded, the
+/// handle's cached value must NOT be read back from an array the caller declined
+/// — that is the one that faults at run time — and `MA`'s dispatch arm must
+/// decline rather than allocate a `historyLen` buffer to throw away.
+#[test]
+fn test_mama_nullable_fama_is_declinable_at_the_opener_in_every_backend() {
+    let (func, enums) = load_indicator("mama");
+    let (ma, ma_enums) = load_indicator("ma");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        rust.contains("outMAMA: &mut [f64], outFAMA: Option<&mut [f64]>,")
+            && rust.contains("outMAMA: &mut [f64], mut outFAMA: Option<&mut [f64]>, outStride: usize,"),
+        "Rust: the opener family takes Option, `mut` on the transcription alone"
+    );
+    assert!(
+        rust.contains("if outFAMA.as_deref().is_some_and(|o| o.len() < _guardOutLen) {"),
+        "Rust: S5 bounds a nullable output only where it was supplied"
+    );
+    assert!(
+        rust.contains("Some(&mut sink_outFAMA)"),
+        "Rust: the scalar open reports every output, so it never declines one"
+    );
+
+    let java = backends::java::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        java.contains("if( outFAMA != null ) requireLength(\"MAMA openAndFill\", \"outFAMA\", outFAMA, guardOutLen);"),
+        "Java: S5 bounds a nullable output only where it was supplied"
+    );
+    assert!(
+        java.contains("lastCur_outFAMA = fama;") && java.contains("sp.cur_outFAMA = lastCur_outFAMA;"),
+        "Java: the handle's cached value comes from the store, not from the caller's array"
+    );
+    assert!(
+        !java.contains("sp.cur_outFAMA = outFAMA["),
+        "Java: reading a declined output back is the fault this rule creates"
+    );
+
+    let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        csharp.contains("if( !outFAMA.IsEmpty ) RequireFillLength(\"MAMA\", \"openAndFill\", \"outFAMA\", outFAMA.Length, guardOutLen);"),
+        "C#: S5 bounds a nullable output only where it was supplied"
+    );
+    assert!(
+        csharp.contains("lastCur_outFAMA = fama;") && csharp.contains("sp.cur_outFAMA = lastCur_outFAMA;"),
+        "C#: the handle's cached value comes from the store, not from the caller's span"
+    );
+    assert!(
+        !csharp.contains("sp.cur_outFAMA = outFAMA["),
+        "C#: reading a declined output back is the fault this rule creates"
+    );
+
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let at_open = c
+        .find("TA_RetCode TA_MAMA_OpenImpl(")
+        .expect("C: the streaming transcription");
+    let c_open = &c[at_open..];
+    assert!(
+        c_open.contains("if( outFAMA != NULL )"),
+        "C: the FILL's store into the nullable output stays guarded — the batch \
+         body's guard is not evidence about this one"
+    );
+    assert!(
+        c_open.contains("(outFAMA != NULL && (const void *)outMAMA == (const void *)outFAMA)"),
+        "C: the opener's distinctness guard treats a declined output as aliasing nothing"
+    );
+
+    // Java and C#: the shadow must be the SOURCE of the cached value, not merely
+    // present — a break that keeps `lastCur_` around and still reads the array
+    // back passes a bare substring test.
+    for (lang, src, decl, shadow_store, capture) in [
+        ("Java", &java, "double lastCur_outFAMA = 0;", "lastCur_outFAMA = fama;",
+         "sp.cur_outFAMA = lastCur_outFAMA;"),
+        ("C#", &csharp, "double lastCur_outFAMA = 0;", "lastCur_outFAMA = fama;",
+         "sp.cur_outFAMA = lastCur_outFAMA;"),
+    ] {
+        let at_decl = src.find(decl).unwrap_or_else(|| panic!("{lang}: the shadow is not declared"));
+        let at_store = src.find(shadow_store).unwrap_or_else(|| panic!("{lang}: the shadow is never written"));
+        let at_capture = src.find(capture).unwrap_or_else(|| panic!("{lang}: the capture does not read the shadow"));
+        assert!(
+            at_decl < at_store && at_store < at_capture,
+            "{lang}: the shadow must be declared, then written by the fill, then captured"
+        );
+    }
+
+    // MA's streaming arm declines instead of allocating a throwaway.
+    for (lang, out, want, gone) in [
+        ("Rust", backends::rust_lang::generate(&ma, &ma_enums, &registry, &helpers),
+         "outReal, None)", "vec![0.0_f64; inReal.len()][..]"),
+        ("Java", backends::java::generate(&ma, &ma_enums, &registry, &helpers),
+         "MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, null)", "new double[historyLen])"),
+        ("C#", backends::csharp::generate(&ma, &ma_enums, &registry, &helpers),
+         "MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, default)", "new double[historyLen])"),
+    ] {
+        assert!(out.contains(want), "{lang}: MA's streaming MAMA arm must decline FAMA ({want})");
+        assert!(
+            !out.contains(gone),
+            "{lang}: the throwaway FAMA buffer must be gone from the opener, not merely unread"
+        );
+    }
+}
+
+/// Rule U6a — the same declination at `UpdateAndFill`, in all four backends
+/// (issue #270). It is a property of the CALL: nothing on the handle records
+/// what the opener was given, so there is no flag to set and none to compare.
+///
+/// Three clauses per ported backend, because two of them can pass while the
+/// feature is broken: the capacity bound must be conditional, the store into the
+/// caller's array must be guarded, and the value must still be COMPUTED — which
+/// in Java and C# means the step's write to the handle's `cur_` field is
+/// untouched, and in Rust means the declined slot is a sink rather than a
+/// skipped call. The last clause is the negative one, and the only thing that
+/// can see "the handle remembers what the opener was given": the number of ways
+/// the fill can reject, which such a comparison would have to add to.
+#[test]
+fn test_mama_nullable_fama_is_declinable_at_update_and_fill_in_every_backend() {
+    let (func, enums) = load_indicator("mama");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    fn method<'a>(src: &'a str, sig: &str, what: &str) -> &'a str {
+        let at = src.find(sig).unwrap_or_else(|| panic!("{what}: `{sig}` not found"));
+        let rest = &src[at..];
+        let open = rest.find('{').unwrap_or_else(|| panic!("{what}: `{sig}` has no body"));
+        let mut depth = 0usize;
+        for (i, ch) in rest[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &rest[..open + i + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{what}: `{sig}` has no body")
+    }
+
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    let r = method(
+        &rust,
+        "pub fn update_and_fill(&mut self,",
+        "Rust update_and_fill",
+    );
+    assert!(
+        r.contains("mut outFAMA: Option<&mut [f64]>"),
+        "Rust: the fill takes Option, as the opener does"
+    );
+    assert!(
+        r.contains("outFAMA.as_deref().is_some_and(|o| o.len() < barCount)"),
+        "Rust: U6 bounds a nullable output only where it was supplied"
+    );
+    assert!(
+        r.contains("let mut sink_outFAMA: f64 = 0.0_f64;")
+            && r.contains("let slot_outFAMA = match outFAMA.as_deref_mut() { Some(_s) => &mut _s[i], None => &mut sink_outFAMA };")
+            && r.contains(", &mut outMAMA[i], slot_outFAMA);"),
+        "Rust: a declined output still gets a slot, so the step still computes it"
+    );
+
+    let java = backends::java::generate(&func, &enums, &registry, &helpers);
+    let j = method(
+        &java,
+        "public void updateAndFill( double inReal[], double outMAMA[], double outFAMA[] )",
+        "Java updateAndFill",
+    );
+    assert!(
+        j.contains("(outFAMA != null && outFAMA.length < barCount)"),
+        "Java: U6 bounds a nullable output only where it was supplied"
+    );
+    assert!(
+        j.contains("if( outFAMA != null ) outFAMA[i] = this.cur_outFAMA;"),
+        "Java: the store into a declined output is guarded"
+    );
+    assert!(
+        j.contains("core.MAMA_StepImpl(this, inReal[i]);") && !j.contains("if( outFAMA != null ) core."),
+        "Java: the step runs unconditionally — declining suppresses the write, not the computation"
+    );
+    // U2 is what makes U6a mean something here: a DECLINED output is accepted, an
+    // ABSENT required one is `BadParam` naming it — and the presence test has to
+    // precede the length, which is the thing that reads off a null array.
+    let at_present = j
+        .find("requireArgument(\"MAMA updateAndFill\", \"outMAMA\", outMAMA);")
+        .expect("Java: the required output is checked for presence");
+    assert!(
+        j.contains("requireArgument(\"MAMA updateAndFill\", \"inReal\", inReal);")
+            && !j.contains("requireArgument(\"MAMA updateAndFill\", \"outFAMA\""),
+        "Java: every required array is checked, and the declinable one is not"
+    );
+    assert!(
+        at_present < j.find("final int barCount").expect("Java: the bar count"),
+        "Java: presence precedes the length that would read off a null array"
+    );
+
+    let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    let c_sharp = method(
+        &csharp,
+        "public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outMAMA, Span<double> outFAMA )",
+        "C# UpdateAndFill",
+    );
+    assert!(
+        c_sharp.contains("(!outFAMA.IsEmpty && outFAMA.Length < barCount)"),
+        "C#: U6 bounds a nullable output only where it was supplied"
+    );
+    assert!(
+        c_sharp.contains("if( !outFAMA.IsEmpty ) outFAMA[i] = cur_outFAMA;"),
+        "C#: the store into a declined output is guarded"
+    );
+    assert!(
+        c_sharp.contains("core.MAMA_StepImpl(this, inReal[i]);")
+            && !c_sharp.contains("if( !outFAMA.IsEmpty ) core."),
+        "C#: the step runs unconditionally — declining suppresses the write, not the computation"
+    );
+
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    let c_fill = method(
+        &c,
+        "TA_RetCode TA_MAMA_UpdateAndFill( TA_MAMA_Stream *stream,",
+        "C UpdateAndFill",
+    );
+    assert!(
+        c_fill.contains("if( !stream || !inReal || !outMAMA ) return TA_BAD_PARAM;"),
+        "C: a declined output is not an absent argument, and the required one still is"
+    );
+    assert!(
+        c_fill.contains("outFAMA ? &outFAMA[i] : NULL"),
+        "C: the declined slot is NULL rather than arithmetic on a NULL pointer"
+    );
+
+    // U6a meets U7: a declined output aliases nothing, so every alias term whose
+    // operand can be absent guards it first — two declined outputs would
+    // otherwise compare equal and reject a legal call. Emitted, never probed at
+    // run time (a declining call has no second buffer to alias with).
+    for (lang, body, term) in [
+        ("Java", j, "(outFAMA != null && (Object)outMAMA == (Object)outFAMA)"),
+        ("C", c_fill, "(outFAMA != NULL && (const void *)outMAMA == (const void *)outFAMA)"),
+    ] {
+        assert!(
+            body.contains(term),
+            "{lang}: the alias term guards the declinable operand"
+        );
+    }
+    assert!(
+        c_sharp.contains("outMAMA.Overlaps(outFAMA)") && !c_sharp.contains("outFAMA.IsEmpty || outMAMA.Overlaps"),
+        "C#: `Overlaps` already answers false for an empty span, so the term needs no guard"
+    );
+
+    // The declination is a property of the CALL, so there is no third rejection:
+    // a fill that compared its output set against the opener's would need one,
+    // and counting the exits is what would catch it. The counts are the rules
+    // this tier has and no more — the capacity bound and the per-bar finite test
+    // everywhere, plus C's absent-argument, negative-count and aliasing guards,
+    // which the other three cannot express.
+    for (lang, body, exit, want) in [
+        ("Rust", r, "return Err(RetCode::BadParam);", 2),
+        ("Java", j, "throw new TaLibArgumentException(\"MAMA updateAndFill: BadParam\", RetCode.BadParam);", 2),
+        ("C#", c_sharp, "throw Core.StreamFailure(\"MAMA\", \"updateAndFill\", RetCode.BadParam);", 2),
+        ("C", c_fill, "return TA_BAD_PARAM;", 4),
+    ] {
+        assert_eq!(
+            body.matches(exit).count(),
+            want,
+            "{lang}: `UpdateAndFill` rejects on {want} conditions — a third would be \
+             the handle remembering what the opener was given, which this design does not do"
+        );
+    }
+}
+
+/// Rule U6a over the arrangement `MAMA` cannot reach: `SYNTH10` declares three
+/// outputs with the FIRST and THIRD `nullable` (issue #262's fixture). Two
+/// things only it can show — that the guards are per output rather than one
+/// blanket branch, and that a nullable output at index 0 does not displace the
+/// cursor or the required output's own bound.
+///
+/// `scripts/synth_gate.py` drives the same fixture end to end, but only
+/// nightly; this is the PR gate's view of it.
+#[test]
+fn test_synth10_two_nullable_outputs_are_declinable_at_update_and_fill() {
+    let (func, enums) = load_synth("synth10");
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    assert!(
+        rust.contains("mut outFirstOptional: Option<&mut [f64]>, outRequired: &mut [f64], mut outSecondOptional: Option<&mut [f64]>) -> Result<(), RetCode>"),
+        "Rust: each nullable output takes its own Option, the required one stays a slice"
+    );
+    for name in ["outFirstOptional", "outSecondOptional"] {
+        assert!(
+            rust.contains(&format!("let mut sink_{name}: f64 = 0.0_f64;")),
+            "Rust: {name} gets its own sink"
+        );
+    }
+    assert!(
+        rust.contains("SYNTH10_step_impl(&mut self.state, inReal[i], slot_outFirstOptional, &mut outRequired[i], slot_outSecondOptional);"),
+        "Rust: the step takes a slot per declinable output and the array for the required one"
+    );
+
+    let java = backends::java::generate(&func, &enums, &registry, &helpers);
+    let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+    let c = backends::c::generate(&func, &enums, &registry, &helpers);
+    for (lang, src, guarded, plain) in [
+        (
+            "Java",
+            &java,
+            vec![
+                "if( outFirstOptional != null ) outFirstOptional[i] = this.cur_outFirstOptional;",
+                "if( outSecondOptional != null ) outSecondOptional[i] = this.cur_outSecondOptional;",
+            ],
+            "outRequired[i] = this.cur_outRequired;",
+        ),
+        (
+            "C#",
+            &csharp,
+            vec![
+                "if( !outFirstOptional.IsEmpty ) outFirstOptional[i] = cur_outFirstOptional;",
+                "if( !outSecondOptional.IsEmpty ) outSecondOptional[i] = cur_outSecondOptional;",
+            ],
+            "outRequired[i] = cur_outRequired;",
+        ),
+        (
+            "C",
+            &c,
+            vec![
+                "outFirstOptional ? &outFirstOptional[i] : NULL",
+                "outSecondOptional ? &outSecondOptional[i] : NULL",
+            ],
+            "&outRequired[i]",
+        ),
+    ] {
+        for g in &guarded {
+            assert!(src.contains(g), "{lang}: `{g}` — each declinable output is guarded on its own");
+        }
+        assert!(src.contains(plain), "{lang}: the required output is written unconditionally");
+    }
+
+    // The required output's bound is NOT made conditional by its declinable
+    // neighbours, and the required output is still an absent-argument fault in C.
+    assert!(
+        java.contains("|| outRequired.length < barCount ||"),
+        "Java: the required output keeps an unconditional bound"
+    );
+    assert!(
+        csharp.contains("|| outRequired.Length < barCount ||"),
+        "C#: the required output keeps an unconditional bound"
+    );
+    assert!(
+        rust.contains("|| outRequired.len() < barCount ||"),
+        "Rust: the required output keeps an unconditional bound"
+    );
+    assert!(
+        c.contains("if( !stream || !inReal || !outRequired ) return TA_BAD_PARAM;"),
+        "C: the required output is the only one an absent-argument guard names"
+    );
+}
+
 /// FAMA is a nullable output (issue #125). In the BATCH C: `Output::is_nullable`
 /// is set from the `nullable` flag, the guarded function skips its NULL-check but
 /// keeps outMAMA's, the distinctness check guards the nullable operand, and every
@@ -7679,8 +9535,11 @@ fn the_transition_tier_is_step_impl_in_every_backend() {
         (
             "rust",
             &rust,
-            "fn SMA_step_impl(&self, sp: &mut SMA_StreamState,",
-            &["self.core.SMA_step_impl(&mut self.state,"],
+            // No `&self`: SMA's step reads nothing from `Core`, and a step that
+            // does reads only the `cs_<setting>` parameters its handle carries
+            // (issue #274).
+            "fn SMA_step_impl(sp: &mut SMA_StreamState,",
+            &["Core::SMA_step_impl(&mut self.state,"],
             "step_internal",
         ),
         (
@@ -10497,6 +12356,505 @@ fn test_composed_open_fuses_every_sub_call() {
     );
 }
 
+/// Rule S5 on EVERY Rust public `OpenAndFill` — corpus-wide, because Rust's own
+/// probe (`tests/stream_open_contract.rs`) names six functions and runs nightly.
+///
+/// Two clauses. The width has to come from the function's OWN lookback, not from
+/// the history's length — `historyLen - lookback` is what the fill writes, and a
+/// bound of `historyLen` would reject every correctly-sized call. And the
+/// capacity has to precede the output-distinctness guard, which is the order the
+/// specification lists (S5, then S6).
+#[test]
+fn rust_public_fill_bounds_every_output_against_its_own_lookback() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let enums = load_enums();
+    let mut checked = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, _)) = try_load_indicator(&name) else { continue };
+        if !func.streaming {
+            continue;
+        }
+        let src = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+        let sn = func.name.to_lowercase();
+        let entry = format!("pub fn {}_OpenAndFill(", func.name.to_uppercase());
+        let at = src
+            .find(&entry)
+            .unwrap_or_else(|| panic!("{}: no public OpenAndFill", func.name));
+        // The PUBLIC frame only. Rust emits `<N>_OpenAndFillInternal` after it,
+        // so a needle searched to end-of-file would be satisfied by the anchored
+        // seam — which is exactly where this bound must NOT be.
+        let frame_len = src[at..]
+            .find("\n    }\n")
+            .unwrap_or_else(|| panic!("{}: public OpenAndFill has no end", func.name));
+        let body = &src[at..at + frame_len];
+        let width = format!("let _guardOutLen = {}.len().saturating_sub(_guardLb);",
+                            streaming::input_array_names(&func)[0]);
+        let at_width = body.find(&width).unwrap_or_else(|| {
+            panic!("{}: OpenAndFill does not derive the fill width from the history", func.name)
+        });
+        let lb = format!("let _guardLb = self.{}_Lookback(", sn.to_uppercase());
+        assert!(
+            body[..at_width].contains(&lb),
+            "{}: the fill width is not read from the function's own lookback",
+            func.name
+        );
+        // S5's INPUT half — B5's first clause, read on this range — and its
+        // position: after S3 (the lookback's own rejection) and before the
+        // output capacity, which is the order B5 states.
+        let inputs = streaming::input_array_names(&func);
+        if inputs.len() > 1 {
+            let disagree: Vec<String> = inputs[1..]
+                .iter()
+                .map(|extra| format!("{extra}.len() != {}.len()", inputs[0]))
+                .collect();
+            let needle = format!("if {} {{", disagree.join(" || "));
+            let at_in = body.find(&needle).unwrap_or_else(|| {
+                panic!("{}: OpenAndFill does not require the inputs to be the history's length", func.name)
+            });
+            // S3 first, in whichever shape this tier spells it: the merged tiers
+            // take their rejection from `<N>_Lookback(..)?`, the two exempt ones
+            // validate each parameter inline. Either way a parameter fault is
+            // answered before a length one.
+            assert!(
+                body[..at_in].contains(&lb)
+                    || body[..at_in].contains("return Err(RetCode::BadParam);"),
+                "{}: the input half is checked before the parameters",
+                func.name
+            );
+            assert!(at_in < at_width, "{}: the input half follows the output width", func.name);
+            let tail = &body[at_in + needle.len()..];
+            assert!(
+                tail.trim_start().starts_with("return Err(RetCode::BadParam);"),
+                "{}: the input half does not reject",
+                func.name
+            );
+        }
+        for out in &func.outputs {
+            // A `nullable` output is `Option<&mut [T]>` and is bounded only when
+            // it was supplied (rule B6a); every other output is bounded flat.
+            let needle = if out.is_nullable() {
+                format!("if {}.as_deref().is_some_and(|o| o.len() < _guardOutLen) {{", out.name)
+            } else {
+                format!("if {}.len() < _guardOutLen {{", out.name)
+            };
+            let at_out = body.find(&needle).unwrap_or_else(|| {
+                panic!("{}: OpenAndFill does not bound `{}`", func.name, out.name)
+            });
+            assert!(at_out > at_width, "{}: `{}` is bounded before the width exists", func.name, out.name);
+            // …and the bound REJECTS. Pinning the condition alone passes against
+            // an `if` with an empty body, which is the mutation this gate exists
+            // to catch.
+            let tail = &body[at_out + needle.len()..];
+            assert!(
+                tail.trim_start().starts_with("return Err(RetCode::BadParam);"),
+                "{}: `{}`'s bound does not reject",
+                func.name,
+                out.name
+            );
+            if let Some(at_alias) = body.find(&format!("{}_p.as_ptr() ==", out.name)) {
+                assert!(at_out < at_alias, "{}: S5 is specified ahead of S6", func.name);
+            }
+        }
+        checked += 1;
+    }
+    assert!(checked >= 176, "only {checked} public fills inspected");
+}
+
+/// Rule S1 on EVERY C# public opener — corpus-wide, for the same reason as the
+/// Java gate below.
+///
+/// C# is the backend where the probe/corpus gap is widest. Its live S1 is the
+/// public frame's `IsEmpty` throw, not the core's `historyLen < 1` return, which
+/// the frame makes unreachable from the public API — so
+/// `scripts/check_stream_retcodes.py`, which reads the core, is not evidence
+/// about the surface a caller touches. `StreamApiTest` probes it on `SMA`; this
+/// is what covers the other 175.
+///
+/// Two clauses, because the first input means something the others do not: it
+/// carries the history, so empty THERE is S1; a later one is a length
+/// disagreement, which is the catch-all like every other argument fault.
+#[test]
+fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let enums = load_enums();
+    let mut checked = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, _)) = try_load_indicator(&name) else { continue };
+        if !func.streaming {
+            continue;
+        }
+        let src = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        let base = func.name.to_uppercase();
+        let inputs = streaming::input_array_names(&func);
+        for (verb, entry) in [
+            ("open", format!("public {base}_Stream {base}_Open( ")),
+            ("openAndFill", format!("public {base}_Stream {base}_OpenAndFill( ")),
+        ] {
+            let at = src
+                .find(&entry)
+                .unwrap_or_else(|| panic!("{}: no public {verb}", func.name));
+            let body = &src[at..];
+            let history = &inputs[0];
+            let s1 = format!(
+                "if( {history}.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof({history}), \"{base} {verb}: history is empty\", RetCode.OutOfRangeStartIndex);"
+            );
+            let at_s1 = body.find(&s1).unwrap_or_else(|| {
+                panic!("{}: {verb} does not answer S1 on the history", func.name)
+            });
+            for extra in &inputs[1..] {
+                let other = format!(
+                    "if( {extra}.IsEmpty ) throw new TaLibArgumentException(\"{base} {verb}: {extra} is empty\", nameof({extra}), RetCode.BadParam);"
+                );
+                let at_other = body.find(&other).unwrap_or_else(|| {
+                    panic!("{}: {verb} does not check `{extra}`", func.name)
+                });
+                assert!(
+                    at_other > at_s1,
+                    "{}: {verb} checks `{extra}` before the history",
+                    func.name
+                );
+            }
+            // Rule S5, and the width the fill's half is derived from. An
+            // opener's `startIdx` is the constant 0, so B5's produced count
+            // collapses to `historyLen - lookback` — read from the function's
+            // OWN lookback, never from the history's width.
+            let at_width = (verb == "openAndFill").then(|| {
+                let width = format!(
+                    "int guardOutLen = OpenFillCount(\"{base}\", \"openAndFill\", {history}.Length, {base}_Lookback("
+                );
+                body.find(&width).unwrap_or_else(|| {
+                    panic!("{}: openAndFill does not derive the fill width from its own lookback", func.name)
+                })
+            });
+            // S5's input half, at BOTH openers (issue #271 item 1): the two
+            // used to answer the same fault differently, the fill naming the
+            // leg and the plain open reporting a bare `BadParam` from the core.
+            // At the fill it sits after S3 (the width's own rejection) and
+            // before the output capacity — the order B5 states.
+            for extra in &inputs[1..] {
+                let needle = format!(
+                    "RequireHistoryLength(\"{base}\", \"{verb}\", \"{extra}\", {extra}.Length, {history}.Length);"
+                );
+                let at_in = body.find(&needle).unwrap_or_else(|| {
+                    panic!("{}: {verb} does not require `{extra}` to be the history's length", func.name)
+                });
+                assert!(at_in > at_width.unwrap_or(at_s1), "{}: {verb} checks `{extra}`'s length too early", func.name);
+            }
+            if verb == "openAndFill" {
+                for out in &func.outputs {
+                    // A `nullable` output is bounded only when it was supplied
+                    // (rule B6a); the guard is part of the needle, so a
+                    // regression to an unconditional bound — or to none — is a
+                    // failure rather than a substring that still matches.
+                    let bound = format!(
+                        "RequireFillLength(\"{base}\", \"openAndFill\", \"{0}\", {0}.Length, guardOutLen);",
+                        out.name
+                    );
+                    let needle = if out.is_nullable() {
+                        format!("if( !{}.IsEmpty ) {bound}", out.name)
+                    } else {
+                        bound.clone()
+                    };
+                    let at_out = body.find(&needle).unwrap_or_else(|| {
+                        panic!("{}: openAndFill does not bound `{}`", func.name, out.name)
+                    });
+                    if !out.is_nullable() {
+                        assert!(
+                            !body.contains(&format!("if( !{}.IsEmpty ) {bound}", out.name)),
+                            "{}: `{}` is not nullable and must be bounded unconditionally",
+                            func.name,
+                            out.name
+                        );
+                    }
+                    assert!(at_out > at_s1, "{}: `{}` is bounded before the history is checked", func.name, out.name);
+                }
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 352, "only {checked} public openers inspected");
+}
+
+/// Rule S4, then S1/S2, on EVERY Java public opener — corpus-wide, because a
+/// probe on SMA says nothing about the other 175.
+///
+/// The order is the point, and the assertion is two-sided: the FIRST input's
+/// null test precedes the index pair (a length is not readable from an array
+/// that is not there), and **everything else** follows it — the remaining price
+/// legs as much as the outputs. A one-sided version that only pinned the outputs
+/// would pass against a frame that checks every leg up front, which reports the
+/// leg where C reports the empty history.
+///
+/// An output is checked with `requireLength`, not `requireArgument`: one call
+/// carries S4 and S5, exactly as the batch wrapper's does. Requiring the
+/// capacity form here is what stops a fill's presence check from silently
+/// reverting to presence alone.
+#[test]
+fn java_public_openers_check_arguments_then_the_index_pair() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let enums = load_enums();
+    let mut checked = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, _)) = try_load_indicator(&name) else { continue };
+        if !func.streaming {
+            continue;
+        }
+        let src = backends::java::generate(&func, &enums, &registry, &helpers);
+        let base = func.name.to_uppercase();
+        for (verb, entry, with_outputs) in [
+            ("open", format!("public {base}_Stream {base}_Open( "), false),
+            ("openAndFill", format!("public {base}_Stream {base}_OpenAndFill( "), true),
+        ] {
+            let at = src
+                .find(&entry)
+                .unwrap_or_else(|| panic!("{}: no public {verb}", func.name));
+            let body = &src[at..];
+            let history = &streaming::input_array_names(&func)[0];
+            let pair = body
+                .find(&format!("requireHistory(\"{base} {verb}\", {history}.length);"))
+                .unwrap_or_else(|| panic!("{}: {verb} does not check the index pair", func.name));
+
+            let mut names: Vec<(String, bool)> = streaming::input_array_names(&func)
+                .into_iter()
+                .map(|i| (i, false))
+                .collect();
+            if with_outputs {
+                names.extend(func.outputs.iter().map(|o| (o.name.clone(), true)));
+            }
+            for (arg, is_output) in &names {
+                let needle = if *is_output {
+                    format!("requireLength(\"{base} {verb}\", \"{arg}\", {arg}, guardOutLen);")
+                } else {
+                    format!("requireArgument(\"{base} {verb}\", \"{arg}\", {arg});")
+                };
+                let at_arg = body.find(&needle).unwrap_or_else(|| {
+                    panic!("{}: {verb} does not check `{arg}`", func.name)
+                });
+                // Only the history is allowed in front of the pair.
+                let expect_after = arg != history;
+                assert_eq!(
+                    at_arg > pair,
+                    expect_after,
+                    "{}: {verb}'s check of `{arg}` is on the wrong side of the index pair",
+                    func.name
+                );
+            }
+            // S5's width, derived from the lookback rather than from the
+            // requested range: an opener's `startIdx` is the constant 0, so
+            // B5's produced count collapses to `historyLen - lookback`. Only
+            // the fill has one — the plain open writes nothing.
+            let at_width = with_outputs.then(|| {
+                let width = format!(
+                    "int guardOutLen = openFillCount(\"{base} {verb}\", {history}.length, {base}_Lookback("
+                );
+                body.find(&width).unwrap_or_else(|| {
+                    panic!("{}: openAndFill does not derive the fill width from its own lookback", func.name)
+                })
+            });
+            // S5's input half, at BOTH openers (issue #271 item 1): the two
+            // used to answer the same fault differently, the fill naming the
+            // leg and the plain open reporting a bare `BadParam` from the core.
+            // At the fill it sits after S3 (the width's own rejection) and
+            // before the output capacity — the order B5 states.
+            for extra in streaming::input_array_names(&func).iter().skip(1) {
+                let needle = format!(
+                    "requireHistoryLength(\"{base} {verb}\", \"{extra}\", {extra}.length, {history}.length);"
+                );
+                let at_in = body.find(&needle).unwrap_or_else(|| {
+                    panic!("{}: {verb} does not require `{extra}` to be the history's length", func.name)
+                });
+                assert!(
+                    at_in > at_width.unwrap_or(pair),
+                    "{}: {verb} checks `{extra}`'s length too early",
+                    func.name
+                );
+            }
+            if with_outputs {
+                for out in &func.outputs {
+                    // A `nullable` output is bounded only when it was supplied
+                    // (rule B6a). The guard is part of the needle: without it
+                    // the bare call is a SUBSTRING of the guarded line, so the
+                    // gate would keep passing while going blind on exactly the
+                    // output the rule is about.
+                    let bound = format!(
+                        "requireLength(\"{base} {verb}\", \"{0}\", {0}, guardOutLen);",
+                        out.name
+                    );
+                    let needle = if out.is_nullable() {
+                        format!("if( {} != null ) {bound}", out.name)
+                    } else {
+                        bound.clone()
+                    };
+                    assert!(
+                        body.contains(&needle),
+                        "{}: openAndFill does not bound `{}`",
+                        func.name,
+                        out.name
+                    );
+                    if !out.is_nullable() {
+                        assert!(
+                            !body.contains(&format!("if( {} != null ) {bound}", out.name)),
+                            "{}: `{}` is not nullable and must be bounded unconditionally",
+                            func.name,
+                            out.name
+                        );
+                    }
+                }
+            }
+            checked += 1;
+        }
+    }
+    assert!(checked >= 352, "only {checked} public openers inspected");
+}
+
+/// No opener answers the code its sub-call handed back.
+///
+/// The composed openers guard a sub-call on `retCode != SUCCESS || count == 0`.
+/// Since #267 the error half is answered at the call site and folded away, so
+/// the surviving half is the count test — reached with `retCode` holding
+/// `Success`, and the arm returned it. Rust said `Err(RetCode::Success)`, a
+/// contradiction that reached the public `<N>_Open` through `?`; Java and C#
+/// minted a handle over an empty range. Rule S7 is what that shape is: a
+/// history that cannot produce a value (issue #271 item 4).
+///
+/// Corpus-wide over the three ported backends, because the five sites are in
+/// four functions and the next composed indicator would get the same body. C is
+/// deliberately absent: it runs no cleanup sequence, so its guard still carries
+/// the error half and `return retCode` there is the error propagation.
+///
+/// This is the absence half. That the arm answers the opener's code — rather
+/// than losing the return altogether — is asserted directly on the pass, in
+/// `ir_cleanup`'s own tests.
+#[test]
+fn an_opener_never_answers_the_code_its_sub_call_handed_back() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let enums = load_enums();
+
+    // The definition keyword that tells a definition from a call site, and the
+    // bare-code return this tier may not contain.
+    let specs: [(&str, &str, &str); 3] = [
+        ("Rust", "pub(crate) fn", "return Err(retCode)"),
+        ("Java", "private RetCode", "return retCode ;"),
+        ("C#", "private RetCode", "return retCode ;"),
+    ];
+
+    let mut per_backend = [0usize; 3];
+    for name in discover_indicators() {
+        let Some((func, _)) = try_load_indicator(&name) else { continue };
+        if !func.streaming {
+            continue;
+        }
+        let sources = [
+            backends::rust_lang::generate(&func, &enums, &registry, &helpers),
+            backends::java::generate(&func, &enums, &registry, &helpers),
+            backends::csharp::generate(&func, &enums, &registry, &helpers),
+        ];
+        for (b, src) in sources.iter().enumerate() {
+            let (lang, def_kw, bare) = specs[b];
+            let mut at = 0;
+            while let Some(i) = src[at..].find("_Open") {
+                let abs = at + i;
+                at = abs + "_Open".len();
+                let line_start = src[..abs].rfind('\n').map_or(0, |n| n + 1);
+                if !src[line_start..abs].contains(def_kw) {
+                    continue;
+                }
+                let body = strip_comments(body_after(src, abs));
+                if body.is_empty() {
+                    continue;
+                }
+                assert!(
+                    !body.contains(bare),
+                    "{lang} {}: an opener returns the sub-call's own code, which is `Success` \
+                     wherever the fold answered the error half",
+                    func.name
+                );
+                per_backend[b] += 1;
+            }
+        }
+    }
+    // Non-vacuity, per backend: a def-keyword that stopped matching would make
+    // the whole sweep skip in silence.
+    for (b, n) in per_backend.iter().enumerate() {
+        assert!(*n >= 170, "{}: only {n} opener bodies inspected", specs[b].0);
+    }
+}
+
+/// The `{`-matched body that follows `from`.
+fn body_after(s: &str, from: usize) -> &str {
+    let b = match s[from..].find('{') {
+        Some(i) => from + i,
+        None => return "",
+    };
+    let bytes = s.as_bytes();
+    let (mut depth, mut j) = (0usize, b);
+    while j < bytes.len() {
+        match bytes[j] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return &s[b..=j];
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    &s[b..]
+}
+
+/// Comments removed, line by line so every slice stays on a char boundary
+/// (these bodies carry em dashes). Prose is not code: "Trading for a
+/// Living" in EFI's provenance note otherwise reads as a loop.
+fn strip_comments(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_block = false;
+    for line in s.lines() {
+        let mut rest = line;
+        loop {
+            if in_block {
+                match rest.find("*/") {
+                    Some(e) => {
+                        rest = &rest[e + 2..];
+                        in_block = false;
+                    }
+                    None => break,
+                }
+            } else {
+                match (rest.find("/*"), rest.find("//")) {
+                    (Some(a), Some(b)) if b < a => {
+                        out.push_str(&rest[..b]);
+                        break;
+                    }
+                    (Some(a), _) => {
+                        out.push_str(&rest[..a]);
+                        rest = &rest[a + 2..];
+                        in_block = true;
+                    }
+                    (None, Some(b)) => {
+                        out.push_str(&rest[..b]);
+                        break;
+                    }
+                    (None, None) => {
+                        out.push_str(rest);
+                        break;
+                    }
+                }
+            }
+        }
+        out.push('\n');
+    }
+    out
+}
+
 /// Every transcribed `_OpenImpl` rejects an anchor that lands past the history,
 /// in all four backends, and does it before any loop can run.
 ///
@@ -10520,74 +12878,6 @@ fn test_composed_open_fuses_every_sub_call() {
 ///     past protects nothing.
 #[test]
 fn every_open_pass_rejects_an_anchor_past_the_history() {
-    /// The `{`-matched body that follows `from`.
-    fn body_after(s: &str, from: usize) -> &str {
-        let b = match s[from..].find('{') {
-            Some(i) => from + i,
-            None => return "",
-        };
-        let bytes = s.as_bytes();
-        let (mut depth, mut j) = (0usize, b);
-        while j < bytes.len() {
-            match bytes[j] {
-                b'{' => depth += 1,
-                b'}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return &s[b..=j];
-                    }
-                }
-                _ => {}
-            }
-            j += 1;
-        }
-        &s[b..]
-    }
-
-    /// Comments removed, line by line so every slice stays on a char boundary
-    /// (these bodies carry em dashes). Prose is not code: "Trading for a
-    /// Living" in EFI's provenance note otherwise reads as a loop.
-    fn strip_comments(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        let mut in_block = false;
-        for line in s.lines() {
-            let mut rest = line;
-            loop {
-                if in_block {
-                    match rest.find("*/") {
-                        Some(e) => {
-                            rest = &rest[e + 2..];
-                            in_block = false;
-                        }
-                        None => break,
-                    }
-                } else {
-                    match (rest.find("/*"), rest.find("//")) {
-                        (Some(a), Some(b)) if b < a => {
-                            out.push_str(&rest[..b]);
-                            break;
-                        }
-                        (Some(a), _) => {
-                            out.push_str(&rest[..a]);
-                            rest = &rest[a + 2..];
-                            in_block = true;
-                        }
-                        (None, Some(b)) => {
-                            out.push_str(&rest[..b]);
-                            break;
-                        }
-                        (None, None) => {
-                            out.push_str(rest);
-                            break;
-                        }
-                    }
-                }
-            }
-            out.push('\n');
-        }
-        out
-    }
-
     /// Every TRANSCRIBED `_OpenImpl` DEFINITION body in `src`. Two filters, and
     /// both are load-bearing. `_OpenImpl(` alone also matches the call sites
     /// every function has, and a body sliced from a call site is whatever block
@@ -10616,7 +12906,7 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
 
     // guard text, the emptiness check it must follow, and the signature marker
     let specs: [(&str, &str, &str); 4] = [
-        ("C", "if( startIdx > historyLen - 1 )", "if( historyLen < 1 ) return TA_BAD_PARAM;"),
+        ("C", "if( startIdx > historyLen - 1 )", "if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;"),
         ("Rust", "if startIdx > endIdx {", ".is_empty()"),
         ("Java", "if( startIdx > endIdx ) {", "historyLen < 1"),
         ("C#", "if( startIdx > endIdx ) {", "historyLen < 1"),
@@ -10687,4 +12977,275 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
         );
     }
     assert!(checked > 600, "only {checked} bodies checked across four backends");
+}
+
+/// Every DECLARED input is checked in every backend (#260).
+///
+/// Seven candlestick legs are declared by their function and never indexed by
+/// its body: `inHigh` and `inLow` on CDL3OUTSIDE, CDLENGULFING and
+/// CDLXSIDEGAP3METHODS, and `inOpen` on CDLHIKKAKE. Rust, Java and C# used to
+/// exempt exactly those from their argument checks, computing the set from the
+/// body; C's NULL checks covered them like any other input. So
+/// `TA_CDL3OUTSIDE(0, 251, open, NULL, NULL, close, ...)` was `TA_BAD_PARAM` in
+/// C and a success in the other three — a three-way exemption, which is the
+/// defect rather than which side was right.
+///
+/// A corpus sweep, because the exemption was DERIVED: it was never a list a
+/// reviewer could read, so any future indicator could have joined it silently.
+/// Each backend's own spelling of the check, since B4 and B5 are one condition
+/// per backend — a NULL test in C, `requireLength` / `RequireLength` in Java and
+/// C#, and **two** in Rust: the public tier's returned `BadParam`, which is what
+/// a caller meets, and the `assert!` bound in `<N>_Impl`, which is what the
+/// phantom-I/O sweep meets and what LLVM reads (#265; a cross-call meets the
+/// public one too since #267).
+///
+/// Part two is what keeps part one honest. A sweep over every declared input
+/// passes trivially once no input is ever dropped, so it cannot tell you the
+/// interesting legs were ever at risk. So the seven are named, asserted to still
+/// be unread by their body, and asserted to be checked anyway. If a body starts
+/// reading one, the "still unread" half fails and the list gets revisited; if the
+/// exemption comes back, the first half fails on all seven.
+#[test]
+fn every_declared_input_is_checked_in_every_backend() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    let mut scanned = 0usize;
+    let mut no_inputs = 0usize;
+    let mut legs_checked = 0usize;
+
+    for name in discover_indicators() {
+        let Some((func, enums)) = try_load_indicator(&name) else {
+            continue;
+        };
+        if func.inputs.is_empty() {
+            no_inputs += 1;
+            continue;
+        }
+        let out = generate_all(&func, &enums);
+        let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        scanned += 1;
+        let f = &func.name;
+
+        for input in &func.inputs {
+            let n = &input.name;
+            legs_checked += 1;
+            // Each backend's own spelling, and how many entry points must carry
+            // it: C emits the double prologue and its `TA_S_` float twin, Java
+            // and C# emit a double and a float overload, Rust is generic and
+            // emits one. A COUNT, not a `contains`: a filter re-applied to one
+            // precision only would leave the other's copy to satisfy a
+            // whole-file search.
+            for (lang, src, needle, want) in [
+                ("c", &out.c, format!("if( !{n} )"), 2usize),
+                (
+                    "rust",
+                    &out.rust,
+                    format!("assert!(_assertStart > endIdx || endIdx < {n}.len());"),
+                    1,
+                ),
+                // The public tier's own bound, which is what a caller of the
+                // crate actually meets (#265). Two needles for Rust, not one:
+                // the assert above states the same thing to LLVM and stays in
+                // `<N>_Impl` for the phantom-I/O sweep, so it would go on
+                // satisfying this test after the caller-facing check was gone.
+                ("rust-pub", &out.rust, format!("if {n}.len() < endIdx + 1 {{"), 1),
+                (
+                    "java",
+                    &out.java,
+                    format!("requireLength(\"{f}\", \"{n}\", {n}, guardInLen);"),
+                    2,
+                ),
+                (
+                    "csharp",
+                    &csharp,
+                    format!("RequireLength(\"{f}\", \"{n}\", {n}.Length, guardInLen);"),
+                    2,
+                ),
+            ] {
+                assert!(
+                    src.matches(&needle).count() >= want,
+                    "{lang}: {f} declares {n} and checks it on fewer than {want} entry \
+                     point(s) — expected `{needle}`"
+                );
+            }
+        }
+    }
+
+    // Every discovered indicator is accounted for: swept, or explicitly counted
+    // as having no input to sweep. A floor would let a `continue` path drop a
+    // fifth of the corpus and still pass.
+    assert_eq!(
+        scanned + no_inputs,
+        discover_indicators().len(),
+        "every discovered indicator is swept or counted ({scanned} + {no_inputs})"
+    );
+    // Literal floors: a derived one moves with whatever the scan happens to find.
+    assert!(scanned >= 170, "only {scanned} indicators scanned");
+    assert!(legs_checked >= 380, "only {legs_checked} declared input legs checked");
+
+    // ---- part two: the seven legs the exemption used to drop ----
+    let unread: [(&str, &[&str]); 4] = [
+        ("cdl3outside", &["inHigh", "inLow"]),
+        ("cdlengulfing", &["inHigh", "inLow"]),
+        ("cdlxsidegap3methods", &["inHigh", "inLow"]),
+        ("cdlhikkake", &["inOpen"]),
+    ];
+    let mut pairs = 0usize;
+    for (indicator, legs) in unread {
+        let (func, enums) = load_indicator(indicator);
+        let out = generate_all(&func, &enums);
+        let csharp = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        let f = &func.name;
+        // The body proper: everything after the bounds-assert preamble, so the
+        // asserts this test just demanded cannot themselves satisfy "is read".
+        let body = extract_section(&out.rust, "let mut startIdx = startIdx;", &format!("pub fn {f}("));
+        assert!(
+            body.contains("inClose["),
+            "{f}: the control leg inClose is not indexed — the body extraction is wrong"
+        );
+        for leg in legs {
+            pairs += 1;
+            assert!(
+                !body.contains(&format!("{leg}[")),
+                "{f}: {leg} is indexed by the body now; it is no longer an unread leg, so \
+                 revisit this list"
+            );
+            // ...and checked regardless. Restated on the four backends here so a
+            // sweep that silently stopped covering these still fails.
+            assert!(out.c.contains(&format!("if( !{leg} )")), "c: {f}.{leg}");
+            assert!(
+                out.rust
+                    .contains(&format!("assert!(_assertStart > endIdx || endIdx < {leg}.len());")),
+                "rust: {f}.{leg}"
+            );
+            assert!(
+                out.rust.contains(&format!("if {leg}.len() < endIdx + 1 {{")),
+                "rust public tier: {f}.{leg}"
+            );
+            assert!(
+                out.java
+                    .contains(&format!("requireLength(\"{f}\", \"{leg}\", {leg}, guardInLen);")),
+                "java: {f}.{leg}"
+            );
+            assert!(
+                csharp.contains(&format!(
+                    "RequireLength(\"{f}\", \"{leg}\", {leg}.Length, guardInLen);"
+                )),
+                "csharp: {f}.{leg}"
+            );
+        }
+    }
+    assert_eq!(pairs, 7, "the seven never-indexed legs of #260");
+}
+
+
+/// A stream handle carries exactly the candlestick settings its own step reads,
+/// and no `Core` (issue #274).
+///
+/// The three rows are the three cases, and each is a control on the others: a
+/// step that reads one setting, a step that reads five, and a step that reads
+/// none. A handle that went back to embedding `Core` fails all three; one that
+/// widened to "every setting" fails the first two on the count; one that
+/// narrowed to nothing fails them on the field itself.
+#[test]
+fn a_stream_handle_carries_only_the_settings_its_step_reads() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+
+    // (indicator, handle, the settings its step reads, in field order)
+    let cases: [(&str, &str, &[&str]); 3] = [
+        ("cdldoji", "CDLDOJI_Stream", &["cs_body_doji"]),
+        (
+            "cdladvanceblock",
+            "CDLADVANCEBLOCK_Stream",
+            &[
+                "cs_body_long",
+                "cs_far",
+                "cs_near",
+                "cs_shadow_long",
+                "cs_shadow_short",
+            ],
+        ),
+        ("sma", "SMA_Stream", &[]),
+    ];
+
+    for (name, handle, settings) in cases {
+        let (func, enums) = load_indicator(name);
+        assert!(func.streaming, "{name} must carry the `stream` flag");
+        let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+
+        let start = rust
+            .find(&format!("pub struct {handle} {{"))
+            .unwrap_or_else(|| panic!("{name}: no {handle} definition"));
+        let body = &rust[start..start + rust[start..].find("\n}").expect("struct end")];
+
+        assert!(
+            !body.contains("core: Core,"),
+            "{name}: {handle} still embeds a whole Core"
+        );
+        assert_eq!(
+            body.matches(": CandleSetting,").count(),
+            settings.len(),
+            "{name}: {handle} carries the wrong number of settings\n{body}"
+        );
+        for field in settings {
+            assert!(
+                body.contains(&format!("{field}: CandleSetting,")),
+                "{name}: {handle} is missing {field}"
+            );
+        }
+
+        // The step takes them as parameters — it has no receiver to read them
+        // through — and the call site hands over the handle's own fields.
+        let params: String = settings
+            .iter()
+            .map(|f| format!(", {f}: &CandleSetting"))
+            .collect();
+        let args: String = settings.iter().map(|f| format!("&self.{f}, ")).collect();
+        let upper = name.to_uppercase();
+        assert!(
+            rust.contains(&format!(
+                "fn {upper}_step_impl(sp: &mut {upper}_StreamState{params},"
+            )),
+            "{name}: step signature does not take exactly its settings"
+        );
+        assert!(
+            rust.contains(&format!(
+                "Core::{upper}_step_impl(&mut self.state, {args}"
+            )),
+            "{name}: `update` does not hand the step its settings"
+        );
+    }
+}
+
+/// A step unpacks its candle settings from its own parameters; only the batch
+/// and `Open` tiers, which run on a `Core` receiver, read `self.candle_settings`
+/// (issue #274).
+#[test]
+fn a_stream_step_reads_candle_settings_from_its_parameters() {
+    let registry = make_registry();
+    let helpers = HelperRegistry::empty();
+    let (func, enums) = load_indicator("cdldoji");
+    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+
+    let step = rust
+        .find("fn CDLDOJI_step_impl(")
+        .expect("cdldoji renders a step");
+    let step_body = &rust[step..step + rust[step..].find("\n    }").expect("step end")];
+
+    assert!(
+        step_body.contains("let BodyDoji_rangeType: i32 = cs_body_doji.range_type as i32;"),
+        "the step must unpack from its parameter\n{step_body}"
+    );
+    assert!(
+        !step_body.contains("self.candle_settings"),
+        "the step has no Core receiver to read through\n{step_body}"
+    );
+    // The control: the batch tier still does, and is the reason the unpacking
+    // emitter keeps both spellings.
+    assert!(
+        rust.contains("let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type as i32;"),
+        "the batch tier must still read the Core it runs on"
+    );
 }

@@ -157,6 +157,8 @@ TA_LIB_API TA_RetCode TA_HT_SINE( int    startIdx,
 
    if( !inReal )
       return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
+      return TA_BAD_PARAM;
    if( !outSine )
       return TA_BAD_PARAM;
    if( !outLeadSine )
@@ -605,6 +607,8 @@ TA_RetCode TA_S_HT_SINE( int    startIdx,
       return TA_OUT_OF_RANGE_END_INDEX;
 
    if( !inReal )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outSine )
       return TA_BAD_PARAM;
@@ -1226,9 +1230,9 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
    if( startIdx > historyLen - 1 )
    {
       *outBegIdx = 0;
@@ -1711,7 +1715,7 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
       sp->maxIdx_smoothPrice = maxIdx_smoothPrice;
       sp->streamParity = historyLen % 2;
       sp->ringCap_trailingWMAIdx = (int)(today - trailingWMAIdx);
-      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->ringCap_trailingWMAIdx < 0 || sp->ringCap_trailingWMAIdx > historyLen ) { TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(330); }
       { size_t allocN = (size_t)(sp->ringCap_trailingWMAIdx > 0 ? sp->ringCap_trailingWMAIdx : 1);
         sp->ring_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
@@ -1721,7 +1725,7 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
       }
       sp->ringPos_trailingWMAIdx = 0;
       sp->cbSize_smoothPrice = maxIdx_smoothPrice + 1;
-      if( sp->cbSize_smoothPrice < 1 || sp->cbSize_smoothPrice > historyLen + 1 ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }
+      if( sp->cbSize_smoothPrice < 1 || sp->cbSize_smoothPrice > historyLen + 1 ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(331); }
       sp->cb_smoothPrice = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_smoothPrice );
       if( !sp->cb_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->cbMirror_smoothPrice = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_smoothPrice );
@@ -1756,9 +1760,9 @@ TA_LIB_API TA_RetCode TA_HT_SINE_Open( TA_HT_SINE_Stream **stream, const double 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
    return TA_HT_SINE_OpenInternal( stream, inReal, 0, historyLen, outSine, outLeadSine );
 }
 
@@ -1766,10 +1770,9 @@ TA_LIB_API TA_RetCode TA_HT_SINE_OpenAndFill( TA_HT_SINE_Stream **stream, const 
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inReal || !outSine || !outLeadSine ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inReal || !outBegIdx || !outNBElement || !outSine || !outLeadSine ) return TA_BAD_PARAM;
    if( (const void *)outSine == (const void *)inReal || (const void *)outLeadSine == (const void *)inReal || (const void *)outSine == (const void *)outLeadSine ) return TA_BAD_PARAM;
    return TA_HT_SINE_OpenAndFillInternal( stream, inReal, 0, historyLen, outBegIdx, outNBElement, outSine, outLeadSine );
 }

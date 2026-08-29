@@ -101,11 +101,7 @@ fn uname(func: &FuncDef) -> String {
 /// (`*outFAMA = …`) is NULL-guarded exactly as the batch body's write is — this
 /// is what lets a dispatch pass NULL for a sub-stream output it doesn't want.
 fn nullable_out_names(func: &FuncDef) -> Vec<String> {
-    func.outputs
-        .iter()
-        .filter(|o| o.is_nullable())
-        .map(|o| o.name.clone())
-        .collect()
+    super::common::nullable_output_list(func)
 }
 
 /// The callee output-argument list for one supported dispatch arm, built from
@@ -249,8 +245,8 @@ pub fn open_and_fill_internal_signature(func: &FuncDef) -> String {
 /// `OpenInternal` needs for sub-stream composition), the batch output triplet,
 /// and `outStride`. File-static: with two call sites the compiler decides per
 /// function whether to share the body or inline it into both wrappers, and when
-/// it inlines, `outStride` constant-folds to 0/1 and the arm is exactly what the
-/// two separate bodies used to be. Forcing `noinline` measured LARGER.
+/// it inlines, `outStride` constant-folds to 0/1 and the arm is exactly what a
+/// separate body per entry point would be. Forcing `noinline` measured LARGER.
 fn open_core_signature(func: &FuncDef) -> String {
     let n = uname(func);
     let mut history = String::new();
@@ -352,48 +348,122 @@ fn finite_bar_check(func: &FuncDef, indent: &str, fail: &str) -> String {
     format!("{indent}if( {} ) return {fail};\n", conds.join(" || "))
 }
 
-/// The null + range guards at the PUBLIC `Open` / `OpenAndFill` entry.
+/// Rules S1 and S2 — the opener's implied index pair — ahead of every presence
+/// check, because an opener is a batch call over `[0, historyLen - 1]` and the
+/// pair is B1 and B2 read on that range, answering the same two codes
+/// (`docs/error-handling-spec.md` §2.3). Only `!stream` may precede it: the
+/// "`*stream` is NULL on any failure" contract is published through that
+/// pointer, so it is a precondition for reporting anything at all rather than an
+/// argument competing with the pair.
 ///
-/// `<N>_OpenImpl` repeats them, so this reads like a duplicate. It is not, and the
-/// reason differs between the two entry points:
+/// The ceiling is `TA_MAX_INDEX + 1` because the implied `endIdx` is
+/// `historyLen - 1`. Without it the streaming entry points would compute over
+/// exactly the ranges the batch call refuses, and the two are required to agree
+/// bit for bit (#180).
+fn index_pair_guards() -> &'static str {
+    concat!(
+        "   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;\n",
+        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;\n"
+    )
+}
+
+/// Which frame is asking [`presence_guard`] what it must find present.
+#[derive(Clone, Copy, PartialEq)]
+enum Frame {
+    /// `Open`, and `<N>_OpenImpl` behind it. The handle is checked separately,
+    /// ahead of the `*stream = NULL` that publishes "no handle on any failure".
+    Open,
+    /// `OpenAndFill`: the same, plus the range out-parameters it writes through.
+    OpenAndFill,
+    /// `Update` / `Peek` over a transcribed `<N>_StepImpl`: bars arrive by value,
+    /// so there are no input arrays, and a declined output is not required
+    /// because the transcription guards its write (`if( outFAMA != NULL )`).
+    Step,
+    /// `Update` / `Peek` on a hand-rolled tier. Same shape, one clause less: the
+    /// dispatch identity arm copies the bar with a bare `*out = in`, so there is
+    /// no guard for a declined output to hide behind and EVERY output is
+    /// required — declared `nullable` or not.
+    StepEveryOutput,
+    /// `UpdateAndFill`: bars arrive as arrays.
+    StepAndFill,
+}
+
+/// Rule S4 / U1 / U2 — everything a C frame must find present, in one order:
+/// the handle, the declared inputs, the range out-parameters, then the outputs a
+/// caller is required to supply. It is the batch prologue's order too, so both
+/// tiers state the same contract the same way.
 ///
-/// - `Open` delegates through `OpenInternal`, which hands `<N>_OpenImpl` a private
-///   `sink_outReal` and copies it out afterwards. `<N>_OpenImpl`'s `!outReal` test
-///   therefore never sees the CALLER's pointer, and without the check here
-///   `TA_<N>_Open( &s, data, n, p, NULL )` would run to completion and then
-///   dereference NULL on the copy-out. This wrapper is the only place that
-///   pointer is checkable.
-/// - `OpenAndFill` calls `<N>_OpenImpl` directly, so the null checks are genuinely
-///   repeated — but the alias guard emitted after these runs BEFORE `<N>_OpenImpl`
-///   sees anything, so dropping them would let an output aliasing its input on
-///   an over-long history report `TA_BAD_PARAM` where it reports
-///   `TA_OUT_OF_RANGE_END_INDEX` today.
-fn public_open_guards(func: &FuncDef, fail: &str) -> String {
-    let inputs = streaming::input_array_names(func);
-    if inputs.is_empty() {
+/// One producer, because it is one decision and every frame makes it. Hand-rolled
+/// it had already split three ways — the merged tier put the out-meta first, the
+/// two exempt tiers put them last, and the dispatch tier dropped the clause
+/// below. Nothing could see any of it: they all answer `TA_BAD_PARAM`.
+///
+/// **A `nullable` output is in the list only where nothing guards its write.**
+/// Declining one is legal (Appendix F), and the transcribed bodies honour that
+/// with an `if( out != NULL )` — so the opener and the transcribed step leave it
+/// out, and only [`Frame::StepEveryOutput`] keeps it. Hand-rolling had both
+/// halves wrong in the same tier: the dispatch OPENER dropped the clause it
+/// needs (it would have required what its own batch call accepts), while the
+/// dispatch STEP relied on it without the guard that earns it. Latent either
+/// way, because `MA`'s single output is not declinable — which is exactly why
+/// one producer is worth having.
+fn required_args(func: &FuncDef, frame: Frame) -> Vec<String> {
+    let nullable = nullable_out_names(func);
+    let mut names: Vec<String> = Vec::new();
+    if matches!(frame, Frame::Step | Frame::StepEveryOutput | Frame::StepAndFill) {
+        names.push("stream".to_string());
+    }
+    if matches!(frame, Frame::Open | Frame::OpenAndFill | Frame::StepAndFill) {
+        names.extend(streaming::input_array_names(func));
+    }
+    if frame == Frame::OpenAndFill {
+        names.push("outBegIdx".to_string());
+        names.push("outNBElement".to_string());
+    }
+    names.extend(
+        func.outputs
+            .iter()
+            .map(|o| o.name.clone())
+            .filter(|o| frame == Frame::StepEveryOutput || !nullable.contains(o)),
+    );
+    names
+}
+
+/// [`required_args`] as the single rejection every C frame emits for it.
+///
+/// `<N>_OpenImpl` makes the same test, so the public frames read like duplicates.
+/// They are not: `Open` delegates through `OpenInternal`, which hands the core a
+/// private `sink_outReal` and copies it out afterwards, so the core's `!outReal`
+/// never sees the CALLER's pointer — without the check here,
+/// `TA_<N>_Open( &s, data, n, p, NULL )` runs to completion and then dereferences
+/// NULL on the copy-out. `OpenAndFill` does pass the caller's arrays straight
+/// down, so there the repeat is real, and cheaper than teaching the frame which
+/// of its arguments the callee will see.
+/// One alias comparison, with the NULL guard a declinable operand needs.
+///
+/// A declined output aliases nothing, and two of them would otherwise compare
+/// equal — `NULL == NULL` — rejecting a legal call. The batch emitter guards the
+/// nullable operand for exactly this reason (rule B6a).
+fn alias_term(func: &FuncDef, a: &str, b: &str) -> String {
+    let nullable = super::common::nullable_output_names(func);
+    let term = format!("(const void *){a} == (const void *){b}");
+    match (nullable.contains(a), nullable.contains(b)) {
+        (false, false) => term,
+        (true, false) => format!("({a} != NULL && {term})"),
+        (false, true) => format!("({b} != NULL && {term})"),
+        (true, true) => format!("({a} != NULL && {b} != NULL && {term})"),
+    }
+}
+
+fn presence_guard(func: &FuncDef, frame: Frame) -> String {
+    let nulls: Vec<String> = required_args(func, frame)
+        .into_iter()
+        .map(|a| format!("!{a}"))
+        .collect();
+    if nulls.is_empty() {
         return String::new();
     }
-    // The OUTPUT pointers are checked here too, even though this wrapper does
-    // not touch them: `<N>_OpenImpl` rejects a NULL output BEFORE it range-checks
-    // `historyLen`, so leaving them out would make a >TA_MAX_INDEX history with
-    // a NULL output report TA_OUT_OF_RANGE_END_INDEX where it used to report
-    // TA_BAD_PARAM. Same set, same order, same answer.
-    let nullable = nullable_out_names(func);
-    let nulls: Vec<String> = inputs
-        .iter()
-        .cloned()
-        .chain(
-            func.outputs
-                .iter()
-                .map(|o| o.name.clone())
-                .filter(|o| !nullable.contains(o)),
-        )
-        .map(|i| format!("!{i}"))
-        .collect();
-    format!(
-        "   if( {} ) return {fail};\n   if( historyLen < 1 ) return {fail};\n   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;\n",
-        nulls.join(" || ")
-    )
+    format!("   if( {} ) return TA_BAD_PARAM;\n", nulls.join(" || "))
 }
 
 /// Emit the public `Open` as a thin wrapper delegating to `OpenInternal` with
@@ -420,7 +490,8 @@ fn emit_open_wrapper(o: &mut String, func: &FuncDef) {
     // OpenImpl, which normally does it, is not reached.
     let _ = writeln!(o, "   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
-    o.push_str(&public_open_guards(func, "TA_BAD_PARAM"));
+    o.push_str(index_pair_guards());
+    o.push_str(&presence_guard(func, Frame::Open));
     let _ = writeln!(o, "   return TA_{n}_OpenInternal( stream, {hist}0, historyLen, {opts}{outputs} );");
     let _ = writeln!(o, "}}\n");
 }
@@ -475,46 +546,33 @@ fn emit_open_internal_wrapper(o: &mut String, func: &FuncDef) {
 
 /// `OpenAndFill`: the fill wrapper. Carries the validation the scalar path has
 /// no need of — the out-meta pointers, and the aliasing rejections (#108/#130).
-/// Those are NOT stylistic: the capture epilogue reads the input tail AFTER
-/// writing the outputs, so an output aliasing an input or another output would
-/// corrupt the handle. `Open` writes only to its own stack slots and never has
-/// that hazard, so making it pay the check would be pure cost.
+/// Those are NOT stylistic, but the reason is not the obvious one: the fill's
+/// writes stop where the capture's warm-up seeds begin, or overlap them by the
+/// single slot the next `Update` rewrites first, so in-place computes the right
+/// answer today. It is forbidden because that margin is an accident of each
+/// body's arithmetic that nothing asserts. `Open` writes only to its own stack
+/// slots and never has the hazard, so making it pay the check would be pure cost.
 fn emit_open_and_fill_wrapper(o: &mut String, func: &FuncDef) {
     let n = uname(func);
     let inputs = streaming::input_array_names(func);
-    let nullable = nullable_out_names(func);
     let outs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
     let _ = writeln!(o, "{}\n{{", open_and_fill_signature(func));
     let _ = writeln!(o, "   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
-    // Out-meta only. `public_open_guards` below tests the inputs AND the same
-    // non-nullable output set, so listing the outputs here too emitted `!outReal`
-    // twice in one prologue. Both orderings answer TA_BAD_PARAM, so dropping the
-    // repeat is text, not behaviour -- but only where that call actually emits,
-    // which it does not for a function with no input series.
-    let mut null_checks: Vec<String> = vec!["!outBegIdx".into(), "!outNBElement".into()];
-    let guards = public_open_guards(func, "TA_BAD_PARAM");
-    if guards.is_empty() {
-        null_checks.extend(
-            outs.iter()
-                .filter(|x| !nullable.contains(*x))
-                .map(|x| format!("!{x}")),
-        );
-    }
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
-    o.push_str(&guards);
+    o.push_str(index_pair_guards());
+    o.push_str(&presence_guard(func, Frame::OpenAndFill));
     // Cast to `const void *` so the comparison is well-typed for any output
     // element type (an integer output vs double inputs would otherwise warn
     // "comparison of distinct pointer types lacks a cast").
     let mut alias: Vec<String> = Vec::new();
     for out in &outs {
         for inp in &inputs {
-            alias.push(format!("(const void *){out} == (const void *){inp}"));
+            alias.push(alias_term(func, out, inp));
         }
     }
     for (i, a) in outs.iter().enumerate() {
         for b in &outs[i + 1..] {
-            alias.push(format!("(const void *){a} == (const void *){b}"));
+            alias.push(alias_term(func, a, b));
         }
     }
     if !alias.is_empty() {
@@ -604,30 +662,21 @@ pub fn update_and_fill_signature(func: &FuncDef) -> String {
 /// detect; a partial overlap in C stays rule N8, unspecified.
 fn update_and_fill_guards(func: &FuncDef) -> String {
     let inputs = streaming::input_array_names(func);
-    let nullable = nullable_out_names(func);
     let outs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
     let mut o = String::new();
-    let nulls: Vec<String> = std::iter::once("!stream".to_string())
-        .chain(inputs.iter().map(|i| format!("!{i}")))
-        .chain(
-            outs.iter()
-                .filter(|x| !nullable.contains(*x))
-                .map(|x| format!("!{x}")),
-        )
-        .collect();
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", nulls.join(" || "));
+    o.push_str(&presence_guard(func, Frame::StepAndFill));
     // A zero count is a success no-op: a caller catching up over a gap should not
     // have to special-case an empty gap.
     let _ = writeln!(o, "   if( barCount < 0 ) return TA_BAD_PARAM;");
     let mut alias: Vec<String> = Vec::new();
     for out in &outs {
         for inp in &inputs {
-            alias.push(format!("(const void *){out} == (const void *){inp}"));
+            alias.push(alias_term(func, out, inp));
         }
     }
     for (i, a) in outs.iter().enumerate() {
         for b in &outs[i + 1..] {
-            alias.push(format!("(const void *){a} == (const void *){b}"));
+            alias.push(alias_term(func, a, b));
         }
     }
     if !alias.is_empty() {
@@ -779,6 +828,10 @@ pub fn generate(
     // twice is idempotent while forgetting once is silent.
     let resolved = func.resolved_for(crate::ir::Lang::C);
     let func: &FuncDef = &resolved;
+    // Same reason, for the same two callers: the internal-error site ids the
+    // guards below ask for are keyed by function name. `c::generate` has
+    // already named it; this nests inside that one and restores it.
+    let _site_scope = crate::internal_error_ids::FuncScope::new(&func.name);
     assert!(
         func.streaming,
         "c_stream::generate called without a streaming declaration"
@@ -1119,6 +1172,13 @@ fn emit_composed_step(
     }
     let cur_scalars = composed_cur_scalars(cp, inputs, outputs);
     for name in &cur_scalars {
+        // Typed by what the scalar STANDS FOR: an output's own element type when
+        // the name is one of this function's outputs, `double` for the sub-call
+        // intermediates that make up the rest. This is the one site here that
+        // would not fail to compile if it stayed `double` — C narrows silently
+        // on the `*{out} = cur_{out}` write, so an integer output would come
+        // back truncated with nothing pointing at the cause.
+        let cur_ty = out_c_type(func, name);
         // Initialized, because a sub-call can now leave one unwritten. Every
         // `cur_*` is filled by the sub-call that produces it, so the initializer
         // is dead on every path where that call succeeds — but `Update`/`Peek`
@@ -1128,7 +1188,8 @@ fn emit_composed_step(
         // its output, and reading an uninitialized double is undefined behaviour
         // — the read happened, and returned different stack garbage on two
         // identical calls. Rust, Java and C# already zero their equivalents.
-        let _ = writeln!(o, "   double cur_{name} = 0.0;");
+        let zero = if cur_ty == "int" { "0" } else { "0.0" };
+        let _ = writeln!(o, "   {cur_ty} cur_{name} = {zero};");
     }
     let _ = writeln!(o);
 
@@ -1288,7 +1349,7 @@ fn emit_composed(
     emit_composed_step(o, func, cp, &inputs, &outputs, enums, registry, helpers, counter);
 
     // --- Open ------------------------------------------------------------------
-    emit_composed_open(o, func, cp, &outputs, &inputs, &cleanup, enums, registry, helpers, counter);
+    emit_composed_open(o, func, cp, &outputs, &cleanup, enums, registry, helpers, counter);
     emit_open_internal_wrapper(o, func);
     emit_open_wrapper(o, func);
     emit_open_and_fill_wrapper(o, func);
@@ -1302,10 +1363,7 @@ fn emit_composed(
     {
         let _ = writeln!(o, "{}\n{{", peek_signature(func));
         let _ = writeln!(o, "   struct TA_{n}_Stream scratch;");
-        let checks: Vec<String> = std::iter::once("!stream".to_string())
-            .chain(outputs.iter().map(|x| format!("!{x}")))
-            .collect();
-        let _ = writeln!(o, "\n   if( {} ) return TA_BAD_PARAM;", checks.join(" || "));
+        let _ = write!(o, "\n{}", presence_guard(func, Frame::StepEveryOutput));
         o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
         let _ = writeln!(o, "   scratch = *stream;");
         if let Some(model) = &cp.producer {
@@ -1511,7 +1569,6 @@ fn emit_composed_open(
     func: &FuncDef,
     cp: &streaming::ComposedPlan,
     outputs: &[String],
-    inputs: &[String],
     cleanup: &str,
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
@@ -1524,12 +1581,6 @@ fn emit_composed_open(
     // real-output today; fail LOUD at generation time if that ever changes, so the
     // sc_/memcpy element type gets threaded through out_c_type rather than
     // silently truncating an integer output.
-    assert!(
-        func.outputs.iter().all(|out| out_c_type(func, &out.name) == "double"),
-        "composed OpenAndFill assumes real (double) outputs; {} has a non-double output \
-         — thread out_c_type through the sc_ scratch malloc + memcpy in emit_composed_open",
-        func.name
-    );
     let _ = writeln!(o, "{}\n{{", open_core_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream *sp;");
     let _ = writeln!(o, "   int endIdx;");
@@ -1538,13 +1589,13 @@ fn emit_composed_open(
     let _ = writeln!(o, "   TA_RetCode subRc;");
     let _ = writeln!(o, "   double subOpenDummy;");
     for out in outputs {
-        let _ = writeln!(o, "   double *sc_{out};");
+        let _ = writeln!(o, "   {} *sc_{out};", out_c_type(func, out));
     }
     for (i, sub) in cp.subs.iter().enumerate() {
         let _ = writeln!(o, "   {}_Stream *sub{i};", callee_prefix(&sub.callee));
     }
 
-    emit_open_validation(o, func, outputs, inputs, enums);
+    emit_open_validation(o, func, enums);
 
     // startIdx arrives as a parameter: 0 for both public entry points, the
     // caller's own startIdx when a composed function opens this as a sub-stream.
@@ -1577,20 +1628,21 @@ fn emit_composed_open(
                 let _ = write!(s, "TA_Free( sc_{p} ); ");
                 s
             });
+        let ty = out_c_type(func, out);
         if alias_fill {
             let _ = writeln!(o, "   if( {OUT_STRIDE} ) sc_{out} = {out};");
             let _ = writeln!(o, "   else");
             let _ = writeln!(o, "   {{");
             let _ = writeln!(
                 o,
-                "      sc_{out} = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );"
+                "      sc_{out} = ({ty} *)TA_Malloc( sizeof({ty}) * (size_t)historyLen );"
             );
             let _ = writeln!(o, "      if( !sc_{out} ) {{ {prior}return TA_ALLOC_ERR; }}");
             let _ = writeln!(o, "   }}");
         } else {
             let _ = writeln!(
                 o,
-                "   sc_{out} = (double *)TA_Malloc( sizeof(double) * (size_t)historyLen );"
+                "   sc_{out} = ({ty} *)TA_Malloc( sizeof({ty}) * (size_t)historyLen );"
             );
             let _ = writeln!(o, "   if( !sc_{out} ) {{ {prior}return TA_ALLOC_ERR; }}");
         }
@@ -1736,7 +1788,8 @@ fn emit_composed_open(
         } else {
             let _ = writeln!(
                 o,
-                "      if( {OUT_STRIDE} ) memcpy( {out}, sc_{out}, sizeof(double) * (size_t)dummyNBElement );"
+                "      if( {OUT_STRIDE} ) memcpy( {out}, sc_{out}, sizeof({}) * (size_t)dummyNBElement );",
+                out_c_type(func, out)
             );
             let _ = writeln!(o, "      else {out}[0] = sc_{out}[dummyNBElement - 1];");
         }
@@ -2104,25 +2157,11 @@ fn emit_dispatch_open(
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
-    let mut null_checks: Vec<String> = inputs
-        .iter()
-        .chain(outputs.iter())
-        .map(|x| format!("!{x}"))
-        .collect();
-    if mode.fills() {
-        null_checks.push("!outBegIdx".into());
-        null_checks.push("!outNBElement".into());
-    }
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
-    let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
-    // The warm-up covers bars 0..historyLen-1, so its last bar is an index like
-    // any other and TA_MAX_INDEX bounds it too (#180). Without this the
-    // streaming entry points would compute over exactly the ranges the batch
-    // call refuses, and the two are required to agree bit for bit.
-    let _ = writeln!(
-        o,
-        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
-    );
+    o.push_str(index_pair_guards());
+    o.push_str(&presence_guard(
+        func,
+        if mode.fills() { Frame::OpenAndFill } else { Frame::Open },
+    ));
     if mode == DispatchOpen::Scalar {
         // The arms forward it, but an identity-only or all-rejecting dispatch
         // would leave it unread.
@@ -2136,12 +2175,12 @@ fn emit_dispatch_open(
         let mut alias: Vec<String> = Vec::new();
         for outp in &outputs {
             for inp in &inputs {
-                alias.push(format!("(const void *){outp} == (const void *){inp}"));
+                alias.push(alias_term(func, outp, inp));
             }
         }
         for (i, a) in outputs.iter().enumerate() {
             for b in &outputs[i + 1..] {
-                alias.push(format!("(const void *){a} == (const void *){b}"));
+                alias.push(alias_term(func, a, b));
             }
         }
         if !alias.is_empty() {
@@ -2355,10 +2394,7 @@ fn emit_dispatch(
         if verb == "Update" {
             let _ = writeln!(o, "   TA_RetCode retCode;\n");
         }
-        let checks: Vec<String> = std::iter::once("!stream".to_string())
-            .chain(outputs.iter().map(|x| format!("!{x}")))
-            .collect();
-        let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", checks.join(" || "));
+        o.push_str(&presence_guard(func, Frame::StepEveryOutput));
         // Checked here rather than left to the sub-stream's own Update/Peek: the
         // identity arm below never reaches a sub-stream at all, it copies the bar
         // straight to the output.
@@ -2391,7 +2427,11 @@ fn emit_dispatch(
         }
         let _ = writeln!(o, "   default:");
         let _ = writeln!(o, "      /* Unreachable: Open rejects arms without a sub-stream. */");
-        let _ = writeln!(o, "      return TA_INTERNAL_ERROR;");
+        let _ = writeln!(
+            o,
+            "      return TA_INTERNAL_ERROR({});",
+            crate::internal_error_ids::site(&format!("dispatch.{verb}"))
+        );
         let _ = writeln!(o, "   }}");
         if verb == "Update" {
             let _ = writeln!(o, "   if( retCode != TA_SUCCESS ) return retCode;");
@@ -2460,7 +2500,11 @@ fn emit_dispatch(
     }
     let _ = writeln!(o, "      default:");
     let _ = writeln!(o, "         /* Unreachable: Open rejects arms without a sub-stream. */");
-    let _ = writeln!(o, "         return TA_INTERNAL_ERROR;");
+    let _ = writeln!(
+        o,
+        "         return TA_INTERNAL_ERROR({});",
+        crate::internal_error_ids::site("dispatch.UpdateAndFill")
+    );
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "      if( retCode != TA_SUCCESS ) return retCode;");
     emit_range_head_advance(o, "      ", "stream");
@@ -2852,7 +2896,11 @@ fn emit_dual_mode(
     emit_open_arm(o, func, mb, &body_b, enums, registry, helpers, counter);
     let _ = writeln!(o, "   }}");
     // Both arms return; keep the compiler happy about the fall-through.
-    let _ = writeln!(o, "\n   return TA_INTERNAL_ERROR;\n}}\n");
+    let _ = writeln!(
+        o,
+        "\n   return TA_INTERNAL_ERROR({});\n}}\n",
+        crate::internal_error_ids::site("dualmode")
+    );
     emit_open_internal_wrapper(o, func);
     emit_open_wrapper(o, func);
     emit_open_and_fill_wrapper(o, func);
@@ -3506,7 +3554,6 @@ fn emit_open_head(
     enums: &HashMap<String, EnumDef>,
 ) {
     let n = uname(func);
-    let inputs = streaming::input_array_names(func);
     let _ = writeln!(o, "{}\n{{", open_core_signature(func));
 
     // --- declarations -------------------------------------------------------
@@ -3522,7 +3569,7 @@ fn emit_open_head(
         let _ = writeln!(o, "   {c_type} {name};");
     }
 
-    emit_open_validation(o, func, &model.outputs, &inputs, enums);
+    emit_open_validation(o, func, enums);
 
     // --- initialization (after defaults are substituted) ---------------------
     // startIdx arrives as a parameter: 0 for both standalone public entry
@@ -3649,22 +3696,8 @@ fn emit_period_bank(
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
-    let null_checks: Vec<String> = inputs
-        .iter()
-        .cloned()
-        .chain(std::iter::once(out.clone()))
-        .map(|x| format!("!{x}"))
-        .collect();
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
-    let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
-    // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and TA_MAX_INDEX bounds it too (#180). Without this the streaming
-    // entry points would compute over exactly the ranges the batch call refuses,
-    // and the two are required to agree bit for bit.
-    let _ = writeln!(
-        o,
-        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
-    );
+    o.push_str(index_pair_guards());
+    o.push_str(&presence_guard(func, Frame::Open));
     o.push_str(&emit_opt_param_validation(func, "TA_BAD_PARAM", enums));
     // MAVP's own guard: an inverted [min,max] window is invalid (batch rejects).
     let _ = writeln!(o, "   if( {min} > {max} ) return TA_BAD_PARAM;");
@@ -3762,27 +3795,11 @@ fn emit_period_bank(
     let _ = writeln!(o, "   TA_RetCode retCode;");
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
-    let mut fill_nulls: Vec<String> = inputs
-        .iter()
-        .cloned()
-        .chain(std::iter::once(out.clone()))
-        .map(|x| format!("!{x}"))
-        .collect();
-    fill_nulls.push("!outBegIdx".into());
-    fill_nulls.push("!outNBElement".into());
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", fill_nulls.join(" || "));
-    let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
-    // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and TA_MAX_INDEX bounds it too (#180). Without this the streaming
-    // entry points would compute over exactly the ranges the batch call refuses,
-    // and the two are required to agree bit for bit.
-    let _ = writeln!(
-        o,
-        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
-    );
+    o.push_str(index_pair_guards());
+    o.push_str(&presence_guard(func, Frame::OpenAndFill));
     let mut alias: Vec<String> = Vec::new();
     for inp in &inputs {
-        alias.push(format!("(const void *){out} == (const void *){inp}"));
+        alias.push(alias_term(func, out, inp));
     }
     if !alias.is_empty() {
         let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", alias.join(" || "));
@@ -3995,7 +4012,8 @@ fn emit_circ_capture(o: &mut String, model: &StreamModel, n: &str) {
         let _ = writeln!(o, "      sp->cbSize_{id} = maxIdx_{id} + 1;");
         let _ = writeln!(
             o,
-            "      if( sp->cbSize_{id} < 1 || sp->cbSize_{id} > historyLen + 1 ) {{ {free_batch}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }}"
+            "      if( sp->cbSize_{id} < 1 || sp->cbSize_{id} > historyLen + 1 ) {{ {free_batch}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+            eid = crate::internal_error_ids::site(&format!("cbsize.{id}"))
         );
         for (storage, ty) in circ_storages(circ) {
             let et = if matches!(ty, crate::ir::VarType::Integer) { "int" } else { "double" };
@@ -4221,14 +4239,16 @@ fn alloc_and_capture(
                 );
                 let _ = writeln!(
                     s,
-                    "{pad}if( sp->ringLag_{v} < {fwd} || sp->ringCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }}",
-                    fwd = ring.fwd
+                    "{pad}if( sp->ringLag_{v} < {fwd} || sp->ringCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+                    fwd = ring.fwd,
+                    eid = crate::internal_error_ids::site(&format!("ringlag.{v}"))
                 );
             } else {
                 let _ = writeln!(s, "{pad}sp->ringCap_{v} = (int)({} - {v});", model.cursor);
                 let _ = writeln!(
                     s,
-                    "{pad}if( sp->ringCap_{v} < 0 || sp->ringCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }}"
+                    "{pad}if( sp->ringCap_{v} < 0 || sp->ringCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+                    eid = crate::internal_error_ids::site(&format!("ringcap.{v}"))
                 );
             }
         } else if back > 0 {
@@ -4263,7 +4283,8 @@ fn alloc_and_capture(
         }
         let _ = writeln!(
             s,
-            "{pad}if( sp->winCap_{v} < 1 || sp->winCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }}"
+            "{pad}if( sp->winCap_{v} < 1 || sp->winCap_{v} > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+            eid = crate::internal_error_ids::site(&format!("wincap.{v}"))
         );
         for arr in &win.arrays {
             let _ = writeln!(
@@ -4302,7 +4323,8 @@ fn alloc_and_capture(
         }
         let _ = writeln!(
             s,
-            "{pad}if( sp->xCap < 1 || sp->xCap > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR; }}"
+            "{pad}if( sp->xCap < 1 || sp->xCap > historyLen ) {{ {pre}TA_{n}_ReleaseImpl( sp ); return TA_INTERNAL_ERROR({eid}); }}",
+            eid = crate::internal_error_ids::site("extrema")
         );
         // The slot map is a mask, so the ring is allocated at the next power of
         // two at or above the logical capacity: `idx & xMask` then equals
@@ -4413,42 +4435,16 @@ fn emit_identity_fast_path(
 
 /// Open's argument validation: NULL checks, minimum history, and the same
 /// optional-parameter default-substitution/range checks the batch uses.
-/// Fill mode additionally requires the batch output triplet non-NULL and, since
-/// its state-capture epilogue reads the input tail AFTER writing the output
-/// arrays, forbids any output aliasing an input or another output (a hazard the
-/// scalar path — which writes only to caller scalars — never has; cf. #108).
-fn emit_open_validation(
-    o: &mut String,
-    func: &FuncDef,
-    outputs: &[String],
-    inputs: &[String],
-    enums: &HashMap<String, EnumDef>,
-) {
+/// Fill mode additionally requires the batch output triplet non-NULL and forbids
+/// any output aliasing an input or another output — not because it would compute
+/// the wrong answer (measured: it does not), but because the margin between the
+/// fill's writes and the capture's seed reads is unasserted (rule S6; #108). The
+/// scalar path writes only caller scalars and never has the question.
+fn emit_open_validation(o: &mut String, func: &FuncDef, enums: &HashMap<String, EnumDef>) {
     let _ = writeln!(o, "\n   if( !stream ) return TA_BAD_PARAM;");
     let _ = writeln!(o, "   *stream = NULL;");
-    // A nullable output may be NULL (discarded) — its writes are NULL-guarded,
-    // so it is not required.
-    let nullable = nullable_out_names(func);
-    let null_checks: Vec<String> = inputs
-        .iter()
-        .map(|i| format!("!{i}"))
-        .chain(
-            outputs
-                .iter()
-                .filter(|out| !nullable.contains(*out))
-                .map(|out| format!("!{out}")),
-        )
-        .collect();
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", null_checks.join(" || "));
-    let _ = writeln!(o, "   if( historyLen < 1 ) return TA_BAD_PARAM;");
-    // The fill covers bars 0..historyLen-1, so its last bar is an index like any
-    // other and TA_MAX_INDEX bounds it too (#180). Without this the streaming
-    // entry points would compute over exactly the ranges the batch call refuses,
-    // and the two are required to agree bit for bit.
-    let _ = writeln!(
-        o,
-        "   if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;"
-    );
+    o.push_str(index_pair_guards());
+    o.push_str(&presence_guard(func, Frame::Open));
     // The out-meta NULL checks and the output-aliasing rejections are FILL-only
     // and live in `emit_open_and_fill_wrapper`: only the fill path writes the
     // caller's arrays, and only it can therefore have an output alias an input
@@ -4655,19 +4651,11 @@ fn emit_update(o: &mut String, func: &FuncDef, step_ret: bool) {
     let n = uname(func);
     let bars: Vec<String> = streaming::input_array_names(func);
     let outs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
-    let nullable = nullable_out_names(func);
     let _ = writeln!(o, "{}\n{{", update_signature(func));
     if step_ret {
         let _ = writeln!(o, "   TA_RetCode retCode;\n");
     }
-    let checks: Vec<String> = std::iter::once("!stream".to_string())
-        .chain(
-            outs.iter()
-                .filter(|x| !nullable.contains(*x))
-                .map(|x| format!("!{x}")),
-        )
-        .collect();
-    let _ = writeln!(o, "   if( {} ) return TA_BAD_PARAM;", checks.join(" || "));
+    o.push_str(&presence_guard(func, Frame::Step));
     o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
     let args: Vec<String> = bars
         .iter()
@@ -4729,17 +4717,9 @@ fn emit_peek_from(o: &mut String, func: &FuncDef, fixups: &str) {
     let n = uname(func);
     let bars: Vec<String> = streaming::input_array_names(func);
     let outs: Vec<String> = func.outputs.iter().map(|x| x.name.clone()).collect();
-    let nullable = nullable_out_names(func);
     let _ = writeln!(o, "{}\n{{", peek_signature(func));
     let _ = writeln!(o, "   struct TA_{n}_Stream scratch;");
-    let checks: Vec<String> = std::iter::once("!stream".to_string())
-        .chain(
-            outs.iter()
-                .filter(|x| !nullable.contains(*x))
-                .map(|x| format!("!{x}")),
-        )
-        .collect();
-    let _ = writeln!(o, "\n   if( {} ) return TA_BAD_PARAM;", checks.join(" || "));
+    let _ = write!(o, "\n{}", presence_guard(func, Frame::Step));
     o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
     let _ = writeln!(o, "   scratch = *stream;");
     o.push_str(fixups);

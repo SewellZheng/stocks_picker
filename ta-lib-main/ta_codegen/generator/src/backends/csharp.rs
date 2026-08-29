@@ -131,6 +131,16 @@ pub(crate) struct CsRenderCtx<'a> {
     /// `TA_MAType_SMA` → `MAType.SMA`, derived from enums.yaml (same map Java
     /// builds — the rendering is identical in both languages).
     pub(crate) matype_map: HashMap<String, String>,
+    /// Output parameters the caller may decline with an empty span because their
+    /// .yaml marks them `nullable` (rule B6a). Every store into one is wrapped
+    /// in an `if( !outX.IsEmpty )`. Populated for the batch bodies AND for the
+    /// stream open body, since rule B6a reads the same at both tiers.
+    pub(crate) nullable_outputs: &'a HashSet<String>,
+    /// Emit `lastCur_<out> = <value>;` beside every guarded store into a
+    /// nullable output — the streaming open body only, whose handle caches each
+    /// output's last value and has no array to read it back from when the
+    /// caller declines one.
+    pub(crate) nullable_shadow: bool,
 }
 
 /// Words this backend cannot render as an identifier (see [`crate::naming`]):
@@ -618,32 +628,23 @@ fn gen_public_wrapper(
     // C#'s null check IS the emptiness check, and the type system supplies the
     // half Java has to write by hand. What it does not supply is the length
     // bound, which is the rest of this block: the same bound the Rust backend
-    // asserts and Java's wrappers check — every input the body indexes must
-    // reach `endIdx`, every output must hold `endIdx - max(startIdx, lookback)
-    // + 1` values, the count actually produced.
+    // asserts and Java's wrappers check — every declared input must reach
+    // `endIdx`, every output must hold `endIdx - max(startIdx, lookback) + 1`
+    // values, the count actually produced.
     //
-    // There is no separate emptiness check. There used to be one, on every
-    // declared input, and the length bound subsumes it: on any call the core
-    // actually runs, `guardInLen` is `endIdx + 1` and therefore at least 1, so an
-    // empty input fails the length check anyway — and fails it with a message
-    // naming both sizes rather than just the word "empty".
+    // Do NOT add a separate emptiness check. The length bound subsumes it — on
+    // any call the core actually runs `guardInLen` is `endIdx + 1`, so an empty
+    // input fails it anyway, with a message naming both sizes — and an emptiness
+    // check runs before everything else, so it pre-empts the RetCode the core
+    // exists to produce: `SMA(-1, 50, empty, 10, out)` would report "inReal is
+    // empty" when the caller's mistake was the startIdx. The length bound cannot,
+    // because `ClampedStart` returns -1 for exactly those arguments and switches
+    // it off.
     //
-    // Where the two differed, the emptiness check was WRONG. It ran before
-    // anything else, so `SMA(-1, 50, empty, 10, out)` reported "inReal is empty"
-    // when the caller's actual mistake was the startIdx: it pre-empted the
-    // RetCode the core exists to produce. The length bound cannot, because
-    // `ClampedStart` returns -1 for exactly those arguments and switches it off.
-    //
-    // It also ran over inputs the body never indexes — four candlestick patterns
-    // declare an OHLC leg they never read — so an empty leg was an error in C#
-    // and a success in Rust and Java, which both skip those.
-    let indexed = super::common::indexed_input_names(func);
-    let checked_inputs: Vec<&str> = func
-        .inputs
-        .iter()
-        .filter(|i| indexed.contains(&i.name))
-        .map(|i| i.name.as_str())
-        .collect();
+    // It covers EVERY declared input, the seven candlestick legs no body indexes
+    // included (#260): C has no exception list, so skipping those makes the
+    // identical call `TA_BAD_PARAM` there and a success here.
+    let checked_inputs: Vec<&str> = func.inputs.iter().map(|i| i.name.as_str()).collect();
     if !checked_inputs.is_empty() || !func.outputs.is_empty() {
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|o| o.name.clone()).collect();
@@ -668,10 +669,22 @@ fn gen_public_wrapper(
         }
         for output in &func.outputs {
             let name = &output.name;
-            let _ = writeln!(
-                out,
-                "      RequireLength(\"{base_name}\", \"{name}\", {name}.Length, guardOutLen);"
-            );
+            // A nullable output may be declined (rule B6a). C# cannot spell
+            // "absent" apart from "empty" — a `Span<T>` is a ref struct and a
+            // null array converts to an empty one — so an empty span IS the
+            // declination, and its stores are guarded. Supplied, it is bounded
+            // like any other output.
+            if output.is_nullable() {
+                let _ = writeln!(
+                    out,
+                    "      if( !{name}.IsEmpty ) RequireLength(\"{base_name}\", \"{name}\", {name}.Length, guardOutLen);"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "      RequireLength(\"{base_name}\", \"{name}\", {name}.Length, guardOutLen);"
+                );
+            }
         }
     }
     {
@@ -809,6 +822,14 @@ fn gen_func_inner(
         &body_stripped
     };
 
+    // This backend's cleanup sequence, explicit so a pass can be made
+    // conditional later. C states none: every one of these would be wrong there.
+    let admits = |f: &str, a: &[Expr]| cross_call_split(f, a, registry).is_some();
+    let folded = super::ir_cleanup::drop_answered_cross_call_guards(body, &admits, None);
+    let folded = super::ir_cleanup::drop_deallocation(&folded);
+    let folded = super::ir_cleanup::drop_inert_guards(&folded);
+    let body: &[Statement] = &folded;
+
     // Pre-scan for variables used in AddressOf contexts. Integer ones stay
     // plain `int` locals (their call sites render `out name`); Real ones need
     // the `double[1]` wrapping because they bind to callee output arrays.
@@ -903,17 +924,18 @@ fn gen_func_inner(
         // correct result, so reject it. Input/output overlap stays allowed —
         // several bodies are written to compute in place.
         //
-        // `Overlaps`, NOT `==`. Under the old `double[]` surface two arrays
-        // were identical or disjoint, so reference equality was complete. Spans
-        // made the in-between expressible: `buf.AsSpan(0, n)` against
-        // `buf.AsSpan(0, n + 1)` is the SAME memory at the SAME start, and span
-        // `==` (ref AND length) reads false. Leaving this on `==` let 13
-        // multi-output functions return Success with every value wrong.
+        // `Overlaps`, NOT `==`. Spans make partial overlap expressible:
+        // `buf.AsSpan(0, n)` against `buf.AsSpan(0, n + 1)` is the SAME memory at
+        // the SAME start, and span `==` (ref AND length) reads false on it.
         //
-        // Zero-length operands need the explicit arm: `Overlaps` short-circuits
-        // to false when either side is empty, so two empty outputs — which the
-        // array guard rejected as the same reference — would otherwise reach
-        // the body and fault on the first write.
+        // Zero-length operands are NOT rejected, and must not be. `Overlaps`
+        // short-circuits to false when either side is empty, which is the right
+        // answer: two empty spans cannot clobber each other. Rejecting them makes
+        // a range shorter than the lookback — a documented success with no values,
+        // needing no output space (rule N1) — answer BadParam here while C and
+        // Java accept it (Appendix D item 11, #262), and it makes "declined"
+        // unspellable, since an empty span is how a C# caller declines a nullable
+        // output (B6a).
         //
         // Cross-typed pairs are skipped: `Span<double>` and `Span<int>` cannot
         // be laid over the same memory, and `Overlaps` is not defined across
@@ -927,10 +949,6 @@ fn gen_func_inner(
                         continue;
                     }
                     pairs.push(format!("{}.Overlaps({})", a.name, b.name));
-                    pairs.push(format!(
-                        "({}.IsEmpty && {}.IsEmpty)",
-                        a.name, b.name
-                    ));
                 }
             }
             if !pairs.is_empty() {
@@ -996,8 +1014,11 @@ fn gen_func_inner(
     // FMA fusion sites for this body — same detector C/Rust/Java use, so the
     // four backends fuse identical sites.
     let fma_sets = fma::build_fma_var_sets(body, &func.outputs, &fma::INDEX_PARAM_SEEDS);
+    let nullable_outputs = super::common::nullable_output_names(func);
     let ctx = CsRenderCtx {
         single_precision,
+        nullable_outputs: &nullable_outputs,
+        nullable_shadow: false,
         double_address_of_vars: &double_address_of_vars,
         float_input_params: &float_input_params,
         inline_counter: &inline_counter,
@@ -1325,8 +1346,20 @@ impl StatementEmitter for CsStmt<'_> {
         }
 
         let target_str = render_assign_target(target, self.ctx, self.registry, self.helpers);
-        let value_str = render_expr(&new_value, self.ctx, self.registry, self.helpers);
-        out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
+        let value_str = render_assign_value(&new_value, self.ctx, self.registry, self.helpers);
+        // Writing into a nullable output — guard it so a declined (empty) output
+        // is skipped (rule B6a). The `outIdx` advance rides the non-nullable
+        // partner's write (see mama.c), so guarding this store is complete.
+        if let Some(base) = nullable_target_base(target, self.ctx.nullable_outputs) {
+            if self.ctx.nullable_shadow {
+                out.push_str(&format!("{pad}lastCur_{base} = {value_str};\n"));
+            }
+            out.push_str(&format!(
+                "{pad}if( !{base}.IsEmpty )\n{pad}   {target_str} = {value_str};\n"
+            ));
+        } else {
+            out.push_str(&format!("{pad}{target_str} = {value_str};\n"));
+        }
         out
     }
 
@@ -1677,8 +1710,30 @@ pub(crate) fn render_csharp_switch_label(label: &str, enums: &HashMap<String, En
 /// carries `out int outBegIdx, out int outNBElement` and the public one does
 /// not. So dropping those two arguments IS the switch -- there is nothing to
 /// rename. See `render_cross_indicator_call` in the Java backend for why the
-/// out-parameters are found positionally and why the enclosing
-/// `if( retCode != Success )` is left standing.
+/// out-parameters are found positionally, and
+/// `ir_cleanup::drop_answered_cross_call_guards` for what becomes of the
+/// `if( retCode != Success )` that follows.
+/// Where a cross-indicator call's out-meta pair sits, and the admission test for
+/// the whole rewrite: `None` means this shape is not understood and the call
+/// falls through to the plain renderer, where the caller's `retCode` really does
+/// carry the callee's code.
+///
+/// The renderer and `drop_answered_cross_call_guards` must agree about that, or
+/// a folded guard would swallow a live rejection. The bound is `n_out + 2` here
+/// and `n_out + 4` in Rust, which also applies a shape check -- an argument list
+/// in the gap is admitted here and declined there, so do not share this.
+pub(super) fn cross_call_split(
+    fname: &str,
+    args: &[Expr],
+    registry: &Registry,
+) -> Option<usize> {
+    let n_out = registry.callee_outputs(fname).len();
+    if n_out == 0 || args.len() < n_out + 2 {
+        return None;
+    }
+    Some(args.len() - n_out - 2)
+}
+
 fn render_cross_indicator_call(
     fname: &str,
     args: &[Expr],
@@ -1687,20 +1742,18 @@ fn render_cross_indicator_call(
     registry: &Registry,
     helpers: &HelperRegistry,
 ) -> Option<String> {
-    let n_out = registry.callee_outputs(fname).len();
-    if n_out == 0 || args.len() < n_out + 2 {
-        return None;
-    }
-    let split = args.len() - n_out - 2;
+    let split = cross_call_split(fname, args, registry)?;
     let pad = " ".repeat(indent);
     let public = registry.resolve_call(fname, Lang::CSharp);
 
     let mut call_args: Vec<String> = Vec::new();
     for a in args[..split].iter().chain(args[split + 2..].iter()) {
         call_args.push(match a {
-            // NULL for a nullable output the caller discards (#125): the callee
-            // writes it unconditionally, so materialize a throwaway.
-            Expr::Var(n) if n == "NULL" => "new double[(int)(endIdx - startIdx + 1)]".to_string(),
+            // NULL for a nullable output the caller declines (#125): an empty
+            // span is how C# spells that, the callee skips its stores and its
+            // public tier skips the length check, so nothing is allocated —
+            // never a throwaway materialized on every call (B6a, #262).
+            Expr::Var(n) if n == "NULL" => "default".to_string(),
             _ => render_expr(a, ctx, registry, helpers),
         });
     }
@@ -1732,6 +1785,18 @@ fn out_meta_target(
         Expr::Var(n) => n.clone(),
         other => render_expr(other, ctx, registry, helpers),
     }
+}
+
+/// If `target` stores into one of the `nullable` outputs (a `Span<double>` the
+/// caller may leave empty to decline — rule B6a), return its base name so the
+/// store can be wrapped in `if( !outX.IsEmpty )`. Matches the array store
+/// `outX[i] = …` and the scalar store `outX = …`; the value side is never
+/// involved.
+fn nullable_target_base<'a>(target: &Expr, nullable: &'a HashSet<String>) -> Option<&'a String> {
+    let (Expr::ArrayAccess(name, _) | Expr::PointerDeref(name) | Expr::Var(name)) = target else {
+        return None;
+    };
+    nullable.get(name)
 }
 
 fn render_assign_target(
@@ -1958,6 +2023,8 @@ impl ExprEmitter for CsExpr<'_> {
                 let empty = HashSet::new();
                 let inner_ctx = CsRenderCtx {
                     single_precision: self.ctx.single_precision,
+                    nullable_outputs: self.ctx.nullable_outputs,
+                    nullable_shadow: false,
                     double_address_of_vars: &empty,
                     float_input_params: self.ctx.float_input_params,
                     inline_counter: self.ctx.inline_counter,
@@ -2011,6 +2078,33 @@ impl ExprEmitter for CsExpr<'_> {
         let e = if matches!(else_expr, Expr::Ternary(..)) { format!("({e})") } else { e };
         format!("{c} ? {t} : {e}")
     }
+}
+
+/// Render `value` as the whole right-hand side of an assignment — see the Java
+/// twin, [`super::java::render_assign_value`], for why a `cond ? 1 : 0` must
+/// keep its ternary form here and collapse everywhere else.
+pub(crate) fn render_assign_value(
+    value: &Expr,
+    ctx: &CsRenderCtx,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    if let Expr::Ternary(cond, then_expr, else_expr) = value {
+        if bool_ternary_collapse(then_expr, else_expr).is_some() && !is_int_bitwise(cond) {
+            let c = render_expr(cond, ctx, registry, helpers);
+            let c = if matches!(cond.as_ref(), Expr::BinOp(..) | Expr::Ternary(..)) {
+                format!("({c})")
+            } else {
+                c
+            };
+            return format!(
+                "{c} ? {} : {}",
+                render_expr(then_expr, ctx, registry, helpers),
+                render_expr(else_expr, ctx, registry, helpers)
+            );
+        }
+    }
+    render_expr(value, ctx, registry, helpers)
 }
 
 pub(crate) fn render_expr(
@@ -2224,8 +2318,14 @@ fn render_func_call(
                 }
             }
             StdlibFn::Free => {
-                // No-op (garbage collector handles deallocation)
-                String::new()
+                // Deallocation is removed from the IR before rendering, so this
+                // arm is the assertion that it was -- not a second way to make a
+                // `free` vanish, which could disagree with the pass.
+                unreachable!(
+                    "free() reached the C# renderer: `ir_cleanup::drop_deallocation` \
+                     runs on every body this backend renders, so a `free` here means a \
+                     render path was added without the cleanup sequence"
+                )
             }
             StdlibFn::Memcpy | StdlibFn::Memmove => {
                 // memcpy/memmove(dst, src, count) -> src.Slice(..).CopyTo(dst.Slice(..)).
@@ -2262,13 +2362,11 @@ fn render_func_call(
         let rendered: Vec<String> = args
             .iter()
             .map(|a| match a {
-                // NULL for a nullable output the caller discards (MA passing
-                // NULL for MAMA's FAMA — issue #125). The callee writes into it
-                // unconditionally, so materialize a throwaway spanning the
-                // output range. NULL appears only here.
-                Expr::Var(n) if n == "NULL" => {
-                    "new double[(int)(endIdx - startIdx + 1)]".to_string()
-                }
+                // NULL for a nullable output the caller declines (MA passing
+                // NULL for MAMA's FAMA — issue #125). An empty span is how C#
+                // spells that and the callee's stores are guarded, so nothing
+                // is allocated (B6a, #262). NULL appears only here.
+                Expr::Var(n) if n == "NULL" => "default".to_string(),
                 // The caller's own out-params pass through to the callee's
                 // `out int` pair. In C both are `int*` passed bare; C# needs
                 // the `out` keyword at the argument site. These two names are
@@ -2320,8 +2418,11 @@ fn render_lookback_code(
     let inline_counter = Cell::new(0);
     let double_address_of_vars = HashSet::new();
     let float_input_params: HashSet<String> = HashSet::new();
+    let no_nullable = HashSet::new();
     let ctx = CsRenderCtx {
         single_precision: false,
+        nullable_outputs: &no_nullable,
+        nullable_shadow: false,
         double_address_of_vars: &double_address_of_vars,
         float_input_params: &float_input_params,
         inline_counter: &inline_counter,
@@ -2500,11 +2601,10 @@ mod tests {
         let registry = make_registry();
         let output = generate(&func, &enums, &registry, &HelperRegistry::empty());
 
-        // `&localBegIdx` used to lower to `out localBegIdx` at the cross-call.
-        // Since #236 step 3 the two out-parameters are not passed at all — that
-        // omission is what selects the callee's PUBLIC overload — and the range
-        // it returns is bound to the same two locals instead. The `out` lowering
-        // itself is still live, on the streaming sub-opens, which keep the
+        // At a cross-call the two out-parameters are not passed at all — that
+        // omission is what selects the callee's PUBLIC overload (#236 step 3) —
+        // and the range it returns is bound to the same two locals instead. The
+        // `out` lowering stays live on the streaming sub-opens, which keep the
         // C-shaped shape because they have no public entry point.
         assert!(
             output.contains("MA(startIdx, endIdx, inReal, minUsed"),
@@ -2530,8 +2630,8 @@ mod tests {
         );
     }
 
-    /// MA exercises qualified enum switch labels and the NULL-output
-    /// materialization for the MAMA arm.
+    /// MA exercises qualified enum switch labels and the declined-output arm
+    /// for MAMA's FAMA.
     #[test]
     fn csharp_ma_switch_is_qualified() {
         let func = load("ma");
@@ -2542,8 +2642,12 @@ mod tests {
         assert!(output.contains("case MAType.SMA:"), "switch labels must be qualified");
         assert!(!output.contains("case SMA:"), "unqualified labels are Java-only");
         assert!(
-            output.contains("new double[(int)(endIdx - startIdx + 1)]"),
-            "MAMA's discarded FAMA output must materialize a throwaway array"
+            output.contains("MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, default)"),
+            "MAMA's declined FAMA output must be an empty span (rule B6a), not a buffer"
+        );
+        assert!(
+            !output.contains("new double[(int)(endIdx - startIdx + 1)]"),
+            "the throwaway FAMA buffer must be gone, not merely unread (#262)"
         );
     }
 }

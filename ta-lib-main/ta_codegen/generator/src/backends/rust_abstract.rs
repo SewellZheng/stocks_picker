@@ -1,4 +1,4 @@
-//! Generate `abstract_.rs` — the Rust function metadata registry (introspection layer).
+//! Generate `abstract_api.rs` — the Rust function metadata registry (introspection layer).
 //!
 //! This is the Rust analog of C's `ta_abstract` (`TA_GetFuncInfo`,
 //! `TA_Get*ParameterInfo`, `TA_ForEachFunc`). Instead of mirroring C's runtime
@@ -19,12 +19,30 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-/// Generate `ta_codegen/output/rust/src/abstract_.rs` from the function defs.
+/// Generate `ta_codegen/output/rust/library/src/abstract_api.rs` from the function defs.
 ///
 /// [`rows`] sorts alphabetically by name (so `FuncId` discriminants and the name
 /// `match` are deterministic); this emits the registry and writes only if changed.
 #[allow(clippy::implicit_hasher)]
 pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &Path) {
+    let n = rows(funcs, enums).len();
+    let o = render(funcs, enums);
+
+    // Write the XML data file embedded by function_description_xml() via include_str!.
+    // Byte-identical to the repo-root ta_func_api.xml (same generator + same input),
+    // which C's TA_FunctionDescriptionXML also bakes — so the two are equal.
+    let xml = super::func_api_xml::generate_string(funcs);
+    let xml_path = out_base.join("rust/library/src/ta_func_api.xml");
+    super::write_if_changed(&xml_path, &xml, "ta_func_api.xml (rust embed)", n);
+
+    let out_path = out_base.join("rust/library/src/abstract_api.rs");
+    super::write_if_changed(&out_path, &o, "abstract_api.rs", n);
+}
+
+/// `abstract_api.rs`'s text, without writing it — so a test can assert on the
+/// generated binder without a repo checkout to read from.
+#[allow(clippy::implicit_hasher)]
+pub fn render(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>) -> String {
     let sorted = rows(funcs, enums);
     let enum_params = enum_param_types(funcs);
     let n = sorted.len();
@@ -77,15 +95,7 @@ pub fn generate(funcs: &[FuncDef], enums: &HashMap<String, EnumDef>, out_base: &
     // --- committed regression tests for the registry's structural invariants ---
     o.push_str(REGISTRY_TESTS);
 
-    // Write the XML data file embedded by function_description_xml() via include_str!.
-    // Byte-identical to the repo-root ta_func_api.xml (same generator + same input),
-    // which C's TA_FunctionDescriptionXML also bakes — so the two are equal.
-    let xml = super::func_api_xml::generate_string(funcs);
-    let xml_path = out_base.join("rust/library/src/ta_func_api.xml");
-    super::write_if_changed(&xml_path, &xml, "ta_func_api.xml (rust embed)", n);
-
-    let out_path = out_base.join("rust/library/src/abstract_api.rs");
-    super::write_if_changed(&out_path, &o, "abstract_api.rs", n);
+    o
 }
 
 fn emit_func(o: &mut String, f: &FuncRow) {
@@ -395,6 +405,12 @@ impl<'a> ParamHolder<'a> {
     /// Bind a price bundle. Components the function does not consume are accepted
     /// and ignored, matching C's `SET_PARAM_INFO` and the Java and C# binders.
     ///
+    /// Validates every consumed component before writing any of them, so a
+    /// rejection leaves the holder exactly as it found it (#266). Interleaved,
+    /// this committed the components ahead of the offending one, and a caller
+    /// re-binding an already-good bundle then computed over a mixture of the two
+    /// -- the holder-reusability rule the `call` tier states for itself.
+    ///
     /// # Errors
     /// [`RetCode::BadParam`] if the slot is out of range, is not a price input, or
     /// a component the function *does* consume was left `None`.
@@ -411,12 +427,12 @@ impl<'a> ParamHolder<'a> {
         self.check_input(slot, InputType::Price)?;
         let flags = self.func.info().inputs[slot].flags;
         let given = [open, high, low, close, volume, open_interest];
-        for (i, series) in given.into_iter().enumerate() {
+        for (i, series) in given.iter().enumerate() {
             if flags.0 & (1u32 << i) != 0 && series.is_none() {
                 return Err(RetCode::BadParam);
             }
-            self.price[slot][i] = series;
         }
+        self.price[slot] = given;
         Ok(self)
     }
 
@@ -594,8 +610,13 @@ mod binder_tests {
         assert!(covered >= 75, "covered {covered} functions with optional parameters");
     }
 
-    /// The bind-time check C cannot perform: its setters take a bare pointer, so an
+    /// The check C cannot perform: its setters take a bare pointer, so an
     /// undersized output is an out-of-bounds write there. A slice carries its length.
+    ///
+    /// Since #265 the bound is the public entry point's, not this tier's own, so
+    /// what is asserted here is that binding through the catalogue answers what
+    /// calling `Core::SMA` directly answers — which is also what Java's binder
+    /// and C's frames have always done.
     #[test]
     fn an_undersized_output_is_rejected_not_written_past() {
         let core = Core::new();
@@ -606,6 +627,160 @@ mod binder_tests {
         h.set_opt(0, 30_i32).unwrap();
         h.set_output(0, &mut tiny).unwrap();
         assert_eq!(h.call(0, N - 1), Err(RetCode::BadParam));
+    }
+
+    /// An INPUT shorter than the requested range, which nothing reached before
+    /// #265: this tier checked outputs only, so a short leg went straight into
+    /// the numerics and tripped their assert — a panic out of a `Result`-typed
+    /// method. Java answers `BadParam` (its binder calls the public tier) and so
+    /// does C# since #265; C cannot express the case at all, its setters taking
+    /// a bare pointer.
+    #[test]
+    fn an_undersized_input_is_rejected_not_read_past() {
+        let core = Core::new();
+        let close = series(0.0);
+        let mut out = vec![0.0; N];
+        let mut h = FuncId::SMA.new_call(&core);
+        h.set_input(0, &close[..N / 2]).unwrap();
+        h.set_opt(0, 30_i32).unwrap();
+        h.set_output(0, &mut out).unwrap();
+        assert_eq!(h.call(0, N - 1), Err(RetCode::BadParam));
+
+        // Control: the same call over a range the leg does cover succeeds, so
+        // the rejection above is the length and not the binding.
+        let mut h = FuncId::SMA.new_call(&core);
+        h.set_input(0, &close[..N / 2]).unwrap();
+        h.set_opt(0, 30_i32).unwrap();
+        h.set_output(0, &mut out).unwrap();
+        assert!(h.call(0, N / 2 - 1).is_ok());
+    }
+
+    /// An output sized to the count the call PRODUCES is enough — the bound is
+    /// B5's, `endIdx - max(startIdx, lookback) + 1`, not the width of the
+    /// requested range. Demanding the latter rejects a caller who allocated by
+    /// the published formula (#265).
+    #[test]
+    fn an_output_sized_to_the_produced_count_is_enough() {
+        let core = Core::new();
+        let close = series(0.0);
+        let lookback = core.SMA_Lookback(30).unwrap();
+        let mut exact = vec![0.0; N - lookback];
+        let mut h = FuncId::SMA.new_call(&core);
+        h.set_input(0, &close).unwrap();
+        h.set_opt(0, 30_i32).unwrap();
+        h.set_output(0, &mut exact).unwrap();
+        assert_eq!(h.call(0, N - 1), Ok(OutRange { beg_idx: lookback, count: N - lookback }));
+    }
+
+    /// A rejected call leaves the holder as it found it. The outputs are moved
+    /// out of it for the duration of one call, and every exit has to put them
+    /// back — otherwise a caller who corrects the mistake and calls again is told
+    /// their bound output is missing, forever.
+    #[test]
+    fn a_rejected_call_leaves_the_holder_reusable() {
+        let core = Core::new();
+        let close = series(0.0);
+        let mut a = vec![0.0; N];
+        let mut b = vec![0.0; N];
+        let mut c = vec![0.0; N];
+
+        // Multi-output, so the arm takes more than one buffer: rejected on the
+        // second, the first must not stay out of the holder.
+        let mut h = FuncId::ACCBANDS.new_call(&core);
+        h.set_price_input(0, Some(&close), Some(&close), Some(&close),
+                          Some(&close), Some(&close), Some(&close)).unwrap();
+        h.set_output(0, &mut a).unwrap();
+        h.set_output(2, &mut c).unwrap();
+        assert_eq!(h.call(0, N - 1), Err(RetCode::BadParam), "output 1 is unbound");
+        h.set_output(1, &mut b).unwrap();
+        assert!(h.call(0, N - 1).is_ok(), "the corrected holder still works");
+    }
+
+    /// A rejected SETTER leaves the holder as it found it, which is the other
+    /// half of the rule the test above pins for a rejected call (#266).
+    ///
+    /// The sharp case is a RE-bind, not a first bind: on a fresh holder the
+    /// partial write is masked, because the arm's `.ok_or(BadParam)?` reports the
+    /// component that was never set. Over a bundle that already works, an
+    /// interleaved check-and-write committed the components ahead of the
+    /// offending one and left the rest holding the previous bundle, so the next
+    /// `call` succeeded over a mixture of the two.
+    ///
+    /// Each holder is scoped because it borrows its output buffer for its whole
+    /// life; the buffers are compared after the scopes close.
+    #[test]
+    fn a_rejected_setter_leaves_the_holder_as_it_found_it() {
+        let core = Core::new();
+        // WILLR consumes High|Low|Close (InputFlags 0x0e), so `close` is the last
+        // required component and the natural place to trip the setter.
+        let high = series(0.0);
+        let low: Vec<f64> = high.iter().map(|v| v - 4.0).collect();
+        let close: Vec<f64> = high.iter().map(|v| v - 2.0).collect();
+        // A different PHASE, not a shift: WILLR is (hh - c) / (hh - ll), which a
+        // uniform offset leaves unchanged -- the control below would then pass on
+        // a setter that did nothing at all.
+        let high2 = series(1.3);
+        let low2: Vec<f64> = high2.iter().map(|v| v - 4.0).collect();
+        let close2: Vec<f64> = high2.iter().map(|v| v - 2.0).collect();
+
+        let bind = |h: &mut ParamHolder<'_>| {
+            h.set_opt(0, 14_i32).unwrap();
+        };
+
+        let mut reference = vec![0.0; N];
+        let mut after_reject = vec![0.0; N];
+        let mut after_rebind = vec![0.0; N];
+
+        // What a correctly bound holder produces.
+        let want = {
+            let mut h = FuncId::WILLR.new_call(&core);
+            h.set_price_input(0, None, Some(&high), Some(&low), Some(&close), None, None).unwrap();
+            bind(&mut h);
+            h.set_output(0, &mut reference).unwrap();
+            h.call(0, N - 1).expect("the reference bind computes")
+        };
+        assert!(want.count > 0, "the reference call produced values");
+
+        // The same bind, then a REJECTED rebind that supplies high and low and
+        // forgets close, then the same call again.
+        let got = {
+            let mut h = FuncId::WILLR.new_call(&core);
+            h.set_price_input(0, None, Some(&high), Some(&low), Some(&close), None, None).unwrap();
+            bind(&mut h);
+            h.set_output(0, &mut after_reject).unwrap();
+            h.call(0, N - 1).unwrap();
+            assert_eq!(
+                h.set_price_input(0, None, Some(&high2), Some(&low2), None, None, None).err(),
+                Some(RetCode::BadParam),
+                "close is consumed and was not supplied"
+            );
+            h.call(0, N - 1).expect("the holder still computes")
+        };
+        assert_eq!((got.beg_idx, got.count), (want.beg_idx, want.count));
+        for i in 0..want.count {
+            assert_eq!(
+                after_reject[i].to_bits(),
+                reference[i].to_bits(),
+                "a rejected setter changed what the holder computes, at output[{i}]"
+            );
+        }
+
+        // Control: a CORRECT rebind must reach the output, or the assertion above
+        // passes for a setter that stopped working altogether.
+        {
+            let mut h = FuncId::WILLR.new_call(&core);
+            h.set_price_input(0, None, Some(&high), Some(&low), Some(&close), None, None).unwrap();
+            bind(&mut h);
+            h.set_output(0, &mut after_rebind).unwrap();
+            h.call(0, N - 1).unwrap();
+            h.set_price_input(0, None, Some(&high2), Some(&low2), Some(&close2), None, None)
+                .unwrap();
+            h.call(0, N - 1).unwrap();
+        }
+        assert!(
+            (0..want.count).any(|i| after_rebind[i].to_bits() != reference[i].to_bits()),
+            "a correct rebind must reach the output"
+        );
     }
 
     /// Type mismatches and out-of-range indices are refused rather than silently bound.
@@ -677,7 +852,7 @@ fn emit_binder(
          \x20   /// # Errors\n\
          \x20   /// [`RetCode::BadParam`] if a bound optional parameter is out of range.\n\
          \x20   pub fn lookback(&self) -> Result<usize, RetCode> {\n\
-         \x20       let lb = match self.func {\n",
+         \x20       match self.func {\n",
     );
     for f in sorted {
         let snake = f.name.clone();
@@ -689,9 +864,7 @@ fn emit_binder(
         );
     }
     o.push_str(
-        "        };\n\
-         \x20       // The generated lookbacks report a rejected parameter as usize::MAX.\n\
-         \x20       if lb == usize::MAX { Err(RetCode::BadParam) } else { Ok(lb) }\n\
+        "        }\n\
          \x20   }\n\n",
     );
 
@@ -708,17 +881,24 @@ fn emit_binder(
          \x20   /// [`RetCode::OutOfRangeStartIndex`] if `start_idx` exceeds\n\
          \x20   /// [`Core::MAX_INDEX`], [`RetCode::OutOfRangeEndIndex`] if `end_idx` exceeds\n\
          \x20   /// it or is below `start_idx`, and [`RetCode::BadParam`] if a required\n\
-         \x20   /// input or output was never bound, if an output is too short for the\n\
-         \x20   /// range, or if the function rejects its parameters.\n\
+         \x20   /// input or output was never bound, if the function rejects its\n\
+         \x20   /// parameters, or if a bound buffer is too short: every input must\n\
+         \x20   /// cover `end_idx`, and every output must hold the count actually\n\
+         \x20   /// produced, `end_idx - max(start_idx, lookback) + 1`.\n\
          \x20   pub fn call(&mut self, start_idx: usize, end_idx: usize) -> Result<OutRange, RetCode> {\n\
          \x20       if start_idx > Core::MAX_INDEX { return Err(RetCode::OutOfRangeStartIndex); }\n\
          \x20       if end_idx > Core::MAX_INDEX || end_idx < start_idx {\n\
          \x20           return Err(RetCode::OutOfRangeEndIndex);\n\
          \x20       }\n\
-         \x20       // C cannot do this: TA_SetOutputParamRealPtr takes a bare pointer, so\n\
-         \x20       // no backend checks capacity and an undersized buffer is an\n\
-         \x20       // out-of-bounds write. A slice carries its length.\n\
-         \x20       let need = end_idx - start_idx + 1;\n\
+         \x20       // The buffer bounds are the PUBLIC entry point's, which every arm\n\
+         \x20       // below calls (#265). This tier used to hand `_Impl` a hand-rolled\n\
+         \x20       // output check of its own, `end_idx - start_idx + 1` -- the width of\n\
+         \x20       // the REQUESTED range, where B5 says the count actually PRODUCED, so\n\
+         \x20       // it rejected a caller who sized by the published formula on a range\n\
+         \x20       // starting below the lookback. It also checked no input at all, which\n\
+         \x20       // is what let a short leg reach the numerics and panic. One bound, in\n\
+         \x20       // the tier that states it, and Java's binder and C's frames have\n\
+         \x20       // always reached the same one.\n\
          \x20       let mut beg: usize = 0;\n\
          \x20       let mut nb: usize = 0;\n\
          \x20       let rc = match self.func {\n",
@@ -798,6 +978,11 @@ fn opt_arg(
 /// their `Option`), outputs are `take`n so the borrow checker sees no overlap
 /// with `&self`, reborrowed into the call, and put straight back — so a holder
 /// stays reusable, as C's does.
+///
+/// The callee is the **public** entry point (#265), so the arm converts its
+/// `Result` back into the `RetCode` `call` accumulates. The restore has to
+/// happen on both sides of that conversion: an `Err` still owes the holder its
+/// output bindings.
 fn emit_call_arm(
     o: &mut String,
     f: &FuncRow,
@@ -858,26 +1043,52 @@ fn emit_call_arm(
             None => opt_arg(f, opt, i, enum_params),
         });
     }
-    args.push("&mut beg".into());
-    args.push("&mut nb".into());
+    // Every output's presence, decided before the first `take`. With more than
+    // one output a `?` between the takes would return with the earlier ones
+    // already out of the holder and never put back, and the next `call` would
+    // then answer `BadParam` forever on a binding the caller can see is there.
+    // Same reasoning as the enum conversions above; C keeps the holder reusable.
+    if f.outputs.len() > 1 {
+        let bound: Vec<String> = f
+            .outputs
+            .iter()
+            .enumerate()
+            .map(|(k, out)| {
+                let arr = match out.kind {
+                    OutputKind::Integer => "int_out",
+                    OutputKind::Real => "real_out",
+                };
+                format!("self.{arr}[{k}].is_none()")
+            })
+            .collect();
+        let _ = writeln!(
+            o,
+            "                if {} {{ return Err(RetCode::BadParam); }}",
+            bound.join(" || ")
+        );
+    }
 
     for (k, out) in f.outputs.iter().enumerate() {
-        let (arr, ty) = match out.kind {
-            OutputKind::Integer => ("int_out", "i32"),
-            OutputKind::Real => ("real_out", "f64"),
+        let arr = match out.kind {
+            OutputKind::Integer => "int_out",
+            OutputKind::Real => "real_out",
         };
         let _ = writeln!(
             o,
             "                let mut o{k} = self.{arr}[{k}].take().ok_or(RetCode::BadParam)?;"
         );
-        let _ = writeln!(
-            o,
-            "                if o{k}.len() < need {{ self.{arr}[{k}] = Some(o{k}); return Err(RetCode::BadParam); }} // {ty}"
-        );
-        args.push(format!("&mut *o{k}"));
+        // The abstract tier always supplies every declared output, so a
+        // `nullable` one (rule B6a, `TA_OUT_NULLABLE`) is handed `Some(..)`
+        // rather than declined: the catalogue's job is to reproduce the direct
+        // call, not to choose for the caller.
+        args.push(if out.flags & super::abstract_rows::OUT_NULLABLE == 0 {
+            format!("&mut *o{k}")
+        } else {
+            format!("Some(&mut *o{k})")
+        });
     }
 
-    let _ = writeln!(o, "                let rc = self.core.{snake}_Impl({});", args.join(", "));
+    let _ = writeln!(o, "                let res = self.core.{snake}({});", args.join(", "));
     for (k, out) in f.outputs.iter().enumerate() {
         let arr = match out.kind {
             OutputKind::Integer => "int_out",
@@ -885,7 +1096,12 @@ fn emit_call_arm(
         };
         let _ = writeln!(o, "                self.{arr}[{k}] = Some(o{k});");
     }
-    o.push_str("                rc\n            }\n");
+    o.push_str(
+        "                match res {\n\
+         \x20                   Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success }\n\
+         \x20                   Err(e) => e,\n\
+         \x20               }\n            }\n",
+    );
 }
 
 // --- name → identifier / variant helpers ---

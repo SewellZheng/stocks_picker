@@ -105,15 +105,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#TYPPRICE
     * @see Core#MEDPRICE
@@ -127,9 +126,9 @@
                              double outReal[] )
    {
       requireIndexRange("WCLPRICE", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, WCLPRICE_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("WCLPRICE", startIdx, WCLPRICE_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("WCLPRICE", "inHigh", inHigh, guardInLen);
       requireLength("WCLPRICE", "inLow", inLow, guardInLen);
       requireLength("WCLPRICE", "inClose", inClose, guardInLen);
@@ -170,15 +169,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#TYPPRICE
     * @see Core#MEDPRICE
@@ -192,9 +190,9 @@
                              double outReal[] )
    {
       requireIndexRange("WCLPRICE", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, WCLPRICE_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("WCLPRICE", startIdx, WCLPRICE_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("WCLPRICE", "inHigh", inHigh, guardInLen);
       requireLength("WCLPRICE", "inLow", inLow, guardInLen);
       requireLength("WCLPRICE", "inClose", inClose, guardInLen);
@@ -290,6 +288,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         requireArgument("WCLPRICE updateAndFill", "inHigh", inHigh);
+         requireArgument("WCLPRICE updateAndFill", "inLow", inLow);
+         requireArgument("WCLPRICE updateAndFill", "inClose", inClose);
+         requireArgument("WCLPRICE updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("WCLPRICE updateAndFill: BadParam", RetCode.BadParam);
@@ -344,11 +346,14 @@
       int i = 0;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -413,10 +418,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public WCLPRICE_Stream WCLPRICE_Open( double inHigh[], double inLow[], double inClose[] )
    {
+      requireArgument("WCLPRICE open", "inHigh", inHigh);
+      requireHistory("WCLPRICE open", inHigh.length);
+      requireArgument("WCLPRICE open", "inLow", inLow);
+      requireArgument("WCLPRICE open", "inClose", inClose);
+      requireHistoryLength("WCLPRICE open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("WCLPRICE open", "inClose", inClose.length, inHigh.length);
       return WCLPRICE_OpenInternal(inHigh, inLow, inClose, 0);
    }
    /**
@@ -424,12 +438,22 @@
     * to {@link Core#WCLPRICE} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link WCLPRICE_Stream#outRange()}.
     */
    public WCLPRICE_Stream WCLPRICE_OpenAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] )
    {
+      requireArgument("WCLPRICE openAndFill", "inHigh", inHigh);
+      requireHistory("WCLPRICE openAndFill", inHigh.length);
+      requireArgument("WCLPRICE openAndFill", "inLow", inLow);
+      requireArgument("WCLPRICE openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("WCLPRICE openAndFill", inHigh.length, WCLPRICE_Lookback());
+      requireHistoryLength("WCLPRICE openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("WCLPRICE openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("WCLPRICE openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          throw new TaLibArgumentException("WCLPRICE openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

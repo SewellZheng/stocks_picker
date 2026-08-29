@@ -68,12 +68,13 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::TYPPRICE`]: the number of leading input values consumed before
     /// the first output value can be produced.
-    pub fn TYPPRICE_Lookback(&self) -> usize {
+    pub fn TYPPRICE_Lookback(&self) -> Result<usize, RetCode> {
         // This function have no lookback needed.
-        return (0) as usize;
+        return Ok((0) as usize);
     }
     /// C-shaped body behind [`Core::TYPPRICE`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn TYPPRICE_Impl(
         &self,
         startIdx: usize,
@@ -91,7 +92,7 @@ impl Core {
         if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        let _assertLb = self.TYPPRICE_Lookback();
+        let _assertLb = self.TYPPRICE_Lookback().unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -142,11 +143,9 @@ impl Core {
     /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -183,6 +182,27 @@ impl Core {
         inClose: &[f64],
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.TYPPRICE_Lookback()?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.TYPPRICE_Impl(
@@ -213,7 +233,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_TYPPRICE_Stream")]
 pub struct TYPPRICE_Stream {
-    core: Core,
     state: TYPPRICE_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -224,7 +243,6 @@ impl TYPPRICE_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `TYPPRICE_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -250,7 +268,7 @@ impl TYPPRICE_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn TYPPRICE_step_impl(&self, sp: &mut TYPPRICE_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
+    fn TYPPRICE_step_impl(sp: &mut TYPPRICE_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
         (*outReal) = (inHigh + inLow + inClose) / 3.0;
     }
 
@@ -259,11 +277,14 @@ impl Core {
     pub(crate) fn TYPPRICE_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<TYPPRICE_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
@@ -289,7 +310,7 @@ impl Core {
         // Capture the live batch state into the handle.
         let state = TYPPRICE_StreamState {
         };
-        Ok(TYPPRICE_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(TYPPRICE_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::TYPPRICE_Open`] (composition seam).
@@ -310,8 +331,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -338,12 +360,32 @@ impl Core {
 
     /// [`Core::TYPPRICE_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::TYPPRICE`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::TYPPRICE_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_TYPPRICE_OpenAndFill")]
     pub fn TYPPRICE_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64],
     ) -> Result<(TYPPRICE_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.TYPPRICE_Lookback()?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.TYPPRICE_OpenAndFillInternal(inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -380,7 +422,7 @@ impl TYPPRICE_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.TYPPRICE_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        Core::TYPPRICE_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -413,7 +455,7 @@ impl TYPPRICE_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.TYPPRICE_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
+            Core::TYPPRICE_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

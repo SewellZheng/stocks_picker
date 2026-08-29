@@ -238,7 +238,10 @@ fn test_java_ma_dispatch() {
     // FAMA; the fill tail materializes a throwaway buffer for the Discard.
     assert!(s.contains("MAMA_Stream.Value subValue = ((MAMA_Stream) sp.sub).update(inReal);"));
     assert!(s.contains("sp.cur_outReal = subValue.mama();"));
-    assert!(s.contains("new double[historyLen]"));
+    // …and the Discard slot DECLINES the callee's nullable output rather than
+    // materializing a throwaway buffer for it (rule B6a at the opener).
+    assert!(s.contains("MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, null)"));
+    assert!(!s.contains("new double[historyLen]"));
     // Identity path re-derived from the stored param on every step; the guard
     // also covers the period-independent TA_MAType_DISABLED identity (issue #93).
     assert!(s.contains("if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {"));
@@ -472,7 +475,9 @@ fn java_open_family_is_one_core_with_three_entries() {
         ("public CDLHAMMER_Stream CDLHAMMER_Open(", "CDLHAMMER_OpenInternal("),
     ] {
         let at = s.find(w).unwrap_or_else(|| panic!("missing {w}"));
-        let body = &s[at..at + 800.min(s.len() - at)];
+        // Wide enough for the four price legs' presence checks to precede the
+        // delegating call on a candlestick's public fill.
+        let body = &s[at..at + 1600.min(s.len() - at)];
         assert!(body.contains(callee), "{w} delegates to {callee}:\n{body}");
         assert!(
             !body.contains("BodyPeriodTotal"),
@@ -520,7 +525,10 @@ fn java_public_fill_keeps_the_aliasing_guards() {
     let at = s
         .find("public ACCBANDS_Stream ACCBANDS_OpenAndFill(")
         .expect("public fill");
-    let body = &s[at..at + 1600.min(s.len() - at)];
+    // Sliced to the frame's END, not to a byte budget: the frame grows when a
+    // rule is added to it, and a budget turns that into a false failure.
+    let end = s[at..].find("\n   }\n").map_or(s.len() - at, |e| e + 4);
+    let body = &s[at..at + end];
     assert!(
         body.contains("(Object)outRealUpperBand == (Object)inHigh"),
         "output-vs-input guard survives on the public fill:\n{body}"

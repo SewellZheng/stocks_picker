@@ -279,9 +279,12 @@ pub enum CandleSettingType {
 /// # Ok::<(), ta_lib::RetCode>(())
 /// ```
 ///
-/// To change a setting, build a new `Core` — cloning is cheap (it is a small
-/// `[i32; N]` array plus two small fields). [`Core::to_builder`] seeds a builder
-/// from an existing `Core` for clone-and-modify.
+/// To change a setting, build a new `Core` — cloning it copies bytes and never
+/// allocates, but there are 280 of them on x86-64 (an `[i32; N]` array, eleven
+/// `CandleSetting`s and the compatibility mode), so it is a memcpy rather than
+/// a free operation. [`Core::to_builder`] seeds a builder from an existing
+/// `Core` for clone-and-modify. Stream handles do not hold one: each carries
+/// only the `CandleSetting`s its own step reads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Core {
     /// Unstable period for each function identified by [`FuncUnstId`].
@@ -645,7 +648,7 @@ mod tests {
     #[test]
     fn a_short_history_open_reports_insufficient_history() {
         let core = Core::new();
-        let lookback = core.SMA_Lookback(30);
+        let lookback = core.SMA_Lookback(30).expect("valid params");
         assert!(lookback > 0, "the probe needs a function that consumes bars");
 
         let one_short = vec![1.0_f64; lookback];
@@ -1055,7 +1058,7 @@ mod tests {
                 )
                 .build()
                 .expect("every avg_period in this sweep is inside the bound");
-            let lookback = core.CDLDOJI_Lookback();
+            let lookback = core.CDLDOJI_Lookback().expect("valid params");
             assert!(lookback <= Core::MAX_INDEX, "avg_period {avg_period} gave lookback {lookback}");
 
             let mut out = vec![0_i32; n];
@@ -1178,7 +1181,10 @@ mod tests {
         let base = Core::new();
         let tuned = Core::builder().unstable_period(FuncUnstId::EMA, 5).build().unwrap();
         // The unstable period is added to the function's lookback.
-        assert_eq!(tuned.EMA_Lookback(10), base.EMA_Lookback(10) + 5);
+        assert_eq!(
+            tuned.EMA_Lookback(10).expect("valid params"),
+            base.EMA_Lookback(10).expect("valid params") + 5
+        );
     }
 
     #[test]

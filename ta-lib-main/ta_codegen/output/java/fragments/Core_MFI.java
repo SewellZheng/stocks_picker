@@ -393,15 +393,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#RSI
     * @see Core#AD
@@ -417,9 +416,9 @@
                         double outReal[] )
    {
       requireIndexRange("MFI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, MFI_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MFI", startIdx, MFI_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MFI", "inHigh", inHigh, guardInLen);
       requireLength("MFI", "inLow", inLow, guardInLen);
       requireLength("MFI", "inClose", inClose, guardInLen);
@@ -470,15 +469,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#RSI
     * @see Core#AD
@@ -494,9 +492,9 @@
                         double outReal[] )
    {
       requireIndexRange("MFI", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, MFI_Lookback(optInTimePeriod));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MFI", startIdx, MFI_Lookback(optInTimePeriod));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MFI", "inHigh", inHigh, guardInLen);
       requireLength("MFI", "inLow", inLow, guardInLen);
       requireLength("MFI", "inClose", inClose, guardInLen);
@@ -634,6 +632,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], double outReal[] ) {
+         requireArgument("MFI updateAndFill", "inHigh", inHigh);
+         requireArgument("MFI updateAndFill", "inLow", inLow);
+         requireArgument("MFI updateAndFill", "inClose", inClose);
+         requireArgument("MFI updateAndFill", "inVolume", inVolume);
+         requireArgument("MFI updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("MFI updateAndFill: BadParam", RetCode.BadParam);
@@ -753,11 +756,14 @@
       int maxIdx_mflow = (50)-1;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length || inVolume.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == Integer.MIN_VALUE ) {
          optInTimePeriod = 14;
@@ -976,10 +982,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public MFI_Stream MFI_Open( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInTimePeriod )
    {
+      requireArgument("MFI open", "inHigh", inHigh);
+      requireHistory("MFI open", inHigh.length);
+      requireArgument("MFI open", "inLow", inLow);
+      requireArgument("MFI open", "inClose", inClose);
+      requireArgument("MFI open", "inVolume", inVolume);
+      requireHistoryLength("MFI open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("MFI open", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("MFI open", "inVolume", inVolume.length, inHigh.length);
       return MFI_OpenInternal(inHigh, inLow, inClose, inVolume, 0, optInTimePeriod);
    }
    /**
@@ -987,12 +1004,24 @@
     * to {@link Core#MFI} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link MFI_Stream#outRange()}.
     */
    public MFI_Stream MFI_OpenAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], int optInTimePeriod, double outReal[] )
    {
+      requireArgument("MFI openAndFill", "inHigh", inHigh);
+      requireHistory("MFI openAndFill", inHigh.length);
+      requireArgument("MFI openAndFill", "inLow", inLow);
+      requireArgument("MFI openAndFill", "inClose", inClose);
+      requireArgument("MFI openAndFill", "inVolume", inVolume);
+      int guardOutLen = openFillCount("MFI openAndFill", inHigh.length, MFI_Lookback(optInTimePeriod));
+      requireHistoryLength("MFI openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("MFI openAndFill", "inClose", inClose.length, inHigh.length);
+      requireHistoryLength("MFI openAndFill", "inVolume", inVolume.length, inHigh.length);
+      requireLength("MFI openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume ) {
          throw new TaLibArgumentException("MFI openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

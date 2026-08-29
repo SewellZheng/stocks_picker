@@ -64,6 +64,9 @@ public partial class Core
     *                "!= 0.0" check: identical prices over the period leave
     *                sub-epsilon residue that the exact check divided into a
     *                spurious value (issue #7 / SF bug #107). Now returns 0.0.
+    *  082326 MF,CC  Fix #253. Scale that flatness test to the window's own price
+    *                level: the fixed band zeroed the whole output for any
+    *                instrument quoted small enough to fall under it.
     */
    /// <summary>
    /// Number of leading input bars <c>CCI</c> consumes before it can produce its
@@ -101,6 +104,7 @@ public partial class Core
       outNBElement = 0;
       double tempReal = 0;
       double tempReal2 = 0;
+      double tempReal3 = 0;
       double theAverage = 0;
       double lastValue = 0;
       int i = 0;
@@ -178,16 +182,27 @@ public partial class Core
          }
          theAverage /= optInTimePeriod;
          /* Do the summation of the ABS(TypePrice-average)
-          * for the whole period.
+          * for the whole period, then its mean.
           */
          tempReal2 = 0;
          for( j = 0; j < optInTimePeriod; j += 1 ) {
             tempReal2 += Math.Abs(circBuffer[j] - theAverage);
          }
+         tempReal2 /= optInTimePeriod;
          /* And finally, the CCI... */
          tempReal = lastValue - theAverage;
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
-            outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
+         /* Both tests are relative to the window's own price level (issue #253).
+          * They ask "is this window flat?", and flatness is a property of the
+          * prices relative to each other -- but a deviation carries the quote
+          * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output. The band is still wide enough (~90 ulp of the average) to
+          * absorb the sub-epsilon residue an identical-price window leaves in the
+          * average, which is what it was widened for in the first place (#7).
+          */
+         tempReal3 = Math.Abs(theAverage);
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.Abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+            outReal[outIdx++] = tempReal / (0.015 * tempReal2);
          } else {
             outReal[outIdx++] = 0.0;
          }
@@ -216,6 +231,7 @@ public partial class Core
       outNBElement = 0;
       double tempReal = 0;
       double tempReal2 = 0;
+      double tempReal3 = 0;
       double theAverage = 0;
       double lastValue = 0;
       int i = 0;
@@ -271,9 +287,11 @@ public partial class Core
          for( j = 0; j < optInTimePeriod; j += 1 ) {
             tempReal2 += Math.Abs(circBuffer[j] - theAverage);
          }
+         tempReal2 /= optInTimePeriod;
          tempReal = lastValue - theAverage;
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
-            outReal[outIdx++] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
+         tempReal3 = Math.Abs(theAverage);
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.Abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+            outReal[outIdx++] = tempReal / (0.015 * tempReal2);
          } else {
             outReal[outIdx++] = 0.0;
          }
@@ -321,14 +339,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CCI( int startIdx,
@@ -394,14 +414,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange CCI( int startIdx,
@@ -590,6 +612,7 @@ public partial class Core
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
+      double tempReal3 = 0.0;
       double theAverage = 0.0;
       double lastValue = 0.0;
       int j = 0;
@@ -602,16 +625,27 @@ public partial class Core
       }
       theAverage /= sp.optInTimePeriod;
       /* Do the summation of the ABS(TypePrice-average)
-       * for the whole period.
+       * for the whole period, then its mean.
        */
       tempReal2 = 0;
       for( j = 0; j < sp.optInTimePeriod; j += 1 ) {
          tempReal2 += Math.Abs(sp.cb_circBuffer[j] - theAverage);
       }
+      tempReal2 /= sp.optInTimePeriod;
       /* And finally, the CCI... */
       tempReal = lastValue - theAverage;
-      if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
-         sp.cur_outReal = tempReal / (0.015 * (tempReal2 / sp.optInTimePeriod));
+      /* Both tests are relative to the window's own price level (issue #253).
+       * They ask "is this window flat?", and flatness is a property of the
+       * prices relative to each other -- but a deviation carries the quote
+       * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
+       * every window of an instrument quoted below it and zeroed the whole
+       * output. The band is still wide enough (~90 ulp of the average) to
+       * absorb the sub-epsilon residue an identical-price window leaves in the
+       * average, which is what it was widened for in the first place (#7).
+       */
+      tempReal3 = Math.Abs(theAverage);
+      if( !(Math.Abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.Abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+         sp.cur_outReal = tempReal / (0.015 * tempReal2);
       } else {
          sp.cur_outReal = 0.0;
       }
@@ -628,6 +662,7 @@ public partial class Core
       outNBElement = 0;
       double tempReal = 0;
       double tempReal2 = 0;
+      double tempReal3 = 0;
       double theAverage = 0;
       double lastValue = 0;
       int i = 0;
@@ -639,11 +674,14 @@ public partial class Core
       int maxIdx_circBuffer = (30)-1;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 14;
@@ -709,16 +747,27 @@ public partial class Core
          }
          theAverage /= optInTimePeriod;
          /* Do the summation of the ABS(TypePrice-average)
-          * for the whole period.
+          * for the whole period, then its mean.
           */
          tempReal2 = 0;
          for( j = 0; j < optInTimePeriod; j += 1 ) {
             tempReal2 += Math.Abs(circBuffer[j] - theAverage);
          }
+         tempReal2 /= optInTimePeriod;
          /* And finally, the CCI... */
          tempReal = lastValue - theAverage;
-         if( !((-0.00000000000001 < tempReal) && (tempReal < 0.00000000000001)) && !((-0.00000000000001 < tempReal2) && (tempReal2 < 0.00000000000001)) ) {
-            outReal[outIdx++ * outStride] = tempReal / (0.015 * (tempReal2 / optInTimePeriod));
+         /* Both tests are relative to the window's own price level (issue #253).
+          * They ask "is this window flat?", and flatness is a property of the
+          * prices relative to each other -- but a deviation carries the quote
+          * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
+          * every window of an instrument quoted below it and zeroed the whole
+          * output. The band is still wide enough (~90 ulp of the average) to
+          * absorb the sub-epsilon residue an identical-price window leaves in the
+          * average, which is what it was widened for in the first place (#7).
+          */
+         tempReal3 = Math.Abs(theAverage);
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.Abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+            outReal[outIdx++ * outStride] = tempReal / (0.015 * tempReal2);
          } else {
             outReal[outIdx++ * outStride] = 0.0;
          }
@@ -789,13 +838,17 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CCI_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public CCI_Stream CCI_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "CCI open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "CCI open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("CCI open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("CCI open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("CCI", "open", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("CCI", "open", "inClose", inClose.Length, inHigh.Length);
       return CCI_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod);
    }
 
@@ -807,7 +860,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - CCI_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="CCI_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -821,15 +876,21 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CCI_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public CCI_Stream CCI_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, Span<double> outReal )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "CCI openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "CCI openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("CCI openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("CCI openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("CCI", "openAndFill", inHigh.Length, CCI_Lookback(optInTimePeriod));
+      RequireHistoryLength("CCI", "openAndFill", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("CCI", "openAndFill", "inClose", inClose.Length, inHigh.Length);
+      RequireFillLength("CCI", "openAndFill", "outReal", outReal.Length, guardOutLen);
       if( outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) {
          throw StreamFailure("CCI", "openAndFill", RetCode.BadParam);
       }

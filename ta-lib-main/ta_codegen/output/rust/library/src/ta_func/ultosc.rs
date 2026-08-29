@@ -47,14 +47,19 @@
  *  DM       Drew McCormack (http://www.trade-strategist.com)
  *  MF       Mario Fortier
  *  DX       Dex Hunter (https://github.com/dexhunter)
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  281206 DM   Initial Implementation
- *  010606 MF   Abstract local arrays. Detect divide by zero.
- *  073126 DX   Evaluate each bar's terms once via a CIRCBUF ring (PR #154).
+ *  281206 DM    Initial Implementation
+ *  010606 MF    Abstract local arrays. Detect divide by zero.
+ *  073126 DX    Evaluate each bar's terms once via a CIRCBUF ring (PR #154).
+ *  082326 MF,CC Fix #253. Recognize an empty window by counting bars, so the
+ *               divides are guarded exactly instead of against the fixed
+ *               TA_IS_ZERO band -- which zeroed the oscillator for any
+ *               instrument quoted small enough to fall under it.
  */
 
 // Import types from parent module
@@ -76,33 +81,36 @@ impl Core {
     /// * `optInTimePeriod2` — Bars for another averaging window (default 14, range 1..=100000)
     /// * `optInTimePeriod3` — Bars for another averaging window (default 28, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn ULTOSC_Lookback(&self, mut optInTimePeriod1: i32, mut optInTimePeriod2: i32, mut optInTimePeriod3: i32) -> usize {
+    pub fn ULTOSC_Lookback(&self, mut optInTimePeriod1: i32, mut optInTimePeriod2: i32, mut optInTimePeriod3: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod1) as i32) == (i32::MIN) {
             optInTimePeriod1 = 7;
         } else if (((optInTimePeriod1) as i32) < 1) || (((optInTimePeriod1) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInTimePeriod2) as i32) == (i32::MIN) {
             optInTimePeriod2 = 14;
         } else if (((optInTimePeriod2) as i32) < 1) || (((optInTimePeriod2) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInTimePeriod3) as i32) == (i32::MIN) {
             optInTimePeriod3 = 28;
         } else if (((optInTimePeriod3) as i32) < 1) || (((optInTimePeriod3) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         let mut maxPeriod: usize = 0_usize;
         // Lookback for the Ultimate Oscillator is the lookback of the SMA with the longest
         // time period, plus 1 for the True Range.
         maxPeriod = (((optInTimePeriod1).max(optInTimePeriod2)).max(optInTimePeriod3)) as usize;
-        return (self.SMA_Lookback((maxPeriod) as i32) + 1) as usize;
+        return Ok((self.SMA_Lookback((maxPeriod) as i32)? + 1) as usize);
     }
     /// C-shaped body behind [`Core::ULTOSC`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn ULTOSC_Impl(
         &self,
         startIdx: usize,
@@ -138,7 +146,7 @@ impl Core {
         } else if (((optInTimePeriod3) as i32) < 1) || (((optInTimePeriod3) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
+        let _assertLb = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
@@ -168,6 +176,7 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut trailingPos1: usize = 0_usize;
         let mut trailingPos2: usize = 0_usize;
+        let mut nullRun: usize = 0_usize;
         let mut usedFlag: [i32; 3 as usize] = [0i32; 3 as usize];
         let mut periods: [i32; 3 as usize] = [0i32; 3 as usize];
         let mut sortedPeriods: [i32; 3 as usize] = [0i32; 3 as usize];
@@ -217,7 +226,7 @@ impl Core {
         optInTimePeriod2 = sortedPeriods[1];
         optInTimePeriod3 = sortedPeriods[0];
         // Adjust startIdx for lookback period.
-        lookbackTotal = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
+        lookbackTotal = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3).unwrap_or(usize::MAX);
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -249,6 +258,20 @@ impl Core {
         b2Total = 0.0;
         a3Total = 0.0;
         b3Total = 0.0;
+        // Consecutive bars that put nothing into the windows, counted so that an
+        // empty window can be recognized exactly (the shape #244 needed for MFI).
+        // The running totals cannot answer that question themselves: they are
+        // maintained by add-then-subtract, so once a window empties they hold
+        // rounding residue of arbitrary sign rather than zero, and v0.6.4 divides
+        // one residue by another there -- it returns -92.9 for an oscillator
+        // documented to run 0..100. Both of a bar's terms have to be zero for it to
+        // count, which for valid bars is one condition (a zero true range means
+        // H == L == the previous close, which leaves the close on the true low).
+        // Reseeding on the count is what lets the divides below be guarded exactly
+        // rather than against a fixed band -- a true range carries the quote unit,
+        // so the band they used to carry zeroed the oscillator for any instrument
+        // quoted below it (issue #253).
+        nullRun = 0;
         // for( i = startIdx - ((optInTimePeriod3) as usize) + 1; i < startIdx; i += 1 )
         i = startIdx - ((optInTimePeriod3) as usize) + 1;
         while i < startIdx {
@@ -270,6 +293,11 @@ impl Core {
             term_trueRange[term_Idx] = trueRange;
             term_Idx += 1;
             if term_Idx > maxIdx_term { term_Idx = 0; }
+            if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
             if i >= startIdx - ((optInTimePeriod1) as usize) + 1 {
                 a1Total += closeMinusTrueLow;
                 b1Total += trueRange;
@@ -320,15 +348,40 @@ impl Core {
             b1Total += trueRange;
             b2Total += trueRange;
             b3Total += trueRange;
-            // Calculate the oscillator value for today
+            // Once a whole window of no-contribution bars has gone by, every slot it
+            // spans is 0.0, so its totals are known to be exactly zero and the
+            // residue can be dropped. The periods are sorted shortest-first, so a
+            // run long enough for a longer window is long enough for every shorter
+            // one.
+            if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((optInTimePeriod1) as usize) {
+                a1Total = 0.0;
+                b1Total = 0.0;
+                if nullRun >= ((optInTimePeriod2) as usize) {
+                    a2Total = 0.0;
+                    b2Total = 0.0;
+                    if nullRun >= ((optInTimePeriod3) as usize) {
+                        nullRun = (optInTimePeriod3) as usize;
+                        a3Total = 0.0;
+                        b3Total = 0.0;
+                    }
+                }
+            }
+            // Calculate the oscillator value for today. Each window contributes only
+            // when it holds a true range; the totals are sums of non-negative terms
+            // and the reseed above removes their residue, so the test is exact.
             output = 0.0;
-            if !((b1Total).abs() < 1e-14) {
+            if b1Total > 0.0 {
                 output += 4.0 * (a1Total / b1Total);
             }
-            if !((b2Total).abs() < 1e-14) {
+            if b2Total > 0.0 {
                 output += 2.0 * (a2Total / b2Total);
             }
-            if !((b3Total).abs() < 1e-14) {
+            if b3Total > 0.0 {
                 output += a3Total / b3Total;
             }
             // Remove the trailing terms to prepare for next day. Each was evaluated
@@ -411,11 +464,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -461,6 +512,27 @@ impl Core {
         optInTimePeriod3: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.ULTOSC_Impl(
@@ -494,7 +566,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_ULTOSC_Stream")]
 pub struct ULTOSC_Stream {
-    core: Core,
     state: ULTOSC_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -505,7 +576,6 @@ impl ULTOSC_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `ULTOSC_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -525,6 +595,7 @@ struct ULTOSC_StreamState {
     b3Total: f64,
     trailingPos1: usize,
     trailingPos2: usize,
+    nullRun: usize,
     term_Idx: usize,
     maxIdx_term: usize,
     lag1_inClose: f64,
@@ -549,6 +620,7 @@ impl ULTOSC_StreamState {
         self.b3Total = src.b3Total;
         self.trailingPos1 = src.trailingPos1;
         self.trailingPos2 = src.trailingPos2;
+        self.nullRun = src.nullRun;
         self.term_Idx = src.term_Idx;
         self.maxIdx_term = src.maxIdx_term;
         self.lag1_inClose = src.lag1_inClose;
@@ -565,7 +637,7 @@ impl ULTOSC_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn ULTOSC_step_impl(&self, sp: &mut ULTOSC_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
+    fn ULTOSC_step_impl(sp: &mut ULTOSC_StreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
         let mut trueLow: f64 = 0.0_f64;
         let mut trueRange: f64 = 0.0_f64;
         let mut closeMinusTrueLow: f64 = 0.0_f64;
@@ -597,15 +669,40 @@ impl Core {
         sp.b1Total += trueRange;
         sp.b2Total += trueRange;
         sp.b3Total += trueRange;
-        // Calculate the oscillator value for today
+        // Once a whole window of no-contribution bars has gone by, every slot it
+        // spans is 0.0, so its totals are known to be exactly zero and the
+        // residue can be dropped. The periods are sorted shortest-first, so a
+        // run long enough for a longer window is long enough for every shorter
+        // one.
+        if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
+            sp.nullRun += 1;
+        } else {
+            sp.nullRun = 0;
+        }
+        if sp.nullRun >= ((sp.optInTimePeriod1) as usize) {
+            sp.a1Total = 0.0;
+            sp.b1Total = 0.0;
+            if sp.nullRun >= ((sp.optInTimePeriod2) as usize) {
+                sp.a2Total = 0.0;
+                sp.b2Total = 0.0;
+                if sp.nullRun >= ((sp.optInTimePeriod3) as usize) {
+                    sp.nullRun = (sp.optInTimePeriod3) as usize;
+                    sp.a3Total = 0.0;
+                    sp.b3Total = 0.0;
+                }
+            }
+        }
+        // Calculate the oscillator value for today. Each window contributes only
+        // when it holds a true range; the totals are sums of non-negative terms
+        // and the reseed above removes their residue, so the test is exact.
         output = 0.0;
-        if !((sp.b1Total).abs() < 1e-14) {
+        if sp.b1Total > 0.0 {
             output += 4.0 * (sp.a1Total / sp.b1Total);
         }
-        if !((sp.b2Total).abs() < 1e-14) {
+        if sp.b2Total > 0.0 {
             output += 2.0 * (sp.a2Total / sp.b2Total);
         }
-        if !((sp.b3Total).abs() < 1e-14) {
+        if sp.b3Total > 0.0 {
             output += sp.a3Total / sp.b3Total;
         }
         // Remove the trailing terms to prepare for next day. Each was evaluated
@@ -643,8 +740,8 @@ impl Core {
     pub(crate) fn ULTOSC_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInTimePeriod1: i32, mut optInTimePeriod2: i32, mut optInTimePeriod3: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<ULTOSC_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -662,6 +759,9 @@ impl Core {
         if ((optInTimePeriod3) as i32) == (i32::MIN) {
             optInTimePeriod3 = 28;
         } else if (((optInTimePeriod3) as i32) < 1) || (((optInTimePeriod3) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
@@ -697,6 +797,7 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut trailingPos1: usize = 0_usize;
         let mut trailingPos2: usize = 0_usize;
+        let mut nullRun: usize = 0_usize;
         let mut usedFlag: [i32; 3 as usize] = [0_i32; 3 as usize];
         let mut periods: [i32; 3 as usize] = [0_i32; 3 as usize];
         let mut sortedPeriods: [i32; 3 as usize] = [0_i32; 3 as usize];
@@ -742,7 +843,7 @@ impl Core {
         optInTimePeriod2 = sortedPeriods[1];
         optInTimePeriod3 = sortedPeriods[0];
         // Adjust startIdx for lookback period.
-        lookbackTotal = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
+        lookbackTotal = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)?;
         if startIdx < lookbackTotal {
             startIdx = lookbackTotal;
         }
@@ -767,6 +868,20 @@ impl Core {
         b2Total = 0.0;
         a3Total = 0.0;
         b3Total = 0.0;
+        // Consecutive bars that put nothing into the windows, counted so that an
+        // empty window can be recognized exactly (the shape #244 needed for MFI).
+        // The running totals cannot answer that question themselves: they are
+        // maintained by add-then-subtract, so once a window empties they hold
+        // rounding residue of arbitrary sign rather than zero, and v0.6.4 divides
+        // one residue by another there -- it returns -92.9 for an oscillator
+        // documented to run 0..100. Both of a bar's terms have to be zero for it to
+        // count, which for valid bars is one condition (a zero true range means
+        // H == L == the previous close, which leaves the close on the true low).
+        // Reseeding on the count is what lets the divides below be guarded exactly
+        // rather than against a fixed band -- a true range carries the quote unit,
+        // so the band they used to carry zeroed the oscillator for any instrument
+        // quoted below it (issue #253).
+        nullRun = 0;
         // for( i = startIdx - ((optInTimePeriod3) as usize) + 1; i < startIdx; i += 1 )
         i = startIdx - ((optInTimePeriod3) as usize) + 1;
         while i < startIdx {
@@ -788,6 +903,11 @@ impl Core {
             term_trueRange[term_Idx] = trueRange;
             term_Idx += 1;
             if term_Idx > maxIdx_term { term_Idx = 0; }
+            if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
             if i >= startIdx - ((optInTimePeriod1) as usize) + 1 {
                 a1Total += closeMinusTrueLow;
                 b1Total += trueRange;
@@ -838,15 +958,40 @@ impl Core {
             b1Total += trueRange;
             b2Total += trueRange;
             b3Total += trueRange;
-            // Calculate the oscillator value for today
+            // Once a whole window of no-contribution bars has gone by, every slot it
+            // spans is 0.0, so its totals are known to be exactly zero and the
+            // residue can be dropped. The periods are sorted shortest-first, so a
+            // run long enough for a longer window is long enough for every shorter
+            // one.
+            if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((optInTimePeriod1) as usize) {
+                a1Total = 0.0;
+                b1Total = 0.0;
+                if nullRun >= ((optInTimePeriod2) as usize) {
+                    a2Total = 0.0;
+                    b2Total = 0.0;
+                    if nullRun >= ((optInTimePeriod3) as usize) {
+                        nullRun = (optInTimePeriod3) as usize;
+                        a3Total = 0.0;
+                        b3Total = 0.0;
+                    }
+                }
+            }
+            // Calculate the oscillator value for today. Each window contributes only
+            // when it holds a true range; the totals are sums of non-negative terms
+            // and the reseed above removes their residue, so the test is exact.
             output = 0.0;
-            if !((b1Total).abs() < 1e-14) {
+            if b1Total > 0.0 {
                 output += 4.0 * (a1Total / b1Total);
             }
-            if !((b2Total).abs() < 1e-14) {
+            if b2Total > 0.0 {
                 output += 2.0 * (a2Total / b2Total);
             }
-            if !((b3Total).abs() < 1e-14) {
+            if b3Total > 0.0 {
                 output += a3Total / b3Total;
             }
             // Remove the trailing terms to prepare for next day. Each was evaluated
@@ -898,6 +1043,7 @@ impl Core {
             b3Total,
             trailingPos1,
             trailingPos2,
+            nullRun,
             term_Idx,
             maxIdx_term,
             lag1_inClose: inClose[historyLen - 1],
@@ -905,7 +1051,7 @@ impl Core {
             cb_term_closeMinusTrueLow: term_closeMinusTrueLow,
             cb_term_trueRange: term_trueRange,
         };
-        Ok(ULTOSC_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(ULTOSC_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::ULTOSC_Open`] (composition seam).
@@ -926,8 +1072,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -954,12 +1101,32 @@ impl Core {
 
     /// [`Core::ULTOSC_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::ULTOSC`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::ULTOSC_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_ULTOSC_OpenAndFill")]
     pub fn ULTOSC_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInTimePeriod1: i32, mut optInTimePeriod2: i32, mut optInTimePeriod3: i32, outReal: &mut [f64],
     ) -> Result<(ULTOSC_Stream, OutRange), RetCode> {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3)?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.ULTOSC_OpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -1004,7 +1171,7 @@ impl ULTOSC_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.ULTOSC_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
+        Core::ULTOSC_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1037,7 +1204,7 @@ impl ULTOSC_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.ULTOSC_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
+            Core::ULTOSC_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

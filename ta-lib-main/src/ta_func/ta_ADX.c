@@ -50,16 +50,20 @@
  *  AM       Adrian Michel
  *  MIF      Mirek Fontan (mira@fontan.cz)
  *  GC       guycom@users.sourceforge.net
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  010802 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
- *  082303 MF   Fix #792298. Remove rounding. Bug reported by AM.
- *  062704 MF   Fix #965557. Div by zero bug reported by MIF.
- *  082206 MF   Fix #1544555. Div by zero bug reported by GC.
+ *  010802 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  082303 MF    Fix #792298. Remove rounding. Bug reported by AM.
+ *  062704 MF    Fix #965557. Div by zero bug reported by MIF.
+ *  082206 MF    Fix #1544555. Div by zero bug reported by GC.
+ *  082326 MF,CC Fix #253. Test the true-range sum exactly instead of against
+ *               the fixed TA_IS_ZERO band, which zeroed the index for any
+ *               instrument quoted small enough to fall under it.
  */
 
 TA_LIB_API int TA_ADX_Lookback( int optInTimePeriod )
@@ -105,15 +109,17 @@ TA_LIB_API TA_RetCode TA_ADX( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -340,8 +346,18 @@ TA_LIB_API TA_RetCode TA_ADX( int    startIdx,
       tempReal = _true_range_1;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = inClose[today];
-      /* Calculate the DX. The value is rounded (see Wilder book). */
-      if( !TA_IS_ZERO(prevTR) )
+      /* Calculate the DX. The value is rounded (see Wilder book).
+       *
+       * prevTR is a running sum of true ranges: non-negative by construction
+       * and built only by adding, so it carries no cancellation residue and
+       * reaches zero only for a window whose every range is exactly zero. Test
+       * it exactly. A true range carries the quote unit, so the fixed
+       * TA_IS_ZERO band it used to be compared against was a constant in some
+       * arbitrary unit, and zeroed the index for any instrument quoted below
+       * it (issue #253). The DI legs it feeds are ratios -- dimensionless --
+       * so the fixed band on THEIR sum is scale-invariant and stays.
+       */
+      if( prevTR > 0.0 )
       {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -397,7 +413,7 @@ TA_LIB_API TA_RetCode TA_ADX( int    startIdx,
       tempReal = _true_range_2;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = inClose[today];
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          /* Calculate the DX. The value is rounded (see Wilder book). */
          minusDI = (100.0 * (prevMinusDM / prevTR));
@@ -455,7 +471,7 @@ TA_LIB_API TA_RetCode TA_ADX( int    startIdx,
       tempReal = _true_range_3;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = inClose[today];
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          /* Calculate the DX. The value is rounded (see Wilder book). */
          minusDI = (100.0 * (prevMinusDM / prevTR));
@@ -509,15 +525,17 @@ TA_RetCode TA_S_ADX( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
+      optInTimePeriod = 14;
+   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
       return TA_BAD_PARAM;
    if( !inClose )
       return TA_BAD_PARAM;
-   if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
-      optInTimePeriod = 14;
-   else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -613,7 +631,7 @@ TA_RetCode TA_S_ADX( int    startIdx,
       tempReal = _true_range_1;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = (double)inClose[today];
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -660,7 +678,7 @@ TA_RetCode TA_S_ADX( int    startIdx,
       tempReal = _true_range_2;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = (double)inClose[today];
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -708,7 +726,7 @@ TA_RetCode TA_S_ADX( int    startIdx,
       tempReal = _true_range_3;
       prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
       prevClose = (double)inClose[today];
-      if( !TA_IS_ZERO(prevTR) )
+      if( prevTR > 0.0 )
       {
          minusDI = (100.0 * (prevMinusDM / prevTR));
          plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -788,7 +806,7 @@ static void TA_ADX_StepImpl( struct TA_ADX_Stream *sp, double inHigh, double inL
    tempReal = _true_range_0;
    sp->prevTR = sp->prevTR - sp->prevTR / sp->optInTimePeriod + tempReal;
    sp->prevClose = inClose;
-   if( !TA_IS_ZERO(sp->prevTR) )
+   if( sp->prevTR > 0.0 )
    {
       /* Calculate the DX. The value is rounded (see Wilder book). */
       minusDI = (100.0 * (sp->prevMinusDM / sp->prevTR));
@@ -814,9 +832,9 @@ static TA_RetCode TA_ADX_OpenImpl( struct TA_ADX_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    if( (int)optInTimePeriod == TA_INTEGER_DEFAULT )
       optInTimePeriod = 14;
    else if( (int)optInTimePeriod < 2 || (int)optInTimePeriod > 100000 )
@@ -1074,8 +1092,18 @@ static TA_RetCode TA_ADX_OpenImpl( struct TA_ADX_Stream **stream, const double i
          tempReal = _true_range_2;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         /* Calculate the DX. The value is rounded (see Wilder book). */
-         if( !TA_IS_ZERO(prevTR) )
+         /* Calculate the DX. The value is rounded (see Wilder book).
+          *
+          * prevTR is a running sum of true ranges: non-negative by construction
+          * and built only by adding, so it carries no cancellation residue and
+          * reaches zero only for a window whose every range is exactly zero. Test
+          * it exactly. A true range carries the quote unit, so the fixed
+          * TA_IS_ZERO band it used to be compared against was a constant in some
+          * arbitrary unit, and zeroed the index for any instrument quoted below
+          * it (issue #253). The DI legs it feeds are ratios -- dimensionless --
+          * so the fixed band on THEIR sum is scale-invariant and stays.
+          */
+         if( prevTR > 0.0 )
          {
             minusDI = (100.0 * (prevMinusDM / prevTR));
             plusDI = (100.0 * (prevPlusDM / prevTR));
@@ -1131,7 +1159,7 @@ static TA_RetCode TA_ADX_OpenImpl( struct TA_ADX_Stream **stream, const double i
          tempReal = _true_range_3;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         if( !TA_IS_ZERO(prevTR) )
+         if( prevTR > 0.0 )
          {
             /* Calculate the DX. The value is rounded (see Wilder book). */
             minusDI = (100.0 * (prevMinusDM / prevTR));
@@ -1189,7 +1217,7 @@ static TA_RetCode TA_ADX_OpenImpl( struct TA_ADX_Stream **stream, const double i
          tempReal = _true_range_4;
          prevTR = prevTR - prevTR / optInTimePeriod + tempReal;
          prevClose = inClose[today];
-         if( !TA_IS_ZERO(prevTR) )
+         if( prevTR > 0.0 )
          {
             /* Calculate the DX. The value is rounded (see Wilder book). */
             minusDI = (100.0 * (prevMinusDM / prevTR));
@@ -1245,9 +1273,9 @@ TA_LIB_API TA_RetCode TA_ADX_Open( TA_ADX_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
    return TA_ADX_OpenInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outReal );
 }
 
@@ -1255,10 +1283,9 @@ TA_LIB_API TA_RetCode TA_ADX_OpenAndFill( TA_ADX_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    return TA_ADX_OpenAndFillInternal( stream, inHigh, inLow, inClose, 0, historyLen, optInTimePeriod, outBegIdx, outNBElement, outReal );
 }

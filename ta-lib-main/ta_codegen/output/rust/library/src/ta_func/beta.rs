@@ -60,6 +60,9 @@
  *               + reseed) and a scale-relative denominator test.
  *  082326 MF,CC #242 follow-up: restore TA_VAR's outlier trigger, at 1e3,
  *               on BOTH axes -- the output reads S_xy and S_y too.
+ *  082326 MF,CC Fix #253. Test the base price of a return exactly instead of
+ *               against the fixed TA_IS_ZERO band, which collapsed beta to
+ *               zero for any instrument quoted small enough to fall under it.
  */
 
 // Import types from parent module
@@ -80,19 +83,22 @@ impl Core {
     /// * `optInTimePeriod` — Rolling window length (number of returns) for the regression sums
     ///   (default 5, range 1..=100000)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn BETA_Lookback(&self, mut optInTimePeriod: i32) -> usize {
+    pub fn BETA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
-        return (optInTimePeriod) as usize;
+        return Ok((optInTimePeriod) as usize);
     }
     /// C-shaped body behind [`Core::BETA`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn BETA_Impl(
         &self,
         startIdx: usize,
@@ -115,7 +121,7 @@ impl Core {
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
             return RetCode::BadParam;
         }
-        let _assertLb = self.BETA_Lookback(optInTimePeriod);
+        let _assertLb = self.BETA_Lookback(optInTimePeriod).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inReal0.len());
         assert!(_assertStart > endIdx || endIdx < inReal1.len());
@@ -232,22 +238,27 @@ impl Core {
         // window mean, which is better centred but costs a pass this one cannot
         // afford before the sums exist.
         i = { trailingIdx += 1; trailingIdx };
-        if !((last_price_x).abs() < 1e-14) {
+        // A return needs a non-zero base price and nothing more: the test is exact,
+        // not the fixed TA_IS_ZERO band it used to be. A price carries the quote
+        // unit, so that band declared every bar of a small-quoted instrument
+        // "no previous price", left every return at -shift, and collapsed beta to
+        // zero (issue #253).
+        if last_price_x != 0.0 {
             shift_x = (inReal0[i] - last_price_x) / last_price_x;
         }
-        if !((last_price_y).abs() < 1e-14) {
+        if last_price_y != 0.0 {
             shift_y = (inReal1[i] - last_price_y) / last_price_y;
         }
         while i < startIdx {
             tmp_real = inReal0[i];
-            if !((last_price_x).abs() < 1e-14) {
+            if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
                 x = 0_f64 - shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
-            if !((last_price_y).abs() < 1e-14) {
+            if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
                 y = 0_f64 - shift_y;
@@ -265,14 +276,14 @@ impl Core {
         barsSinceReseed = (32 * optInTimePeriod) as usize;
         loop {
             tmp_real = inReal0[i];
-            if !((last_price_x).abs() < 1e-14) {
+            if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
                 x = 0_f64 - shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
-            if !((last_price_y).abs() < 1e-14) {
+            if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
                 y = 0_f64 - shift_y;
@@ -346,11 +357,11 @@ impl Core {
                 // for( j = windowStart; j < i; j += 1 )
                 j = windowStart;
                 while j < i {
-                    if !((prev_x).abs() < 1e-14) {
+                    if prev_x != 0.0 {
                         tmp_real += (inReal0[j] - prev_x) / prev_x;
                     }
                     prev_x = inReal0[j];
-                    if !((prev_y).abs() < 1e-14) {
+                    if prev_y != 0.0 {
                         shift_y += (inReal1[j] - prev_y) / prev_y;
                     }
                     prev_y = inReal1[j];
@@ -368,13 +379,13 @@ impl Core {
                 // for( j = windowStart; j < i; j += 1 )
                 j = windowStart;
                 while j < i {
-                    if !((prev_x).abs() < 1e-14) {
+                    if prev_x != 0.0 {
                         x = (inReal0[j] - prev_x) / prev_x - shift_x;
                     } else {
                         x = 0_f64 - shift_x;
                     }
                     prev_x = inReal0[j];
-                    if !((prev_y).abs() < 1e-14) {
+                    if prev_y != 0.0 {
                         y = (inReal1[j] - prev_y) / prev_y - shift_y;
                     } else {
                         y = 0_f64 - shift_y;
@@ -403,7 +414,7 @@ impl Core {
             // Always read the trailing before writing the output because the input and output
             // buffer can be the same.
             tmp_real = inReal0[trailingIdx];
-            if !((trailing_last_price_x).abs() < 1e-14) {
+            if trailing_last_price_x != 0.0 {
                 x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
             } else {
                 x = 0_f64 - shift_x;
@@ -411,7 +422,7 @@ impl Core {
             trailing_last_price_x = tmp_real;
             tmp_real = inReal1[trailingIdx];
             trailingIdx += 1;
-            if !((trailing_last_price_y).abs() < 1e-14) {
+            if trailing_last_price_y != 0.0 {
                 y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
             } else {
                 y = 0_f64 - shift_y;
@@ -483,11 +494,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -523,6 +532,24 @@ impl Core {
         optInTimePeriod: i32,
         outReal: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.BETA_Lookback(optInTimePeriod)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inReal0.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inReal1.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.BETA_Impl(
@@ -553,7 +580,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_BETA_Stream")]
 pub struct BETA_Stream {
-    core: Core,
     state: BETA_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -564,7 +590,6 @@ impl BETA_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `BETA_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -634,7 +659,7 @@ impl BETA_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn BETA_step_impl(&self, sp: &mut BETA_StreamState, inReal0: f64, inReal1: f64, outReal: &mut f64) {
+    fn BETA_step_impl(sp: &mut BETA_StreamState, inReal0: f64, inReal1: f64, outReal: &mut f64) {
         let mut tmp_real: f64 = 0.0_f64;
         let mut denom: f64 = 0.0_f64;
         let mut denom_scale: f64 = 0.0_f64;
@@ -652,14 +677,14 @@ impl Core {
         sp.x_inReal0[(sp.i & sp.xMask) as usize] = inReal0;
         sp.x_inReal1[(sp.i & sp.xMask) as usize] = inReal1;
         tmp_real = sp.x_inReal0[(sp.i & sp.xMask) as usize];
-        if !((sp.last_price_x).abs() < 1e-14) {
+        if sp.last_price_x != 0.0 {
             x = (tmp_real - sp.last_price_x) / sp.last_price_x - sp.shift_x;
         } else {
             x = 0_f64 - sp.shift_x;
         }
         sp.last_price_x = tmp_real;
         tmp_real = sp.x_inReal1[((({ let _v = sp.i; sp.i += 1; _v }) as i32) & sp.xMask) as usize];
-        if !((sp.last_price_y).abs() < 1e-14) {
+        if sp.last_price_y != 0.0 {
             y = (tmp_real - sp.last_price_y) / sp.last_price_y - sp.shift_y;
         } else {
             y = 0_f64 - sp.shift_y;
@@ -733,11 +758,11 @@ impl Core {
             // for( sp.j = (windowStart) as i32; sp.j < sp.i; sp.j += 1 )
             sp.j = (windowStart) as i32;
             while sp.j < sp.i {
-                if !((prev_x).abs() < 1e-14) {
+                if prev_x != 0.0 {
                     tmp_real += (sp.x_inReal0[(sp.j & sp.xMask) as usize] - prev_x) / prev_x;
                 }
                 prev_x = sp.x_inReal0[(sp.j & sp.xMask) as usize];
-                if !((prev_y).abs() < 1e-14) {
+                if prev_y != 0.0 {
                     sp.shift_y += (sp.x_inReal1[(sp.j & sp.xMask) as usize] - prev_y) / prev_y;
                 }
                 prev_y = sp.x_inReal1[(sp.j & sp.xMask) as usize];
@@ -755,13 +780,13 @@ impl Core {
             // for( sp.j = (windowStart) as i32; sp.j < sp.i; sp.j += 1 )
             sp.j = (windowStart) as i32;
             while sp.j < sp.i {
-                if !((prev_x).abs() < 1e-14) {
+                if prev_x != 0.0 {
                     x = (sp.x_inReal0[(sp.j & sp.xMask) as usize] - prev_x) / prev_x - sp.shift_x;
                 } else {
                     x = 0_f64 - sp.shift_x;
                 }
                 prev_x = sp.x_inReal0[(sp.j & sp.xMask) as usize];
-                if !((prev_y).abs() < 1e-14) {
+                if prev_y != 0.0 {
                     y = (sp.x_inReal1[(sp.j & sp.xMask) as usize] - prev_y) / prev_y - sp.shift_y;
                 } else {
                     y = 0_f64 - sp.shift_y;
@@ -790,7 +815,7 @@ impl Core {
         // Always read the trailing before writing the output because the input and output
         // buffer can be the same.
         tmp_real = sp.x_inReal0[(sp.trailingIdx & sp.xMask) as usize];
-        if !((sp.trailing_last_price_x).abs() < 1e-14) {
+        if sp.trailing_last_price_x != 0.0 {
             x = (tmp_real - sp.trailing_last_price_x) / sp.trailing_last_price_x - sp.shift_x;
         } else {
             x = 0_f64 - sp.shift_x;
@@ -798,7 +823,7 @@ impl Core {
         sp.trailing_last_price_x = tmp_real;
         tmp_real = sp.x_inReal1[(sp.trailingIdx & sp.xMask) as usize];
         sp.trailingIdx += 1;
-        if !((sp.trailing_last_price_y).abs() < 1e-14) {
+        if sp.trailing_last_price_y != 0.0 {
             y = (tmp_real - sp.trailing_last_price_y) / sp.trailing_last_price_y - sp.shift_y;
         } else {
             y = 0_f64 - sp.shift_y;
@@ -831,8 +856,8 @@ impl Core {
     pub(crate) fn BETA_OpenImpl(
         &self, inReal0: &[f64], inReal1: &[f64], startIdx: usize, mut optInTimePeriod: i32, outBegIdx: &mut usize, outNBElement: &mut usize, outReal: &mut [f64], outStride: usize,
     ) -> Result<BETA_Stream, RetCode> {
-        if inReal0.is_empty() || inReal1.is_empty() || inReal1.len() != inReal0.len() {
-            return Err(RetCode::BadParam);
+        if inReal0.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inReal0.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -840,6 +865,9 @@ impl Core {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
             optInTimePeriod = 5;
         } else if (((optInTimePeriod) as i32) < 1) || (((optInTimePeriod) as i32) > 100000) {
+            return Err(RetCode::BadParam);
+        }
+        if inReal1.len() != inReal0.len() {
             return Err(RetCode::BadParam);
         }
         let historyLen: usize = inReal0.len();
@@ -963,22 +991,27 @@ impl Core {
         // window mean, which is better centred but costs a pass this one cannot
         // afford before the sums exist.
         i = { trailingIdx += 1; trailingIdx };
-        if !((last_price_x).abs() < 1e-14) {
+        // A return needs a non-zero base price and nothing more: the test is exact,
+        // not the fixed TA_IS_ZERO band it used to be. A price carries the quote
+        // unit, so that band declared every bar of a small-quoted instrument
+        // "no previous price", left every return at -shift, and collapsed beta to
+        // zero (issue #253).
+        if last_price_x != 0.0 {
             shift_x = (inReal0[i] - last_price_x) / last_price_x;
         }
-        if !((last_price_y).abs() < 1e-14) {
+        if last_price_y != 0.0 {
             shift_y = (inReal1[i] - last_price_y) / last_price_y;
         }
         while i < startIdx {
             tmp_real = inReal0[i];
-            if !((last_price_x).abs() < 1e-14) {
+            if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
                 x = 0_f64 - shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
-            if !((last_price_y).abs() < 1e-14) {
+            if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
                 y = 0_f64 - shift_y;
@@ -996,14 +1029,14 @@ impl Core {
         barsSinceReseed = (32 * optInTimePeriod) as usize;
         loop {
             tmp_real = inReal0[i];
-            if !((last_price_x).abs() < 1e-14) {
+            if last_price_x != 0.0 {
                 x = (tmp_real - last_price_x) / last_price_x - shift_x;
             } else {
                 x = 0_f64 - shift_x;
             }
             last_price_x = tmp_real;
             tmp_real = inReal1[{ let _v = i; i += 1; _v }];
-            if !((last_price_y).abs() < 1e-14) {
+            if last_price_y != 0.0 {
                 y = (tmp_real - last_price_y) / last_price_y - shift_y;
             } else {
                 y = 0_f64 - shift_y;
@@ -1077,11 +1110,11 @@ impl Core {
                 // for( j = windowStart; j < i; j += 1 )
                 j = windowStart;
                 while j < i {
-                    if !((prev_x).abs() < 1e-14) {
+                    if prev_x != 0.0 {
                         tmp_real += (inReal0[j] - prev_x) / prev_x;
                     }
                     prev_x = inReal0[j];
-                    if !((prev_y).abs() < 1e-14) {
+                    if prev_y != 0.0 {
                         shift_y += (inReal1[j] - prev_y) / prev_y;
                     }
                     prev_y = inReal1[j];
@@ -1099,13 +1132,13 @@ impl Core {
                 // for( j = windowStart; j < i; j += 1 )
                 j = windowStart;
                 while j < i {
-                    if !((prev_x).abs() < 1e-14) {
+                    if prev_x != 0.0 {
                         x = (inReal0[j] - prev_x) / prev_x - shift_x;
                     } else {
                         x = 0_f64 - shift_x;
                     }
                     prev_x = inReal0[j];
-                    if !((prev_y).abs() < 1e-14) {
+                    if prev_y != 0.0 {
                         y = (inReal1[j] - prev_y) / prev_y - shift_y;
                     } else {
                         y = 0_f64 - shift_y;
@@ -1134,7 +1167,7 @@ impl Core {
             // Always read the trailing before writing the output because the input and output
             // buffer can be the same.
             tmp_real = inReal0[trailingIdx];
-            if !((trailing_last_price_x).abs() < 1e-14) {
+            if trailing_last_price_x != 0.0 {
                 x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
             } else {
                 x = 0_f64 - shift_x;
@@ -1142,7 +1175,7 @@ impl Core {
             trailing_last_price_x = tmp_real;
             tmp_real = inReal1[trailingIdx];
             trailingIdx += 1;
-            if !((trailing_last_price_y).abs() < 1e-14) {
+            if trailing_last_price_y != 0.0 {
                 y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
             } else {
                 y = 0_f64 - shift_y;
@@ -1217,7 +1250,7 @@ impl Core {
             x_inReal0,
             x_inReal1,
         };
-        Ok(BETA_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(BETA_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::BETA_Open`] (composition seam).
@@ -1238,8 +1271,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -1265,12 +1299,32 @@ impl Core {
 
     /// [`Core::BETA_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::BETA`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::BETA_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_BETA_OpenAndFill")]
     pub fn BETA_OpenAndFill(
         &self, inReal0: &[f64], inReal1: &[f64], mut optInTimePeriod: i32, outReal: &mut [f64],
     ) -> Result<(BETA_Stream, OutRange), RetCode> {
+        if inReal0.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inReal0.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.BETA_Lookback(optInTimePeriod)?;
+        if inReal1.len() != inReal0.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inReal0.len().saturating_sub(_guardLb);
+        if outReal.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.BETA_OpenAndFillInternal(inReal0, inReal1, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outReal)?;
@@ -1315,7 +1369,7 @@ impl BETA_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
-        self.core.BETA_step_impl(&mut self.state, inReal0, inReal1, &mut outReal);
+        Core::BETA_step_impl(&mut self.state, inReal0, inReal1, &mut outReal);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1348,7 +1402,7 @@ impl BETA_Stream {
             if !inReal0[i].is_finite() || !inReal1[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.BETA_step_impl(&mut self.state, inReal0[i], inReal1[i], &mut outReal[i]);
+            Core::BETA_step_impl(&mut self.state, inReal0[i], inReal1[i], &mut outReal[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

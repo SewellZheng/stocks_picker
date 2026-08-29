@@ -50,6 +50,8 @@ package io.github.talib.test;
 import io.github.talib.Core;
 import io.github.talib.MAType;
 import io.github.talib.OutRange;
+import io.github.talib.RetCode;
+import io.github.talib.TaLibFailure;
 import io.github.talib.metadata.FuncFlags;
 import io.github.talib.metadata.FunctionDescription;
 import io.github.talib.metadata.FunctionInfo;
@@ -442,6 +444,114 @@ public class MetadataTest {
         FunctionInfo doji = Functions.byName("CDLDOJI");
         checkThrows(IllegalArgumentException.class,
             () -> doji.newCall().setOutput(0, out), "double[] on an INTEGER output -> IAE");
+
+        /* A leg bound to a buffer SHORTER than the requested range -- absent is
+           covered above, too short was covered nowhere until #265. Java answers
+           because Dispatch calls the PUBLIC tier, so the wrapper's own length
+           checks apply; Rust and C# reached the numerics instead and faulted
+           inside them. All three answer BadParam now. C is excluded by its own
+           API, not by oversight: its setters take a bare pointer and carry no
+           length. */
+        double[] shortLeg = new double[N / 2];
+        checkRetCode(RetCode.BadParam,
+            () -> sma.newCall().setInput(0, shortLeg).setOptInput(0, 30)
+                     .setOutput(0, new double[N]).call(0, N - 1),
+            "an input shorter than the range -> BadParam");
+        checkRetCode(RetCode.BadParam,
+            () -> sma.newCall().setInput(0, CLOSE).setOptInput(0, 30)
+                     .setOutput(0, new double[4]).call(0, N - 1),
+            "an output shorter than the produced count -> BadParam");
+        // Control: sized to the count actually produced, which is B5's bound --
+        // not the width of the requested range.
+        int lookback = sma.newCall().setOptInput(0, 30).lookback();
+        OutRange exact = sma.newCall().setInput(0, CLOSE).setOptInput(0, 30)
+                            .setOutput(0, new double[N - lookback]).call(0, N - 1);
+        check(exact.count() == N - lookback,
+            "an output sized to the produced count is accepted (" + exact.count() + ")");
+    }
+
+    /**
+     * A rejected SETTER leaves the holder as it found it — the other half of the
+     * rule, the call tier's half having landed with #265.
+     *
+     * <p>The sharp case is a RE-bind. On a fresh holder a partial write is masked
+     * by the unbound-component report; over a bundle that already works, a setter
+     * that checks and writes one component at a time commits the ones ahead of
+     * the offending one and leaves the rest holding the previous bundle, so the
+     * next {@code call} succeeds over a mixture of the two. Java already
+     * validates all six before committing (issue #266 names it as the shape the
+     * other three copy); this is what pins that it keeps doing so.
+     */
+    static void aRejectedSetterLeavesTheHolderAsItFoundIt() {
+        // WILLR consumes High|Low|Close, so close is the last required component
+        // and the natural place to trip the setter.
+        FunctionInfo willr = Functions.byName("WILLR");
+        // A different PHASE, not a shift: WILLR is (hh - c) / (hh - ll), which a
+        // uniform offset leaves unchanged -- the control below would then pass on
+        // a setter that did nothing at all.
+        double[] high2 = series(100.0, 8.0, 1.3);
+        double[] low2 = new double[N];
+        double[] close2 = new double[N];
+        for (int i = 0; i < N; i++) {
+            low2[i] = high2[i] - 4.0;
+            close2[i] = high2[i] - 2.0;
+        }
+
+        double[] reference = new double[N];
+        OutRange want = willr.newCall()
+            .setPriceInput(0, null, HIGH, LOW, CLOSE, null, null)
+            .setOptInput(0, 14).setOutput(0, reference).call(0, N - 1);
+        check(want.count() > 0, "the reference call produced values");
+
+        ParamHolder h = willr.newCall()
+            .setPriceInput(0, null, HIGH, LOW, CLOSE, null, null)
+            .setOptInput(0, 14).setOutput(0, new double[N]);
+        h.call(0, N - 1);
+        double[] afterReject = new double[N];
+        h.setOutput(0, afterReject);
+        checkThrows(IllegalArgumentException.class,
+            () -> h.setPriceInput(0, null, high2, low2, null, null, null),
+            "close is consumed and was not supplied -> IAE");
+        OutRange got = h.call(0, N - 1);
+        check(got.begIdx() == want.begIdx() && got.count() == want.count(),
+            "the holder still reports the same range after a rejected setter");
+        boolean same = true;
+        for (int i = 0; i < want.count(); i++) {
+            same &= Double.doubleToRawLongBits(afterReject[i])
+                 == Double.doubleToRawLongBits(reference[i]);
+        }
+        check(same, "a rejected setter did not change what the holder computes");
+
+        // Control: a CORRECT rebind must reach the output, or the check above
+        // passes for a setter that stopped working altogether.
+        double[] afterRebind = new double[N];
+        ParamHolder h2 = willr.newCall()
+            .setPriceInput(0, null, HIGH, LOW, CLOSE, null, null)
+            .setOptInput(0, 14).setOutput(0, afterRebind);
+        h2.call(0, N - 1);
+        h2.setPriceInput(0, null, high2, low2, close2, null, null);
+        h2.call(0, N - 1);
+        boolean moved = false;
+        for (int i = 0; i < want.count(); i++) {
+            moved |= Double.doubleToRawLongBits(afterRebind[i])
+                  != Double.doubleToRawLongBits(reference[i]);
+        }
+        check(moved, "a correct rebind reaches the output");
+    }
+
+    /** Runs {@code body} and checks it failed carrying {@code expected}. */
+    private static void checkRetCode(RetCode expected, Runnable body, String what) {
+        checks++;
+        try {
+            body.run();
+            failures++;
+            System.out.println("  FAIL: " + what + " (no exception thrown)");
+        } catch (RuntimeException e) {
+            if (!(e instanceof TaLibFailure f) || f.retCode() != expected) {
+                failures++;
+                System.out.println("  FAIL: " + what + " (threw " + e.getClass().getName() + ")");
+            }
+        }
     }
 
     /** Explicitly-set parameters must actually reach the function. */
@@ -673,6 +783,7 @@ public class MetadataTest {
         flagVocabularyIsComplete();
         callByNameMatchesTheTypedApi();
         holderRejectsMisuse();
+        aRejectedSetterLeavesTheHolderAsItFoundIt();
         explicitParametersReachTheFunction();
         choiceListSentinelMatchesTheDefault();
         holderLookbackMatchesTheTypedApi();

@@ -5,14 +5,19 @@
  *  DM       Drew McCormack (http://www.trade-strategist.com)
  *  MF       Mario Fortier
  *  DX       Dex Hunter (https://github.com/dexhunter)
+ *  CC       Claude Code (AI assistant)
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  281206 DM   Initial Implementation
- *  010606 MF   Abstract local arrays. Detect divide by zero.
- *  073126 DX   Evaluate each bar's terms once via a CIRCBUF ring (PR #154).
+ *  281206 DM    Initial Implementation
+ *  010606 MF    Abstract local arrays. Detect divide by zero.
+ *  073126 DX    Evaluate each bar's terms once via a CIRCBUF ring (PR #154).
+ *  082326 MF,CC Fix #253. Recognize an empty window by counting bars, so the
+ *               divides are guarded exactly instead of against the fixed
+ *               TA_IS_ZERO band -- which zeroed the oscillator for any
+ *               instrument quoted small enough to fall under it.
  */
 
    /**
@@ -90,6 +95,7 @@
       int outIdx = 0;
       int trailingPos1 = 0;
       int trailingPos2 = 0;
+      int nullRun = 0;
       int[] usedFlag = new int[3];
       int[] periods = new int[3];
       int[] sortedPeriods = new int[3];
@@ -179,6 +185,21 @@
       b2Total = 0;
       a3Total = 0;
       b3Total = 0;
+      /* Consecutive bars that put nothing into the windows, counted so that an
+       * empty window can be recognized exactly (the shape #244 needed for MFI).
+       * The running totals cannot answer that question themselves: they are
+       * maintained by add-then-subtract, so once a window empties they hold
+       * rounding residue of arbitrary sign rather than zero, and v0.6.4 divides
+       * one residue by another there -- it returns -92.9 for an oscillator
+       * documented to run 0..100. Both of a bar's terms have to be zero for it to
+       * count, which for valid bars is one condition (a zero true range means
+       * H == L == the previous close, which leaves the close on the true low).
+       * Reseeding on the count is what lets the divides below be guarded exactly
+       * rather than against a fixed band -- a true range carries the quote unit,
+       * so the band they used to carry zeroed the oscillator for any instrument
+       * quoted below it (issue #253).
+       */
+      nullRun = 0;
       for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
          tempLT = inLow[i];
          tempHT = inHigh[i];
@@ -198,6 +219,11 @@
          term_trueRange[term_Idx] = trueRange;
          term_Idx++;
          if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
          if( i >= startIdx - optInTimePeriod1 + 1 ) {
             a1Total += closeMinusTrueLow;
             b1Total += trueRange;
@@ -248,15 +274,42 @@
          b1Total += trueRange;
          b2Total += trueRange;
          b3Total += trueRange;
-         /* Calculate the oscillator value for today */
+         /* Once a whole window of no-contribution bars has gone by, every slot it
+          * spans is 0.0, so its totals are known to be exactly zero and the
+          * residue can be dropped. The periods are sorted shortest-first, so a
+          * run long enough for a longer window is long enough for every shorter
+          * one.
+          */
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod1 ) {
+            a1Total = 0.0;
+            b1Total = 0.0;
+            if( nullRun >= optInTimePeriod2 ) {
+               a2Total = 0.0;
+               b2Total = 0.0;
+               if( nullRun >= optInTimePeriod3 ) {
+                  nullRun = optInTimePeriod3;
+                  a3Total = 0.0;
+                  b3Total = 0.0;
+               }
+            }
+         }
+         /* Calculate the oscillator value for today. Each window contributes only
+          * when it holds a true range; the totals are sums of non-negative terms
+          * and the reseed above removes their residue, so the test is exact.
+          */
          output = 0.0;
-         if( !((-0.00000000000001 < b1Total) && (b1Total < 0.00000000000001)) ) {
+         if( b1Total > 0.0 ) {
             output += 4.0 * (a1Total / b1Total);
          }
-         if( !((-0.00000000000001 < b2Total) && (b2Total < 0.00000000000001)) ) {
+         if( b2Total > 0.0 ) {
             output += 2.0 * (a2Total / b2Total);
          }
-         if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
+         if( b3Total > 0.0 ) {
             output += a3Total / b3Total;
          }
          /* Remove the trailing terms to prepare for next day. Each was evaluated
@@ -329,6 +382,7 @@
       int outIdx = 0;
       int trailingPos1 = 0;
       int trailingPos2 = 0;
+      int nullRun = 0;
       int[] usedFlag = new int[3];
       int[] periods = new int[3];
       int[] sortedPeriods = new int[3];
@@ -398,6 +452,7 @@
       b2Total = 0;
       a3Total = 0;
       b3Total = 0;
+      nullRun = 0;
       for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
          tempLT = (double)inLow[i];
          tempHT = (double)inHigh[i];
@@ -417,6 +472,11 @@
          term_trueRange[term_Idx] = trueRange;
          term_Idx++;
          if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
          if( i >= startIdx - optInTimePeriod1 + 1 ) {
             a1Total += closeMinusTrueLow;
             b1Total += trueRange;
@@ -461,14 +521,32 @@
          b1Total += trueRange;
          b2Total += trueRange;
          b3Total += trueRange;
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod1 ) {
+            a1Total = 0.0;
+            b1Total = 0.0;
+            if( nullRun >= optInTimePeriod2 ) {
+               a2Total = 0.0;
+               b2Total = 0.0;
+               if( nullRun >= optInTimePeriod3 ) {
+                  nullRun = optInTimePeriod3;
+                  a3Total = 0.0;
+                  b3Total = 0.0;
+               }
+            }
+         }
          output = 0.0;
-         if( !((-0.00000000000001 < b1Total) && (b1Total < 0.00000000000001)) ) {
+         if( b1Total > 0.0 ) {
             output += 4.0 * (a1Total / b1Total);
          }
-         if( !((-0.00000000000001 < b2Total) && (b2Total < 0.00000000000001)) ) {
+         if( b2Total > 0.0 ) {
             output += 2.0 * (a2Total / b2Total);
          }
-         if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
+         if( b3Total > 0.0 ) {
             output += a3Total / b3Total;
          }
          a1Total -= term_closeMinusTrueLow[trailingPos1];
@@ -536,15 +614,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ATR
     * @see Core#TRANGE
@@ -561,9 +638,9 @@
                            double outReal[] )
    {
       requireIndexRange("ULTOSC", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ULTOSC", startIdx, ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ULTOSC", "inHigh", inHigh, guardInLen);
       requireLength("ULTOSC", "inLow", inLow, guardInLen);
       requireLength("ULTOSC", "inClose", inClose, guardInLen);
@@ -620,15 +697,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#ATR
     * @see Core#TRANGE
@@ -645,9 +721,9 @@
                            double outReal[] )
    {
       requireIndexRange("ULTOSC", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("ULTOSC", startIdx, ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("ULTOSC", "inHigh", inHigh, guardInLen);
       requireLength("ULTOSC", "inLow", inLow, guardInLen);
       requireLength("ULTOSC", "inClose", inClose, guardInLen);
@@ -689,6 +765,7 @@
       double b3Total;
       int trailingPos1;
       int trailingPos2;
+      int nullRun;
       int term_Idx;
       int maxIdx_term;
       double lag1_inClose;
@@ -726,6 +803,7 @@
          this.b3Total = other.b3Total;
          this.trailingPos1 = other.trailingPos1;
          this.trailingPos2 = other.trailingPos2;
+         this.nullRun = other.nullRun;
          this.term_Idx = other.term_Idx;
          this.maxIdx_term = other.maxIdx_term;
          this.lag1_inClose = other.lag1_inClose;
@@ -750,6 +828,7 @@
          this.b3Total = other.b3Total;
          this.trailingPos1 = other.trailingPos1;
          this.trailingPos2 = other.trailingPos2;
+         this.nullRun = other.nullRun;
          this.term_Idx = other.term_Idx;
          this.maxIdx_term = other.maxIdx_term;
          this.lag1_inClose = other.lag1_inClose;
@@ -805,6 +884,10 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
+         requireArgument("ULTOSC updateAndFill", "inHigh", inHigh);
+         requireArgument("ULTOSC updateAndFill", "inLow", inLow);
+         requireArgument("ULTOSC updateAndFill", "inClose", inClose);
+         requireArgument("ULTOSC updateAndFill", "outReal", outReal);
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("ULTOSC updateAndFill: BadParam", RetCode.BadParam);
@@ -890,15 +973,42 @@
       sp.b1Total += trueRange;
       sp.b2Total += trueRange;
       sp.b3Total += trueRange;
-      /* Calculate the oscillator value for today */
+      /* Once a whole window of no-contribution bars has gone by, every slot it
+       * spans is 0.0, so its totals are known to be exactly zero and the
+       * residue can be dropped. The periods are sorted shortest-first, so a
+       * run long enough for a longer window is long enough for every shorter
+       * one.
+       */
+      if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+         sp.nullRun += 1;
+      } else {
+         sp.nullRun = 0;
+      }
+      if( sp.nullRun >= sp.optInTimePeriod1 ) {
+         sp.a1Total = 0.0;
+         sp.b1Total = 0.0;
+         if( sp.nullRun >= sp.optInTimePeriod2 ) {
+            sp.a2Total = 0.0;
+            sp.b2Total = 0.0;
+            if( sp.nullRun >= sp.optInTimePeriod3 ) {
+               sp.nullRun = sp.optInTimePeriod3;
+               sp.a3Total = 0.0;
+               sp.b3Total = 0.0;
+            }
+         }
+      }
+      /* Calculate the oscillator value for today. Each window contributes only
+       * when it holds a true range; the totals are sums of non-negative terms
+       * and the reseed above removes their residue, so the test is exact.
+       */
       output = 0.0;
-      if( !((-0.00000000000001 < sp.b1Total) && (sp.b1Total < 0.00000000000001)) ) {
+      if( sp.b1Total > 0.0 ) {
          output += 4.0 * (sp.a1Total / sp.b1Total);
       }
-      if( !((-0.00000000000001 < sp.b2Total) && (sp.b2Total < 0.00000000000001)) ) {
+      if( sp.b2Total > 0.0 ) {
          output += 2.0 * (sp.a2Total / sp.b2Total);
       }
-      if( !((-0.00000000000001 < sp.b3Total) && (sp.b3Total < 0.00000000000001)) ) {
+      if( sp.b3Total > 0.0 ) {
          output += sp.a3Total / sp.b3Total;
       }
       /* Remove the trailing terms to prepare for next day. Each was evaluated
@@ -957,6 +1067,7 @@
       int outIdx = 0;
       int trailingPos1 = 0;
       int trailingPos2 = 0;
+      int nullRun = 0;
       int[] usedFlag = new int[3];
       int[] periods = new int[3];
       int[] sortedPeriods = new int[3];
@@ -966,11 +1077,14 @@
       int maxIdx_term = (32)-1;
       int historyLen = inHigh.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.length != inHigh.length || inClose.length != inHigh.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.length != inHigh.length || inClose.length != inHigh.length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod1 == Integer.MIN_VALUE ) {
          optInTimePeriod1 = 7;
@@ -1053,6 +1167,21 @@
       b2Total = 0;
       a3Total = 0;
       b3Total = 0;
+      /* Consecutive bars that put nothing into the windows, counted so that an
+       * empty window can be recognized exactly (the shape #244 needed for MFI).
+       * The running totals cannot answer that question themselves: they are
+       * maintained by add-then-subtract, so once a window empties they hold
+       * rounding residue of arbitrary sign rather than zero, and v0.6.4 divides
+       * one residue by another there -- it returns -92.9 for an oscillator
+       * documented to run 0..100. Both of a bar's terms have to be zero for it to
+       * count, which for valid bars is one condition (a zero true range means
+       * H == L == the previous close, which leaves the close on the true low).
+       * Reseeding on the count is what lets the divides below be guarded exactly
+       * rather than against a fixed band -- a true range carries the quote unit,
+       * so the band they used to carry zeroed the oscillator for any instrument
+       * quoted below it (issue #253).
+       */
+      nullRun = 0;
       for( i = startIdx - optInTimePeriod3 + 1; i < startIdx; i += 1 ) {
          tempLT = inLow[i];
          tempHT = inHigh[i];
@@ -1072,6 +1201,11 @@
          term_trueRange[term_Idx] = trueRange;
          term_Idx++;
          if( term_Idx > maxIdx_term ) { term_Idx = 0; }
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
          if( i >= startIdx - optInTimePeriod1 + 1 ) {
             a1Total += closeMinusTrueLow;
             b1Total += trueRange;
@@ -1122,15 +1256,42 @@
          b1Total += trueRange;
          b2Total += trueRange;
          b3Total += trueRange;
-         /* Calculate the oscillator value for today */
+         /* Once a whole window of no-contribution bars has gone by, every slot it
+          * spans is 0.0, so its totals are known to be exactly zero and the
+          * residue can be dropped. The periods are sorted shortest-first, so a
+          * run long enough for a longer window is long enough for every shorter
+          * one.
+          */
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= optInTimePeriod1 ) {
+            a1Total = 0.0;
+            b1Total = 0.0;
+            if( nullRun >= optInTimePeriod2 ) {
+               a2Total = 0.0;
+               b2Total = 0.0;
+               if( nullRun >= optInTimePeriod3 ) {
+                  nullRun = optInTimePeriod3;
+                  a3Total = 0.0;
+                  b3Total = 0.0;
+               }
+            }
+         }
+         /* Calculate the oscillator value for today. Each window contributes only
+          * when it holds a true range; the totals are sums of non-negative terms
+          * and the reseed above removes their residue, so the test is exact.
+          */
          output = 0.0;
-         if( !((-0.00000000000001 < b1Total) && (b1Total < 0.00000000000001)) ) {
+         if( b1Total > 0.0 ) {
             output += 4.0 * (a1Total / b1Total);
          }
-         if( !((-0.00000000000001 < b2Total) && (b2Total < 0.00000000000001)) ) {
+         if( b2Total > 0.0 ) {
             output += 2.0 * (a2Total / b2Total);
          }
-         if( !((-0.00000000000001 < b3Total) && (b3Total < 0.00000000000001)) ) {
+         if( b3Total > 0.0 ) {
             output += a3Total / b3Total;
          }
          /* Remove the trailing terms to prepare for next day. Each was evaluated
@@ -1182,6 +1343,7 @@
       sp.b3Total = b3Total;
       sp.trailingPos1 = trailingPos1;
       sp.trailingPos2 = trailingPos2;
+      sp.nullRun = nullRun;
       sp.term_Idx = term_Idx;
       sp.maxIdx_term = maxIdx_term;
       sp.lag1_inClose = inClose[historyLen - 1];
@@ -1238,10 +1400,19 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public ULTOSC_Stream ULTOSC_Open( double inHigh[], double inLow[], double inClose[], int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3 )
    {
+      requireArgument("ULTOSC open", "inHigh", inHigh);
+      requireHistory("ULTOSC open", inHigh.length);
+      requireArgument("ULTOSC open", "inLow", inLow);
+      requireArgument("ULTOSC open", "inClose", inClose);
+      requireHistoryLength("ULTOSC open", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ULTOSC open", "inClose", inClose.length, inHigh.length);
       return ULTOSC_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod1, optInTimePeriod2, optInTimePeriod3);
    }
    /**
@@ -1249,12 +1420,22 @@
     * to {@link Core#ULTOSC} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link ULTOSC_Stream#outRange()}.
     */
    public ULTOSC_Stream ULTOSC_OpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod1, int optInTimePeriod2, int optInTimePeriod3, double outReal[] )
    {
+      requireArgument("ULTOSC openAndFill", "inHigh", inHigh);
+      requireHistory("ULTOSC openAndFill", inHigh.length);
+      requireArgument("ULTOSC openAndFill", "inLow", inLow);
+      requireArgument("ULTOSC openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("ULTOSC openAndFill", inHigh.length, ULTOSC_Lookback(optInTimePeriod1, optInTimePeriod2, optInTimePeriod3));
+      requireHistoryLength("ULTOSC openAndFill", "inLow", inLow.length, inHigh.length);
+      requireHistoryLength("ULTOSC openAndFill", "inClose", inClose.length, inHigh.length);
+      requireLength("ULTOSC openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose ) {
          throw new TaLibArgumentException("ULTOSC openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

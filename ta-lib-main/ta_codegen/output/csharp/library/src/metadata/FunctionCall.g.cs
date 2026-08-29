@@ -192,13 +192,13 @@ public sealed class FunctionCall
     /// <exception cref="ArgumentException">The slot is not a price input.</exception>
     /// <remarks>A component the function does not consume is accepted and ignored,
     /// matching C's <c>TA_SetInputParamPricePtr</c> (whose <c>SET_PARAM_INFO</c>
-    /// stores only the flagged components) and Java's <c>ParamHolder</c>. This
-    /// used to throw. It reads like the stricter, safer choice and is not: no
+    /// stores only the flagged components) and Java's <c>ParamHolder</c>. Do not
+    /// make it throw: that reads like the stricter, safer choice and is not — no
     /// function in the catalogue consumes <see cref="PriceComponents.OpenInterest"/>,
-    /// so the natural generic call — hand the binder a whole OHLCV bundle and let
-    /// it take what it needs — threw for every price function here while working
-    /// against C and Java. Rejecting a MISSING required component is the check
-    /// that earns its keep, and all three backends still do it.</remarks>
+    /// so the natural generic call (hand the binder a whole OHLCV bundle and let
+    /// it take what it needs) would throw for every price function here while
+    /// working against C and Java. Rejecting a MISSING required component is the
+    /// check that earns its keep, and all three backends do it.</remarks>
     public FunctionCall SetPriceInput(int slot, PriceComponents component, double[] series)
     {
         InputInfo info = CheckInput(slot, InputKind.Price);
@@ -219,6 +219,11 @@ public sealed class FunctionCall
     /// <exception cref="ArgumentException">A consumed component was not supplied.
     /// A component the function ignores is accepted — see the single-component
     /// overload's remarks.</exception>
+    /// <remarks>Validates every consumed component before writing any of them, so
+    /// a rejection leaves this call exactly as it found it (issue #266).
+    /// Interleaved, it committed the components ahead of the offending one, and a
+    /// caller re-binding an already-good bundle then got <c>Success</c> over a
+    /// mixture of the two — no code, no exception, wrong numbers.</remarks>
     public FunctionCall SetPriceInput(int slot, double[]? open = null, double[]? high = null,
                                       double[]? low = null, double[]? close = null,
                                       double[]? volume = null, double[]? openInterest = null)
@@ -233,15 +238,17 @@ public sealed class FunctionCall
 
         for (int i = 0; i < all.Length; i++)
         {
-            bool required = info.Requires(all[i]);
-            if (required && given[i] is null)
+            if (info.Requires(all[i]) && given[i] is null)
             {
                 throw new ArgumentException(
                     $"{_info.Name} input {slot} ({info.ParamName}) requires {all[i]}", nameof(slot));
             }
+        }
 
-            /* An unconsumed component is stored and ignored -- see the remark on
-               the single-component overload. */
+        /* An unconsumed component is stored and ignored -- see the remark on the
+           single-component overload. */
+        for (int i = 0; i < all.Length; i++)
+        {
             _price[slot][i] = given[i];
         }
 
@@ -491,13 +498,13 @@ public sealed class FunctionCall
             throw new ArgumentException($"{_info.Name}: {which} was not set");
         }
 
-        RetCode rc = TryInvoke(startIdx, endIdx, out OutRange range);
-        if (rc != RetCode.Success)
-        {
-            throw new ArgumentException($"{_info.Name} failed: {rc}");
-        }
-
-        return range;
+        // The function's OWN exception, not a relabelled code. Since #265 the
+        // thunk calls the public overload, whose message names the buffer and
+        // both sizes and whose type carries the RetCode; going through
+        // TryInvoke flattened that to "SMA failed: BadParam". TryInvoke exists
+        // to hand back a code; this method's contract is the exception, so it
+        // should be the real one -- which is what Java's ParamHolder.call does.
+        return _info.Invoke(_core, this, startIdx, endIdx);
     }
 
     /// <summary>Runs the function, reporting failure as a code rather than an
@@ -518,33 +525,24 @@ public sealed class FunctionCall
             return bound;
         }
 
-        CallOutcome outcome;
         try
         {
-            outcome = _info.Invoke(_core, this, startIdx, endIdx);
+            range = _info.Invoke(_core, this, startIdx, endIdx);
+            return RetCode.Success;
         }
         catch (Exception _e) when (_e is ITaLibFailure)
         {
-            // Reachable only through a COMPOSED function. The thunk calls the
-            // body, which answers a code and does not throw; but a composed
-            // body cross-calls its callee's PUBLIC tier -- `OutRange _xr0 =
-            // MA(startIdx, endIdx, ...)` in APO -- and that throws. This
-            // method's contract is a code, so it converts here, once, rather
-            // than in every thunk. Only the library's own failure is
-            // converted; anything else is not ours to relabel.
-            //
-            // So this catch is coupled to the #236 step 3 debt: it is live
-            // only while composed bodies call the public callee, which is the
-            // same mechanism that put ten cores in NoPhantomIoTest's
-            // CROSS_CALL_GUARDED list. If that debt is ever paid down by
-            // routing cross-calls to `_Impl`, this goes dead and TryInvoke
-            // silently stops converting anything -- delete it in that change,
-            // do not leave it standing as reassurance.
+            // The one conversion point. Since #265 the thunk calls the function's
+            // PUBLIC overload, like C's frames and Java's Dispatch, so every
+            // rejection this method reports -- a bad parameter, a range out of
+            // bounds, a buffer too short -- arrives here as a throw. It also
+            // still catches what it was written for: a composed body cross-calls
+            // its callee's public tier, `OutRange _xr0 = MA(startIdx, endIdx,
+            // ...)` in APO, and that throws too. Only the library's own failure
+            // is converted; anything else is not ours to relabel.
             range = new OutRange(0, 0);
             return ((ITaLibFailure)_e).RetCode;
         }
-        range = new OutRange(outcome.BegIdx, outcome.Count);
-        return outcome.Code;
     }
 
     /* Accessors used by the generated thunks. Every one is reached only after

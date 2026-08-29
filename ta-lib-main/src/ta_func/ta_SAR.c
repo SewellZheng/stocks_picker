@@ -56,6 +56,8 @@
  *  010802 MF     Template creation.
  *  052603 MF     Adapt code to compile with .NET Managed C++
  *  122104 MF,CF  Fix#1089506 for out-of-bound access to ep_temp.
+ *  082726 MF,CC  Answer a rejected minus_dm before reading ep_temp, not after:
+ *                the read was of an uninitialised local.
  */
 
 TA_LIB_API int TA_SAR_Lookback( double optInAcceleration, double optInMaximum )
@@ -104,10 +106,6 @@ TA_LIB_API TA_RetCode TA_SAR( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( optInAcceleration == TA_REAL_DEFAULT )
       optInAcceleration = 0.02;
    else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) )
@@ -115,6 +113,12 @@ TA_LIB_API TA_RetCode TA_SAR( int    startIdx,
    if( optInMaximum == TA_REAL_DEFAULT )
       optInMaximum = 0.2;
    else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -191,18 +195,18 @@ TA_LIB_API TA_RetCode TA_SAR( int    startIdx,
     *  of the parameter is not significant).
     */
    retCode = TA_MINUS_DM(startIdx,startIdx,inHigh,inLow,1,&tempInt,&tempInt,ep_temp);
+   if( retCode != TA_SUCCESS )
+   {
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      return retCode;
+   }
    if( ep_temp[0] > 0 )
    {
       isLong = 0;
    } else 
    {
       isLong = 1;
-   }
-   if( retCode != TA_SUCCESS )
-   {
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      return retCode;
    }
    *outBegIdx= startIdx;
    outIdx = 0;
@@ -396,10 +400,6 @@ TA_RetCode TA_S_SAR( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
-   if( !inHigh )
-      return TA_BAD_PARAM;
-   if( !inLow )
-      return TA_BAD_PARAM;
    if( optInAcceleration == TA_REAL_DEFAULT )
       optInAcceleration = 0.02;
    else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) )
@@ -407,6 +407,12 @@ TA_RetCode TA_S_SAR( int    startIdx,
    if( optInMaximum == TA_REAL_DEFAULT )
       optInMaximum = 0.2;
    else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) )
+      return TA_BAD_PARAM;
+   if( !inHigh )
+      return TA_BAD_PARAM;
+   if( !inLow )
+      return TA_BAD_PARAM;
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -428,18 +434,18 @@ TA_RetCode TA_S_SAR( int    startIdx,
       af = optInAcceleration;
    }
    retCode = TA_S_MINUS_DM(startIdx,startIdx,inHigh,inLow,1,&tempInt,&tempInt,ep_temp);
+   if( retCode != TA_SUCCESS )
+   {
+      *outBegIdx= 0;
+      *outNBElement= 0;
+      return retCode;
+   }
    if( ep_temp[0] > 0 )
    {
       isLong = 0;
    } else 
    {
       isLong = 1;
-   }
-   if( retCode != TA_SUCCESS )
-   {
-      *outBegIdx= 0;
-      *outNBElement= 0;
-      return retCode;
    }
    *outBegIdx= startIdx;
    outIdx = 0;
@@ -737,9 +743,9 @@ static TA_RetCode TA_SAR_OpenImpl( struct TA_SAR_Stream **stream, const double i
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    if( optInAcceleration == TA_REAL_DEFAULT )
       optInAcceleration = 0.02;
    else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) )
@@ -846,18 +852,18 @@ static TA_RetCode TA_SAR_OpenImpl( struct TA_SAR_Stream **stream, const double i
        *  of the parameter is not significant).
        */
       retCode = TA_MINUS_DM(startIdx,startIdx,inHigh,inLow,1,&tempInt,&tempInt,ep_temp);
+      if( retCode != TA_SUCCESS )
+      {
+         *outBegIdx= 0;
+         *outNBElement= 0;
+         return retCode;
+      }
       if( ep_temp[0] > 0 )
       {
          isLong = 0;
       } else 
       {
          isLong = 1;
-      }
-      if( retCode != TA_SUCCESS )
-      {
-         *outBegIdx= 0;
-         *outNBElement= 0;
-         return retCode;
       }
       *outBegIdx= startIdx;
       outIdx = 0;
@@ -1057,9 +1063,9 @@ TA_LIB_API TA_RetCode TA_SAR_Open( TA_SAR_Stream **stream, const double inHigh[]
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
    return TA_SAR_OpenInternal( stream, inHigh, inLow, 0, historyLen, optInAcceleration, optInMaximum, outReal );
 }
 
@@ -1067,10 +1073,9 @@ TA_LIB_API TA_RetCode TA_SAR_OpenAndFill( TA_SAR_Stream **stream, const double i
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    return TA_SAR_OpenAndFillInternal( stream, inHigh, inLow, 0, historyLen, optInAcceleration, optInMaximum, outBegIdx, outNBElement, outReal );
 }

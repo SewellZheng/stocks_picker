@@ -68,7 +68,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLHARAMICROSS`]: the number of leading input values consumed
     /// before the first output value can be produced.
-    pub fn CDLHARAMICROSS_Lookback(&self) -> usize {
+    pub fn CDLHARAMICROSS_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type as i32;
         #[allow(non_snake_case)]
@@ -81,10 +81,11 @@ impl Core {
         let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
         #[allow(non_snake_case)]
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
-        return ((BodyDoji_avgPeriod).max(BodyLong_avgPeriod) + 1) as usize;
+        return Ok(((BodyDoji_avgPeriod).max(BodyLong_avgPeriod) + 1) as usize);
     }
     /// C-shaped body behind [`Core::CDLHARAMICROSS`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn CDLHARAMICROSS_Impl(
         &self,
         startIdx: usize,
@@ -103,7 +104,7 @@ impl Core {
         if endIdx > Self::MAX_INDEX || endIdx < startIdx {
             return RetCode::OutOfRangeEndIndex;
         }
-        let _assertLb = self.CDLHARAMICROSS_Lookback();
+        let _assertLb = self.CDLHARAMICROSS_Lookback().unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inOpen.len());
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
@@ -132,7 +133,7 @@ impl Core {
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLHARAMICROSS_Lookback();
+        lookbackTotal = self.CDLHARAMICROSS_Lookback().unwrap_or(usize::MAX);
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -341,11 +342,9 @@ impl Core {
     /// below `startIdx`. A range shorter than the lookback is not an error: it is [`Ok`] with a
     /// zero [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -389,6 +388,30 @@ impl Core {
         inClose: &[f64],
         outInteger: &mut [i32],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLHARAMICROSS_Lookback()?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inOpen.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.CDLHARAMICROSS_Impl(
@@ -420,7 +443,10 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLHARAMICROSS_Stream")]
 pub struct CDLHARAMICROSS_Stream {
-    core: Core,
+    /// The `BodyDoji` setting this stream was opened with.
+    cs_body_doji: CandleSetting,
+    /// The `BodyLong` setting this stream was opened with.
+    cs_body_long: CandleSetting,
     state: CDLHARAMICROSS_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -431,7 +457,8 @@ impl CDLHARAMICROSS_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `CDLHARAMICROSS_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
+        self.cs_body_doji = src.cs_body_doji;
+        self.cs_body_long = src.cs_body_long;
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -481,19 +508,19 @@ impl CDLHARAMICROSS_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn CDLHARAMICROSS_step_impl(&self, sp: &mut CDLHARAMICROSS_StreamState, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
+    fn CDLHARAMICROSS_step_impl(sp: &mut CDLHARAMICROSS_StreamState, cs_body_doji: &CandleSetting, cs_body_long: &CandleSetting, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64, outInteger: &mut i32) {
         #[allow(non_snake_case)]
-        let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type as i32;
+        let BodyDoji_rangeType: i32 = cs_body_doji.range_type as i32;
         #[allow(non_snake_case)]
-        let BodyDoji_avgPeriod: i32 = self.candle_settings.body_doji.avg_period;
+        let BodyDoji_avgPeriod: i32 = cs_body_doji.avg_period;
         #[allow(non_snake_case)]
-        let BodyDoji_factor: f64 = self.candle_settings.body_doji.factor;
+        let BodyDoji_factor: f64 = cs_body_doji.factor;
         #[allow(non_snake_case)]
-        let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
+        let BodyLong_rangeType: i32 = cs_body_long.range_type as i32;
         #[allow(non_snake_case)]
-        let BodyLong_avgPeriod: i32 = self.candle_settings.body_long.avg_period;
+        let BodyLong_avgPeriod: i32 = cs_body_long.avg_period;
         #[allow(non_snake_case)]
-        let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
+        let BodyLong_factor: f64 = cs_body_long.factor;
         if sp.ringCap_BodyDojiTrailingIdx == 0 {
             let mut _candlerange_0: f64;
             match BodyDoji_rangeType {
@@ -637,11 +664,14 @@ impl Core {
     pub(crate) fn CDLHARAMICROSS_OpenImpl(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, outBegIdx: &mut usize, outNBElement: &mut usize, outInteger: &mut [i32], outStride: usize,
     ) -> Result<CDLHARAMICROSS_Stream, RetCode> {
-        if inOpen.is_empty() || inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
-            return Err(RetCode::BadParam);
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inOpen.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
+        }
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inOpen.len();
         let endIdx: usize = historyLen - 1;
@@ -674,7 +704,7 @@ impl Core {
         let BodyLong_factor: f64 = self.candle_settings.body_long.factor;
         // Identify the minimum number of price bar needed
         // to calculate at least one output.
-        lookbackTotal = self.CDLHARAMICROSS_Lookback();
+        lookbackTotal = self.CDLHARAMICROSS_Lookback()?;
         // Move up the start index if there is not
         // enough initial data.
         if startIdx < lookbackTotal {
@@ -879,7 +909,7 @@ impl Core {
             ringCap_BodyLongTrailingIdx: cap_BodyLongTrailingIdx as usize,
             ring_BodyLongTrailingIdx_derived,
         };
-        Ok(CDLHARAMICROSS_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(CDLHARAMICROSS_Stream { cs_body_doji: self.candle_settings.body_doji, cs_body_long: self.candle_settings.body_long, state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::CDLHARAMICROSS_Open`] (composition seam).
@@ -900,8 +930,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::Core;
@@ -931,12 +962,32 @@ impl Core {
 
     /// [`Core::CDLHARAMICROSS_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::CDLHARAMICROSS`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::CDLHARAMICROSS_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_CDLHARAMICROSS_OpenAndFill")]
     pub fn CDLHARAMICROSS_OpenAndFill(
         &self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32],
     ) -> Result<(CDLHARAMICROSS_Stream, OutRange), RetCode> {
+        if inOpen.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inOpen.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.CDLHARAMICROSS_Lookback()?;
+        if inHigh.len() != inOpen.len() || inLow.len() != inOpen.len() || inClose.len() != inOpen.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inOpen.len().saturating_sub(_guardLb);
+        if outInteger.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.CDLHARAMICROSS_OpenAndFillInternal(inOpen, inHigh, inLow, inClose, 0, &mut outBegIdx, &mut outNBElement, outInteger)?;
@@ -981,7 +1032,7 @@ impl CDLHARAMICROSS_Stream {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
-        self.core.CDLHARAMICROSS_step_impl(&mut self.state, inOpen, inHigh, inLow, inClose, &mut outInteger);
+        Core::CDLHARAMICROSS_step_impl(&mut self.state, &self.cs_body_doji, &self.cs_body_long, inOpen, inHigh, inLow, inClose, &mut outInteger);
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1014,7 +1065,7 @@ impl CDLHARAMICROSS_Stream {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.CDLHARAMICROSS_step_impl(&mut self.state, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
+            Core::CDLHARAMICROSS_step_impl(&mut self.state, &self.cs_body_doji, &self.cs_body_long, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

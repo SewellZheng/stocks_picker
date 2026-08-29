@@ -54,6 +54,9 @@ public partial class Core
     *  MMDDYY BY     Description
     *  -------------------------------------------------------------------
     *  082026 MF,CC  Initial version (#238).
+    *  082326 MF,CC  Fix #253. Test the smoothed range exactly instead of against
+    *                the fixed TA_IS_ZERO band, which zeroed the oscillator for
+    *                any instrument quoted small enough to fall under it.
     */
    /// <summary>
    /// Number of leading input bars <c>SMI</c> consumes before it can produce its
@@ -178,7 +181,7 @@ public partial class Core
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outSMI.Overlaps(outSMISignal) || (outSMI.IsEmpty && outSMISignal.IsEmpty) ) {
+      if( outSMI.Overlaps(outSMISignal) ) {
          return RetCode.BadParam ;
       }
       if( (outSMI.Overlaps(inHigh) && outSMI != inHigh) || (outSMI.Overlaps(inLow) && outSMI != inLow) || (outSMI.Overlaps(inClose) && outSMI != inClose) || (outSMISignal.Overlaps(inHigh) && outSMISignal != inHigh) || (outSMISignal.Overlaps(inLow) && outSMISignal != inLow) || (outSMISignal.Overlaps(inClose) && outSMISignal != inClose) ) {
@@ -320,7 +323,7 @@ public partial class Core
          if( nBar >= lookbackSlow + lookbackFast ) {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+            if( halfDen > 0.0 ) {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                smiValue = 0.0;
@@ -383,14 +386,19 @@ public partial class Core
          emaSlowDen = Math.FusedMultiplyAdd(den - emaSlowDen, kSlow, emaSlowDen);
          emaFastNum = Math.FusedMultiplyAdd(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = Math.FusedMultiplyAdd(emaSlowDen - emaFastDen, kFast, emaFastDen);
-         /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-          * window leaves a sub-epsilon residue that an exact check would divide
-          * into noise (issue #107 / STOCHRSI). A window whose bars are all
-          * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-          * CCI (#7) and IMI (#112) convention.
+         /* The denominator is an EMA of an EMA of the high-low range: every term
+          * is non-negative and every weight is positive, so it carries no
+          * cancellation residue and is zero only when every range that reached it
+          * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+          * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+          * convention. Test it exactly: the range carries the quote unit, so the
+          * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+          * instrument quoted below it (issue #253). Issue #107's machine-flat
+          * window is caught by the exact test as well, since the residue an
+          * EMA leaves there is zero, not sub-epsilon.
           */
          halfDen = 0.5 * emaFastDen;
-         if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
@@ -479,7 +487,7 @@ public partial class Core
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( outSMI.Overlaps(outSMISignal) || (outSMI.IsEmpty && outSMISignal.IsEmpty) ) {
+      if( outSMI.Overlaps(outSMISignal) ) {
          return RetCode.BadParam ;
       }
       lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
@@ -578,7 +586,7 @@ public partial class Core
          if( nBar >= lookbackSlow + lookbackFast ) {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+            if( halfDen > 0.0 ) {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                smiValue = 0.0;
@@ -639,7 +647,7 @@ public partial class Core
          emaFastNum = Math.FusedMultiplyAdd(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = Math.FusedMultiplyAdd(emaSlowDen - emaFastDen, kFast, emaFastDen);
          halfDen = 0.5 * emaFastDen;
-         if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
@@ -710,14 +718,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange SMI( int startIdx,
@@ -808,14 +818,16 @@ public partial class Core
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange SMI( int startIdx,
@@ -1152,14 +1164,19 @@ public partial class Core
       sp.emaSlowDen = Math.FusedMultiplyAdd(den - sp.emaSlowDen, sp.kSlow, sp.emaSlowDen);
       sp.emaFastNum = Math.FusedMultiplyAdd(sp.emaSlowNum - sp.emaFastNum, sp.kFast, sp.emaFastNum);
       sp.emaFastDen = Math.FusedMultiplyAdd(sp.emaSlowDen - sp.emaFastDen, sp.kFast, sp.emaFastDen);
-      /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-       * window leaves a sub-epsilon residue that an exact check would divide
-       * into noise (issue #107 / STOCHRSI). A window whose bars are all
-       * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-       * CCI (#7) and IMI (#112) convention.
+      /* The denominator is an EMA of an EMA of the high-low range: every term
+       * is non-negative and every weight is positive, so it carries no
+       * cancellation residue and is zero only when every range that reached it
+       * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+       * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+       * convention. Test it exactly: the range carries the quote unit, so the
+       * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+       * instrument quoted below it (issue #253). Issue #107's machine-flat
+       * window is caught by the exact test as well, since the residue an
+       * EMA leaves there is zero, not sub-epsilon.
        */
       halfDen = 0.5 * sp.emaFastDen;
-      if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+      if( halfDen > 0.0 ) {
          smiValue = 100.0 * sp.emaFastNum / halfDen;
       } else {
          smiValue = 0.0;
@@ -1209,11 +1226,14 @@ public partial class Core
       int nSignal = 0;
       int historyLen = inHigh.Length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inLow.Length != inHigh.Length || inClose.Length != inHigh.Length ) {
+         return RetCode.BadParam;
       }
       if( optInTimePeriod == int.MinValue ) {
          optInTimePeriod = 13;
@@ -1376,7 +1396,7 @@ public partial class Core
          if( nBar >= lookbackSlow + lookbackFast ) {
             nSignal = nBar - lookbackSlow - lookbackFast;
             halfDen = 0.5 * emaFastDen;
-            if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+            if( halfDen > 0.0 ) {
                smiValue = 100.0 * emaFastNum / halfDen;
             } else {
                smiValue = 0.0;
@@ -1439,14 +1459,19 @@ public partial class Core
          emaSlowDen = Math.FusedMultiplyAdd(den - emaSlowDen, kSlow, emaSlowDen);
          emaFastNum = Math.FusedMultiplyAdd(emaSlowNum - emaFastNum, kFast, emaFastNum);
          emaFastDen = Math.FusedMultiplyAdd(emaSlowDen - emaFastDen, kFast, emaFastDen);
-         /* Guard with TA_IS_ZERO, not an exact `halfDen != 0.0`: a machine-flat
-          * window leaves a sub-epsilon residue that an exact check would divide
-          * into noise (issue #107 / STOCHRSI). A window whose bars are all
-          * H == L makes num zero too, so this is 0/0, and the neutral 0.0 is the
-          * CCI (#7) and IMI (#112) convention.
+         /* The denominator is an EMA of an EMA of the high-low range: every term
+          * is non-negative and every weight is positive, so it carries no
+          * cancellation residue and is zero only when every range that reached it
+          * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+          * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+          * convention. Test it exactly: the range carries the quote unit, so the
+          * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+          * instrument quoted below it (issue #253). Issue #107's machine-flat
+          * window is caught by the exact test as well, since the residue an
+          * EMA leaves there is zero, not sub-epsilon.
           */
          halfDen = 0.5 * emaFastDen;
-         if( !((-0.00000000000001 < halfDen) && (halfDen < 0.00000000000001)) ) {
+         if( halfDen > 0.0 ) {
             smiValue = 100.0 * emaFastNum / halfDen;
          } else {
             smiValue = 0.0;
@@ -1555,13 +1580,17 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SMI_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public SMI_Stream SMI_Open( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "SMI open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "SMI open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("SMI open: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("SMI open: inClose is empty", nameof(inClose), RetCode.BadParam);
+      RequireHistoryLength("SMI", "open", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("SMI", "open", "inClose", inClose.Length, inHigh.Length);
       return SMI_OpenInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
    }
 
@@ -1573,7 +1602,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - SMI_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="SMI_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -1595,15 +1626,22 @@ public partial class Core
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SMI_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public SMI_Stream SMI_OpenAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, int optInTimePeriod, int optInFastPeriod, int optInSlowPeriod, int optInSignalPeriod, Span<double> outSMI, Span<double> outSMISignal )
    {
-      if( inHigh.IsEmpty ) throw new TaLibArgumentException("inHigh is empty", nameof(inHigh), RetCode.BadParam);
-      if( inLow.IsEmpty ) throw new TaLibArgumentException("inLow is empty", nameof(inLow), RetCode.BadParam);
-      if( inClose.IsEmpty ) throw new TaLibArgumentException("inClose is empty", nameof(inClose), RetCode.BadParam);
+      if( inHigh.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "SMI openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inHigh.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inHigh), "SMI openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      if( inLow.IsEmpty ) throw new TaLibArgumentException("SMI openAndFill: inLow is empty", nameof(inLow), RetCode.BadParam);
+      if( inClose.IsEmpty ) throw new TaLibArgumentException("SMI openAndFill: inClose is empty", nameof(inClose), RetCode.BadParam);
+      int guardOutLen = OpenFillCount("SMI", "openAndFill", inHigh.Length, SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod));
+      RequireHistoryLength("SMI", "openAndFill", "inLow", inLow.Length, inHigh.Length);
+      RequireHistoryLength("SMI", "openAndFill", "inClose", inClose.Length, inHigh.Length);
+      RequireFillLength("SMI", "openAndFill", "outSMI", outSMI.Length, guardOutLen);
+      RequireFillLength("SMI", "openAndFill", "outSMISignal", outSMISignal.Length, guardOutLen);
       if( outSMI.Overlaps(inHigh) || outSMI.Overlaps(inLow) || outSMI.Overlaps(inClose) || outSMISignal.Overlaps(inHigh) || outSMISignal.Overlaps(inLow) || outSMISignal.Overlaps(inClose) || outSMI.Overlaps(outSMISignal) ) {
          throw StreamFailure("SMI", "openAndFill", RetCode.BadParam);
       }

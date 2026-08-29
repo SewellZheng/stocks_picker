@@ -457,22 +457,37 @@ pub fn generate(
 /// The output-aliasing pairs (#108/#130) as a Java boolean expression, or
 /// `None` when a function has nothing to compare. Java is the one managed
 /// backend where `out == in` compiles, and only a filling open writes
-/// caller-owned arrays: it writes the outputs and THEN reads the input tail to
-/// seed its rings, so the batch tier's in-place allowance is exactly what a
-/// one-pass fill must revoke. Reference equality is complete here (arrays are
-/// identical or disjoint).
+/// caller-owned arrays. The batch tier's in-place allowance is revoked here not
+/// because the fill would compute the wrong answer — measured, it does not — but
+/// because the margin between its writes and the capture's seed reads is an
+/// accident nothing asserts (rule S6). Reference equality is complete for two
+/// SUPPLIED arrays: they are identical or disjoint. A declined output is null,
+/// which aliases nothing, so the pairs guard it.
 fn alias_condition(func: &FuncDef) -> Option<String> {
     let inputs = streaming::input_array_names(func);
     let outs: Vec<&str> = func.outputs.iter().map(|out| out.name.as_str()).collect();
+    let nullable = super::common::nullable_output_names(func);
+    // A declined output aliases nothing — and two of them would otherwise
+    // compare equal, `null == null`, rejecting a legal call. The batch emitter
+    // guards the nullable operand for exactly this reason (rule B6a).
+    let guarded = |a: &str, b: &str| {
+        let term = format!("(Object){a} == (Object){b}");
+        match (nullable.contains(a), nullable.contains(b)) {
+            (false, false) => term,
+            (true, false) => format!("({a} != null && {term})"),
+            (false, true) => format!("({b} != null && {term})"),
+            (true, true) => format!("({a} != null && {b} != null && {term})"),
+        }
+    };
     let mut pairs: Vec<String> = Vec::new();
     for out in &outs {
         for input in &inputs {
-            pairs.push(format!("(Object){out} == (Object){input}"));
+            pairs.push(guarded(out, input));
         }
     }
     for i in 0..outs.len() {
         for b in &outs[i + 1..] {
-            pairs.push(format!("(Object){} == (Object){b}", outs[i]));
+            pairs.push(guarded(outs[i], b));
         }
     }
     if pairs.is_empty() { None } else { Some(pairs.join(" || ")) }
@@ -914,6 +929,47 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
 // --- updateAndFill ---------------------------------------------------------------
 // One emitter for every tier: each owns a `<base>_StepImpl` with the same
 // surface, so the n-bar filler is that step in a loop (issue #246).
+/// `updateAndFill`'s javadoc — hoisted so the emitter itself stays readable.
+fn update_and_fill_doc(func: &FuncDef, count_src: &str) -> String {
+    let mut o = String::new();
+    // Rule U6a reads the same as S6a, and a caller of this tier needs telling in
+    // the same place a caller of the opener is told.
+    let declinable = {
+        let names = super::common::nullable_output_list(func);
+        if names.is_empty() {
+            String::new()
+        } else {
+            let list = names
+                .iter()
+                .map(|n| format!("{{@code {n}}}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "\x20      * <p>{list} may be declined with {{@code null}}, per call and\n\
+                 \x20      * independently of what the opener was given: the value is still\n\
+                 \x20      * computed — {{@link #value()}} reports it — and nothing is written out.\n"
+            )
+        }
+    };
+    let _ = writeln!(
+        &mut o,
+        "\n      /**\n\
+         \x20      * Commit {{@code n}} closed bars and write their {{@code n}} values, in one\n\
+         \x20      * call — exactly {{@code n}} back-to-back {{@code update}} calls, with one\n\
+         \x20      * set of argument checks instead of {{@code n}}. {{@code n}} is\n\
+         \x20      * {{@code {count_src}}}; the outputs must hold at least that many, and must\n\
+         \x20      * not be the same array as an input or as each other.\n\
+         {declinable}\
+         \x20      * <p>{{@link #outRange()}} counts what was committed, which is what makes a\n\
+         \x20      * rejection readable: a non-finite bar {{@code k}} throws\n\
+         \x20      * {{@link IllegalArgumentException}} exactly as {{@code update}} would, with\n\
+         \x20      * bars {{@code 0..k}} committed and written, bar {{@code k}} and everything\n\
+         \x20      * after it not, and the count advanced by {{@code k}}.\n\
+         \x20      */"
+    );
+    o
+}
+
 fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
     let base = base_name(func);
     let inputs = streaming::input_array_names(func);
@@ -931,30 +987,40 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
     let reject = format!(
         "throw new TaLibArgumentException(\"{base} updateAndFill: BadParam\", RetCode.BadParam);"
     );
-    let _ = writeln!(
-        o,
-        "\n      /**\n\
-         \x20      * Commit {{@code n}} closed bars and write their {{@code n}} values, in one\n\
-         \x20      * call — exactly {{@code n}} back-to-back {{@code update}} calls, with one\n\
-         \x20      * set of argument checks instead of {{@code n}}. {{@code n}} is\n\
-         \x20      * {{@code {count_src}}}; the outputs must hold at least that many, and must\n\
-         \x20      * not be the same array as an input or as each other.\n\
-         \x20      * <p>{{@link #outRange()}} counts what was committed, which is what makes a\n\
-         \x20      * rejection readable: a non-finite bar {{@code k}} throws\n\
-         \x20      * {{@link IllegalArgumentException}} exactly as {{@code update}} would, with\n\
-         \x20      * bars {{@code 0..k}} committed and written, bar {{@code k}} and everything\n\
-         \x20      * after it not, and the count advanced by {{@code k}}.\n\
-         \x20      */"
-    );
+    o.push_str(&update_and_fill_doc(func, &count_src));
     let _ = writeln!(o, "      public void updateAndFill( {sig} ) {{");
+    // Rule U2, ahead of every length: a required array that is absent has no
+    // length to read, so without this the tier answered a raw
+    // `NullPointerException` naming neither the function nor the argument —
+    // where the contract is `RetCode.BadParam`, which in Java is a
+    // `TaLibArgumentException` that names both. It is `requireArgument`, the
+    // same helper the openers use, so the two tiers reject alike.
+    let nullable = super::common::nullable_output_names(func);
+    for name in inputs
+        .iter()
+        .cloned()
+        .chain(func.outputs.iter().map(|o| o.name.clone()).filter(|n| !nullable.contains(n)))
+    {
+        let _ = writeln!(
+            o,
+            "         requireArgument(\"{base} updateAndFill\", \"{name}\", {name});"
+        );
+    }
     let _ = writeln!(o, "         final int barCount = {count_src};");
     let mut checks: Vec<String> = inputs
         .iter()
         .skip(1)
         .map(|a| format!("{a}.length != barCount"))
         .collect();
+    // A `nullable` output may be declined here exactly as at the opener (rule
+    // U6a), per call: bounded only where it was supplied, and its store guarded.
+    // Nothing recorded at `Open` constrains what this call presents.
     for out in &func.outputs {
-        checks.push(format!("{}.length < barCount", out.name));
+        if nullable.contains(&out.name) {
+            checks.push(format!("({0} != null && {0}.length < barCount)", out.name));
+        } else {
+            checks.push(format!("{}.length < barCount", out.name));
+        }
     }
     if let Some(alias) = alias_condition(func) {
         checks.push(alias);
@@ -999,7 +1065,8 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
     let _ = writeln!(o, "{pad}   core.{base}_StepImpl(this, {});", idx_bars.join(", "));
     for out in &func.outputs {
         let name = &out.name;
-        let _ = writeln!(o, "{pad}   {name}[i] = this.cur_{name};");
+        let guard = if nullable.contains(name) { format!("if( {name} != null ) ") } else { String::new() };
+        let _ = writeln!(o, "{pad}   {guard}{name}[i] = this.cur_{name};");
     }
     let _ = writeln!(o, "{pad}   if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;");
     if cached {
@@ -1138,6 +1205,9 @@ fn stream_ctx<'a>(
         float_input_params: empty,
         inline_counter: counter,
         fma: Some(fma_sets),
+        // The streaming tier keeps every output required, so no store is guarded.
+        nullable_outputs: empty,
+        nullable_shadow: false,
         // Stream bodies dispatch MA-type structurally, never via `== TA_MAType_*`.
         matype_map: HashMap::new(),
     }
@@ -1338,7 +1408,7 @@ fn emit_open_body(
     counter: &Cell<usize>,
 ) {
     emit_open_body_sig(o, func, OutMode::Core);
-    let open_body = build_open_body_java(model, body);
+    let open_body = cleanup_open_body(&build_open_body_java(model, body), registry);
     emit_open_prologue(o, func, &open_body, model, enums, registry, helpers, counter, stream_fma);
     emit_identity_fast_path(o, func, model, fields, registry, helpers, stream_fma, counter);
     emit_open_region(o, func, &open_body, enums, registry, helpers, counter, stream_fma, &[], &HashSet::new());
@@ -1444,6 +1514,11 @@ fn emit_anchor_guard(o: &mut String) {
 /// The transcribed body's VarDecls (address-of / MAType aware, mirroring the
 /// batch renderer's decl pass), including CIRCBUF prologs.
 fn emit_body_decls(o: &mut String, func: &FuncDef, open_body: &[Statement]) {
+    // The handle caches every output's last value, and a declined output leaves
+    // no array to read it back from — so the guarded store writes it here too.
+    for name in super::common::nullable_output_list(func) {
+        let _ = writeln!(o, "      {} lastCur_{name} = 0;", out_java_type(func, &name));
+    }
     let mut address_of_vars = collect_address_of_vars(open_body);
     let matype_params: HashSet<String> = func
         .optional_inputs
@@ -1504,12 +1579,13 @@ fn emit_open_head(o: &mut String, func: &FuncDef, _outputs: &[String]) {
 fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode, enums: &HashMap<String, EnumDef>) {
     let inputs = streaming::input_array_names(func);
     let first = &inputs[0];
-    let mut checks: Vec<String> = vec![format!("historyLen < 1")];
-    for extra in &inputs[1..] {
-        checks.push(format!("{extra}.length != {first}.length"));
-    }
-    let _ = writeln!(o, "      if( {} ) {{", checks.join(" || "));
-    let _ = writeln!(o, "         return RetCode.BadParam;");
+    // The implied index pair first: an opener is a batch call over
+    // `[0, historyLen - 1]`, so S1 and S2 are B1 and B2 read on that range and
+    // answer the same two codes (docs/error-handling-spec.md 2.3). `historyLen`
+    // is the FIRST input's length, so a later input of a different length is an
+    // argument disagreement, not an empty history.
+    let _ = writeln!(o, "      if( historyLen < 1 ) {{");
+    let _ = writeln!(o, "         return RetCode.OutOfRangeStartIndex;");
     let _ = writeln!(o, "      }}");
     // The fill covers bars 0..historyLen-1, so its last bar is an index like any
     // other and MAX_INDEX bounds it too (#180). Without this the streaming
@@ -1518,6 +1594,15 @@ fn emit_open_validation(o: &mut String, func: &FuncDef, mode: OutMode, enums: &H
     let _ = writeln!(o, "      if( historyLen > MAX_INDEX + 1 ) {{");
     let _ = writeln!(o, "         return RetCode.OutOfRangeEndIndex;");
     let _ = writeln!(o, "      }}");
+    let mismatches: Vec<String> = inputs[1..]
+        .iter()
+        .map(|extra| format!("{extra}.length != {first}.length"))
+        .collect();
+    if !mismatches.is_empty() {
+        let _ = writeln!(o, "      if( {} ) {{", mismatches.join(" || "));
+        let _ = writeln!(o, "         return RetCode.BadParam;");
+        let _ = writeln!(o, "      }}");
+    }
     o.push_str(&emit_opt_param_validation(func, "RetCode.BadParam", enums));
     if mode == OutMode::Fill {
         // FILL ONLY, and exempt tiers only: a merged tier carries this guard in
@@ -1563,6 +1648,27 @@ fn emit_extras_and_candle(
     }
 }
 
+/// This backend's IR cleanup sequence, explicit so a pass can be made
+/// conditional later. C states none: every one of these would be wrong there.
+///
+/// Run where the open body is BUILT, not where it is rendered: the declarations
+/// and the statements have to be derived from the same body, or a local whose
+/// only address-of use sits inside a folded guard is declared wrapped and used
+/// plain (issue #271 item 5). Every pass is length-preserving, so the callers'
+/// `inserts` / `replaced` statement indices survive it.
+///
+/// `InsufficientHistory` is what the surviving `count == 0` half of a folded
+/// guard answers — an opener that produced nothing is rule S7, not a success.
+/// Spelled as the RetCode member, the same name `map_open_return` hands the
+/// renderer for the body's own early-success returns.
+fn cleanup_open_body(body: &[Statement], registry: &Registry) -> Vec<Statement> {
+    let admits = |f: &str, a: &[Expr]| super::java::cross_call_split(f, a, registry).is_some();
+    let folded =
+        super::ir_cleanup::drop_answered_cross_call_guards(body, &admits, Some("InsufficientHistory"));
+    let folded = super::ir_cleanup::drop_deallocation(&folded);
+    super::ir_cleanup::drop_inert_guards(&folded)
+}
+
 /// Render the transcribed open region: VarDecl initializations then the
 /// statements, with tier inserts (composed sub-opens) spliced by index.
 #[allow(clippy::too_many_arguments)]
@@ -1591,8 +1697,11 @@ fn emit_open_region(
         address_of_vars.remove(name);
     }
     let empty = HashSet::new();
+    let nullable = super::common::nullable_output_names(func);
     let ctx = JavaRenderCtx {
         single_precision: false,
+        nullable_outputs: &nullable,
+        nullable_shadow: true,
         address_of_vars: &address_of_vars,
         double_address_of_vars: &double_address_of_vars,
         float_input_params: &empty,
@@ -1958,10 +2067,21 @@ enum CurSource {
 
 /// Seed `sp.cur_*` (+ the cached Value) at the end of an open body.
 fn emit_cur_capture(o: &mut String, func: &FuncDef, outputs: &[String], source: CurSource) {
+    let nullable = super::common::nullable_output_names(func);
+    assert!(
+        !(matches!(source, CurSource::Scratch) && outputs.iter().any(|o| nullable.contains(o))),
+        "{}: a composed open would cache 0 for a declined output — the shadow is written \
+         beside a transcribed store, and this path has none",
+        func.name
+    );
     for out in outputs {
-        let expr = match source {
-            CurSource::StridedArray => format!("{out}[(outNBElement.value - 1) * outStride]"),
-            CurSource::Scratch => format!("sc_{out}[outNBElement.value - 1]"),
+        let expr = if nullable.contains(out) {
+            format!("lastCur_{out}")
+        } else {
+            match source {
+                CurSource::StridedArray => format!("{out}[(outNBElement.value - 1) * outStride]"),
+                CurSource::Scratch => format!("sc_{out}[outNBElement.value - 1]"),
+            }
         };
         let _ = writeln!(o, "      sp.cur_{out} = {expr};");
     }
@@ -2059,6 +2179,120 @@ fn emit_open_internal_seam(
 
 }
 
+/// Rule S4 at the PUBLIC opener, with the implied index pair (S1/S2) in the
+/// middle of it.
+///
+/// **Exactly one presence check precedes the pair**: the FIRST input's, because
+/// that is the array `historyLen` is read from and a length cannot be taken from
+/// an array that is not there. Every other argument — the remaining price legs
+/// included — is checked after, which is the specified order
+/// (`docs/error-handling-spec.md` §2.3, footnote [4]). Checking them all up
+/// front reads as tidier and is wrong: a candlestick opened on an empty history
+/// with one null leg would report the leg, where C reports the empty history.
+///
+/// `<N>_OpenImpl` answers the pair too; this runs first only to fix the ORDER,
+/// exactly as `Core.requireIndexRange` does in the batch tier. Without it a
+/// null output pre-empted the empty history, and a null input reached
+/// `inReal.length` and surfaced as a bare `NullPointerException` naming nothing.
+fn emit_public_open_guards(o: &mut String, func: &FuncDef, verb: &str, with_outputs: bool) {
+    let n = func.name.to_uppercase();
+    let inputs = streaming::input_array_names(func);
+    let history = &inputs[0];
+    let _ = writeln!(o, "      requireArgument(\"{n} {verb}\", \"{history}\", {history});");
+    let _ = writeln!(o, "      requireHistory(\"{n} {verb}\", {history}.length);");
+    // An enum parameter's domain excludes null, and Java is the only backend
+    // where that is expressible (rule S3). It precedes the remaining presence
+    // checks because S3 precedes S4 — the order the batch wrapper was given in
+    // Appendix D items 2 and 3 — and it must in any case precede the
+    // `_Lookback` call below, which is where a null one is first switched on.
+    for p in &func.optional_inputs {
+        if matches!(p.param_type, ParamType::Enum(_)) {
+            let _ = writeln!(
+                o,
+                "      requireArgument(\"{n} {verb}\", \"{0}\", {0});",
+                p.name
+            );
+        }
+    }
+    for input in &inputs[1..] {
+        let _ = writeln!(o, "      requireArgument(\"{n} {verb}\", \"{input}\", {input});");
+    }
+    if with_outputs {
+        // Rule S3 first, in the shape the buffer rules need it: `<N>_Lookback`
+        // answers `-1` for an out-of-domain parameter and `openFillCount` raises
+        // on it, so a bad parameter is reported as a bad parameter rather than
+        // as whatever the buffer rules would have said about a call it made no
+        // sense to size. Same thing `clampedStart` does one tier over.
+        let lb_args: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
+        let _ = writeln!(
+            o,
+            "      int guardOutLen = openFillCount(\"{n} {verb}\", {}.length, {n}_Lookback({}));",
+            history,
+            lb_args.join(", ")
+        );
+        // Rule S5, input half before output half — B5 states the two as one
+        // rule, in that order, and this is B5 over `[0, historyLen - 1]`. The
+        // core tests the inputs too, but only after the capacity bound below
+        // would have answered, so a short input series was reported as an
+        // output-capacity fault.
+        o.push_str(&history_length_guards(func, &n, verb));
+        // …then the outputs. `requireLength` carries S4 and S5 in one call,
+        // exactly as the batch wrapper's does, and an output marked `nullable`
+        // is bounded only where it was supplied (rule B6a).
+        let nullable = super::common::nullable_output_names(func);
+        for out in &func.outputs {
+            let guard = if nullable.contains(&out.name) {
+                format!("if( {0} != null ) ", out.name)
+            } else {
+                String::new()
+            };
+            let _ = writeln!(
+                o,
+                "      {guard}requireLength(\"{n} {verb}\", \"{0}\", {0}, guardOutLen);",
+                out.name
+            );
+        }
+    } else {
+        // Rule S5's input half, which is the whole of S5 here — the plain open
+        // writes nothing, so there is no output capacity to bound. It belongs
+        // on this frame for the same reason the fill's does: the core makes the
+        // test, but answers it as a bare `BadParam` naming nothing, where the
+        // same fault at `OpenAndFill` named the leg (issue #271 item 1).
+        o.push_str(&history_length_guards(func, &n, verb));
+    }
+}
+
+/// Rule S5's input half, the same at both openers: the history's own length IS
+/// the range, so every other declared input must AGREE with it rather than
+/// merely reach it.
+fn history_length_guards(func: &FuncDef, n: &str, verb: &str) -> String {
+    let inputs = streaming::input_array_names(func);
+    let history = &inputs[0];
+    let mut s = String::new();
+    for input in &inputs[1..] {
+        let _ = writeln!(
+            s,
+            "      requireHistoryLength(\"{n} {verb}\", \"{input}\", {input}.length, {history}.length);"
+        );
+    }
+    s
+}
+
+/// The javadoc sentence naming the outputs a caller may decline, or nothing when
+/// the function has none. Rule B6a reads the same at both tiers, and a caller of
+/// the opener needs telling in the same place a caller of the batch call is told.
+fn declinable_note(func: &FuncDef, class: &str) -> String {
+    let names = super::common::nullable_output_list(func);
+    if names.is_empty() {
+        return String::new();
+    }
+    let list = names.iter().map(|n| format!("{{@code {n}}}")).collect::<Vec<_>>().join(", ");
+    format!(
+        "\n\x20   * <p>{list} may be declined with {{@code null}}: the value is still\n\
+         \x20   * computed — {{@link {class}#value()}} reports it — and nothing is written out."
+    )
+}
+
 /// `openInternal` (the anchored plain open), the public `<base>_Open`, and the
 /// public `<base>_OpenAndFill`.
 ///
@@ -2107,7 +2341,10 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
          \x20   * (unstable-period aware), or {{@link InsufficientHistoryException}} is\n\
          \x20   * thrown. Out-of-range parameters throw {{@link IllegalArgumentException}}\n\
          \x20   * ({{@code Integer.MIN_VALUE}} selects an integer parameter's documented\n\
-         \x20   * default, as in the batch API).\n\
+         \x20   * default, as in the batch API). An EMPTY history throws\n\
+         \x20   * {{@link IndexOutOfBoundsException}} — its implied {{@code startIdx}} of 0\n\
+         \x20   * names no bar — and a null argument {{@link IllegalArgumentException}},\n\
+         \x20   * both ahead of everything above.\n\
          \x20   */"
     );
     let _ = writeln!(
@@ -2115,6 +2352,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         "   public {class} {base}_Open( {}{opt_sig_str} )\n   {{",
         in_sig.join(", ")
     );
+    emit_public_open_guards(o, func, "open", false);
     let _ = writeln!(
         o,
         "      return {base}_OpenInternal({}, 0{opt_fwd_str});",
@@ -2138,6 +2376,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         fill_sig.push(format!("{} {}[]", out_java_type(func, &out.name), out.name));
         fill_fwd.push(out.name.clone());
     }
+    let declinable = declinable_note(func, &class);
     let _ = writeln!(
         o,
         "   /**\n\
@@ -2145,7 +2384,9 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
          \x20   * to {{@link Core#{base}}} over the whole history in the same single pass\n\
          \x20   * (no separate batch call needed for the warm-up plot). Output arrays must\n\
          \x20   * not alias the inputs or each other, and must hold\n\
-         \x20   * {{@code historyLen - lookback}} values.\n\
+         \x20   * {{@code historyLen - lookback}} values — both checked before anything is\n\
+         \x20   * written, so an undersized array is an {{@link IllegalArgumentException}}\n\
+         \x20   * naming it rather than a fault from inside the fill.{declinable}\n\
          \x20   * <p>The range written is on the returned handle:\n\
          \x20   * {{@link {class}#outRange()}}.\n\
          \x20   */"
@@ -2155,6 +2396,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         "   public {class} {base}_OpenAndFill( {} )\n   {{",
         fill_sig.join(", ")
     );
+    emit_public_open_guards(o, func, "openAndFill", true);
     if merged {
         // The guard the anchored seam deliberately omits: every composed
         // sub-call passes a destination that aliases neither its sources nor
@@ -2333,8 +2575,8 @@ fn emit_dual_mode(
         // Identity (HMA period 1) short-circuits ahead of the predicate: the
         // whole union sits at its defaults, including the arrays only the
         // general arm touches. What keeps that arm from running is the step's
-        // own guard, hoisted ABOVE the mode predicate (the arms no longer carry
-        // it), so which arm the predicate would pick is moot.
+        // own guard, hoisted ABOVE the mode predicate, so which arm the predicate
+        // would pick is moot.
         emit_identity_fast_path(o, func, ma, &fields, registry, helpers, stream_fma, counter);
         let pred = render_predicate(&dmp.predicate, &ctx, registry, helpers);
         let _ = writeln!(o, "      if( {pred} ) {{");
@@ -2350,7 +2592,7 @@ fn emit_dual_mode(
             let mut body: Vec<Statement> = dmp.prologue.to_vec();
             body.extend_from_slice(arm.body);
             body.extend_from_slice(dmp.epilogue);
-            let open_body = build_open_body_java(arm, &body);
+            let open_body = cleanup_open_body(&build_open_body_java(arm, &body), registry);
             let mut s = String::new();
             emit_body_decls(&mut s, func, &open_body);
             emit_extras_and_candle(&mut s, func, &open_body, registry, helpers, counter, stream_fma);
@@ -2664,17 +2906,17 @@ fn emit_dispatch(
                     }
                     OutMode::Fill | OutMode::FillInternal => {
                         // OutSlot-mapped fill tail: Forward(k) passes the
-                        // dispatch func's own array, Discard materializes a
-                        // throwaway buffer (Java's rendering of C's NULL for a
-                        // nullable output — the batch discard-buffer idiom, #125).
+                        // dispatch func's own array, Discard declines the
+                        // callee's nullable output outright — which is what C
+                        // has always passed there, and what a `historyLen`-sized
+                        // throwaway buffer per open was standing in for until
+                        // the openers learned rule B6a.
                         let fill_outs: String = arm
                             .out_map
                             .iter()
                             .map(|slot| match slot {
                                 streaming::OutSlot::Forward(k) => outputs[*k].clone(),
-                                streaming::OutSlot::Discard => {
-                                    "new double[historyLen]".to_string()
-                                }
+                                streaming::OutSlot::Discard => "null".to_string(),
                             })
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -3110,6 +3352,35 @@ fn transform_map_step(
     rewritten.iter().flat_map(drop_forc_shells).collect()
 }
 
+/// The composed step's locals: the producer's temps, the map temps, and one
+/// `cur_` scalar per output and sub-call intermediate.
+///
+/// A `cur_` scalar is typed by what it stands for, as in C — an output's own
+/// element type, `double` for the intermediates. Sizing them all as `double`
+/// truncated an integer output on the way out.
+fn emit_composed_step_decls(
+    o: &mut String,
+    func: &FuncDef,
+    cp: &streaming::ComposedPlan,
+    cur_scalars: &[String],
+) {
+    if let Some(model) = &cp.producer {
+        for (name, ty) in &model.temps {
+            let (jty, default) = field_type_and_default(ty);
+            let _ = writeln!(o, "      {jty} {name} = {default};");
+        }
+    }
+    for (name, ty) in &cp.map_temps {
+        let (jty, default) = field_type_and_default(ty);
+        let _ = writeln!(o, "      {jty} {name} = {default};");
+    }
+    for name in cur_scalars {
+        let ty = out_java_type(func, name);
+        let zero = if ty == "int" { "0" } else { "0.0" };
+        let _ = writeln!(o, "      {ty} cur_{name} = {zero};");
+    }
+}
+
 /// The composed StepImpl: producer transition (writing `cur_<series>`), then
 /// the batch-tail pipeline through the owned sub handles, combine maps per
 /// bar, lag-ring pushes, and the `sp.cur_*` output stores. No peek flag: peek
@@ -3131,19 +3402,7 @@ fn emit_composed_step(
     emit_step_sig(o, func);
     let cur_scalars = composed_cur_scalars(cp, inputs, outputs);
 
-    if let Some(model) = &cp.producer {
-        for (name, ty) in &model.temps {
-            let (jty, default) = field_type_and_default(ty);
-            let _ = writeln!(o, "      {jty} {name} = {default};");
-        }
-    }
-    for (name, ty) in &cp.map_temps {
-        let (jty, default) = field_type_and_default(ty);
-        let _ = writeln!(o, "      {jty} {name} = {default};");
-    }
-    for name in &cur_scalars {
-        let _ = writeln!(o, "      double cur_{name} = 0.0;");
-    }
+    emit_composed_step_decls(o, func, cp, &cur_scalars);
 
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
@@ -3296,21 +3555,15 @@ fn emit_composed_open(
     counter: &Cell<usize>,
 ) {
     // The composed fill/scratch path hardcodes double arrays (mirrors C/Rust).
-    assert!(
-        func.outputs.iter().all(|out| !out_is_int(func, &out.name)),
-        "composed open assumes real (double) outputs; {} has an integer output",
-        func.name
-    );
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
 
     emit_open_body_sig(o, func, OutMode::Core);
     let (region_stmts, tail_stmts) = build_composed_open_bodies(cp, outputs);
-    let combined: Vec<Statement> = region_stmts
-        .iter()
-        .cloned()
-        .chain(tail_stmts.iter().cloned())
-        .collect();
+    let combined: Vec<Statement> = cleanup_open_body(
+        &region_stmts.iter().cloned().chain(tail_stmts.iter().cloned()).collect::<Vec<_>>(),
+        registry,
+    );
     emit_body_decls(o, func, &combined);
     emit_open_head(o, func, &[]);
     emit_open_validation(o, func, OutMode::Core, enums);
@@ -3327,9 +3580,8 @@ fn emit_composed_open(
     // the sub's insufficient history.
     //
     // Cost: one lookback call per OPEN, on a path that already allocates
-    // `historyLen` doubles per output; `update` is untouched. On the rejecting
-    // path it is now cheaper, because the scratch allocations below no longer
-    // happen before the reject.
+    // `historyLen` doubles per output; `update` is untouched. The rejecting path
+    // is cheaper for it -- the scratch allocations below never happen.
     {
         let lb_args: Vec<String> =
             func.optional_inputs.iter().map(|p| p.name.clone()).collect();
@@ -3345,13 +3597,14 @@ fn emit_composed_open(
     // buffer. See `fill_scratch_may_alias_output` for when this is unsound.
     let alias_fill = cp.fill_scratch_may_alias_output(outputs);
     for out in outputs {
+        let ty = out_java_type(func, out);
         if alias_fill {
             let _ = writeln!(
                 o,
-                "      double[] sc_{out} = outStride == 1 ? {out} : new double[historyLen];"
+                "      {ty}[] sc_{out} = outStride == 1 ? {out} : new {ty}[historyLen];"
             );
         } else {
-            let _ = writeln!(o, "      double[] sc_{out} = new double[historyLen];");
+            let _ = writeln!(o, "      {ty}[] sc_{out} = new {ty}[historyLen];");
         }
     }
 
@@ -3368,6 +3621,8 @@ fn emit_composed_open(
     }
     let ins_ctx = JavaRenderCtx {
         single_precision: false,
+        nullable_outputs: &empty,
+        nullable_shadow: false,
         address_of_vars: &ins_address_of,
         double_address_of_vars: &ins_double_address_of,
         float_input_params: &empty,

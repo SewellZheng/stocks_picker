@@ -320,15 +320,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CDLADVANCEBLOCK
     * @see Core#CDL3WHITESOLDIERS
@@ -343,9 +342,9 @@
                                       int outInteger[] )
    {
       requireIndexRange("CDLSTALLEDPATTERN", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, CDLSTALLEDPATTERN_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("CDLSTALLEDPATTERN", startIdx, CDLSTALLEDPATTERN_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLSTALLEDPATTERN", "inOpen", inOpen, guardInLen);
       requireLength("CDLSTALLEDPATTERN", "inHigh", inHigh, guardInLen);
       requireLength("CDLSTALLEDPATTERN", "inLow", inLow, guardInLen);
@@ -392,15 +391,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CDLADVANCEBLOCK
     * @see Core#CDL3WHITESOLDIERS
@@ -415,9 +413,9 @@
                                       int outInteger[] )
    {
       requireIndexRange("CDLSTALLEDPATTERN", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, CDLSTALLEDPATTERN_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("CDLSTALLEDPATTERN", startIdx, CDLSTALLEDPATTERN_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDLSTALLEDPATTERN", "inOpen", inOpen, guardInLen);
       requireLength("CDLSTALLEDPATTERN", "inHigh", inHigh, guardInLen);
       requireLength("CDLSTALLEDPATTERN", "inLow", inLow, guardInLen);
@@ -658,6 +656,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] ) {
+         requireArgument("CDLSTALLEDPATTERN updateAndFill", "inOpen", inOpen);
+         requireArgument("CDLSTALLEDPATTERN updateAndFill", "inHigh", inHigh);
+         requireArgument("CDLSTALLEDPATTERN updateAndFill", "inLow", inLow);
+         requireArgument("CDLSTALLEDPATTERN updateAndFill", "inClose", inClose);
+         requireArgument("CDLSTALLEDPATTERN updateAndFill", "outInteger", outInteger);
          final int barCount = inOpen.length;
          if( inHigh.length != barCount || inLow.length != barCount || inClose.length != barCount || outInteger.length < barCount || (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose )
             throw new TaLibArgumentException("CDLSTALLEDPATTERN updateAndFill: BadParam", RetCode.BadParam);
@@ -799,11 +802,14 @@
       int lookbackTotal = 0;
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -1054,10 +1060,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public CDLSTALLEDPATTERN_Stream CDLSTALLEDPATTERN_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
+      requireArgument("CDLSTALLEDPATTERN open", "inOpen", inOpen);
+      requireHistory("CDLSTALLEDPATTERN open", inOpen.length);
+      requireArgument("CDLSTALLEDPATTERN open", "inHigh", inHigh);
+      requireArgument("CDLSTALLEDPATTERN open", "inLow", inLow);
+      requireArgument("CDLSTALLEDPATTERN open", "inClose", inClose);
+      requireHistoryLength("CDLSTALLEDPATTERN open", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("CDLSTALLEDPATTERN open", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("CDLSTALLEDPATTERN open", "inClose", inClose.length, inOpen.length);
       return CDLSTALLEDPATTERN_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
@@ -1065,12 +1082,24 @@
     * to {@link Core#CDLSTALLEDPATTERN} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link CDLSTALLEDPATTERN_Stream#outRange()}.
     */
    public CDLSTALLEDPATTERN_Stream CDLSTALLEDPATTERN_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
+      requireArgument("CDLSTALLEDPATTERN openAndFill", "inOpen", inOpen);
+      requireHistory("CDLSTALLEDPATTERN openAndFill", inOpen.length);
+      requireArgument("CDLSTALLEDPATTERN openAndFill", "inHigh", inHigh);
+      requireArgument("CDLSTALLEDPATTERN openAndFill", "inLow", inLow);
+      requireArgument("CDLSTALLEDPATTERN openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("CDLSTALLEDPATTERN openAndFill", inOpen.length, CDLSTALLEDPATTERN_Lookback());
+      requireHistoryLength("CDLSTALLEDPATTERN openAndFill", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("CDLSTALLEDPATTERN openAndFill", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("CDLSTALLEDPATTERN openAndFill", "inClose", inClose.length, inOpen.length);
+      requireLength("CDLSTALLEDPATTERN openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          throw new TaLibArgumentException("CDLSTALLEDPATTERN openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

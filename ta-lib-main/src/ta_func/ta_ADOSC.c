@@ -114,6 +114,14 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
+      optInFastPeriod = 3;
+   else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
+      optInSlowPeriod = 10;
+   else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
@@ -122,13 +130,7 @@ TA_LIB_API TA_RetCode TA_ADOSC( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
-      optInFastPeriod = 3;
-   else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
-      optInSlowPeriod = 10;
-   else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -278,6 +280,14 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
    if( (endIdx < 0) || (endIdx > TA_MAX_INDEX) || (endIdx < startIdx) )
       return TA_OUT_OF_RANGE_END_INDEX;
 
+   if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
+      optInFastPeriod = 3;
+   else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
+      return TA_BAD_PARAM;
+   if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
+      optInSlowPeriod = 10;
+   else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+      return TA_BAD_PARAM;
    if( !inHigh )
       return TA_BAD_PARAM;
    if( !inLow )
@@ -286,13 +296,7 @@ TA_RetCode TA_S_ADOSC( int    startIdx,
       return TA_BAD_PARAM;
    if( !inVolume )
       return TA_BAD_PARAM;
-   if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
-      optInFastPeriod = 3;
-   else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
-      return TA_BAD_PARAM;
-   if( (int)optInSlowPeriod == TA_INTEGER_DEFAULT )
-      optInSlowPeriod = 10;
-   else if( (int)optInSlowPeriod < 2 || (int)optInSlowPeriod > 100000 )
+   if( !outBegIdx || !outNBElement )
       return TA_BAD_PARAM;
    if( !outReal )
       return TA_BAD_PARAM;
@@ -415,9 +419,9 @@ static TA_RetCode TA_ADOSC_OpenImpl( struct TA_ADOSC_Stream **stream, const doub
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    if( (int)optInFastPeriod == TA_INTEGER_DEFAULT )
       optInFastPeriod = 3;
    else if( (int)optInFastPeriod < 2 || (int)optInFastPeriod > 100000 )
@@ -602,9 +606,9 @@ TA_LIB_API TA_RetCode TA_ADOSC_Open( TA_ADOSC_Stream **stream, const double inHi
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
    return TA_ADOSC_OpenInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, outReal );
 }
 
@@ -612,10 +616,9 @@ TA_LIB_API TA_RetCode TA_ADOSC_OpenAndFill( TA_ADOSC_Stream **stream, const doub
 {
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
-   if( !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
-   if( !inHigh || !inLow || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( historyLen < 1 ) return TA_BAD_PARAM;
+   if( historyLen < 1 ) return TA_OUT_OF_RANGE_START_INDEX;
    if( historyLen > TA_MAX_INDEX + 1 ) return TA_OUT_OF_RANGE_END_INDEX;
+   if( !inHigh || !inLow || !inClose || !inVolume || !outBegIdx || !outNBElement || !outReal ) return TA_BAD_PARAM;
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    return TA_ADOSC_OpenAndFillInternal( stream, inHigh, inLow, inClose, inVolume, 0, historyLen, optInFastPeriod, optInSlowPeriod, outBegIdx, outNBElement, outReal );
 }

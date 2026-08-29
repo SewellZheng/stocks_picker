@@ -198,7 +198,7 @@ public partial class Core
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
          return RetCode.BadParam;
       }
-      if( outMAMA.Overlaps(outFAMA) || (outMAMA.IsEmpty && outFAMA.IsEmpty) ) {
+      if( outMAMA.Overlaps(outFAMA) ) {
          return RetCode.BadParam ;
       }
       if( (outMAMA.Overlaps(inReal) && outMAMA != inReal) || (outFAMA.Overlaps(inReal) && outFAMA != inReal) ) {
@@ -477,7 +477,8 @@ public partial class Core
             /* FAMA is nullable (issue #125): its write carries no outIdx advance so
              * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
              */
-            outFAMA[outIdx] = fama;
+            if( !outFAMA.IsEmpty )
+               outFAMA[outIdx] = fama;
             outMAMA[outIdx++] = mama;
          }
          /* Adjust the period for next price bar */
@@ -598,7 +599,7 @@ public partial class Core
       } else if( !(optInSlowLimit >= 1e-2 && optInSlowLimit <= 9.9e-1) ) {
          return RetCode.BadParam;
       }
-      if( outMAMA.Overlaps(outFAMA) || (outMAMA.IsEmpty && outFAMA.IsEmpty) ) {
+      if( outMAMA.Overlaps(outFAMA) ) {
          return RetCode.BadParam ;
       }
       a = 0.0962;
@@ -816,7 +817,8 @@ public partial class Core
          tempReal *= 0.5;
          fama = Math.FusedMultiplyAdd(1 - tempReal, fama, tempReal * mama);
          if( today >= startIdx ) {
-            outFAMA[outIdx] = fama;
+            if( !outFAMA.IsEmpty )
+               outFAMA[outIdx] = fama;
             outMAMA[outIdx++] = mama;
          }
          Re = Math.FusedMultiplyAdd(0.8, Re, 0.2 * (Math.FusedMultiplyAdd(I2, prevI2, Q2 * prevQ2)));
@@ -877,22 +879,26 @@ public partial class Core
    /// 0.01..0.99; <c>-4e37</c> selects the default).</param>
    /// <param name="outMAMA">Adaptive moving average (fast line) Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
-   /// <param name="outFAMA">Following adaptive moving average, using half the alpha (slow line) Must
-   /// hold at least <c>endIdx - startIdx + 1</c> values.</param>
+   /// <param name="outFAMA">Following adaptive moving average, using half the alpha (slow line) Pass
+   /// an empty span to decline it: it is still computed where the algorithm
+   /// needs it, but nothing is written out. Supplied, it must hold at least
+   /// <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MAMA( int startIdx,
@@ -908,7 +914,7 @@ public partial class Core
       int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       RequireLength("MAMA", "inReal", inReal.Length, guardInLen);
       RequireLength("MAMA", "outMAMA", outMAMA.Length, guardOutLen);
-      RequireLength("MAMA", "outFAMA", outFAMA.Length, guardOutLen);
+      if( !outFAMA.IsEmpty ) RequireLength("MAMA", "outFAMA", outFAMA.Length, guardOutLen);
       RetCode retCode = MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, out int outBegIdx, out int outNBElement, outMAMA, outFAMA);
       if( retCode != RetCode.Success ) {
          throw Failure("MAMA", retCode);
@@ -952,22 +958,26 @@ public partial class Core
    /// 0.01..0.99; <c>-4e37</c> selects the default).</param>
    /// <param name="outMAMA">Adaptive moving average (fast line) Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
-   /// <param name="outFAMA">Following adaptive moving average, using half the alpha (slow line) Must
-   /// hold at least <c>endIdx - startIdx + 1</c> values.</param>
+   /// <param name="outFAMA">Following adaptive moving average, using half the alpha (slow line) Pass
+   /// an empty span to decline it: it is still computed where the algorithm
+   /// needs it, but nothing is written out. Supplied, it must hold at least
+   /// <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
    /// <see cref="Core.MAX_INDEX"/>, or <c>endIdx &lt; startIdx</c>.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or two outputs
    /// share one array.</exception>
-   /// <exception cref="System.ArgumentException">A span is too short for the range requested: an input this function
-   /// <i>reads</i> that does not reach <c>endIdx</c>, or an output that cannot
-   /// hold the values produced. Checked before anything is written, so a
-   /// rejected call leaves every buffer untouched. An empty span — which is what
-   /// a null array becomes, since a span cannot be null — fails the same check,
-   /// because any valid range needs at least one element. A few candlestick
-   /// patterns declare an OHLC series they never index; those are not checked at
-   /// all, because rejecting them would refuse a call the algorithm can answer.</exception>
+   /// <exception cref="System.ArgumentException">A span is too short for the range requested: any input this function
+   /// <i>declares</i> that does not reach <c>endIdx</c>, or an output that
+   /// cannot hold the values produced. Checked before anything is written, so a
+   /// rejected call leaves every buffer untouched. Declared, not read: a few
+   /// candlestick patterns take an OHLC series they never index, and it is
+   /// required all the same. An empty span — which is what a null array becomes,
+   /// since a span cannot be null — is rejected on the same terms and no others:
+   /// it is too short whenever the range produces a value, and fine when it
+   /// produces none, and on an output this function documents as declinable it
+   /// is how you decline.</exception>
    /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
    /// Computing wholly in place (an output that IS an input) is allowed.</exception>
    public OutRange MAMA( int startIdx,
@@ -983,7 +993,7 @@ public partial class Core
       int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       RequireLength("MAMA", "inReal", inReal.Length, guardInLen);
       RequireLength("MAMA", "outMAMA", outMAMA.Length, guardOutLen);
-      RequireLength("MAMA", "outFAMA", outFAMA.Length, guardOutLen);
+      if( !outFAMA.IsEmpty ) RequireLength("MAMA", "outFAMA", outFAMA.Length, guardOutLen);
       RetCode retCode = MAMA_Impl(startIdx, endIdx, inReal, optInFastLimit, optInSlowLimit, out int outBegIdx, out int outNBElement, outMAMA, outFAMA);
       if( retCode != RetCode.Success ) {
          throw Failure("MAMA", retCode);
@@ -1302,6 +1312,9 @@ public partial class Core
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
       /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
       /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// <para><c>outFAMA</c> may be declined with an empty span, per call and
+      /// independently of what the opener was given: the value is still computed —
+      /// <see cref="Value"/> reports it — and nothing is written out.</para>
       /// </remarks>
       /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
       /// <param name="outMAMA">Receives one <c>outMAMA</c> value per bar committed.</param>
@@ -1309,13 +1322,13 @@ public partial class Core
       public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outMAMA, Span<double> outFAMA )
       {
          int barCount = inReal.Length;
-         if( outMAMA.Length < barCount || outFAMA.Length < barCount || outMAMA.Overlaps(inReal) || outFAMA.Overlaps(inReal) || outMAMA.Overlaps(outFAMA) ) throw Core.StreamFailure("MAMA", "updateAndFill", RetCode.BadParam);
+         if( outMAMA.Length < barCount || (!outFAMA.IsEmpty && outFAMA.Length < barCount) || outMAMA.Overlaps(inReal) || outFAMA.Overlaps(inReal) || outMAMA.Overlaps(outFAMA) ) throw Core.StreamFailure("MAMA", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
             if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("MAMA", "updateAndFill", RetCode.BadParam);
             core.MAMA_StepImpl(this, inReal[i]);
             outMAMA[i] = cur_outMAMA;
-            outFAMA[i] = cur_outFAMA;
+            if( !outFAMA.IsEmpty ) outFAMA[i] = cur_outFAMA;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
@@ -1533,6 +1546,7 @@ public partial class Core
    {
       outBegIdx = 0;
       outNBElement = 0;
+      double lastCur_outFAMA = 0;
       int outIdx = 0;
       int i = 0;
       int lookbackTotal = 0;
@@ -1596,7 +1610,7 @@ public partial class Core
       int historyLen = inReal.Length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1889,7 +1903,9 @@ public partial class Core
             /* FAMA is nullable (issue #125): its write carries no outIdx advance so
              * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
              */
-            outFAMA[outIdx * outStride] = fama;
+            lastCur_outFAMA = fama;
+            if( !outFAMA.IsEmpty )
+               outFAMA[outIdx * outStride] = fama;
             outMAMA[outIdx++ * outStride] = mama;
          }
          /* Adjust the period for next price bar */
@@ -1978,7 +1994,7 @@ public partial class Core
       sp.ringCap_trailingWMAIdx = cap_trailingWMAIdx;
       sp.ring_trailingWMAIdx_inReal = capRing_trailingWMAIdx_inReal;
       sp.cur_outMAMA = outMAMA[(outNBElement - 1) * outStride];
-      sp.cur_outFAMA = outFAMA[(outNBElement - 1) * outStride];
+      sp.cur_outFAMA = lastCur_outFAMA;
       return RetCode.Success;
    }
 
@@ -2027,11 +2043,13 @@ public partial class Core
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MAMA_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
    /// have different lengths.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty — which is what a null array becomes, since a
-   /// span cannot be null.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public MAMA_Stream MAMA_Open( ReadOnlySpan<double> inReal, double optInFastLimit, double optInSlowLimit )
    {
-      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inReal.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MAMA open: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MAMA open: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
       return MAMA_OpenInternal(inReal, 0, optInFastLimit, optInSlowLimit);
    }
 
@@ -2043,7 +2061,9 @@ public partial class Core
    /// <para>Output arrays must hold <c>historyLen - MAMA_Lookback(...)</c> values and
    /// must not alias the inputs or each other — this path writes the outputs and
    /// then reads the input tail to seed its rings, so the batch tier's in-place
-   /// allowance does not carry over here.</para>
+   /// allowance does not carry over here. Both are checked before anything is
+   /// written, so an undersized span is an <c>ArgumentException</c> naming it
+   /// rather than a fault from inside the fill.</para>
    /// <para>The range written is reported on the returned handle:
    /// <see cref="MAMA_Stream.OutRange"/>.</para>
    /// </remarks>
@@ -2054,18 +2074,25 @@ public partial class Core
    /// range (<c>-4e37</c> selects the default).</param>
    /// <param name="outMAMA">Adaptive moving average (fast line) Must hold at least <c>historyLen -
    /// MAMA_Lookback(...)</c> values.</param>
-   /// <param name="outFAMA">Following adaptive moving average, using half the alpha (slow line) Must
-   /// hold at least <c>historyLen - MAMA_Lookback(...)</c> values.</param>
+   /// <param name="outFAMA">Following adaptive moving average, using half the alpha (slow line) Pass
+   /// an empty span to decline it: the value is still computed — the handle's
+   /// <c>Value</c> reports it — and nothing is written out. Must hold at least
+   /// <c>historyLen - MAMA_Lookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MAMA_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, the input series
-   /// have different lengths, or an output array aliases an input or another
-   /// output.</exception>
-   /// <exception cref="System.ArgumentException">An input series is empty, or an output overlaps an input or another
-   /// output.</exception>
+   /// have different lengths, an output is shorter than the values the fill
+   /// writes, or an output array aliases an input or another output.</exception>
+   /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
+   /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
+   /// the two index faults an opener can have (rules S1 and S2).</exception>
    public MAMA_Stream MAMA_OpenAndFill( ReadOnlySpan<double> inReal, double optInFastLimit, double optInSlowLimit, Span<double> outMAMA, Span<double> outFAMA )
    {
-      if( inReal.IsEmpty ) throw new TaLibArgumentException("inReal is empty", nameof(inReal), RetCode.BadParam);
+      if( inReal.IsEmpty ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MAMA openAndFill: history is empty", RetCode.OutOfRangeStartIndex);
+      if( inReal.Length > MAX_INDEX + 1 ) throw new TaLibArgumentOutOfRangeException(nameof(inReal), "MAMA openAndFill: history is longer than MAX_INDEX + 1", RetCode.OutOfRangeEndIndex);
+      int guardOutLen = OpenFillCount("MAMA", "openAndFill", inReal.Length, MAMA_Lookback(optInFastLimit, optInSlowLimit));
+      RequireFillLength("MAMA", "openAndFill", "outMAMA", outMAMA.Length, guardOutLen);
+      if( !outFAMA.IsEmpty ) RequireFillLength("MAMA", "openAndFill", "outFAMA", outFAMA.Length, guardOutLen);
       if( outMAMA.Overlaps(inReal) || outFAMA.Overlaps(inReal) || outMAMA.Overlaps(outFAMA) ) {
          throw StreamFailure("MAMA", "openAndFill", RetCode.BadParam);
       }

@@ -114,6 +114,36 @@
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
       }
+      /* Nothing to produce: the range is shorter than the lookback. Answer here
+       * rather than forwarding.
+       *
+       * The VALUE is the same either way: ma_lookback returns exactly the lookback
+       * the arm's callee computes for itself, from the same arguments the arm
+       * passes it, and every callee clamps startIdx to that lookback and yields
+       * 0,0 without reading. What changes is whose frame answers, and that is
+       * visible to one caller only - the zero-length no-I/O probe. It hands the
+       * body empty arrays on this range to check that nothing is read; forwarding
+       * makes the callee's PUBLIC input bound (endIdx + 1 elements, no
+       * sub-lookback escape) answer TA_BAD_PARAM before any array is reached, so
+       * the probe cannot tell "read nothing" from "never ran". ma was the last
+       * core withheld from that sweep for exactly this reason; apo, bbands, ppo,
+       * pvo and stddev already carried this guard. No legitimate caller is
+       * affected: ma's own public tier already requires endIdx + 1 input elements,
+       * and on this range the callee's OUTPUT bound is 0, so a caller sizing by
+       * the published formula was never rejected by it.
+       *
+       * It cannot mask a TA_BAD_PARAM. An optInMAType outside the enum is refused
+       * by the generated entry point above this guard. An in-range member with no
+       * arm here would reach ma_lookback's own default and get 0, and 0 > endIdx
+       * is false for every endIdx the entry point admits, so control still reaches
+       * the switch and still answers TA_BAD_PARAM. The identity path below is out
+       * of the guard's reach for the same reason - its lookback is 0.
+       */
+      if( MA_Lookback(optInTimePeriod, optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.Success ;
+      }
       /* No-smoothing identity: period 1 (every MA type) or the explicit
        * TA_MAType_DISABLED (any period, issue #93). One copy path, lookback 0.
        */
@@ -175,7 +205,7 @@
          /* The optInTimePeriod is ignored. FAMA is a nullable output
           * (issue #125): pass NULL to compute only the MAMA line into outReal.
           */
-         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, new double[(int)(endIdx - startIdx + 1)]);
+         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, null);
          outBegIdx.value = _xr7.begIdx();
          outNBElement.value = _xr7.count();
          retCode = RetCode.Success;
@@ -224,6 +254,11 @@
       }
       if( optInMAType == MAType.DEFAULT ) {
          optInMAType = MAType.SMA;
+      }
+      if( MA_Lookback(optInTimePeriod, optInMAType) > endIdx ) {
+         outBegIdx.value = 0;
+         outNBElement.value = 0;
+         return RetCode.Success ;
       }
       if( optInTimePeriod == 1 || optInMAType == MAType.DISABLED ) {
          nbElement = endIdx - startIdx + 1;
@@ -279,7 +314,7 @@
          retCode = RetCode.Success;
          break;
       case MAMA:
-         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, new double[(int)(endIdx - startIdx + 1)]);
+         OutRange _xr7 = MAMA(startIdx, endIdx, inReal, 0.5, 0.05, outReal, null);
          outBegIdx.value = _xr7.begIdx();
          outNBElement.value = _xr7.count();
          retCode = RetCode.Success;
@@ -338,15 +373,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SMA
     * @see Core#EMA
@@ -368,9 +402,9 @@
    {
       requireIndexRange("MA", startIdx, endIdx);
       requireArgument("MA", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, MA_Lookback(optInTimePeriod, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MA", startIdx, MA_Lookback(optInTimePeriod, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MA", "inReal", inReal, guardInLen);
       requireLength("MA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -420,15 +454,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#SMA
     * @see Core#EMA
@@ -450,9 +483,9 @@
    {
       requireIndexRange("MA", startIdx, endIdx);
       requireArgument("MA", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, MA_Lookback(optInTimePeriod, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("MA", startIdx, MA_Lookback(optInTimePeriod, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("MA", "inReal", inReal, guardInLen);
       requireLength("MA", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -675,6 +708,8 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
+         requireArgument("MA updateAndFill", "inReal", inReal);
+         requireArgument("MA updateAndFill", "outReal", outReal);
          final int barCount = inReal.length;
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("MA updateAndFill: BadParam", RetCode.BadParam);
@@ -784,7 +819,7 @@
    {
       int historyLen = inReal.length;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -910,7 +945,7 @@
    {
       int historyLen = inReal.length;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1004,7 +1039,7 @@
          break;
       }
       case MAMA: {
-         MAMA_Stream sub = MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, new double[historyLen]);
+         MAMA_Stream sub = MAMA_OpenAndFill(inReal, 0.5, 0.05, outReal, null);
          outBegIdx.value = sub.outRangeBegIdx;
          outNBElement.value = sub.outRangeCount;
          sp.sub = sub;
@@ -1038,7 +1073,7 @@
    {
       int historyLen = inReal.length;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -1119,7 +1154,7 @@
          break;
       }
       case MAMA: {
-         MAMA_Stream sub = MAMA_OpenAndFillInternal(inReal, startIdx, 0.5, 0.05, outBegIdx, outNBElement, outReal, new double[historyLen]);
+         MAMA_Stream sub = MAMA_OpenAndFillInternal(inReal, startIdx, 0.5, 0.05, outBegIdx, outNBElement, outReal, null);
          sp.sub = sub;
          sp.cur_outReal = sub.cur_outMAMA;
          break;
@@ -1167,10 +1202,16 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public MA_Stream MA_Open( double inReal[], int optInTimePeriod, MAType optInMAType )
    {
+      requireArgument("MA open", "inReal", inReal);
+      requireHistory("MA open", inReal.length);
+      requireArgument("MA open", "optInMAType", optInMAType);
       return MA_OpenInternal(inReal, 0, optInTimePeriod, optInMAType);
    }
    /**
@@ -1178,12 +1219,19 @@
     * to {@link Core#MA} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link MA_Stream#outRange()}.
     */
    public MA_Stream MA_OpenAndFill( double inReal[], int optInTimePeriod, MAType optInMAType, double outReal[] )
    {
+      requireArgument("MA openAndFill", "inReal", inReal);
+      requireHistory("MA openAndFill", inReal.length);
+      requireArgument("MA openAndFill", "optInMAType", optInMAType);
+      int guardOutLen = openFillCount("MA openAndFill", inReal.length, MA_Lookback(optInTimePeriod, optInMAType));
+      requireLength("MA openAndFill", "outReal", outReal, guardOutLen);
       MA_Stream sp = new MA_Stream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();

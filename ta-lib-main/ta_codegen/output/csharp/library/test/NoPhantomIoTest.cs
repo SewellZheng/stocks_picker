@@ -78,7 +78,7 @@ namespace TALib.Test;
 /// <item><description><b>Exact extent</b> — a range that <i>does</i> produce
 /// values, with each input sized to exactly <c>endIdx + 1</c> and each output to
 /// exactly the count the call reported. A read past <c>endIdx</c> or a write past
-/// the reported count is then out of range. This is what reaches the 30 functions
+/// the reported count is then out of range. This is what reaches the 31 functions
 /// whose lookback is 0, for which no sub-lookback range exists.</description></item>
 /// </list>
 ///
@@ -89,13 +89,16 @@ namespace TALib.Test;
 /// range was too short) shows up in both, but an emitter bug that changes what
 /// one backend touches without changing what it produces shows up only here.</para>
 ///
-/// <para>Driven off <see cref="FunctionCatalog"/> rather than reflection: it
-/// enumerates all 174 functions with their input kinds, price components,
-/// parameter domains and output kinds, and <see cref="FunctionCall"/>'s thunks
-/// reach the <c>RetCode</c> tier directly — the typed <see cref="Core"/> wrapper
-/// rejects a too-short input span, empty included, before the body could touch it,
-/// which is a different (and separately tested) property. It does not reject the
-/// OHLC legs a few candlestick patterns declare but never index.</para>
+/// <para>The corpus comes from <see cref="FunctionCatalog"/> rather than
+/// reflection: it enumerates all 176 functions with their input kinds, price
+/// components, parameter domains and output kinds, and
+/// <see cref="FunctionCall"/> binds the buffers. The <b>call</b> comes from
+/// <see cref="NoPhantomIoBinder"/>, this suite's own table of
+/// <c>NAME_Impl</c> call sites — the transcribed numerics and nothing above
+/// them. The typed <see cref="Core"/> wrapper rejects a too-short input span,
+/// empty included, before the body could touch it, which is a different (and
+/// separately tested) property; so does the catalogue's own thunk since #265,
+/// which is why this suite no longer goes through it.</para>
 /// </remarks>
 public static class NoPhantomIoTest
 {
@@ -398,40 +401,6 @@ public static class NoPhantomIoTest
         return kept;
     }
 
-    /// <summary>The one function whose sub-lookback probe is out of reach, and
-    /// why it is one.</summary>
-    /// <remarks>
-    /// <para>This sweep works by handing a function ZERO-LENGTH buffers and
-    /// reading what happens: silence means no I/O, a fault means the detector is
-    /// live. Since #236 step 3 the transcribed body calls its callee's PUBLIC
-    /// overload, and the callee's input bound (rule B5a) requires
-    /// <c>endIdx + 1</c> elements — deliberately without the sub-lookback escape
-    /// the OUTPUT bound takes. A function that forwards on a range shorter than
-    /// its own lookback therefore answers <c>BadParam</c> before touching a
-    /// buffer, and the probe cannot tell "read nothing" from "never ran".</para>
-    /// <para>Nothing about the PUBLIC API moved: reached through the caller's own
-    /// wrapper the callee's check is provably redundant, same <c>endIdx</c>, same
-    /// buffer.</para>
-    /// <para><b>The fix is an early return, and every other function that needed
-    /// one has it.</b> <c>apo</c>, <c>bbands</c>, <c>ppo</c>, <c>pvo</c> and now
-    /// <c>stddev</c> return <c>0,0</c> before forwarding when the range is shorter
-    /// than their lookback; the rest never forwarded on such a range. <c>ma</c> is
-    /// the holdout because it is a DISPATCH function: the generator admits only
-    /// decls, comments, the identity path, one switch and a final return at the
-    /// top level of a dispatch body — the shape the stream planner is built on —
-    /// so a guard there is a generator change, not an edit to <c>ma.c</c>. The
-    /// other way out is #236 deciding the input bound does not keep its stricter
-    /// reading.</para>
-    /// <para>An explicit list, not a symptom test: a function that starts
-    /// answering <c>BadParam</c> here for any other reason is still a hard
-    /// failure. The size is asserted, so the debt can be paid down but not quietly
-    /// grown.</para>
-    /// </remarks>
-    private static readonly HashSet<string> CrossCallGuarded = new()
-    {
-        "MA",
-    };
-
     /* -------------------------------------------------- sweep 1: sub-lookback */
 
     private static void SubLookbackSweep(Core core, IReadOnlyList<FunctionInfo> catalog)
@@ -440,19 +409,11 @@ public static class NoPhantomIoTest
         int noSubLookbackRange = 0;
         int violations = 0;
         var live = new List<string>();
-        var withheld = new List<string>();
 
         foreach (FunctionInfo f in catalog)
         {
             List<Vector> vectors = Vectors(f, core);
             Check(vectors.Count > 0, $"{f.Name} has at least one parameter vector its own lookback accepts");
-            if (CrossCallGuarded.Contains(f.Name))
-            {
-                // Only the zero-length I/O probe below is out of reach; the
-                // vector check above still applies and still runs.
-                withheld.Add(f.Name);
-                continue;
-            }
             if (vectors.Count == 0)
             {
                 continue;
@@ -471,7 +432,7 @@ public static class NoPhantomIoTest
             (double[][], int[][]) controlBuffers = BindQuiet(f, control);
             try
             {
-                RetCode rc = control.TryInvoke(0, d.Lookback, out OutRange _);
+                RetCode rc = NoPhantomIoBinder.Invoke(f.Name, core, control, 0, d.Lookback, out OutRange _);
                 if (AnySentinelGone(controlBuffers))
                 {
                     live.Add(f.Name);
@@ -480,14 +441,20 @@ public static class NoPhantomIoTest
                 {
                     // A rejection counts as liveness, and only here. The vector is
                     // this function's own defaults on a range that produces, so its
-                    // parameters are valid; the thunk binds NAME_Impl, which has no
-                    // length check. So a BadParam can only be a CALLEE's public-tier
-                    // length guard, converted by TryInvoke -- which means this
-                    // function reached a callee, which is equally a proof that it
-                    // still computes. It is the only proof available for a composed
-                    // function since #236 step 3 routed cross-calls through the
-                    // public callee. Java asserts the same thing on the exception
+                    // parameters are valid; NoPhantomIoBinder binds NAME_Impl, which
+                    // has no length check. So a BadParam can only be a CALLEE's
+                    // public-tier length guard, converted by that binder -- which
+                    // means this function reached a callee, which is equally a proof
+                    // that it still computes. It is the only proof available for a
+                    // composed function since #236 step 3 routed cross-calls through
+                    // the public callee. Java asserts the same thing on the exception
                     // type, which it still has because its cores throw.
+                    //
+                    // The inference rests on the binder naming NAME_Impl, and on
+                    // nothing else -- which is the point of the binder being this
+                    // suite's own (#265). Through the catalogue's thunk it would go
+                    // void the day that thunk moved up a tier, silently, and this arm
+                    // would then pass for a function that never ran.
                     live.Add(f.Name);
                 }
                 else
@@ -534,7 +501,7 @@ public static class NoPhantomIoTest
                 string where = $"{f.Name}[{v.Label}] (lookback {v.Lookback}, endIdx {v.Lookback - 1})";
                 try
                 {
-                    RetCode rc = call.TryInvoke(0, v.Lookback - 1, out OutRange range);
+                    RetCode rc = NoPhantomIoBinder.Invoke(f.Name, core, call, 0, v.Lookback - 1, out OutRange range);
                     if (rc != RetCode.Success)
                     {
                         Violation($"{where} returned {rc}, expected Success");
@@ -559,22 +526,18 @@ public static class NoPhantomIoTest
             }
         }
 
-        Check(probed + noSubLookbackRange + withheld.Count == catalog.Count,
-              $"sub-lookback: every function is probed, counted or withheld ({probed} + "
-              + $"{noSubLookbackRange} + {withheld.Count} vs {catalog.Count})");
-        Check(live.Count + withheld.Count == catalog.Count,
-              $"sub-lookback: the detector is proved live for every function that is not "
-              + $"withheld ({live.Count} + {withheld.Count} of {catalog.Count}; not proved "
-              + $"{string.Join(", ", catalog.Select(f => f.Name).Except(live).Except(withheld))})");
-        // The debt cannot grow silently: the list is what it is, and a function
-        // that leaves it has to leave this number too.
-        Check(withheld.Count == CrossCallGuarded.Count,
-              $"sub-lookback: every withheld function is one of the {CrossCallGuarded.Count} named "
-              + $"in CrossCallGuarded (got {withheld.Count}: {string.Join(", ", withheld)})");
+        Check(probed + noSubLookbackRange == catalog.Count,
+              $"sub-lookback: every function is probed or counted ({probed} + "
+              + $"{noSubLookbackRange} vs {catalog.Count})");
+        // No withholding list to subtract: exact equality against the catalogue,
+        // which is strictly stronger than the size assertion it replaces (#267).
+        Check(live.Count == catalog.Count,
+              $"sub-lookback: the detector is proved live for every function "
+              + $"({live.Count} of {catalog.Count}; not proved "
+              + $"{string.Join(", ", catalog.Select(f => f.Name).Except(live))})");
         Console.WriteLine($"  sub-lookback: {probed} functions probed, {violations} violation(s), "
             + $"{noSubLookbackRange} skipped (lookback 0, no sub-lookback range exists); "
-            + $"{live.Count} detector control(s) fired; {withheld.Count} WITHHELD, out of this "
-            + $"sweep's reach since #236 step 3 -> {string.Join(", ", withheld)}");
+            + $"{live.Count} detector control(s) fired");
     }
 
     /* ------------------------------------------------- sweep 2: exact extent */
@@ -617,7 +580,7 @@ public static class NoPhantomIoTest
                     OutRange range;
                     try
                     {
-                        rc = loose.TryInvoke(startIdx, endIdx, out range);
+                        rc = NoPhantomIoBinder.Invoke(f.Name, core, loose, startIdx, endIdx, out range);
                     }
                     catch (Exception e)
                     {
@@ -657,7 +620,7 @@ public static class NoPhantomIoTest
                     reachedAtDefaults |= v.Label == "defaults";
                     try
                     {
-                        tight.TryInvoke(startIdx, endIdx, out OutRange _);
+                        NoPhantomIoBinder.Invoke(f.Name, core, tight, startIdx, endIdx, out OutRange _);
                     }
                     catch (Exception e)
                     {
@@ -703,14 +666,14 @@ public static class NoPhantomIoTest
         FunctionCall quiet = sma.CreateCall(core);
         quiet.SetOption(0, 30);
         (double[][], int[][]) quietBuffers = BindQuiet(sma, quiet);
-        Check(quiet.TryInvoke(0, lookback - 1, out OutRange empty) == RetCode.Success
+        Check(NoPhantomIoBinder.Invoke("SMA", core, quiet, 0, lookback - 1, out OutRange empty) == RetCode.Success
                   && empty.Count == 0 && !AnySentinelGone(quietBuffers),
               "a sub-lookback range with zero-length inputs is a silent success");
 
         FunctionCall oneMore = sma.CreateCall(core);
         oneMore.SetOption(0, 30);
         BindQuiet(sma, oneMore);
-        Check(ThrowsOutOfRange(() => oneMore.TryInvoke(0, lookback, out OutRange _)),
+        Check(ThrowsOutOfRange(() => NoPhantomIoBinder.Invoke("SMA", core, oneMore, 0, lookback, out OutRange _)),
               "one bar longer DOES read the input, so sweep 1 can detect a phantom read");
 
         // The other half of sweep 1's detector: an output written where none should
@@ -722,14 +685,14 @@ public static class NoPhantomIoTest
         canary[0] = RealSentinel;
         writeProbe.SetInput(0, Series("inReal", lookback));
         writeProbe.SetOutput(0, canary);
-        writeProbe.TryInvoke(0, lookback - 1, out OutRange _);
+        NoPhantomIoBinder.Invoke("SMA", core, writeProbe, 0, lookback - 1, out OutRange _);
         Check(canary[0] == RealSentinel,
               "the sentinel survives a call that writes nothing, so it can report one that does");
         FunctionCall writeProbe2 = sma.CreateCall(core);
         writeProbe2.SetOption(0, 30);
         writeProbe2.SetInput(0, Series("inReal", lookback + 1));
         writeProbe2.SetOutput(0, canary);
-        writeProbe2.TryInvoke(0, lookback, out OutRange _);
+        NoPhantomIoBinder.Invoke("SMA", core, writeProbe2, 0, lookback, out OutRange _);
         Check(canary[0] != RealSentinel,
               "a call that DOES write destroys the sentinel, so sweep 1 can detect a phantom write");
 
@@ -741,19 +704,20 @@ public static class NoPhantomIoTest
         FunctionCall exact = sma.CreateCall(core);
         exact.SetOption(0, 30);
         Bind(sma, exact, endIdx + 1, count);
-        Check(exact.TryInvoke(0, endIdx, out OutRange full) == RetCode.Success && full.Count == count,
+        Check(NoPhantomIoBinder.Invoke("SMA", core, exact, 0, endIdx, out OutRange full) == RetCode.Success
+                  && full.Count == count,
               "exactly-sized input and output are enough for SMA");
 
         FunctionCall shortOut = sma.CreateCall(core);
         shortOut.SetOption(0, 30);
         Bind(sma, shortOut, endIdx + 1, count - 1);
-        Check(ThrowsOutOfRange(() => shortOut.TryInvoke(0, endIdx, out OutRange _)),
+        Check(ThrowsOutOfRange(() => NoPhantomIoBinder.Invoke("SMA", core, shortOut, 0, endIdx, out OutRange _)),
               "an output one short of the count throws, so sweep 2 sees over-writes");
 
         FunctionCall shortIn = sma.CreateCall(core);
         shortIn.SetOption(0, 30);
         Bind(sma, shortIn, endIdx, count);
-        Check(ThrowsOutOfRange(() => shortIn.TryInvoke(0, endIdx, out OutRange _)),
+        Check(ThrowsOutOfRange(() => NoPhantomIoBinder.Invoke("SMA", core, shortIn, 0, endIdx, out OutRange _)),
               "an input one short of endIdx+1 throws, so sweep 2 sees over-reads");
     }
 
@@ -780,6 +744,25 @@ public static class NoPhantomIoTest
         // against the catalogue itself, which ta_codegen writes from the same
         // input/ directory the bodies come from.
         Check(catalog.Count > 0, "the catalogue enumerates the functions the sweeps walk");
+
+        // The binder is generated into this project (NoPhantomIoBinder.g.cs) from
+        // the same rows as the catalogue, so this cannot catch a corpus the two
+        // disagree about -- there is no such tree. What it does catch is the
+        // emitter: a `continue` or a filter in `phantom_io_binder` that drops a
+        // call site the catalogue still lists, which is the shape a probe fails
+        // OPEN in. Verified by removing one: the message below names it, and
+        // TheProbesCanFail then aborts on the missing key.
+        //
+        // Both directions, because a call site for a function that is gone is a
+        // stale entry the sweeps would never reach.
+        string[] missing = catalog.Select(f => f.Name)
+            .Where(n => !NoPhantomIoBinder.Thunks.ContainsKey(n)).ToArray();
+        string[] extra = NoPhantomIoBinder.Thunks.Keys
+            .Where(n => !catalog.Any(f => f.Name == n)).ToArray();
+        Check(missing.Length == 0 && extra.Length == 0,
+              $"NoPhantomIoBinder.g.cs names exactly the catalogue's {catalog.Count} function(s) "
+              + $"(missing a NAME_Impl call site: {string.Join(", ", missing)}; "
+              + $"naming one that is gone: {string.Join(", ", extra)})");
 
         TheProbesCanFail(core);
         SubLookbackSweep(core, catalog);

@@ -335,15 +335,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CDL3BLACKCROWS
     * @see Core#CDLADVANCEBLOCK
@@ -358,9 +357,9 @@
                                       int outInteger[] )
    {
       requireIndexRange("CDL3WHITESOLDIERS", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, CDL3WHITESOLDIERS_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("CDL3WHITESOLDIERS", startIdx, CDL3WHITESOLDIERS_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDL3WHITESOLDIERS", "inOpen", inOpen, guardInLen);
       requireLength("CDL3WHITESOLDIERS", "inHigh", inHigh, guardInLen);
       requireLength("CDL3WHITESOLDIERS", "inLow", inLow, guardInLen);
@@ -407,15 +406,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#CDL3BLACKCROWS
     * @see Core#CDLADVANCEBLOCK
@@ -430,9 +428,9 @@
                                       int outInteger[] )
    {
       requireIndexRange("CDL3WHITESOLDIERS", startIdx, endIdx);
-      int guardStart = clampedStart(startIdx, endIdx, CDL3WHITESOLDIERS_Lookback());
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("CDL3WHITESOLDIERS", startIdx, CDL3WHITESOLDIERS_Lookback());
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("CDL3WHITESOLDIERS", "inOpen", inOpen, guardInLen);
       requireLength("CDL3WHITESOLDIERS", "inHigh", inHigh, guardInLen);
       requireLength("CDL3WHITESOLDIERS", "inLow", inLow, guardInLen);
@@ -677,6 +675,11 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] ) {
+         requireArgument("CDL3WHITESOLDIERS updateAndFill", "inOpen", inOpen);
+         requireArgument("CDL3WHITESOLDIERS updateAndFill", "inHigh", inHigh);
+         requireArgument("CDL3WHITESOLDIERS updateAndFill", "inLow", inLow);
+         requireArgument("CDL3WHITESOLDIERS updateAndFill", "inClose", inClose);
+         requireArgument("CDL3WHITESOLDIERS updateAndFill", "outInteger", outInteger);
          final int barCount = inOpen.length;
          if( inHigh.length != barCount || inLow.length != barCount || inClose.length != barCount || outInteger.length < barCount || (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose )
             throw new TaLibArgumentException("CDL3WHITESOLDIERS updateAndFill: BadParam", RetCode.BadParam);
@@ -823,11 +826,14 @@
       int lookbackTotal = 0;
       int historyLen = inOpen.length;
       int endIdx = historyLen - 1;
-      if( historyLen < 1 || inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
-         return RetCode.BadParam;
+      if( historyLen < 1 ) {
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
+      }
+      if( inHigh.length != inOpen.length || inLow.length != inOpen.length || inClose.length != inOpen.length ) {
+         return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
          outBegIdx.value = 0;
@@ -1087,10 +1093,21 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public CDL3WHITESOLDIERS_Stream CDL3WHITESOLDIERS_Open( double inOpen[], double inHigh[], double inLow[], double inClose[] )
    {
+      requireArgument("CDL3WHITESOLDIERS open", "inOpen", inOpen);
+      requireHistory("CDL3WHITESOLDIERS open", inOpen.length);
+      requireArgument("CDL3WHITESOLDIERS open", "inHigh", inHigh);
+      requireArgument("CDL3WHITESOLDIERS open", "inLow", inLow);
+      requireArgument("CDL3WHITESOLDIERS open", "inClose", inClose);
+      requireHistoryLength("CDL3WHITESOLDIERS open", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("CDL3WHITESOLDIERS open", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("CDL3WHITESOLDIERS open", "inClose", inClose.length, inOpen.length);
       return CDL3WHITESOLDIERS_OpenInternal(inOpen, inHigh, inLow, inClose, 0);
    }
    /**
@@ -1098,12 +1115,24 @@
     * to {@link Core#CDL3WHITESOLDIERS} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link CDL3WHITESOLDIERS_Stream#outRange()}.
     */
    public CDL3WHITESOLDIERS_Stream CDL3WHITESOLDIERS_OpenAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] )
    {
+      requireArgument("CDL3WHITESOLDIERS openAndFill", "inOpen", inOpen);
+      requireHistory("CDL3WHITESOLDIERS openAndFill", inOpen.length);
+      requireArgument("CDL3WHITESOLDIERS openAndFill", "inHigh", inHigh);
+      requireArgument("CDL3WHITESOLDIERS openAndFill", "inLow", inLow);
+      requireArgument("CDL3WHITESOLDIERS openAndFill", "inClose", inClose);
+      int guardOutLen = openFillCount("CDL3WHITESOLDIERS openAndFill", inOpen.length, CDL3WHITESOLDIERS_Lookback());
+      requireHistoryLength("CDL3WHITESOLDIERS openAndFill", "inHigh", inHigh.length, inOpen.length);
+      requireHistoryLength("CDL3WHITESOLDIERS openAndFill", "inLow", inLow.length, inOpen.length);
+      requireHistoryLength("CDL3WHITESOLDIERS openAndFill", "inClose", inClose.length, inOpen.length);
+      requireLength("CDL3WHITESOLDIERS openAndFill", "outInteger", outInteger, guardOutLen);
       if( (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose ) {
          throw new TaLibArgumentException("CDL3WHITESOLDIERS openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

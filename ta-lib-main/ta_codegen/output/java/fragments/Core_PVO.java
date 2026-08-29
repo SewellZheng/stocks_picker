@@ -118,17 +118,11 @@
       fastBeg.value = _xr0.begIdx();
       fastNb.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* Calculate the slow MA into the output. */
       OutRange _xr1 = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
        * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
        * outReal[i], with a non-negative index. An empty slow MA skips the loop.
@@ -197,16 +191,10 @@
       fastBeg.value = _xr0.begIdx();
       fastNb.value = _xr0.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       OutRange _xr1 = MA(startIdx, endIdx, inVolume, optInSlowPeriod, optInMAType, outReal);
       outBegIdx.value = _xr1.begIdx();
       outNBElement.value = _xr1.count();
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       offset = fastNb.value - outNBElement.value;
       for( i = 0; i < (int)outNBElement.value; i += 1 ) {
          tempReal = outReal[i];
@@ -259,15 +247,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#PPO
     * @see Core#OBV
@@ -283,9 +270,9 @@
    {
       requireIndexRange("PVO", startIdx, endIdx);
       requireArgument("PVO", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("PVO", startIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVO", "inVolume", inVolume, guardInLen);
       requireLength("PVO", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -340,15 +327,14 @@
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
     *        negative or above {@link Core#MAX_INDEX}, or {@code endIdx < startIdx}.
     * @throws IllegalArgumentException if an optional parameter is outside its
-    *        documented range, two outputs share one array, or an array is too short
-    *        for the range requested — an input this function <i>reads</i> that does
-    *        not reach {@code endIdx}, or an output that cannot hold the values
-    *        produced. Checked before anything is written, so a rejected call leaves
-    *        every buffer untouched.
-    * @throws NullPointerException if an input this function reads, or any
-    *        output, is null. A few candlestick patterns declare an OHLC series they
-    *        never index; those are neither length-checked nor null-checked, because
-    *        rejecting them would refuse a call the algorithm can answer.
+    *        documented range, two outputs share one array, or an array is absent or
+    *        too short for the range requested — any input this function
+    *        <i>declares</i> that does not reach {@code endIdx}, or an output that
+    *        cannot hold the values produced. Declared, not read: a few candlestick
+    *        patterns take an OHLC series they never index, and it is required all the
+    *        same. An output this function documents as declinable is the one
+    *        exception: {@code null} is how you decline it. Checked before anything is
+    *        written, so a rejected call leaves every buffer untouched.
     *
     * @see Core#PPO
     * @see Core#OBV
@@ -364,9 +350,9 @@
    {
       requireIndexRange("PVO", startIdx, endIdx);
       requireArgument("PVO", "optInMAType", optInMAType);
-      int guardStart = clampedStart(startIdx, endIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
-      int guardInLen = guardStart < 0 ? 0 : endIdx + 1;
-      int guardOutLen = guardStart < 0 || guardStart > endIdx ? 0 : endIdx - guardStart + 1;
+      int guardStart = clampedStart("PVO", startIdx, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      int guardInLen = endIdx + 1;
+      int guardOutLen = guardStart > endIdx ? 0 : endIdx - guardStart + 1;
       requireLength("PVO", "inVolume", inVolume, guardInLen);
       requireLength("PVO", "outReal", outReal, guardOutLen);
       MInteger outBegIdx = new MInteger();
@@ -486,6 +472,8 @@
        * after it not, and the count advanced by {@code k}.
        */
       public void updateAndFill( double inVolume[], double outReal[] ) {
+         requireArgument("PVO updateAndFill", "inVolume", inVolume);
+         requireArgument("PVO updateAndFill", "outReal", outReal);
          final int barCount = inVolume.length;
          if( outReal.length < barCount || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("PVO updateAndFill: BadParam", RetCode.BadParam);
@@ -568,7 +556,7 @@
       int historyLen = inVolume.length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
-         return RetCode.BadParam;
+         return RetCode.OutOfRangeStartIndex;
       }
       if( historyLen > MAX_INDEX + 1 ) {
          return RetCode.OutOfRangeEndIndex;
@@ -628,17 +616,11 @@
        * sub-call's own startIdx (the seeding point). */
       MA_Stream sub0 = MA_OpenAndFillInternal(inVolume, startIdx, optInFastPeriod, optInMAType, fastBeg, fastNb, tempBuffer);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* Calculate the slow MA into the output. */
       /* Sub-stream 1: ma over `inVolume`, warmed from bar 0 up to the
        * sub-call's own startIdx (the seeding point). */
       MA_Stream sub1 = MA_OpenAndFillInternal(inVolume, startIdx, optInSlowPeriod, optInMAType, outBegIdx, outNBElement, sc_outReal);
       retCode = RetCode.Success;
-      if( retCode != RetCode.Success ) {
-         return retCode ;
-      }
       /* fastNb - *outNBElement == slowBeg - fastBeg (the fast MA has at least as
        * many outputs), so tempBuffer[i+offset] is the fast MA at the same bar as
        * outReal[i], with a non-negative index. An empty slow MA skips the loop.
@@ -712,10 +694,16 @@
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
     * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API).
+    * default, as in the batch API). An EMPTY history throws
+    * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
+    * names no bar — and a null argument {@link IllegalArgumentException},
+    * both ahead of everything above.
     */
    public PVO_Stream PVO_Open( double inVolume[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType )
    {
+      requireArgument("PVO open", "inVolume", inVolume);
+      requireHistory("PVO open", inVolume.length);
+      requireArgument("PVO open", "optInMAType", optInMAType);
       return PVO_OpenInternal(inVolume, 0, optInFastPeriod, optInSlowPeriod, optInMAType);
    }
    /**
@@ -723,12 +711,19 @@
     * to {@link Core#PVO} over the whole history in the same single pass
     * (no separate batch call needed for the warm-up plot). Output arrays must
     * not alias the inputs or each other, and must hold
-    * {@code historyLen - lookback} values.
+    * {@code historyLen - lookback} values — both checked before anything is
+    * written, so an undersized array is an {@link IllegalArgumentException}
+    * naming it rather than a fault from inside the fill.
     * <p>The range written is on the returned handle:
     * {@link PVO_Stream#outRange()}.
     */
    public PVO_Stream PVO_OpenAndFill( double inVolume[], int optInFastPeriod, int optInSlowPeriod, MAType optInMAType, double outReal[] )
    {
+      requireArgument("PVO openAndFill", "inVolume", inVolume);
+      requireHistory("PVO openAndFill", inVolume.length);
+      requireArgument("PVO openAndFill", "optInMAType", optInMAType);
+      int guardOutLen = openFillCount("PVO openAndFill", inVolume.length, PVO_Lookback(optInFastPeriod, optInSlowPeriod, optInMAType));
+      requireLength("PVO openAndFill", "outReal", outReal, guardOutLen);
       if( (Object)outReal == (Object)inVolume ) {
          throw new TaLibArgumentException("PVO openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }

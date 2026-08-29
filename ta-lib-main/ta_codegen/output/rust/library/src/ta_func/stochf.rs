@@ -60,6 +60,11 @@
  *               of dividing a sub-epsilon residue into [0,100] noise (STOCHRSI).
  *  072026 MF,CC Fix #130. Never elect outFastD as the K scratch buffer: %D's
  *               in-place ma() destroyed the raw K before the final copy.
+ *  082326 MF,CC Fix #253. Scale that guard to the window's own extremes: the
+ *               fixed band zeroed the whole output for any instrument quoted
+ *               small enough to fall under it.
+ *  082726 MF,CC Drop the dead retCode block after the copy: the rejection is
+ *               already answered above it, and the shape reads like #269.
  */
 
 // Import types from parent module
@@ -84,19 +89,21 @@ impl Core {
     ///   values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA, 8=T3, 9=HMA,
     ///   10=DISABLED, 11=DEFAULT, `MAType::DEFAULT` selects the default)
     ///
-    /// Returns `usize::MAX` when a parameter is out of range. Integer parameters accept
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
     #[inline]
-    pub fn STOCHF_Lookback(&self, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType) -> usize {
+    pub fn STOCHF_Lookback(&self, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType) -> Result<usize, RetCode> {
         if ((optInFastK_Period) as i32) == (i32::MIN) {
             optInFastK_Period = 5;
         } else if (((optInFastK_Period) as i32) < 1) || (((optInFastK_Period) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if ((optInFastD_Period) as i32) == (i32::MIN) {
             optInFastD_Period = 3;
         } else if (((optInFastD_Period) as i32) < 1) || (((optInFastD_Period) as i32) > 100000) {
-            return usize::MAX;
+            return Err(RetCode::BadParam);
         }
         if optInFastD_MAType == MAType::DEFAULT {
             optInFastD_MAType = MAType::SMA;
@@ -105,11 +112,12 @@ impl Core {
         // Account for the initial data needed for Fast-K.
         retValue = (optInFastK_Period - 1) as usize;
         // Add the smoothing being done for Fast-D
-        retValue += self.MA_Lookback(optInFastD_Period, optInFastD_MAType);
-        return retValue;
+        retValue += self.MA_Lookback(optInFastD_Period, optInFastD_MAType)?;
+        return Ok(retValue);
     }
     /// C-shaped body behind [`Core::STOCHF`]: a `RetCode` plus two out-params,
-    /// which is what the transcribed body and its cross-indicator callers expect.
+    /// which is what the transcribed body is written against. Since #267 its only
+    /// callers are that wrapper and the phantom-I/O sweep.
     pub(crate) fn STOCHF_Impl(
         &self,
         startIdx: usize,
@@ -144,16 +152,16 @@ impl Core {
         if optInFastD_MAType == MAType::DEFAULT {
             optInFastD_MAType = MAType::SMA;
         }
-        if outFastK.as_ptr() == outFastD.as_ptr() {
-            return RetCode::BadParam;
-        }
-        let _assertLb = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType);
+        let _assertLb = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType).unwrap_or(usize::MAX);
         let _assertStart = if startIdx > _assertLb { startIdx } else { _assertLb };
         assert!(_assertStart > endIdx || endIdx < inHigh.len());
         assert!(_assertStart > endIdx || endIdx < inLow.len());
         assert!(_assertStart > endIdx || endIdx < inClose.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outFastK.len());
         assert!(_assertStart > endIdx || endIdx - _assertStart < outFastD.len());
+        if (!outFastK.is_empty() && !outFastD.is_empty() && outFastK.as_ptr() == outFastD.as_ptr()) {
+            return RetCode::BadParam;
+        }
         let mut startIdx = startIdx;
         let mut retCode: RetCode = RetCode::Success;
         let mut lowest: f64 = 0.0_f64;
@@ -202,7 +210,7 @@ impl Core {
         // used because its higher volatility cause often whipsaws.
         // Identify the lookback needed.
         lookbackK = (optInFastK_Period - 1) as usize;
-        lookbackFastD = self.MA_Lookback(optInFastD_Period, optInFastD_MAType);
+        lookbackFastD = self.MA_Lookback(optInFastD_Period, optInFastD_MAType).unwrap_or(usize::MAX);
         lookbackTotal = lookbackK + lookbackFastD;
         // Move up the start index if there is not
         // enough initial data.
@@ -293,10 +301,14 @@ impl Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
             }
-            // Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-            // a machine-flat window leaves a sub-epsilon residue that an exact check
-            // would divide into [0,100] noise (issue #107 / STOCHRSI).
-            if !((diff).abs() < 1e-14) {
+            // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+            // machine-flat window leaves a sub-epsilon residue that an exact check
+            // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+            // range against ITS OWN two extremes, not against a fixed band: the range
+            // carries the quote unit, so a constant put against it answers "flat" for
+            // every window of an instrument quoted below it and zeroed the whole
+            // output (issue #253).
+            if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
                 tempBuffer[outIdx] = (inClose[today] - lowest) / diff;
                 outIdx += 1;
             } else {
@@ -308,10 +320,11 @@ impl Core {
         }
         // Fast-K calculation completed. This K calculation is returned
         // to the caller. It is smoothed to become Fast-D.
-        retCode = self.MA_Impl(0, outIdx - 1, &tempBuffer, optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, outFastD);
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
-            if bufferIsAllocated != 0 {
-            }
+        let _xr0 = match self.MA(0, outIdx - 1, &tempBuffer, optInFastD_Period, optInFastD_MAType, outFastD) { Ok(_r) => _r, Err(_e) => return _e };
+        (*outBegIdx) = _xr0.beg_idx;
+        (*outNBElement) = _xr0.count;
+        retCode = RetCode::Success;
+        if ((*outNBElement) as usize) == 0 {
             // Something wrong happen? No further data?
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
@@ -329,15 +342,6 @@ impl Core {
             let _si = (lookbackFastD) as usize;
             outFastK[_di.._di + _n].copy_from_slice(&tempBuffer[_si.._si + _n]);
         };
-        // Don't need K anymore, free it if it was allocated here.
-        if bufferIsAllocated != 0 {
-        }
-        if retCode != RetCode::Success {
-            // Something wrong happen while processing %D?
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return retCode;
-        }
         // Note: Keep the outBegIdx relative to the
         //       caller input before returning.
         (*outBegIdx) = startIdx;
@@ -391,11 +395,9 @@ impl Core {
     /// range. A range shorter than the lookback is not an error: it is [`Ok`] with a zero
     /// [`OutRange::count`].
     ///
-    /// # Panics
-    ///
-    /// Input slices must cover `startIdx..=endIdx` and output slices must hold the number of values
-    /// produced for that range; an undersized slice panics. Sizing every output slice to the input
-    /// length is always sufficient.
+    /// Also [`RetCode::BadParam`] when a slice is too short: every input must cover
+    /// `startIdx..=endIdx`, and every output must hold the number of values produced for that
+    /// range. Sizing every output slice to the input length is always sufficient.
     ///
     /// # Examples
     ///
@@ -441,6 +443,30 @@ impl Core {
         outFastK: &mut [f64],
         outFastD: &mut [f64],
     ) -> Result<OutRange, RetCode> {
+        if startIdx > Self::MAX_INDEX {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if endIdx > Self::MAX_INDEX || endIdx < startIdx {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType)?;
+        let _guardStart = if startIdx > _guardLb { startIdx } else { _guardLb };
+        if inHigh.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inLow.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        if inClose.len() < endIdx + 1 {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = if _guardStart > endIdx { 0 } else { endIdx - _guardStart + 1 };
+        if outFastK.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outFastD.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let retCode = self.STOCHF_Impl(
@@ -475,7 +501,6 @@ impl Core {
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_STOCHF_Stream")]
 pub struct STOCHF_Stream {
-    core: Core,
     state: STOCHF_StreamState,
     /// The bars this handle has produced a value for — see [`Self::out_range`].
     out: OutRange,
@@ -486,7 +511,6 @@ impl STOCHF_Stream {
     /// Overwrite from `src`, reusing this handle's buffers instead of
     /// allocating new ones. See `STOCHF_StreamState::restore_from`.
     pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.core.clone_from(&src.core);
         self.state.restore_from(&src.state);
         self.out = src.out;
     }
@@ -544,7 +568,7 @@ impl STOCHF_StreamState {
 #[allow(unused_assignments)]
 #[allow(unused_parens)]
 impl Core {
-    fn STOCHF_step_impl(&self, sp: &mut STOCHF_StreamState, inHigh: f64, inLow: f64, inClose: f64, outFastK: &mut f64, outFastD: &mut f64) -> Result<(), RetCode> {
+    fn STOCHF_step_impl(sp: &mut STOCHF_StreamState, inHigh: f64, inLow: f64, inClose: f64, outFastK: &mut f64, outFastD: &mut f64) -> Result<(), RetCode> {
         let mut tmp: f64 = 0.0_f64;
         let mut cur_tempBuffer: f64 = 0.0_f64;
         let mut cur_outFastD: f64 = 0.0_f64;
@@ -597,10 +621,14 @@ impl Core {
             sp.highest = tmp;
             sp.diff = (sp.highest - sp.lowest) / 100.0;
         }
-        // Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-        // a machine-flat window leaves a sub-epsilon residue that an exact check
-        // would divide into [0,100] noise (issue #107 / STOCHRSI).
-        if !((sp.diff).abs() < 1e-14) {
+        // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+        // machine-flat window leaves a sub-epsilon residue that an exact check
+        // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+        // range against ITS OWN two extremes, not against a fixed band: the range
+        // carries the quote unit, so a constant put against it answers "flat" for
+        // every window of an instrument quoted below it and zeroed the whole
+        // output (issue #253).
+        if !(((sp.highest - sp.lowest).abs() <= 1e-14 * ((sp.highest).abs() + (sp.lowest).abs()))) {
             cur_tempBuffer = (sp.x_inClose[(sp.today & sp.xMask) as usize] - sp.lowest) / sp.diff;
         } else {
             cur_tempBuffer = 0.0;
@@ -620,8 +648,8 @@ impl Core {
     pub(crate) fn STOCHF_OpenImpl(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], startIdx: usize, mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType, outBegIdx: &mut usize, outNBElement: &mut usize, outFastK: &mut [f64], outFastD: &mut [f64], outStride: usize,
     ) -> Result<STOCHF_Stream, RetCode> {
-        if inHigh.is_empty() || inLow.is_empty() || inClose.is_empty() || inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
-            return Err(RetCode::BadParam);
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
         }
         if inHigh.len() > Self::MAX_INDEX + 1 {
             return Err(RetCode::OutOfRangeEndIndex);
@@ -638,6 +666,9 @@ impl Core {
         }
         if optInFastD_MAType == MAType::DEFAULT {
             optInFastD_MAType = MAType::SMA;
+        }
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
         }
         let historyLen: usize = inHigh.len();
         let endIdx: usize = historyLen - 1;
@@ -704,7 +735,7 @@ impl Core {
         // used because its higher volatility cause often whipsaws.
         // Identify the lookback needed.
         lookbackK = (optInFastK_Period - 1) as usize;
-        lookbackFastD = self.MA_Lookback(optInFastD_Period, optInFastD_MAType);
+        lookbackFastD = self.MA_Lookback(optInFastD_Period, optInFastD_MAType)?;
         lookbackTotal = lookbackK + lookbackFastD;
         // Move up the start index if there is not
         // enough initial data.
@@ -795,10 +826,14 @@ impl Core {
                 highest = tmp;
                 diff = (highest - lowest) / 100.0;
             }
-            // Calculate stochastic. Guard with TA_IS_ZERO, not an exact `diff != 0.0`:
-            // a machine-flat window leaves a sub-epsilon residue that an exact check
-            // would divide into [0,100] noise (issue #107 / STOCHRSI).
-            if !((diff).abs() < 1e-14) {
+            // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
+            // machine-flat window leaves a sub-epsilon residue that an exact check
+            // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
+            // range against ITS OWN two extremes, not against a fixed band: the range
+            // carries the quote unit, so a constant put against it answers "flat" for
+            // every window of an instrument quoted below it and zeroed the whole
+            // output (issue #253).
+            if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
                 tempBuffer[outIdx] = (inClose[today] - lowest) / diff;
                 outIdx += 1;
             } else {
@@ -814,13 +849,11 @@ impl Core {
         // sub-call's own startIdx (the seeding point).
         let sub0 = self.MA_OpenAndFillInternal(&tempBuffer[..((outIdx - 1) as usize) + 1], ((0) as usize), optInFastD_Period, optInFastD_MAType, outBegIdx, outNBElement, &mut sc_outFastD[..])?;
         retCode = RetCode::Success;
-        if retCode != RetCode::Success || ((*outNBElement) as usize) == 0 {
-            if bufferIsAllocated != 0 {
-            }
+        if ((*outNBElement) as usize) == 0 {
             // Something wrong happen? No further data?
             (*outBegIdx) = 0;
             (*outNBElement) = 0;
-            return Err(retCode);
+            return Err(RetCode::InsufficientHistory);
         }
         // Copy tempBuffer into the caller buffer.
         // (Calculation could not be done directly in the
@@ -834,15 +867,6 @@ impl Core {
             let _si = (lookbackFastD) as usize;
             sc_outFastK[_di.._di + _n].copy_from_slice(&tempBuffer[_si.._si + _n]);
         };
-        // Don't need K anymore, free it if it was allocated here.
-        if bufferIsAllocated != 0 {
-        }
-        if retCode != RetCode::Success {
-            // Something wrong happen while processing %D?
-            (*outBegIdx) = 0;
-            (*outNBElement) = 0;
-            return Err(retCode);
-        }
         // Note: Keep the outBegIdx relative to the
         //       caller input before returning.
         (*outBegIdx) = startIdx;
@@ -897,7 +921,7 @@ impl Core {
             let last_sc_outFastD = sc_outFastD[*outNBElement - 1];
             outFastD[0] = last_sc_outFastD;
         }
-        Ok(STOCHF_Stream { core: self.clone(), state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
+        Ok(STOCHF_Stream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
 
     /// Internal startIdx-anchored open behind [`Core::STOCHF_Open`] (composition seam).
@@ -919,8 +943,9 @@ impl Core {
     ///
     /// [`RetCode::InsufficientHistory`] when the history holds fewer than
     /// `lookback + 1` bars — the one failure here worth retrying, since another
-    /// bar fixes it. [`RetCode::BadParam`] when a parameter is out of range, an
-    /// input is empty, or input lengths differ.
+    /// bar fixes it. [`RetCode::OutOfRangeStartIndex`] when the history is empty.
+    /// [`RetCode::BadParam`] when a parameter is out of range or the input
+    /// lengths differ.
     ///
     /// ```
     /// use ta_lib::{Core, MAType};
@@ -948,13 +973,36 @@ impl Core {
 
     /// [`Core::STOCHF_Open`] that also fills the output array(s) bit-identically to
     /// [`Core::STOCHF`] over `0..len` in the same single pass, and reports the range it
-    /// wrote as the [`OutRange`] beside the handle. Output slices must hold
-    /// `len - lookback` values; undersized slices panic (the batch sizing contract).
+    /// wrote as the [`OutRange`] beside the handle.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
+    /// or when two of them are the same slice. Everything [`Core::STOCHF_Open`] rejects
+    /// is rejected here too.
     #[doc(alias = "TA_STOCHF_OpenAndFill")]
     pub fn STOCHF_OpenAndFill(
         &self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], mut optInFastK_Period: i32, mut optInFastD_Period: i32, mut optInFastD_MAType: MAType, outFastK: &mut [f64], outFastD: &mut [f64],
     ) -> Result<(STOCHF_Stream, OutRange), RetCode> {
-        if outFastK.as_ptr() == outFastD.as_ptr() {
+        if inHigh.is_empty() {
+            return Err(RetCode::OutOfRangeStartIndex);
+        }
+        if inHigh.len() > Self::MAX_INDEX + 1 {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
+        let _guardLb = self.STOCHF_Lookback(optInFastK_Period, optInFastD_Period, optInFastD_MAType)?;
+        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() {
+            return Err(RetCode::BadParam);
+        }
+        let _guardOutLen = inHigh.len().saturating_sub(_guardLb);
+        if outFastK.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if outFastD.len() < _guardOutLen {
+            return Err(RetCode::BadParam);
+        }
+        if !outFastK.is_empty() && !outFastD.is_empty() && outFastK.as_ptr() == outFastD.as_ptr() {
             return Err(RetCode::BadParam);
         }
         let mut outBegIdx: usize = 0;
@@ -1002,7 +1050,7 @@ impl STOCHF_Stream {
         }
         let mut outFastK: f64 = 0.0_f64;
         let mut outFastD: f64 = 0.0_f64;
-        self.core.STOCHF_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outFastK, &mut outFastD)?;
+        Core::STOCHF_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outFastK, &mut outFastD)?;
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -1035,7 +1083,7 @@ impl STOCHF_Stream {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
                 return Err(RetCode::BadParam);
             }
-            self.core.STOCHF_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outFastK[i], &mut outFastD[i])?;
+            Core::STOCHF_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outFastK[i], &mut outFastD[i])?;
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }

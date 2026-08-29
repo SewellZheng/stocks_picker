@@ -5,6 +5,7 @@ pub mod c_stream;
 pub mod cmake_lists;
 pub mod common;
 pub mod compat_fold;
+pub mod ir_cleanup;
 pub mod csharp;
 pub mod csharp_doc;
 pub mod csharp_enums;
@@ -34,6 +35,7 @@ pub mod rust_lang;
 pub mod rust_phantom_io;
 pub mod rust_stream;
 pub mod stmt_walk;
+pub mod stream_frame;
 pub mod ta_abstract_c;
 pub mod ta_defs;
 pub mod variant_frame;
@@ -271,8 +273,18 @@ impl LanguageBackend for RustBackend {
     }
     fn clean_keep(&self) -> &'static [&'static str] {
         // Hand-written modules copied from `templates/rust/` (see
-        // `RUST_TEMPLATE_MODULES`) plus the generated `mod.rs`.
-        &["types.rs", "scratch_election.rs", "stream_finite.rs", "stream_out_range.rs", "mod.rs"]
+        // `RUST_TEMPLATE_MODULES`) plus the generated `mod.rs`, and the
+        // phantom-I/O sweep, which `generate` writes here but which names no
+        // indicator (`RUST_GENERATED_TEST_MODULES`).
+        &[
+            "types.rs",
+            "div_zero.rs",
+            "scratch_election.rs",
+            "stream_finite.rs",
+            "stream_out_range.rs",
+            "no_phantom_io.rs",
+            "mod.rs",
+        ]
     }
     fn reserved_words(&self) -> &'static [&'static str] {
         rust_lang::RESERVED_WORDS
