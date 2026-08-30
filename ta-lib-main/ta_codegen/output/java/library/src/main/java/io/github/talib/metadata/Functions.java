@@ -41,6 +41,7 @@ package io.github.talib.metadata;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -73,12 +74,43 @@ public final class Functions {
    }
 
    /**
-    * One function by canonical upper-case name, e.g. {@code "SMA"}.
+    * One function by name, matched case-insensitively, e.g. {@code "SMA"},
+    * {@code "sma"} or {@code "Sma"}. The metadata itself always reports the
+    * canonical upper-case spelling regardless of the case looked up.
     *
+    * @param name the function's name, in any ASCII casing
     * @return the metadata, or {@code null} if no such function exists
     */
    public static FunctionInfo byName(String name) {
-      return BY_NAME.get(name);
+      return name == null ? null : BY_NAME.get(asciiUpper(name));
+   }
+
+   /**
+    * Upper-cases the ASCII letters of {@code s} and nothing else.
+    *
+    * <p>Not {@code String.toUpperCase}, with or without a {@code Locale}. The
+    * platform default has the Turkish-{@code i} bug in the narrowing
+    * direction; {@link Locale#ROOT} has it in the widening one, mapping the
+    * dotless {@code '\u0131'} onto {@code 'I'} and the long {@code 's'}
+    * ({@code '\u017F'}) onto {@code 'S'}, so {@code "s\u0131n"} would resolve
+    * to SIN and {@code "\u017Fma"} to SMA. Function names are invariant ASCII,
+    * so the fold that matches them is invariant ASCII too.
+    *
+    * <p>Returns {@code s} itself when it holds no lower-case ASCII letter,
+    * which is every call that already passes a canonical name.
+    */
+   private static String asciiUpper(String s) {
+      char[] out = null;
+      for (int i = 0; i < s.length(); i++) {
+         char c = s.charAt(i);
+         if (c >= 'a' && c <= 'z') {
+            if (out == null) {
+               out = s.toCharArray();
+            }
+            out[i] = (char) (c - ('a' - 'A'));
+         }
+      }
+      return out == null ? s : new String(out);
    }
 
    /** The distinct group names, in first-appearance order. */

@@ -151,6 +151,12 @@ public class MetadataTest {
         check(!Functions.all().isEmpty(), "registry is populated");
         check(Functions.byName("SMA") != null, "byName(SMA)");
         check(Functions.byName("NOSUCHFUNC") == null, "byName of an unknown name is null");
+        // Case-insensitivity is a contract, not an accident (issue #278): once
+        // each backend spells the streaming API in its own idiom, "SMA" is the
+        // only spelling a caller can rely on across all four, so the registry
+        // folds ASCII case (Locale.ROOT) the way C's TA_GetFuncHandle now does too.
+        check(Functions.byName("sma") == Functions.byName("SMA"),
+              "byName is case-insensitive and still reports the canonical instance");
         check(!Functions.groups().isEmpty(), "groups() is populated");
 
         // groups() and the rows are two views of one thing; they cannot drift
@@ -179,6 +185,86 @@ public class MetadataTest {
             check(!f.outputs().isEmpty(), f.name() + ": has at least one output");
             check(Functions.byName(f.name()) == f, f.name() + ": byName round-trips");
         }
+    }
+
+    /**
+     * byName folds ASCII case; the name the registry stores does not.
+     *
+     * <p>Swept over the corpus rather than spot-checked on {@code "sma"}: the
+     * long names ({@code CDL3STARSINSOUTH}) and the ones carrying a digit or an
+     * underscore ({@code HT_DCPERIOD}) are the ones a partial fold gets wrong,
+     * and no single case stands in for them.
+     */
+    static void byNameFoldsAsciiCase() {
+        for (FunctionInfo f : Functions.all()) {
+            FunctionInfo lower = Functions.byName(asciiLower(f.name()));
+            FunctionInfo mixed = Functions.byName(alternating(f.name()));
+            check(lower == f, f.name() + ": lower-case lookup finds it");
+            check(mixed == f, f.name() + ": mixed-case lookup finds it");
+            // A third line stood here asserting lower.name().equals(f.name()),
+            // "the name reported back stays canonical". It cannot fail: the
+            // line above pins lower == f, so it compares one object's name to
+            // itself. Nothing replaces it, and the reason is specific to this
+            // backend -- BY_NAME is keyed on the STORED spelling while byName
+            // folds upward, so a row stored in lower case is unreachable by
+            // its own name. Measured, by lower-casing the SMA row: four checks
+            // fail (byName(SMA), byName round-trips, and both lookups here).
+            // C matches case-insensitively on both sides and has no second
+            // reader of the stored spelling anywhere in ta_regtest, so there
+            // the canonical spelling is asserted outright, as it already is in
+            // Rust. C# folds on both sides too but is caught by the rest of
+            // its own suite; see the note at the same site there.
+        }
+
+        // Caught rather than chained: a regression here throws, and the suite
+        // has to report that as one failed check instead of a stack trace that
+        // stops every probe below from running.
+        boolean nullIsNull;
+        try {
+            nullIsNull = Functions.byName(null) == null;
+        } catch (RuntimeException e) {
+            nullIsNull = false;
+        }
+        check(nullIsNull, "byName(null) answers null, as it did before the fold");
+
+        // The fold is ASCII-only and it is only a fold: it must not start
+        // resolving names no function has. These are the spellings a
+        // toUpperCase-based fold widens onto real functions -- Locale.ROOT maps
+        // the dotless 'i' (U+0131) onto 'I' and the long 's' (U+017F) onto 'S',
+        // so "s\u0131n" reaches SIN and "\u017Fma" reaches SMA. U+0130 is the
+        // same trap in the other direction, under a tr_TR default locale.
+        check(Functions.byName("S\u0130N") == null, "U+0130 does not fold onto SIN");
+        check(Functions.byName("s\u0131n") == null, "U+0131 does not fold onto SIN");
+        check(Functions.byName("\u017Fma") == null, "U+017F does not fold onto SMA");
+        check(Functions.byName("sma ") == null, "a trailing space is still part of the name");
+        check(Functions.byName("ht-dcperiod") == null, "a separator is still part of the name");
+        check(Functions.byName("") == null, "the empty name resolves to nothing");
+    }
+
+    /** ASCII-only lower fold, so the probe cannot inherit the bug it looks for. */
+    private static String asciiLower(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            b.append(c >= 'A' && c <= 'Z' ? (char) (c + ('a' - 'A')) : c);
+        }
+        return b.toString();
+    }
+
+    /** Every letter position lands in both cases across the two probes. */
+    private static String alternating(String s) {
+        StringBuilder b = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            boolean up = i % 2 != 0;
+            if (c >= 'A' && c <= 'Z' && !up) {
+                c = (char) (c + ('a' - 'A'));
+            } else if (c >= 'a' && c <= 'z' && up) {
+                c = (char) (c - ('a' - 'A'));
+            }
+            b.append(c);
+        }
+        return b.toString();
     }
 
     /** The gap the retired hand-written island never closed. */
@@ -779,6 +865,7 @@ public class MetadataTest {
 
     public static void main(String[] args) throws Exception {
         registryIsComplete();
+        byNameFoldsAsciiCase();
         hintsArePopulated();
         flagVocabularyIsComplete();
         callByNameMatchesTheTypedApi();
