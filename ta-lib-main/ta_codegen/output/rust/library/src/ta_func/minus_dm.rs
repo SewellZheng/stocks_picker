@@ -76,6 +76,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_MINUS_DM_Lookback")]
     #[inline]
     pub fn MINUS_DM_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -316,15 +317,8 @@ impl Core {
     /// Measures Wilder-smoothed downward price motion over the period. Higher -DM indicates
     /// stronger downward directional movement.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// diffP = high - prevHigh; diffM = prevLow - low
-    /// -DM1 = diffM if (diffM > 0 and diffP < diffM) else 0
-    /// period<=1: output raw -DM1 per bar.
-    /// period>1: seed = sum of first (period-1) -DM1; then Wilder smooth each bar:
-    /// -DM = prevMinusDM - prevMinusDM/period (+ -DM1 when the bar qualifies)
-    /// ```
+    /// Formula and more info at
+    /// [ta-lib.org/functions/minus_dm](https://ta-lib.org/functions/minus_dm).
     ///
     /// # Arguments
     ///
@@ -381,8 +375,7 @@ impl Core {
     ///
     /// * J. Welles Wilder, *New Concepts in Technical Trading Systems*, Trend Research (ISBN
     ///   0894590278)
-    ///
-    /// Further reading: [ta-lib.org/functions/minus_dm](https://ta-lib.org/functions/minus_dm)
+    #[doc(alias = "TA_MINUS_DM")]
     #[doc(alias = "MinusDirectionalMovement")]
     #[doc(alias = "-DM")]
     pub fn MINUS_DM(
@@ -437,24 +430,14 @@ impl Core {
 /// over the same series. Open with [`Core::minus_dm_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MINUS_DM_Stream")]
 pub struct MinusDmStream {
     state: MinusDmStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl MinusDmStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `MinusDmStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -464,18 +447,7 @@ struct MinusDmStreamState {
     prevHigh: f64,
     prevLow: f64,
     prevMinusDM: f64,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl MinusDmStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.prevHigh = src.prevHigh;
-        self.prevLow = src.prevLow;
-        self.prevMinusDM = src.prevMinusDM;
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -503,6 +475,7 @@ impl Core {
             } else {
                 (*outReal) = 0.0;
             }
+            sp.cur_outReal = (*outReal);
         } else {
             let mut tempReal: f64 = 0.0_f64;
             let mut diffP: f64 = 0.0_f64;
@@ -523,6 +496,7 @@ impl Core {
                 sp.prevMinusDM = sp.prevMinusDM - sp.prevMinusDM / ((sp.optInTimePeriod) as f64);
             }
             (*outReal) = sp.prevMinusDM;
+            sp.cur_outReal = (*outReal);
         }
     }
 
@@ -680,6 +654,7 @@ impl Core {
                 prevHigh,
                 prevLow,
                 prevMinusDM,
+                cur_outReal: outReal[(*outNBElement - 1) * outStride],
             };
             Ok(MinusDmStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         } else {
@@ -850,6 +825,7 @@ impl Core {
                 prevHigh,
                 prevLow,
                 prevMinusDM,
+                cur_outReal: outReal[(*outNBElement - 1) * outStride],
             };
             Ok(MinusDmStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
         }
@@ -964,21 +940,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl MinusDmStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_MINUS_DM_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -994,7 +980,7 @@ impl MinusDmStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1004,7 +990,8 @@ impl MinusDmStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_MINUS_DM_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -1013,6 +1000,9 @@ impl MinusDmStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::minus_dm_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
@@ -1024,30 +1014,98 @@ impl MinusDmStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. This handle holds only scalars, so the copy is a
-    /// few machine words and `peek` never allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_MINUS_DM_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inHigh, inLow)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            if sp.optInTimePeriod <= 1 {
+                let mut tempReal: f64 = 0.0_f64;
+                let mut diffP: f64 = 0.0_f64;
+                let mut diffM: f64 = 0.0_f64;
+                let mut cur_outReal = sp.cur_outReal;
+                let mut prevHigh = sp.prevHigh;
+                let mut prevLow = sp.prevLow;
+                tempReal = inHigh;
+                diffP = tempReal - prevHigh;
+                // Plus Delta
+                prevHigh = tempReal;
+                tempReal = inLow;
+                diffM = prevLow - tempReal;
+                // Minus Delta
+                prevLow = tempReal;
+                if diffM > 0_f64 && diffP < diffM {
+                    // Case 2 and 4: +DM=0,-DM=diffM
+                    (*outReal) = diffM;
+                } else {
+                    (*outReal) = 0.0;
+                }
+                cur_outReal = (*outReal);
+            } else {
+                let mut tempReal: f64 = 0.0_f64;
+                let mut diffP: f64 = 0.0_f64;
+                let mut diffM: f64 = 0.0_f64;
+                let mut cur_outReal = sp.cur_outReal;
+                let mut prevHigh = sp.prevHigh;
+                let mut prevLow = sp.prevLow;
+                let mut prevMinusDM = sp.prevMinusDM;
+                tempReal = inHigh;
+                diffP = tempReal - prevHigh;
+                // Plus Delta
+                prevHigh = tempReal;
+                tempReal = inLow;
+                diffM = prevLow - tempReal;
+                // Minus Delta
+                prevLow = tempReal;
+                if diffM > 0_f64 && diffP < diffM {
+                    // Case 2 and 4: +DM=0,-DM=diffM
+                    prevMinusDM = prevMinusDM - prevMinusDM / ((sp.optInTimePeriod) as f64) + diffM;
+                } else {
+                    // Case 1,3,5 and 7
+                    prevMinusDM = prevMinusDM - prevMinusDM / ((sp.optInTimePeriod) as f64);
+                }
+                (*outReal) = prevMinusDM;
+                cur_outReal = (*outReal);
+            }
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_MINUS_DM_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::MINUS_DM`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

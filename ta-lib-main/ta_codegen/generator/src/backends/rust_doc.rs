@@ -2,10 +2,17 @@
 //!
 //! Renders each function's canonical documentation (`ta_codegen/input/<name>/<name>.md`,
 //! parsed into [`DocDef`]) as idiomatic rustdoc on the generated `Core` methods:
-//! summary, plain-text formula, notes, `# Arguments` with ranges/defaults injected
-//! from the YAML metadata, `# Errors` / `# Panics`, a runnable `# Examples` doctest,
-//! `# See also` intra-doc links, references, a ta-lib.org deep link, and
+//! summary, a ta-lib.org deep link for formula/notes, `# Arguments` with
+//! ranges/defaults injected from the YAML metadata, `# Errors` / `# Panics`, a
+//! runnable `# Examples` doctest, `# See also` intra-doc links, references, and
 //! `#[doc(alias)]` attributes for docs.rs search.
+//!
+//! Formula and Notes stay ta-lib.org-only, not duplicated here: the canonical
+//! `.md` can grow LaTeX-like notation and eventually images on that page, and
+//! rustdoc's plain-CommonMark renderer has no path to match it. Keeping only
+//! Summary here (short, plain prose, never at that risk) and linking out for
+//! the rest means the two never need two renderings of the same formula to
+//! agree.
 //!
 //! Prose is escaped for rustdoc's markdown: `[` and `<` outside code spans would
 //! otherwise be parsed as intra-doc links / HTML tags (the canonical docs are full
@@ -15,7 +22,7 @@
 use super::doc_meta::{self, ensure_period, RangeMeta};
 use crate::ir::{DocDef, EnumDef, FuncDef, OptInput, Output, ParamType};
 use crate::registry::Registry;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Content width for wrapped doc lines: rustfmt max_width 100 minus `    /// `.
 const WRAP: usize = 92;
@@ -38,25 +45,15 @@ pub fn guarded_docs(
 
     d.paragraph(&summary_text(func, doc));
 
-    if let Some(formula) = &doc.formula {
-        d.blank();
-        d.paragraph("# Formula");
-        d.blank();
-        d.fenced_text(formula);
-        if let Some(note) = &doc.formula_note {
-            d.blank();
-            d.paragraph(&escape_prose(note));
-        }
-    }
-
-    if !doc.notes.is_empty() {
-        d.blank();
-        d.paragraph("# Notes");
-        d.blank();
-        for note in &doc.notes {
-            d.bullet(&escape_prose(note));
-        }
-    }
+    // The site builds flat files (`dist/functions/sma.html`), so the slug is the
+    // lower-cased name and carries no trailing slash: `/functions/SMA` and
+    // `/functions/sma/` both 404. Same rule as `docs_site::generate`, which is
+    // what names the page.
+    let slug = func.name.to_lowercase();
+    d.blank();
+    d.paragraph(&format!(
+        "Formula and more info at [ta-lib.org/functions/{slug}](https://ta-lib.org/functions/{slug})."
+    ));
 
     d.blank();
     d.paragraph("# Arguments");
@@ -165,21 +162,58 @@ pub fn guarded_docs(
         }
     }
 
-    d.blank();
-    // The site builds flat files (`dist/functions/sma.html`), so the slug is the
-    // lower-cased name and carries no trailing slash: `/functions/SMA` and
-    // `/functions/sma/` both 404. Same rule as `docs_site::generate`, which is
-    // what names the page.
-    let slug = func.name.to_lowercase();
-    d.paragraph(&format!(
-        "Further reading: [ta-lib.org/functions/{slug}](https://ta-lib.org/functions/{slug})"
-    ));
-
     let mut out = d.finish();
     for alias in doc_aliases(func, doc) {
         out.push_str(&format!("    #[doc(alias = \"{alias}\")]\n"));
     }
     out
+}
+
+/// The crate-docs category index (#179 D6): every indicator, under the group the
+/// registry files it in, as `//!` lines for the `lib.rs` scaffolding.
+///
+/// The registry already knew the grouping — `FuncInfo::group`, a closed `Group`
+/// enum — but no doc page said it. `Core` carries its methods in one flat
+/// alphabetical list, so "which ones are the candlestick recognizers?" was
+/// answerable only by noticing that they all happen to start with `CDL`.
+///
+/// Rendered from the two fields the registry row itself carries and from nothing
+/// else: the `name`, which is also the method's name, and the `hint`, which
+/// becomes `FuncInfo::hint` and the `FuncId` variant's own doc line. So the index
+/// cannot say something about a function that the registry does not — including
+/// the missing-hint case, where the registry stores `""` and this writes no
+/// description rather than inventing one from another field.
+///
+/// Every definition is walked and its group decides only where it lands, never
+/// whether it appears; `rust_category_index_lists_every_function_once` in
+/// `tests/backend_suite.rs` is what keeps that true. The links themselves are
+/// gated by the nightly's `RUSTDOCFLAGS=-D warnings` rustdoc step: a name that is
+/// not a `Core` method is `rustdoc::broken_intra_doc_links`.
+///
+/// `BTreeMap` orders the groups by their display string, which is the order
+/// `Group::ALL` declares them in, so the front page and the registry enumerate
+/// categories the same way.
+pub fn category_index(funcs: &[FuncDef]) -> String {
+    let mut by_group: BTreeMap<&str, Vec<&FuncDef>> = BTreeMap::new();
+    for f in funcs {
+        by_group.entry(f.group.as_str()).or_default().push(f);
+    }
+    let mut s = String::new();
+    for (group, mut members) in by_group {
+        members.sort_by(|a, b| a.name.cmp(&b.name));
+        s.push_str(&format!("//! ## {group} ({})\n//!\n", members.len()));
+        for f in members {
+            let hint = f.hint.as_deref().unwrap_or_default();
+            let dash = if hint.is_empty() { "" } else { " — " };
+            s.push_str(&format!("//! * [`{0}`](Core::{0}){dash}{hint}\n", f.name));
+        }
+        s.push_str("//!\n");
+    }
+    // The blank line before the scaffolding's first inner attribute is the
+    // template's own; drop the trailing `//!` separator this loop leaves behind,
+    // and the newline with it — the placeholder sits on a line of its own.
+    s.truncate(s.trim_end_matches("//!\n").trim_end().len());
+    s
 }
 
 /// Rustdoc block for the `<snake>_lookback` function.
@@ -212,7 +246,11 @@ pub fn lookback_docs(func: &FuncDef, snake: &str, enums: &HashMap<String, EnumDe
         d.paragraph(&sentence);
     }
 
-    d.finish()
+    let mut out = d.finish();
+    // `TA_SMA_Lookback` is a C symbol of its own, so it gets its own alias rather
+    // than riding the batch function's.
+    out.push_str(&format!("    #[doc(alias = \"TA_{}_Lookback\")]\n", func.name));
+    out
 }
 
 /// How a caller asks for a parameter's default value, phrased for whichever kinds
@@ -365,12 +403,21 @@ fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> 
     }
 }
 
-/// `#[doc(alias)]` values from the canonical `## Aliases`: whitespace/punctuation
-/// removed (rustdoc forbids whitespace in aliases), deduplicated, and dropped when
-/// the alias collapses to the function name itself.
+/// `#[doc(alias)]` values for the batch entry point: the C symbol first, then the
+/// canonical `## Aliases` with whitespace/punctuation removed (rustdoc forbids
+/// whitespace in aliases), deduplicated case-insensitively, and dropped when an
+/// alias collapses to the function name itself.
+///
+/// The C symbol leads because it is the name a migrating caller already has:
+/// without `TA_SMA` here, the C spelling reaches `SmaStream` (whose alias the
+/// stream emitter does write) and never the batch function it names. Seeding
+/// `out` rather than appending routes it through the existing dedup, so a
+/// canonical alias spelling the same symbol collapses into this one instead of
+/// being emitted twice — rustdoc accepts a repeated alias silently (checked on
+/// 1.97), which is exactly why nothing but this would catch it.
 fn doc_aliases(func: &FuncDef, doc: &DocDef) -> Vec<String> {
     let name_l = func.name.to_lowercase().replace('_', "");
-    let mut out: Vec<String> = Vec::new();
+    let mut out: Vec<String> = vec![format!("TA_{}", func.name)];
     for alias in &doc.aliases {
         let cleaned: String = alias
             .chars()
@@ -541,9 +588,12 @@ fn example_doctest(
     // Optional parameters at their documented defaults. An `enum:` parameter is
     // named, not numbered -- the example is the first thing a reader copies, and
     // a bare `1` there would not even compile now that the parameter is typed.
-    for opt in &func.optional_inputs {
-        args.push(example_opt_literal(opt, enums));
-    }
+    let opt_args: Vec<String> = func
+        .optional_inputs
+        .iter()
+        .map(|opt| example_opt_literal(opt, enums))
+        .collect();
+    args.extend(opt_args.iter().cloned());
 
     lines.push(String::new());
     lines.push("let core = Core::new();".to_string());
@@ -594,10 +644,122 @@ fn example_doctest(
             "assert!({var}[..out_range.count].iter().all(|v| v.is_finite()));"
         ));
     }
+    // An integer output has no finiteness to check, which is why the 61
+    // candlestick examples and the four other integer-output examples asserted
+    // nothing beyond `count > 0` (#179 E8, deferred from #136). Two things about
+    // such a call are checkable without re-implementing the indicator, and both
+    // are checked: that it wrote through the end of the history, and the domain
+    // of the values it wrote.
+    //
+    // Not `beg_idx == <N>_Lookback(..)`: the body of a candlestick takes its own
+    // `lookbackTotal` from that very call, so the equality holds by construction
+    // and cannot fail. It was in this example until a control -- CDLDOJI's
+    // `_Lookback` returning `avgPeriod + 1` -- left the doctest green.
+    if func
+        .outputs
+        .iter()
+        .any(|o| o.param_type == ParamType::Integer)
+    {
+        lines.push(format!(
+            "assert_eq!(out_range.beg_idx + out_range.count, {first}.len());"
+        ));
+        let period = func
+            .optional_inputs
+            .iter()
+            .position(|o| o.name == "optInTimePeriod")
+            .map(|i| opt_args[i].clone());
+        for output in &func.outputs {
+            if output.param_type == ParamType::Integer {
+                let var = output_var_name(output);
+                lines.extend(integer_domain_claim(
+                    func,
+                    output,
+                    &var,
+                    &first,
+                    period.as_deref(),
+                ));
+            }
+        }
+    }
     // Lets the example above use `?`; hidden from the rendered docs.
     lines.push("# Ok::<(), ta_lib::RetCode>(())".to_string());
     lines.push("```".to_string());
     Some(lines)
+}
+
+/// The claim a generated example makes about the values of one integer output.
+///
+/// The domain is a property of the individual function, and the metadata does not
+/// carry it: all 66 integer outputs in the corpus declare the same `line` output
+/// flag, which says how to plot the values and nothing about what they are. So the
+/// four shapes are spelled out here — the same way [`unit_domain`] names the three
+/// functions whose example input has to live in `[-1, 1]`.
+///
+/// An integer output with no entry here renders no claim, which is the gap #179
+/// E8 records — so `every_integer_output_carries_an_example_claim` sweeps the
+/// shipped corpus and goes red on one. The gate is a test rather than a panic
+/// here because `input_synth/`'s fixtures carry an integer output too, and a
+/// fixture's example ships nowhere.
+fn integer_domain_claim(
+    func: &FuncDef,
+    output: &Output,
+    var: &str,
+    series: &str,
+    period: Option<&str>,
+) -> Vec<String> {
+    match (func.name.to_uppercase().as_str(), output.name.as_str()) {
+        ("MAXINDEX", _) | ("MINMAXINDEX", "outMaxIdx") => {
+            window_extremum_claim(var, series, period, true)
+        }
+        ("MININDEX", _) | ("MINMAXINDEX", "outMinIdx") => {
+            window_extremum_claim(var, series, period, false)
+        }
+        // ta_HT_TRENDMODE.c writes its `trend` local, which is only ever 0 or 1.
+        ("HT_TRENDMODE", _) => vec![
+            "// the mode is a flag: 1 in a trend, 0 in a cycle".to_string(),
+            format!("assert!({var}[..out_range.count].iter().all(|&v| v == 0 || v == 1));"),
+        ],
+        // Every candlestick pattern: 0, or +-80/+-100 for a pattern, or +-200 for
+        // one the next bar confirmed (CDLHIKKAKE, CDLHIKKAKEMOD). The bound is the
+        // one `TA_OUT_PATTERN_STRENGTH` already publishes to a metadata consumer.
+        _ if func.flags.iter().any(|f| f == "candlestick") => vec![
+            "// a candlestick pattern reports 0 where it does not fire, and a signed".to_string(),
+            "// strength -- negative bearish, positive bullish -- where it does".to_string(),
+            format!("assert!({var}[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));"),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+/// An index output names a bar; the claim re-derives which bar it should be.
+///
+/// This is the one integer domain worth checking by re-computation rather than by
+/// bound: the value is an index into the input, so the example can look up what it
+/// points at and confirm it is the window's extremum. It is also the shape a reader
+/// most needs shown — that the index is absolute, into the whole input, not relative
+/// to the window.
+fn window_extremum_claim(
+    var: &str,
+    series: &str,
+    period: Option<&str>,
+    is_max: bool,
+) -> Vec<String> {
+    let period = period.expect("an index function carries optInTimePeriod");
+    let (cmp, word) = if is_max {
+        ("<=", "highest")
+    } else {
+        (">=", "lowest")
+    };
+    vec![
+        format!("// every reported index locates the {word} value of its {period}-bar window"),
+        format!("for (k, &idx) in {var}[..out_range.count].iter().enumerate() {{"),
+        "    let (bar, idx) = (out_range.beg_idx + k, idx as usize);".to_string(),
+        format!("    assert!(bar + 1 - {period} <= idx && idx <= bar);"),
+        format!(
+            "    assert!({series}[bar + 1 - {period}..=bar].iter().all(|&v| v {cmp} {series}[idx]));"
+        ),
+        "}".to_string(),
+    ]
 }
 
 /// `let <name>: Vec<f64> = (0..252).map(|i| <expr>).collect();`
@@ -770,15 +932,6 @@ impl DocWriter {
                 self.push_line(&format!("  {line}"));
             }
         }
-    }
-
-    /// Emit a ```text fenced block, lines verbatim (no wrapping, no escaping).
-    fn fenced_text(&mut self, body: &str) {
-        self.push_line_raw("```text");
-        for line in body.lines() {
-            self.push_line_raw(line);
-        }
-        self.push_line_raw("```");
     }
 
     /// Emit pre-built raw markdown lines verbatim (e.g. a doctest).

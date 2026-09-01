@@ -106,6 +106,35 @@ static int codegen_lang_has_stream_state_probe(const char *lang)
     return lang && strcmp(lang, "c") == 0;
 }
 
+/* Which servers answer the peek non-commit leg: a handle peeked across the
+ * history must be bit-identical to a twin that was not.
+ *
+ * It needs its own leg because the value legs cannot see the whole class. They
+ * peek bar t and then update bar t with the SAME arguments, so a peek that
+ * stored what the update was about to store leaves both the values and the
+ * end-of-run state compare alike. Peeking a handle nobody then updates is what
+ * makes the store survive to be seen.
+ *
+ * Measured, against a generator sabotage that commits every shadowed store at
+ * its own slot: over a 32-function sample the leg ran on 23 and caught 15, of
+ * which THREE were its alone — CCI (circular buffer), AVGDEV and IMI (rescan
+ * window) were green on every other leg. It is blind on the extrema family
+ * (MIN/MAX/VAR/LINEARREG/CORREL/MIDPRICE/WILLR/STDDEV) because the state
+ * comparator skips the slack above the live window, which is exactly the slot
+ * a peek touches there — and the next update overwrites it, so that one is
+ * inert. The TOTAL gate for the property is structural, in the generator:
+ * tests/peek_suite.rs asserts no peek frame stores into a handle buffer at all.
+ *
+ * C only, for the same structural reason the state-equivalence leg above is:
+ * the probe compares the handle field-by-field around a peek, and only the C
+ * server has the struct as a complete type. All four backends run a
+ * non-committing frame, so what is C-only here is the OBSERVER, not the
+ * property — which is why each backend also carries its own generator sweep. */
+static int codegen_lang_has_peek_probe(const char *lang)
+{
+    return lang && strcmp(lang, "c") == 0;
+}
+
 /* Which languages cannot be held bit-identical on a call that reaches a
  * transcendental. THE single definition — both --xlang-hash (which copies it
  * into XlangServer.tolTranscendental) and server_verify's own per-call check
@@ -203,6 +232,27 @@ static long g_startSweepWithOutput[NUM_LANGUAGES];
  * ref_diverges_on_partial_range). Printed, so the carve-out cannot quietly grow
  * to swallow the axis. */
 static long g_startSweepSkipped98 = 0;
+
+/* ---- zero-produced-count comparisons ----
+ * Calls where C answered TA_SUCCESS with outNBElement == 0 and the server's own
+ * count was compared against it. Per LANGUAGE, for the reason the two counter
+ * blocks above give: one server dropping out of the check is invisible in a
+ * total the others keep non-zero.
+ *
+ * These are the calls the sibling counters deliberately do NOT count as
+ * coverage — no output element is diffed, so as evidence about VALUES they are
+ * vacuous. That is a statement about values, and it was read as a statement
+ * about the whole response: the count comparison was skipped along with them.
+ * It is cheap and it is not vacuous, because the two sides can disagree.
+ *
+ * What is still NOT compared at a zero count is outBegIdx. C's early returns
+ * write 0 into it, but that is the C library's habit rather than a documented
+ * contract, and the four backends were never held to it; asserting it here
+ * would be a new cross-backend requirement rather than the closing of a hole,
+ * so it stays a separate question. Named rather than left implicit — an
+ * unstated omission here is what this counter exists to prevent. */
+static long g_zeroCountCompared[NUM_LANGUAGES];
+
 /* ---- Return-code census (#236 step 4) ----
  * The retCode of every value-comparison call and every index-range case,
  * counted per LANGUAGE and per code. NOT every code on the wire: the unstable
@@ -1169,9 +1219,42 @@ static void compare_codegen_output_generic(
     if( p->lastRetCode != TA_SUCCESS )
         return;
 
-    /* If C produced no output, skip comparison */
-    if( p->lastNbElement == 0 )
+    /* Compare outNBElement.
+     *
+     * BEFORE the zero-output return below, not after it. The produced count is
+     * a claim the server makes whatever its value, and at C's zero it was the
+     * one claim nothing checked: the early return skipped this compare along
+     * with the value diff, so a server answering "success, 3 elements" where C
+     * answered "success, 0" read as agreement. The other direction — C
+     * produces, the server does not — always failed here, so the leg was
+     * one-sided rather than absent, which is why a green run said nothing
+     * about it.
+     *
+     * That is not a corner of the corpus. Every range short of the lookback
+     * lands here, which is most of what the startIdx axis sends (its own
+     * counters split `compared` from `withOutput` for exactly this reason),
+     * and a produced count is precisely what an off-by-one in a backend's
+     * lookback arithmetic gets wrong at the boundary where output begins. */
+    int cg_nbElement = json_get_int(p->responseBuf, "outNBElement");
+    if( p->lastNbElement != cg_nbElement )
+    {
+        printf("CODEGEN MISMATCH [TA_%s]: outNBElement C=%d codegen=%d\n",
+               p->funcInfo->name, (int)p->lastNbElement, cg_nbElement);
+        p->codegenError = TA_CODEGEN_NBELEMENT_MISMATCH;
         return;
+    }
+
+    /* Both sides produced nothing: the counts agreed just above, and there is
+     * no element to diff. outBegIdx is deliberately NOT compared here — see
+     * the counter's comment at the top of this file for what that leaves open
+     * and why it is a separate question. Counted per language and per output
+     * so the check above cannot go quiet unnoticed. */
+    if( p->lastNbElement == 0 )
+    {
+        if( p->langIndex >= 0 && p->langIndex < (int)NUM_LANGUAGES )
+            g_zeroCountCompared[p->langIndex]++;
+        return;
+    }
 
     /* Compare outBegIdx */
     int cg_begIdx = json_get_int(p->responseBuf, "outBegIdx");
@@ -1180,16 +1263,6 @@ static void compare_codegen_output_generic(
         printf("CODEGEN MISMATCH [TA_%s]: outBegIdx C=%d codegen=%d\n",
                p->funcInfo->name, (int)p->lastBegIdx, cg_begIdx);
         p->codegenError = TA_CODEGEN_BEGIDX_MISMATCH;
-        return;
-    }
-
-    /* Compare outNBElement */
-    int cg_nbElement = json_get_int(p->responseBuf, "outNBElement");
-    if( p->lastNbElement != cg_nbElement )
-    {
-        printf("CODEGEN MISMATCH [TA_%s]: outNBElement C=%d codegen=%d\n",
-               p->funcInfo->name, (int)p->lastNbElement, cg_nbElement);
-        p->codegenError = TA_CODEGEN_NBELEMENT_MISMATCH;
         return;
     }
 
@@ -1873,13 +1946,19 @@ typedef struct {
     int               streamSkipped;
     int               streamRejectArms;
     int               streamFillFunctions; /* funcs whose OpenAndFill == batch(0,n-1) bitwise */
+    int               streamPeekFunctions; /* funcs that ran the peek-idempotence probe */
+    long long         streamPeekProbes;    /* probes run (peek, other bar, peek again) */
     int               streamUFillFunctions;/* funcs whose UpdateAndFill == batch over the same bars (#246) */
     int               streamStateFunctions; /* funcs whose handle state matched Open(n) (#240) */
     int               streamStateLegs;      /* legs that compared handle state (#240) */
     int               streamRangeFunctions; /* funcs whose handle OutRange matched batch (#241) */
     int               streamRangeLegs;      /* legs that compared the handle's OutRange (#241) */
     int               streamRangeSites;     /* OR of the range-compare sites that fired (#241) */
-    int               streamRangeSitesN;    /* how many sites this server says it has */
+    int               streamRangeSitesAll;  /* the set of sites this server says it has */
+    int               streamCloneFunctions; /* funcs whose fork was driven to the end (#287) */
+    int               streamValueFunctions; /* funcs whose Value accessor was probed (#287) */
+    long long         streamValueLegs;      /* Value probes run */
+    long long         streamCloneLegs;      /* fork legs run */
     long long         streamBenign;        /* cross-tier +0.0/-0.0 pairs (#147) — never a failure */
 } ForEachFuncContext;
 
@@ -3388,9 +3467,14 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     int stateLegs = 0;     /* how many legs actually compared handle state */
     int stateOfLegs = 0;   /* value legs in the requests that reported it */
     int rangeChecked = 0;  /* set once any leg reports the OutRange compare (#241) */
+    int peekProbes = 0;    /* peek-idempotence probes this request ran */
     int rangeLegs = 0;     /* how many legs actually compared a handle's OutRange */
     int rangeSites = 0;    /* OR of the range-compare sites that fired */
-    int rangeSitesN = 0;   /* how many the server says it has */
+    int rangeSitesAll = 0; /* the set the server says it has */
+    int cloneChecked = 0;  /* this function ran the fork leg */
+    int valueChecked = 0;  /* this function probed its Value accessor */
+    int valueLegs = 0;
+    int cloneLegs = 0;     /* fork legs it ran */
     long long benign = 0;  /* signed-zero cases this function's legs reported */
     int isUnstable;
 
@@ -3504,7 +3588,10 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                                         ctx->responseBuf, JSON_BUF_SIZE);
             if( pipeErr != TA_TEST_PASS )
             {
-                printf("STREAM PIPE FAIL [TA_%s]\n", funcInfo->name);
+                /* Print the request: a dead pipe leaves no response to read,
+                 * so without this there is nothing to replay by hand. */
+                printf("STREAM PIPE FAIL [TA_%s]\n  request:  %s\n",
+                       funcInfo->name, ctx->requestBuf);
                 ctx->error = pipeErr;
                 return;
             }
@@ -3605,7 +3692,7 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
              * startIdx-anchored open. It ties the streaming tier to the batch
              * tier through one number pair, which no value leg does: every one
              * of those compares outputs, and an output is the same whether the
-             * handle knows how many of them it has produced. Checked before the
+             * handle knows how many bars it has consumed. Checked before the
              * generic ok flag so the failure names the leg; folded into ok
              * server-side too. */
             if( stream_flag(ctx->responseBuf, "\"range_checked\":") == 1 )
@@ -3613,19 +3700,60 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
                 rangeChecked = 1;
                 rangeLegs += stream_flag(ctx->responseBuf, "\"range_legs\":");
                 {
-                    /* Which of THIS server's range-compare sites fired, and how
-                     * many it has. Reported by the server rather than held as a
+                    /* Which of THIS server's range-compare sites fired, and
+                     * which it has. Reported by the server rather than held as a
                      * per-language constant here, so the two cannot drift when a
                      * language gains a site. */
                     int m = stream_flag(ctx->responseBuf, "\"range_sites\":");
-                    int nsites = stream_flag(ctx->responseBuf, "\"range_sites_n\":");
+                    int all = stream_flag(ctx->responseBuf, "\"range_sites_all\":");
                     if( m > 0 ) rangeSites |= m;
-                    if( nsites > rangeSitesN ) rangeSitesN = nsites;
+                    if( all > 0 ) rangeSitesAll |= all;
                 }
                 if( stream_flag(ctx->responseBuf, "\"range_ok\":") != 1 )
                 {
                     printf("STREAM RANGE MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
                            "  a handle's OutRange != the batch range over the same bars\n"
+                           "  request:  %s\n  response: %s\n",
+                           funcInfo->name, v, K, compat,
+                           ctx->requestBuf, ctx->responseBuf);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
+            }
+            {
+                int pc = stream_flag(ctx->responseBuf, "\"peek_checked\":");
+                if( pc > 0 ) peekProbes += pc;
+            }
+            /* Fork leg (#287). Its own counter: `ok` already folds `clone_ok`
+             * in, so this is not about catching a failure — it is about
+             * catching the leg going ABSENT, which no pass/fail flag can say. */
+            {
+                int cc = stream_flag(ctx->responseBuf, "\"clone_checked\":");
+                int cl = stream_flag(ctx->responseBuf, "\"clone_legs\":");
+                if( cc == 1 ) cloneChecked = 1;
+                if( cl > 0 ) cloneLegs += cl;
+                {
+                    int vc = stream_flag(ctx->responseBuf, "\"value_checked\":");
+                    int vl = stream_flag(ctx->responseBuf, "\"value_legs\":");
+                    if( vc == 1 ) valueChecked = 1;
+                    if( vl > 0 ) valueLegs += vl;
+                    if( stream_flag(ctx->responseBuf, "\"value_ok\":") == 0 )
+                    {
+                        printf("STREAM VALUE MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
+                               "  the Value accessor did not report the bar the stream is on\n"
+                               "  request:  %s\n  response: %s\n",
+                               funcInfo->name, v, K, compat,
+                               ctx->requestBuf, ctx->responseBuf);
+                        ctx->failed++;
+                        ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                        return;
+                    }
+                }
+                if( stream_flag(ctx->responseBuf, "\"clone_ok\":") == 0 )
+                {
+                    printf("STREAM CLONE MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
+                           "  a forked stream did not stay independent of its original\n"
                            "  request:  %s\n  response: %s\n",
                            funcInfo->name, v, K, compat,
                            ctx->requestBuf, ctx->responseBuf);
@@ -3685,9 +3813,15 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
     if( ufillChecked ) ctx->streamUFillFunctions++;
     if( stateChecked ) ctx->streamStateFunctions++;
     if( rangeChecked ) ctx->streamRangeFunctions++;
+    if( peekProbes > 0 ) ctx->streamPeekFunctions++;
+    ctx->streamPeekProbes += peekProbes;
     ctx->streamRangeLegs += rangeLegs;
     ctx->streamRangeSites |= rangeSites;
-    if( rangeSitesN > ctx->streamRangeSitesN ) ctx->streamRangeSitesN = rangeSitesN;
+    ctx->streamRangeSitesAll |= rangeSitesAll;
+    ctx->streamCloneLegs += cloneLegs;
+    if( cloneChecked ) ctx->streamCloneFunctions++;
+    ctx->streamValueLegs += valueLegs;
+    if( valueChecked ) ctx->streamValueFunctions++;
     /* Per-leg, not per-function: a function counts as covered as soon as ONE of
      * its legs compares, so without this a reference open that quietly failed
      * on 15 of 16 legs would still read as full coverage. Every leg that
@@ -4439,13 +4573,19 @@ static ErrorNumber test_codegen_for_language(
             ctx.streamSkipped       = 0;
             ctx.streamRejectArms    = 0;
             ctx.streamFillFunctions = 0;
+            ctx.streamPeekFunctions = 0;
+            ctx.streamPeekProbes = 0;
             ctx.streamUFillFunctions = 0;
             ctx.streamStateFunctions = 0;
             ctx.streamStateLegs     = 0;
             ctx.streamRangeFunctions = 0;
             ctx.streamRangeLegs     = 0;
             ctx.streamRangeSites    = 0;
-            ctx.streamRangeSitesN   = 0;
+            ctx.streamRangeSitesAll = 0;
+            ctx.streamCloneFunctions = 0;
+            ctx.streamCloneLegs     = 0;
+            ctx.streamValueFunctions = 0;
+            ctx.streamValueLegs     = 0;
             ctx.streamBenign        = 0;
             TA_ForEachFunc(stream_one_function, &ctx);
             /* The benign total is printed unconditionally, zero included: the
@@ -4466,7 +4606,8 @@ static ErrorNumber test_codegen_for_language(
                    ctx.streamUFillFunctions,
                    ctx.streamStateFunctions, ctx.streamStateLegs,
                    ctx.streamRangeFunctions, ctx.streamRangeLegs,
-                   codegen_popcount(ctx.streamRangeSites), ctx.streamRangeSitesN);
+                   codegen_popcount(ctx.streamRangeSites),
+                   codegen_popcount(ctx.streamRangeSitesAll));
             /* Coverage ratchet: every function with a server stream must ALSO
              * verify OpenAndFill (the emit side and this verify side both gate on
              * the same has_open_and_fill, so they cannot desync silently — but if
@@ -4529,6 +4670,37 @@ static ErrorNumber test_codegen_for_language(
                        "streaming functions\n", lang->name, ctx.streamFunctions);
                 ctx.error = TA_CODEGEN_STREAM_MISMATCH;
             }
+            if( codegen_lang_has_peek_probe(lang->name) )
+                printf("  Peek non-commit verify: %d functions, %lld peek(s), a peeked "
+                       "handle stays bit-identical to a twin that was not\n",
+                       ctx.streamPeekFunctions, ctx.streamPeekProbes);
+            if( ctx.streamValueFunctions > 0 )
+                printf("  Value accessor verify: %d functions, %lld probe(s), the accessor reports "
+                       "the bar the stream is on at open, after update, and after both fills\n",
+                       ctx.streamValueFunctions, ctx.streamValueLegs);
+            if( ctx.error == TA_TEST_PASS && ctx.streamValueFunctions > 0 &&
+                ctx.streamValueFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM VALUE VACUOUS: only %d of %d streaming functions probed "
+                       "their Value accessor\n",
+                       ctx.streamValueFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
+            if( ctx.streamCloneFunctions > 0 )
+                printf("  Clone independence verify: %d functions, %lld fork(s) driven to "
+                       "the end, fork and original each bit-exact vs batch and each other\n",
+                       ctx.streamCloneFunctions, ctx.streamCloneLegs);
+            /* Without this floor a server that stopped peeking reads exactly
+             * like one that peeked and passed. */
+            if( ctx.error == TA_TEST_PASS && ctx.streamFunctions != 0 &&
+                codegen_lang_has_peek_probe(lang->name) &&
+                ctx.streamPeekFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM PEEK VACUOUS: only %d of %d streaming functions ran "
+                       "the peek non-commit leg\n",
+                       ctx.streamPeekFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
             /* The range leg's ratchet (#241). Unlike the state leg this one is
              * offered by EVERY server — the range is public API in all four
              * backends — so the floor is unconditional: any streaming function
@@ -4543,6 +4715,21 @@ static ErrorNumber test_codegen_for_language(
                        ctx.streamRangeFunctions, ctx.streamFunctions);
                 ctx.error = TA_CODEGEN_STREAM_MISMATCH;
             }
+            /* The fork leg's own floor (#287), the same shape as the range one
+             * above and for the same reason: `clone_ok` says a fork MISBEHAVED,
+             * and says nothing at all when the leg stopped being emitted. Every
+             * streaming function has a fork in every backend, so the floor is
+             * unconditional — a function that did not report one is a tier whose
+             * emitter was missed. Servers with no fork leg report 0 and are
+             * skipped, so this cannot fire on a backend that has not got one. */
+            if( ctx.error == TA_TEST_PASS && ctx.streamCloneFunctions > 0 &&
+                ctx.streamCloneFunctions != ctx.streamFunctions )
+            {
+                printf("STREAM CLONE VACUOUS: only %d of %d streaming functions "
+                       "drove a forked stream to the end\n",
+                       ctx.streamCloneFunctions, ctx.streamFunctions);
+                ctx.error = TA_CODEGEN_STREAM_MISMATCH;
+            }
             /* Per-SITE, not per-total. The floor above counts functions and
              * the leg total is far above any threshold worth setting, so a whole
              * compare site going dead — the anchored open, say, or the fill —
@@ -4551,29 +4738,39 @@ static ErrorNumber test_codegen_for_language(
              * fired somewhere in the run. Corpus-wide rather than per function,
              * because a site can legitimately not run for a given function or
              * vector (C's anchored compare needs lb < Sidx < svN-1). */
-            /* Fails CLOSED on a server that stops declaring its site count.
-             * `range_sites_n` is the server's own claim about itself, so
+            /* A SET, not a count. It was a count, and the ratchet demanded
+             * (1 << n) - 1 — which can only be spelled while every server's
+             * sites are a prefix of one list. The copy/clone site (#287) ends
+             * that: it runs in Java, C# and Rust, the anchored site in C, Java
+             * and C#, so C and Rust have four sites each and neither set is a
+             * prefix of the other. The server now names the set it has, and
+             * what fired has to equal it exactly. */
+            /* Fails CLOSED on a server that stops declaring its sites.
+             * `range_sites_all` is the server's own claim about itself, so
              * skipping the ratchet when it is absent would let the leg be
              * disarmed by deleting one field — the exact shape this ratchet
              * exists to catch. A server that answered the leg at all must say
-             * how many sites it has. */
+             * which sites it has. */
             if( ctx.error == TA_TEST_PASS && ctx.streamRangeFunctions > 0 &&
-                ctx.streamRangeSitesN <= 0 )
+                ctx.streamRangeSitesAll <= 0 )
             {
                 printf("STREAM RANGE PARTIAL: the %s server compared ranges for "
-                       "%d function(s) but never declared how many compare sites "
+                       "%d function(s) but never declared which compare sites "
                        "it has — the per-site ratchet cannot run\n",
                        lang->name, ctx.streamRangeFunctions);
                 ctx.error = TA_CODEGEN_STREAM_MISMATCH;
             }
             if( ctx.error == TA_TEST_PASS && ctx.streamFunctions > 0 &&
-                ctx.streamRangeSitesN > 0 &&
-                ctx.streamRangeSites != (1 << ctx.streamRangeSitesN) - 1 )
+                ctx.streamRangeSitesAll > 0 &&
+                ctx.streamRangeSites != ctx.streamRangeSitesAll )
             {
                 printf("STREAM RANGE PARTIAL: only %d of %d range compare site(s) "
-                       "ever fired (mask 0x%x) — a whole site class is dead\n",
-                       codegen_popcount(ctx.streamRangeSites), ctx.streamRangeSitesN,
-                       (unsigned)ctx.streamRangeSites);
+                       "ever fired (fired 0x%x, declared 0x%x) — a whole site "
+                       "class is dead\n",
+                       codegen_popcount(ctx.streamRangeSites),
+                       codegen_popcount(ctx.streamRangeSitesAll),
+                       (unsigned)ctx.streamRangeSites,
+                       (unsigned)ctx.streamRangeSitesAll);
                 ctx.error = TA_CODEGEN_STREAM_MISMATCH;
             }
         }
@@ -9418,6 +9615,30 @@ ErrorNumber test_codegen(const TA_History *history,
                 startSweepTotal += g_startSweepWithOutput[li];
                 valuesCompared  += g_codegenCompared[li];
             }
+            /* Non-vacuity for the zero-produced-count compare, DIFFERENTIALLY
+             * rather than against a literal floor. Whether a run reaches a
+             * zero-count call at all is a property of the corpus — a
+             * --function= filter naming only lookback-0 functions legitimately
+             * never does — so the assertion is that no language sits at zero
+             * while another, on the same corpus, is answering them. That is
+             * the shape the counter is for: one server dropping out of a check
+             * every other server is taking. */
+            {
+                long zeroSeen = 0;
+                for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
+                    zeroSeen += g_zeroCountCompared[li];
+                if( zeroSeen > 0 )
+                    for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
+                        if( g_codegenCompared[li] > 0 && g_zeroCountCompared[li] == 0 )
+                        {
+                            printf("\nCODEGEN FAILED: no produced-count-of-zero "
+                                   "comparison reached %s, on a run where the other "
+                                   "server(s) took %ld of them — the same corpus "
+                                   "reached them and not it\n",
+                                   ALL_LANGUAGES[li].display, zeroSeen);
+                            return TA_CODEGEN_OUTPUT_MISMATCH;
+                        }
+            }
             if( valuesCompared > 0 && startSweepTotal == 0 )
             {
                 printf("\nCODEGEN FAILED: the startIdx-axis sweep compared "
@@ -9554,6 +9775,28 @@ ErrorNumber test_codegen(const TA_History *history,
                     printf(", %ld withheld (TRIX/NATR partial range — the frozen "
                            "reference predates issue #98)", g_startSweepSkipped98);
                 printf("\n");
+            }
+
+            /* Printed per language, not as a total: the differential floor
+             * above tests one language against the others, so the numbers it
+             * reads have to be visible. Printed even where the value legs found
+             * plenty, because a produced count of zero is the one answer the
+             * value legs cannot examine. */
+            {
+                long zeroTotal = 0;
+                for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
+                    zeroTotal += g_zeroCountCompared[li];
+                if( zeroTotal > 0 )
+                {
+                    printf("  produced count at zero:");
+                    for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )
+                        if( g_codegenCompared[li] > 0 || g_zeroCountCompared[li] > 0 )
+                            printf(" %s=%ld", ALL_LANGUAGES[li].display,
+                                   g_zeroCountCompared[li]);
+                    printf("  (comparison(s), one per output, where C produced nothing "
+                           "and the server's own count was checked against it; no "
+                           "output element is diffed there)\n");
+                }
             }
         }
 

@@ -85,6 +85,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_MAVP_Lookback")]
     #[inline]
     pub fn MAVP_Lookback(&self, mut optInMinPeriod: i32, mut optInMaxPeriod: i32, mut optInMAType: MAType) -> Result<usize, RetCode> {
         if ((optInMinPeriod) as i32) == (i32::MIN) {
@@ -405,18 +406,7 @@ impl Core {
     /// Moving average whose period varies per bar, driven by a companion period series. For each
     /// bar it computes an MA of the selected type over the (clamped) period given by inPeriods.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// p_i = clamp((int)inPeriods[startIdx+i], optInMinPeriod, optInMaxPeriod); outReal[i] = MA(inReal, p_i, optInMAType) at bar startIdx+i
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * Fractional per-bar periods are truncated to whole numbers before being clamped to the
-    ///   minimum and maximum period.
-    /// * Period values of 1 perform no smoothing (the bar's output equals its input); the minimum
-    ///   allowed period is 1 since 0.6.5.
+    /// Formula and more info at [ta-lib.org/functions/mavp](https://ta-lib.org/functions/mavp).
     ///
     /// # Arguments
     ///
@@ -474,8 +464,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::MA`] · [`Core::SMA`] · [`Core::MAMA`] · [`Core::T3`]
-    ///
-    /// Further reading: [ta-lib.org/functions/mavp](https://ta-lib.org/functions/mavp)
+    #[doc(alias = "TA_MAVP")]
     #[doc(alias = "MovingAverageVariablePeriod")]
     #[doc(alias = "VariablePeriodMovingAverage")]
     pub fn MAVP(
@@ -534,24 +523,14 @@ impl Core {
 /// over the same series. Open with [`Core::mavp_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MAVP_Stream")]
 pub struct MavpStream {
     state: MavpStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl MavpStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `MavpStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -562,24 +541,7 @@ struct MavpStreamState {
     optInMAType: MAType,
     // One sub-MA stream per period in [optInMinPeriod, optInMaxPeriod], advanced in lockstep.
     bank: Vec<MaStream>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl MavpStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInMinPeriod = src.optInMinPeriod;
-        self.optInMaxPeriod = src.optInMaxPeriod;
-        self.optInMAType = src.optInMAType;
-        if self.bank.len() == src.bank.len() {
-            for (dst, s) in self.bank.iter_mut().zip(src.bank.iter()) {
-                dst.restore_from(s);
-            }
-        } else {
-            self.bank.clone_from(&src.bank);
-        }
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -662,7 +624,7 @@ impl Core {
             cp = optInMaxPeriod;
         }
         let lastValue_outReal: f64 = scratch[(cp - optInMinPeriod) as usize];
-        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank };
+        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank, cur_outReal: lastValue_outReal };
         Ok((MavpStream { state, out: OutRange { beg_idx: subStart, count: historyLen - subStart } }, lastValue_outReal))
     }
 
@@ -799,41 +761,44 @@ impl Core {
             outReal[t - lookbackTotal] = scratch[(cp - optInMinPeriod) as usize];
             t += 1;
         }
-        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank };
+        let state = MavpStreamState { optInMinPeriod, optInMaxPeriod, optInMAType, bank, cur_outReal: outReal[historyLen - lookbackTotal - 1] };
         Ok((MavpStream { state, out: OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal } }, OutRange { beg_idx: lookbackTotal, count: historyLen - lookbackTotal }))
     }
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `MavpStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static MAVP_PEEK_SCRATCH: std::cell::Cell<Option<Box<MavpStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl MavpStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_MAVP_Update")]
     pub fn update(&mut self, inReal: f64, inPeriods: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() || !inPeriods.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
         Core::mavp_step_impl(&mut self.state, inReal, inPeriods, &mut outReal)?;
+        self.state.cur_outReal = outReal;
         if self.out.count < Core::MAX_INDEX {
             self.out.count += 1;
         }
@@ -845,7 +810,7 @@ impl MavpStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -855,7 +820,8 @@ impl MavpStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_MAVP_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], inPeriods: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -864,9 +830,13 @@ impl MavpStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() || !inPeriods[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::mavp_step_impl(&mut self.state, inReal[i], inPeriods[i], &mut outReal[i])?;
+            self.state.cur_outReal = outReal[i];
             if self.out.count < Core::MAX_INDEX {
                 self.out.count += 1;
             }
@@ -875,37 +845,57 @@ impl MavpStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_MAVP_Peek")]
     pub fn peek(&self, inReal: f64, inPeriods: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() || !inPeriods.is_finite() {
             return Err(RetCode::BadParam);
         }
-        MAVP_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            let stepped = Core::mavp_step_impl(&mut scratch, inReal, inPeriods, &mut outReal);
-            cell.set(Some(scratch));
-            stepped?;
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let mut cp: i32 = inPeriods as i32;
+            if cp < sp.optInMinPeriod {
+                cp = sp.optInMinPeriod;
+            } else if cp > sp.optInMaxPeriod {
+                cp = sp.optInMaxPeriod;
+            }
+            let slot: usize = (cp - sp.optInMinPeriod) as usize;
+            outReal = sp.bank[slot].peek(inReal)?;
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_MAVP_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::MAVP`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

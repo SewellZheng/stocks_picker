@@ -438,10 +438,12 @@ TA_RetCode TA_S_AC( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_AC_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_AC_Value). */
+   double cur_outReal;
    int optInFastPeriod;
    int optInSlowPeriod;
    int optInSignalPeriod;
@@ -453,14 +455,11 @@ struct TA_AC_Stream {
    int ringPos_trailingFastIdx;
    int ringCap_trailingFastIdx;
    double *ring_trailingFastIdx_derived;
-   double *ringMirror_trailingFastIdx_derived;
    int ringPos_trailingSlowIdx;
    int ringCap_trailingSlowIdx;
    double *ring_trailingSlowIdx_derived;
-   double *ringMirror_trailingSlowIdx_derived;
    int cbSize_oscBuffer;
    double *cb_oscBuffer;
-   double *cbMirror_oscBuffer;
 };
 
 /* Private function, not in public API. */
@@ -468,11 +467,8 @@ static void TA_AC_ReleaseImpl( struct TA_AC_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingFastIdx_derived ) TA_Free( sp->ring_trailingFastIdx_derived );
-   if( sp->ringMirror_trailingFastIdx_derived ) TA_Free( sp->ringMirror_trailingFastIdx_derived );
    if( sp->ring_trailingSlowIdx_derived ) TA_Free( sp->ring_trailingSlowIdx_derived );
-   if( sp->ringMirror_trailingSlowIdx_derived ) TA_Free( sp->ringMirror_trailingSlowIdx_derived );
    if( sp->cb_oscBuffer ) TA_Free( sp->cb_oscBuffer );
-   if( sp->cbMirror_oscBuffer ) TA_Free( sp->cbMirror_oscBuffer );
    TA_Free( sp );
 }
 
@@ -523,6 +519,7 @@ static void TA_AC_StepImpl( struct TA_AC_Stream *sp, double inHigh, double inLow
     * the collision ao.c has to guard against.
     */
    *outReal= tempReal;
+   sp->cur_outReal = *outReal;
    sp->ring_trailingFastIdx_derived[sp->ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
    sp->ringPos_trailingFastIdx = sp->ringPos_trailingFastIdx + 1;
    if( sp->ringPos_trailingFastIdx >= sp->ringCap_trailingFastIdx )
@@ -765,8 +762,6 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       { size_t allocN = (size_t)(sp->ringCap_trailingFastIdx > 0 ? sp->ringCap_trailingFastIdx : 1);
         sp->ring_trailingFastIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingFastIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_trailingFastIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingFastIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_trailingFastIdx; fillJ < historyLen; fillJ++ )
              sp->ring_trailingFastIdx_derived[fillJ - (historyLen - sp->ringCap_trailingFastIdx)] = (inHigh[fillJ] + inLow[fillJ]) / 2.0;
@@ -778,8 +773,6 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       { size_t allocN = (size_t)(sp->ringCap_trailingSlowIdx > 0 ? sp->ringCap_trailingSlowIdx : 1);
         sp->ring_trailingSlowIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingSlowIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_trailingSlowIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingSlowIdx_derived ) { TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_trailingSlowIdx; fillJ < historyLen; fillJ++ )
              sp->ring_trailingSlowIdx_derived[fillJ - (historyLen - sp->ringCap_trailingSlowIdx)] = (inHigh[fillJ] + inLow[fillJ]) / 2.0;
@@ -790,12 +783,11 @@ static TA_RetCode TA_AC_OpenImpl( struct TA_AC_Stream **stream, const double inH
       if( sp->cbSize_oscBuffer < 1 || sp->cbSize_oscBuffer > historyLen + 1 ) { if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); TA_AC_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(184); }
       sp->cb_oscBuffer = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_oscBuffer );
       if( !sp->cb_oscBuffer ) { if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->cbMirror_oscBuffer = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_oscBuffer );
-      if( !sp->cbMirror_oscBuffer ) { if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); TA_AC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_oscBuffer, oscBuffer, sizeof(double) * (size_t)sp->cbSize_oscBuffer );
       if( oscBuffer != &local_oscBuffer[0] ) TA_Free( oscBuffer ); 
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -846,7 +838,11 @@ TA_RetCode TA_AC_OpenAndFillInternal( struct TA_AC_Stream **stream, const double
 TA_LIB_API TA_RetCode TA_AC_Update( TA_AC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_AC_StepImpl( stream, inHigh, inLow, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -855,17 +851,74 @@ TA_LIB_API TA_RetCode TA_AC_Update( TA_AC_Stream *stream, double inHigh, double 
 TA_LIB_API TA_RetCode TA_AC_Peek( const TA_AC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    struct TA_AC_Stream scratch;
+   struct TA_AC_Stream *sp = &scratch;
+   double medianPrice;
+   double osc;
+   double tempReal;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
+   int pkSlot1 = -1;
+   double pkVal1 = 0.0;
+   int pkSlot2 = -1;
+   double pkVal2 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_trailingFastIdx_derived = stream->ringMirror_trailingFastIdx_derived;
-   memcpy( scratch.ring_trailingFastIdx_derived, stream->ring_trailingFastIdx_derived, sizeof(double) * (size_t)(stream->ringCap_trailingFastIdx > 0 ? stream->ringCap_trailingFastIdx : 1) );
-   scratch.ring_trailingSlowIdx_derived = stream->ringMirror_trailingSlowIdx_derived;
-   memcpy( scratch.ring_trailingSlowIdx_derived, stream->ring_trailingSlowIdx_derived, sizeof(double) * (size_t)(stream->ringCap_trailingSlowIdx > 0 ? stream->ringCap_trailingSlowIdx : 1) );
-   scratch.cb_oscBuffer = stream->cbMirror_oscBuffer;
-   memcpy( scratch.cb_oscBuffer, stream->cb_oscBuffer, sizeof(double) * (size_t)stream->cbSize_oscBuffer );
-   TA_AC_StepImpl( &scratch, inHigh, inLow, outReal );
+   if( sp->ringCap_trailingFastIdx == 0 )
+   {
+      pkSlot0 = 0;
+      pkVal0 = (inHigh + inLow) / 2.0;
+   }
+   if( sp->ringCap_trailingSlowIdx == 0 )
+   {
+      pkSlot1 = 0;
+      pkVal1 = (inHigh + inLow) / 2.0;
+   }
+   medianPrice = (inHigh + inLow) / 2.0;
+   sp->sumFast += medianPrice;
+   sp->sumSlow += medianPrice;
+   /* Snapshot the oscillator before either total drops its trailing bar,
+    * mirroring the add-new / snapshot / subtract-old order of TA_SMA.
+    */
+   osc = sp->sumFast / (double)sp->optInFastPeriod - sp->sumSlow / (double)sp->optInSlowPeriod;
+   sp->sumFast -= (sp->ringPos_trailingFastIdx != pkSlot0) ? sp->ring_trailingFastIdx_derived[sp->ringPos_trailingFastIdx] : pkVal0;
+   sp->sumSlow -= (sp->ringPos_trailingSlowIdx != pkSlot1) ? sp->ring_trailingSlowIdx_derived[sp->ringPos_trailingSlowIdx] : pkVal1;
+   /* Today's oscillator enters the signal window at its own slot, and the
+    * bar leaving that window is read only after the ring has advanced onto
+    * it -- writing first is what makes the slot the loop is about to
+    * overwrite the newest value rather than the oldest one.
+    */
+   pkSlot2 = sp->oscBuffer_Idx;
+   pkVal2 = osc;
+   sp->sumSignal += osc;
+   tempReal = osc - sp->sumSignal / (double)sp->optInSignalPeriod;
+   sp->oscBuffer_Idx = sp->oscBuffer_Idx + 1;
+   if( sp->oscBuffer_Idx > sp->maxIdx_oscBuffer )
+   {
+      sp->oscBuffer_Idx = 0;
+   }
+   sp->sumSignal -= (sp->oscBuffer_Idx != pkSlot2) ? sp->cb_oscBuffer[sp->oscBuffer_Idx] : pkVal2;
+   /* Every input read for this bar is done above, so the store is safe
+    * when the caller aliases outReal over inHigh or inLow. Unlike ao.c
+    * there is slack here -- the signal window puts both trailing indices
+    * at least optInSignalPeriod-1 bars ahead of outIdx, so no reachable
+    * parameter makes them collide -- but the order is kept anyway, so
+    * that admitting a signal period of 1 would not silently reintroduce
+    * the collision ao.c has to guard against.
+    */
+   *outReal= tempReal;
+   sp->cur_outReal = *outReal;
+   sp->ringPos_trailingFastIdx = sp->ringPos_trailingFastIdx + 1;
+   if( sp->ringPos_trailingFastIdx >= sp->ringCap_trailingFastIdx )
+   {
+      sp->ringPos_trailingFastIdx = 0;
+   }
+   sp->ringPos_trailingSlowIdx = sp->ringPos_trailingSlowIdx + 1;
+   if( sp->ringPos_trailingSlowIdx >= sp->ringCap_trailingSlowIdx )
+   {
+      sp->ringPos_trailingSlowIdx = 0;
+   }
    return TA_SUCCESS;
 }
 
@@ -878,7 +931,11 @@ TA_LIB_API TA_RetCode TA_AC_UpdateAndFill( TA_AC_Stream *stream, const double in
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_AC_StepImpl( stream, inHigh[i], inLow[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -888,6 +945,45 @@ TA_LIB_API TA_RetCode TA_AC_UpdateAndFill( TA_AC_Stream *stream, const double in
 TA_LIB_API TA_RetCode TA_AC_Close( TA_AC_Stream *stream )
 {
    TA_AC_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AC_Value( const TA_AC_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AC_Clone( const TA_AC_Stream *stream, TA_AC_Stream **clone )
+{
+   struct TA_AC_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_AC_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->ring_trailingFastIdx_derived = NULL;
+   sp->ring_trailingSlowIdx_derived = NULL;
+   sp->cb_oscBuffer = NULL;
+   if( stream->ring_trailingFastIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_trailingFastIdx > 0 ? sp->ringCap_trailingFastIdx : 1);
+     sp->ring_trailingFastIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_trailingFastIdx_derived ) { TA_AC_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_trailingFastIdx_derived, stream->ring_trailingFastIdx_derived, sizeof(double) * copyN ); }
+   if( stream->ring_trailingSlowIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_trailingSlowIdx > 0 ? sp->ringCap_trailingSlowIdx : 1);
+     sp->ring_trailingSlowIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_trailingSlowIdx_derived ) { TA_AC_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_trailingSlowIdx_derived, stream->ring_trailingSlowIdx_derived, sizeof(double) * copyN ); }
+   if( stream->cb_oscBuffer )
+   { size_t copyN = (size_t)(sp->cbSize_oscBuffer);
+     sp->cb_oscBuffer = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->cb_oscBuffer ) { TA_AC_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->cb_oscBuffer, stream->cb_oscBuffer, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

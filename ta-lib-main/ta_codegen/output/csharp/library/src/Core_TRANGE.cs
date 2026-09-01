@@ -371,28 +371,19 @@ public partial class Core
 
       internal TrangeStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Trange</c> reports over the same bars: the opener sets
-      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
-      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
-      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
-      /// last value, a subset of this range, because the caller chose not to take
-      /// the fill.</para>
+      /// it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds
+      /// one to the count — a non-finite bar is rejected but still counted, because
+      /// the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries
+      /// it verbatim. A plain <c>Open</c> hands back only the last value, a subset
+      /// of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal TrangeStream( TrangeStream other )
-      {
-         this.core = other.core;
-         this.lag1_inClose = other.lag1_inClose;
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      internal void CopyFrom( TrangeStream other )
       {
          this.core = other.core;
          this.lag1_inClose = other.lag1_inClose;
@@ -406,11 +397,14 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -418,7 +412,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("TRANGE", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("TRANGE", "update", RetCode.BadParam);
+         }
          core.TrangeStepImpl(this, inHigh, inLow, inClose);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -427,11 +425,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
-      /// to the state this indicator carries. If you peek on every tick and that
-      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -440,9 +439,32 @@ public partial class Core
       public double Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("TRANGE", "peek", RetCode.BadParam);
-         TrangeStream scratch = new TrangeStream(this);
-         core.TrangeStepImpl(scratch, inHigh, inLow, inClose);
-         return scratch.cur_outReal;
+         TrangeStream sp = this;
+         double val2 = 0.0;
+         double val3 = 0.0;
+         double greatest = 0.0;
+         double tempCY = 0.0;
+         double tempLT = 0.0;
+         double tempHT = 0.0;
+         double cur_outReal = sp.cur_outReal;
+         double lag1_inClose = sp.lag1_inClose;
+         /* Find the greatest of the 3 values. */
+         tempLT = inLow;
+         tempHT = inHigh;
+         tempCY = lag1_inClose;
+         greatest = tempHT - tempLT;
+         /* val1 */
+         val2 = Math.Abs(tempCY - tempHT);
+         if( val2 > greatest ) {
+            greatest = val2;
+         }
+         val3 = Math.Abs(tempCY - tempLT);
+         if( val3 > greatest ) {
+            greatest = val3;
+         }
+         cur_outReal = greatest;
+         lag1_inClose = inClose;
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -450,11 +472,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
       /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
@@ -466,15 +490,20 @@ public partial class Core
          if( inLow.Length != barCount || inClose.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) ) throw Core.StreamFailure("TRANGE", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) ) throw Core.StreamFailure("TRANGE", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("TRANGE", "updateAndFill", RetCode.BadParam);
+            }
             core.TrangeStepImpl(this, inHigh[i], inLow[i], inClose[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

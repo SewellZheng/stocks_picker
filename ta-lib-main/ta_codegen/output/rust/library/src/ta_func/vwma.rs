@@ -78,6 +78,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_VWMA_Lookback")]
     #[inline]
     pub fn VWMA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -211,25 +212,7 @@ impl Core {
     /// charting-package folklore — and every published definition agrees, so there is no
     /// competing variant.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// VWMA = ( sum_{k=t-N+1..t} P[k] * V[k] ) / ( sum_{k=t-N+1..t} V[k] ), N = optInTimePeriod
-    ///
-    /// Equivalently, and bit-identically so in TA-Lib for N of 2 or more, SMA(P * V, N) / SMA(V, N) — the composition TradingView documents for `ta.vwma`. There is no seeding and no recursion, hence no unstable period.
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * A period of 1 performs no smoothing: the output is a copy of the input, whatever the
-    ///   volume.
-    /// * Volume is expected to be non-negative. Individual zero-volume bars are fine: a bar that
-    ///   did not trade simply carries no weight, and the average stays well defined as long as some
-    ///   bar in the window has volume. At a period of 2 or more, a window in which *every* volume
-    ///   is zero has no weights at all; the weighted mean is then undefined and that element is
-    ///   NaN, as it is in every other implementation. Series carrying no volume on any bar, such as
-    ///   cash-index feeds, are outside what a volume-weighted average can describe — use SMA or
-    ///   WMA there.
+    /// Formula and more info at [ta-lib.org/functions/vwma](https://ta-lib.org/functions/vwma).
     ///
     /// # Arguments
     ///
@@ -292,8 +275,7 @@ impl Core {
     ///   a primary definition.
     /// * TradingView, *Volume Weighted Moving Average (VWMA)* — documents the equivalence with
     ///   SMA(price * volume) / SMA(volume).
-    ///
-    /// Further reading: [ta-lib.org/functions/vwma](https://ta-lib.org/functions/vwma)
+    #[doc(alias = "TA_VWMA")]
     #[doc(alias = "VolumeWeightedMovingAverage")]
     pub fn VWMA(
         &self,
@@ -347,24 +329,14 @@ impl Core {
 /// over the same series. Open with [`Core::vwma_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_VWMA_Stream")]
 pub struct VwmaStream {
     state: VwmaStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl VwmaStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `VwmaStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -377,21 +349,7 @@ struct VwmaStreamState {
     ringCap_trailingIdx: usize,
     ring_trailingIdx_inReal: Vec<f64>,
     ring_trailingIdx_inVolume: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl VwmaStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.sumPV = src.sumPV;
-        self.sumV = src.sumV;
-        self.ringPos_trailingIdx = src.ringPos_trailingIdx;
-        self.ringCap_trailingIdx = src.ringCap_trailingIdx;
-        self.ring_trailingIdx_inReal.clone_from(&src.ring_trailingIdx_inReal);
-        self.ring_trailingIdx_inVolume.clone_from(&src.ring_trailingIdx_inVolume);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -406,6 +364,7 @@ impl Core {
         let mut tempReal: f64 = 0.0_f64;
         if sp.optInTimePeriod == 1 {
             (*outReal) = inReal;
+            sp.cur_outReal = (*outReal);
             return;
         }
         if sp.ringCap_trailingIdx == 0 {
@@ -426,6 +385,7 @@ impl Core {
         sp.sumPV -= tempReal;
         sp.sumV -= sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx];
         (*outReal) = tempPV / (sp.optInTimePeriod as f64) / (tempV / (sp.optInTimePeriod as f64));
+        sp.cur_outReal = (*outReal);
         sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
         sp.ring_trailingIdx_inVolume[sp.ringPos_trailingIdx] = inVolume;
         sp.ringPos_trailingIdx = sp.ringPos_trailingIdx + 1;
@@ -470,6 +430,7 @@ impl Core {
                 return Err(RetCode::InsufficientHistory);
             }
             let state = VwmaStreamState {
+                cur_outReal: inReal[historyLen - 1],
                 optInTimePeriod: optInTimePeriod,
                 sumPV: 0.0_f64,
                 sumV: 0.0_f64,
@@ -575,6 +536,7 @@ impl Core {
             optInTimePeriod,
             sumPV,
             sumV,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inReal,
@@ -694,31 +656,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `VwmaStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static VWMA_PEEK_SCRATCH: std::cell::Cell<Option<Box<VwmaStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl VwmaStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_VWMA_Update")]
     pub fn update(&mut self, inReal: f64, inVolume: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() || !inVolume.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -734,7 +698,7 @@ impl VwmaStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -744,7 +708,8 @@ impl VwmaStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_VWMA_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], inVolume: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -753,6 +718,9 @@ impl VwmaStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() || !inVolume[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::vwma_step_impl(&mut self.state, inReal[i], inVolume[i], &mut outReal[i]);
@@ -764,36 +732,91 @@ impl VwmaStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_VWMA_Peek")]
     pub fn peek(&self, inReal: f64, inVolume: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() || !inVolume.is_finite() {
             return Err(RetCode::BadParam);
         }
-        VWMA_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::vwma_step_impl(&mut scratch, inReal, inVolume, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tempPV: f64 = 0.0_f64;
+            let mut tempV: f64 = 0.0_f64;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut ringPos_trailingIdx = sp.ringPos_trailingIdx;
+            let mut sumPV = sp.sumPV;
+            let mut sumV = sp.sumV;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            if sp.optInTimePeriod == 1 {
+                (*outReal) = inReal;
+                cur_outReal = (*outReal);
+                return Ok((*outReal));
+            }
+            if sp.ringCap_trailingIdx == 0 {
+                pkSlot0 = 0;
+                pkVal0 = inReal;
+                pkSlot1 = 0;
+                pkVal1 = inVolume;
+            }
+            tempReal = inReal * inVolume;
+            sumPV += tempReal;
+            sumV += inVolume;
+            // Snapshot both sums before removing the trailing bar, mirroring the
+            // add-new / snapshot / subtract-old order of TA_SMA. That order is what
+            // makes this bit-identical to SMA(inReal*inVolume)/SMA(inVolume).
+            tempPV = sumPV;
+            tempV = sumV;
+            // Read the trailing values before writing the output, since the caller
+            // may pass the same buffer for an input and the output.
+            tempReal = (if (ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inReal[ringPos_trailingIdx] } else { pkVal0 }) * (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inVolume[ringPos_trailingIdx] } else { pkVal1 });
+            sumPV -= tempReal;
+            sumV -= (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inVolume[ringPos_trailingIdx] } else { pkVal1 });
+            (*outReal) = tempPV / (sp.optInTimePeriod as f64) / (tempV / (sp.optInTimePeriod as f64));
+            cur_outReal = (*outReal);
+            ringPos_trailingIdx = ringPos_trailingIdx + 1;
+            if ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+                ringPos_trailingIdx = 0;
+            }
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_VWMA_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::VWMA`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

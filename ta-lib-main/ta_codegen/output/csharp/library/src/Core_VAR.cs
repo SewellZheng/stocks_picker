@@ -575,14 +575,15 @@ public partial class Core
 
       internal VarStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Var</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
-      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
-      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
-      /// subset of this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
+      /// to the count — a non-finite bar is rejected but still counted, because the
+      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
+      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
+      /// this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -609,47 +610,29 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( VarStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.optInNbDev = other.optInNbDev;
-         this.shift = other.shift;
-         this.periodTotal1 = other.periodTotal1;
-         this.periodTotal2 = other.periodTotal2;
-         this.invPeriod = other.invPeriod;
-         this.trailingIdx = other.trailingIdx;
-         this.nbInitialElementNeeded = other.nbInitialElementNeeded;
-         this.barsSinceReseed = other.barsSinceReseed;
-         this.j = other.j;
-         this.windowStart = other.windowStart;
-         this.i = other.i;
-         this.xMask = other.xMask;
-         if( this.x_inReal.Length != other.x_inReal.Length ) {
-            this.x_inReal = new double[other.x_inReal.Length];
-         }
-         Array.Copy( other.x_inReal, this.x_inReal, other.x_inReal.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("VAR", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("VAR", "update", RetCode.BadParam);
+         }
          core.VarStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -658,20 +641,150 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
-      /// to the state this indicator carries. If you peek on every tick and that
-      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>What <see cref="Update"/> would return for this bar.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("VAR", "peek", RetCode.BadParam);
-         VarStream scratch = new VarStream(this);
-         core.VarStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         VarStream sp = this;
+         double tempReal = 0.0;
+         double meanValue1 = 0.0;
+         double variance = 0.0;
+         int barsSinceReseed = sp.barsSinceReseed;
+         double cur_outReal = sp.cur_outReal;
+         int i = sp.i;
+         int j = sp.j;
+         double periodTotal1 = sp.periodTotal1;
+         double periodTotal2 = sp.periodTotal2;
+         double shift = sp.shift;
+         int trailingIdx = sp.trailingIdx;
+         int windowStart = sp.windowStart;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         if( i >= 1073741824 ) {
+            int rebaseShift = trailingIdx & ~sp.xMask;
+            i -= rebaseShift;
+            trailingIdx -= rebaseShift;
+            j -= rebaseShift;
+            windowStart -= rebaseShift;
+         }
+         pkSlot0 = i & sp.xMask;
+         pkVal0 = inReal;
+         /* Add the incoming value, measured against the shift. */
+         tempReal = (((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0) - shift;
+         periodTotal1 += tempReal;
+         tempReal *= tempReal;
+         periodTotal2 += tempReal;
+         meanValue1 = periodTotal1 * sp.invPeriod;
+         variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+         /* Remove the trailing value (prepares the next window). */
+         tempReal = (((trailingIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[trailingIdx & sp.xMask] : pkVal0) - shift;
+         periodTotal1 -= tempReal;
+         tempReal *= tempReal;
+         periodTotal2 -= tempReal;
+         trailingIdx += 1;
+         /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
+          * when the shift is stale enough that the subtraction loses digits - i.e.
+          * the variance has shrunk below 1e-6 of the mean squared deviation it is
+          * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
+          * 2e-10, so partial cancellation, not just total collapse, is caught); OR
+          * when the value just removed sat so far from the shift that its squared term
+          * (tempReal) dwarfs the surviving sum (a large outlier passing through the
+          * window buries the small terms below its ulp, and the residual left when it
+          * leaves is cancellation garbage); OR at least every 32 windows so a slow
+          * drift stays bounded regardless of the series length. The strict `<` also
+          * leaves an exactly-constant window (variance 0, scale 0) alone instead of
+          * reseeding it every bar. Guarantees a non-negative output.
+          */
+         barsSinceReseed -= 1;
+         if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+            barsSinceReseed = 32 * sp.optInTimePeriod;
+            windowStart = i - sp.nbInitialElementNeeded;
+            tempReal = 0.0;
+            for( j = windowStart; j <= i; j += 1 ) {
+               tempReal += ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
+            }
+            shift = tempReal * sp.invPeriod;
+            periodTotal1 = 0.0;
+            periodTotal2 = 0.0;
+            for( j = windowStart; j <= i; j += 1 ) {
+               tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
+               periodTotal1 += tempReal;
+               tempReal *= tempReal;
+               periodTotal2 += tempReal;
+            }
+            meanValue1 = periodTotal1 * sp.invPeriod;
+            variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            /* Floor the fresh figure at the same ratio the trigger above uses, now
+             * measured against the RE-ANCHORED sums. With the shift AT the window
+             * mean the deviations sum to ~0, so a real window has variance ~
+             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+             * only when every deviation is the same value, i.e. when the spread is
+             * at or under the rounding error of the mean itself. There is then no
+             * spread the anchor could resolve, the surviving digits are noise, and
+             * the honest answer is 0.
+             *
+             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+             * difference is load-bearing. periodTotal2*invPeriod is not the
+             * variance here: it is variance + e^2, where e is the rounding error of
+             * the reseed's own left-to-right sum for the mean -- exactly the term
+             * the two-pass subtraction then cancels out. So the ratio measures how
+             * badly that sum rounded, not how much signal survives, and matching
+             * the trigger's 1e-6 fired ten orders before cancellation eats any
+             * digits. It zeroed a variance the line above had just computed to nine
+             * correct significant figures: 100011 bars at 31498938283.624615 with
+             * two small outliers at period 99991 gives 1.0219900060103338e-09
+             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+             * survives and every intended bit-zero still zeroes -- the live ratios
+             * on flat data are 0 or ~1e-16, six orders the other side.
+             *
+             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+             * relative rather than the `variance < 0.0` it replaced because two
+             * things ride on it:
+             *
+             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+             *    side is >= 0 and any negative variance is clamped unconditionally -
+             *    where `< 0.0` needed the three-case argument below to know that a
+             *    negative one ever reaches this line.
+             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+             *    quantity to 1e-14, which is a cliff at a price level and not a
+             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+             *    Expressed here in the window's own units, the floor lets both of
+             *    them square-root what they are handed unconditionally.
+             *
+             * Clamping HERE and not at the output write is what keeps this off the
+             * per-bar path, and it is sufficient because a negative variance always
+             * reseeds on the same bar - the guard above covers all three cases:
+             * periodTotal2 > 0 makes its first disjunct `negative < positive`;
+             * periodTotal2 < 0 makes the second disjunct's right side negative,
+             * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
+             * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
+             * THIS - the alternative is an unconditional clamp at the output write,
+             * which needs no such argument but does cost ~3%.
+             */
+            if( variance < 0.000000000001 * (periodTotal2 * sp.invPeriod) ) {
+               variance = 0.0;
+            }
+            /* Re-remove the trailing value under the new shift so the carried state
+             * matches the non-reseed path.
+             */
+            tempReal = (((windowStart & sp.xMask) != pkSlot0) ? sp.x_inReal[windowStart & sp.xMask] : pkVal0) - shift;
+            periodTotal1 -= tempReal;
+            tempReal *= tempReal;
+            periodTotal2 -= tempReal;
+         }
+         cur_outReal = variance;
+         i += 1;
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -679,11 +792,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
       /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
@@ -693,15 +808,20 @@ public partial class Core
          if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("VAR", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("VAR", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inReal[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("VAR", "updateAndFill", RetCode.BadParam);
+            }
             core.VarStepImpl(this, inReal[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

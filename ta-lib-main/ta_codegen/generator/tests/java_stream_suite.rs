@@ -8,7 +8,7 @@
 //! check: the transition build panics on a cursor/startIdx leak, so a clean
 //! render proves the analyzer normalizations fired.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::registry::Registry;
@@ -27,6 +27,25 @@ fn load_indicator(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
     parser::c_source::wire_parsed_source(&mut func, &parsed);
     let enums = parser::enums::load_enums(&input_dir().join("enums.yaml"));
     (func, enums)
+}
+
+/// Every indicator directory whose YAML declares a stream.
+fn streaming_indicators() -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(input_dir())
+        .expect("input dir")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let yaml = e.path().join(format!("{name}.yaml"));
+            yaml.exists()
+                .then(|| parser::yaml::parse_yaml(&yaml))
+                .filter(|f| f.streaming)
+                .map(|_| name)
+        })
+        .collect();
+    v.sort();
+    v
 }
 
 fn java_stream_section(name: &str) -> String {
@@ -56,23 +75,29 @@ fn test_java_sma_ring_stream_section() {
     assert!(!s.contains("public SmaStream("), "handle ctors stay non-public");
     // Deep-copy constructor clones the ring array.
     assert!(s.contains("this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();"));
-    // ...and every class gets its in-place twin (#201), because any of them can
-    // be some other handle's sub-stream.
-    assert!(s.contains("void copyFrom( SmaStream other ) {"));
-    assert!(s.contains("System.arraycopy( other.ring_trailingIdx_inReal, 0, this.ring_trailingIdx_inReal, 0, other.ring_trailingIdx_inReal.length );"));
-    // One array and no sub-stream: peek keeps the plain copy, because the
-    // scratch lookup would cost more than the allocation it saves.
+    // ...and nothing else copies a handle: the in-place twin `copyFrom` existed
+    // only to refresh peek's scratch, and there are no scratches.
+    assert!(!s.contains("copyFrom"));
+    // Peek copies nothing: it runs a frame against this handle, storing what
+    // the step would commit in locals instead.
     assert!(!s.contains("PEEK_SCRATCH"));
-    assert!(s.contains("SmaStream scratch = new SmaStream(this);"));
-    // The C mirror/peekMode machinery is deleted by design (copy-peek).
+    assert!(!s.contains("SmaStream scratch = new SmaStream(this);"));
+    assert!(s.contains("SmaStream sp = this;"));
+    // No backend carries a mirror or a routing flag any more, so these hold
+    // everywhere rather than marking a difference.
     assert!(!s.contains("Mirror"), "no peek mirrors in the Java tier");
     assert!(!s.contains("peekMode"), "no peekMode in the Java tier");
     // Lifecycle surface.
     assert!(s.contains("public double update( double inReal ) {"));
     assert!(s.contains("public double peek( double inReal ) {"));
     assert!(s.contains("public double value() {"));
-    assert!(s.contains("public SmaStream copy() {"));
-    assert!(!s.contains("public SmaStream fork()"), "copy(), never fork()");
+    assert!(s.contains("public SmaStream clone() {"));
+    assert!(!s.contains("public SmaStream fork()"), "clone(), never fork()");
+    // The override is what makes the name legal without the Cloneable protocol;
+    // dropping it would compile but stop being an override the day the return
+    // type or visibility drifts.
+    assert!(s.contains("@Override\n      public SmaStream clone()"), "clone() is an @Override");
+    assert!(!s.contains("implements Cloneable"), "no Cloneable: the body is a copy constructor");
     // Step is a package-private Core method writing the cur_ field.
     assert!(s.contains("void smaStepImpl( SmaStream sp, double inReal )"));
     assert!(s.contains("sp.cur_outReal ="));
@@ -121,9 +146,10 @@ fn test_java_sma_ring_stream_section() {
         s.contains("if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;"),
         "update advances the count, saturating"
     );
-    // Both copy paths carry it: the copy constructor and peek's in-place restore.
-    assert_eq!(s.matches("this.outRangeBegIdx = other.outRangeBegIdx;").count(), 2);
-    assert_eq!(s.matches("this.outRangeCount = other.outRangeCount;").count(), 2);
+    // The copy constructor carries it — the one path left that copies a handle,
+    // now that peek runs a frame instead of restoring a scratch.
+    assert_eq!(s.matches("this.outRangeBegIdx = other.outRangeBegIdx;").count(), 1);
+    assert_eq!(s.matches("this.outRangeCount = other.outRangeCount;").count(), 1);
     // Composition seam is package-private with a startIdx anchor.
     assert!(s.contains("SmaStream smaOpenInternal( double inReal[], int startIdx, int optInTimePeriod )"));
 }
@@ -166,11 +192,11 @@ fn test_java_mama_value_class_protocol() {
 #[test]
 fn test_java_cdl_candle_snapshot() {
     let s = java_stream_section("cdl3blackcrows");
-    // A candle handle owns a ring per price per averaged setting, so peek runs
-    // on the reused per-thread scratch rather than allocating a peer (#201).
-    assert!(s.contains("private static final ThreadLocal<Cdl3blackcrowsStream> PEEK_SCRATCH = new ThreadLocal<>();"));
-    assert!(s.contains("Cdl3blackcrowsStream scratch = PEEK_SCRATCH.get();"));
-    assert!(s.contains("scratch.copyFrom(this);"));
+    // A candle handle owns a ring per price per averaged setting — the shape
+    // that used to need the per-thread scratch (#201). The frame reads those
+    // rings in place, so there is no scratch to hold.
+    assert!(!s.contains("PEEK_SCRATCH"));
+    assert!(s.contains("Cdl3blackcrowsStream sp = this;"));
     // Candle settings snapshot: primitive fields captured at open...
     assert!(s.contains("int cs_ShadowVeryShort_rangeType;"));
     assert!(s.contains("sp.cs_ShadowVeryShort_avgPeriod = ShadowVeryShort_avgPeriod;"));
@@ -599,6 +625,194 @@ fn java_composed_copy_out_is_stride_guarded() {
         !s.contains("System.arraycopy(sc_outReal, 0, outReal,"),
         "no copy-back survives: the scratch already IS outReal at stride 1"
     );
+}
+
+/// A store `validate_peekable` refuses: a compound one, which renders as a
+/// store reading its own target. A refusal drops the whole function back to the
+/// narrow set, so one such store justifies every copy in it. The other two
+/// refusals (a store in a loop, a counter-moving index) have no instance here;
+/// one would surface as an offender below rather than be waved through.
+fn refused_accumulator_store(body: &str, fields: &BTreeSet<String>) -> bool {
+    body.lines().any(|l| {
+        l.split_once('=').is_some_and(|(lhs, rhs)| {
+            // `!rhs.starts_with('=')`: `X[i] == X[j]` splits the same way a store
+            // does, and comparing two slots is not a store into either.
+            lhs.trim_end().ends_with(']')
+                && !rhs.starts_with('=')
+                && fields.iter().any(|f| {
+                    let sub = format!("{f}[");
+                    lhs.contains(&sub) && rhs.contains(&sub)
+                })
+        })
+    })
+}
+
+/// The handle's fixed-size accumulator fields: an array the BATCH body declares
+/// with a literal size. Off the emitted code, never a name list.
+fn accumulator_fields(section: &str, batch: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for line in section.lines() {
+        if !line.starts_with("      ") || line.starts_with("       ") {
+            continue;
+        }
+        let Some(d) = line.trim().strip_suffix(';') else { continue };
+        let Some((ty, name)) = d.split_once(' ') else { continue };
+        if !ty.ends_with("[]") || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        let decl = format!("{ty} {name} = new {}[", ty.trim_end_matches("[]"));
+        if batch.match_indices(&decl).any(|(i, _)| {
+            batch[i + decl.len()..].split_once(']').is_some_and(|(n, _)| n.parse::<u32>().is_ok())
+        }) {
+            out.insert(name.to_string());
+        }
+    }
+    out
+}
+
+/// No tier copies a handle to peek it — swept over the whole corpus.
+///
+/// Structural, because no value gate can see it: a peek that copied and then
+/// wrote the copy would still answer correctly. What it costs is the
+/// flat-in-period cost the frame is for.
+#[test]
+fn no_java_peek_copies_the_handle() {
+    /// The handle's own fields: a two-token declaration at the class's own
+    /// indent (`      double[] ring_x;`).
+    fn handle_fields(s: &str) -> BTreeSet<String> {
+        s.lines()
+            .filter(|l| l.starts_with("      ") && !l.starts_with("       "))
+            .filter_map(|l| l.trim().strip_suffix(';'))
+            .filter_map(|d| d.split_once(' '))
+            .filter(|(_, n)| {
+                !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_')
+            })
+            .map(|(_, n)| n.to_string())
+            .collect()
+    }
+
+    /// The name `line` assigns to, with any subscript stripped — `None` when it
+    /// is not a plain assignment.
+    fn assign_target(line: &str) -> Option<&str> {
+        let (lhs, _) = line.split_once('=')?;
+        let lhs = lhs.trim();
+        if lhs.ends_with(['=', '!', '<', '>', '+', '-', '*', '/']) {
+            return None; // ==, !=, <=, +=, ...
+        }
+        // The declared name is the LAST token; strip its subscript there, not
+        // over the whole left side — `double[] x = ...` carries a `[` in the
+        // TYPE, and cutting at it would name the type instead of the variable.
+        let last = lhs.rsplit(' ').next()?;
+        let last = last.split_once('[').map_or(last, |(h, _)| h);
+        (!last.is_empty() && last.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
+            .then_some(last)
+    }
+
+    let mut swept = 0usize;
+    let mut frames = 0usize;
+    let mut writes = 0usize;
+    let mut clones = 0usize;
+    let mut fully_shadowed: BTreeSet<String> = BTreeSet::new();
+    let mut offenders: Vec<String> = Vec::new();
+    for name in streaming_indicators() {
+        let mut cloning: BTreeSet<String> = BTreeSet::new();
+        let (func, enums) = load_indicator(&name);
+        let registry = Registry::from_dir(&input_dir());
+        let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+        let batch = backends::java::generate(&func, &enums, &registry, &helpers);
+        let s = java_stream_section(&name);
+        let Some(at) = s.find(" peek( ") else { continue };
+        let start = s[..at].rfind("      public ").expect("a peek signature");
+        let end = s[start..].find("\n      }").map_or(s.len(), |k| start + k);
+        let peek = &s[start..end];
+        swept += 1;
+        if peek.contains(" sp = this;") {
+            frames += 1;
+        }
+        let fields = handle_fields(&s);
+        let mut locals: BTreeSet<&str> = BTreeSet::new();
+        for line in peek.lines() {
+            let l = line.trim();
+            // A frame writes locals. A bare `cur_x = ...` whose name the frame
+            // never DECLARED resolves to the handle field of that name and
+            // commits it — which is what a composed output reached only through
+            // an alias used to do, and no value gate here can see it: `value()`
+            // returns the CACHED record, which such a write does not move.
+            if let Some(t) = assign_target(l) {
+                let declared = l
+                    .split_once('=')
+                    .is_some_and(|(lhs, _)| lhs.trim().split(' ').count() > 1);
+                if declared {
+                    locals.insert(t);
+                } else if t.starts_with("sp.") || (fields.contains(t) && !locals.contains(t)) {
+                    offenders.push(format!("{name}: writes the handle: {l}"));
+                } else {
+                    writes += 1;
+                }
+            }
+            // Comments carry the word too, and `throw new
+            // TaLibArgumentException` is the bar rejection while `new Value(`
+            // packs the answer — none of the three copies a handle.
+            let code = l.starts_with("//") || l.starts_with("/*") || l.starts_with("*");
+            let allocates_handle = !code
+                && l.contains("new ")
+                && !l.starts_with("throw new")
+                && !l.contains("new Value(");
+            // `.clone()` is the OTHER way to allocate here, and matching only
+            // `new ` missed it: a frame clones a written array field because a
+            // Java array is a reference. It is allowed, but only for an
+            // accumulator the batch body sizes with a LITERAL — a period-sized
+            // buffer cloned per peek is the exact cost the frame exists to
+            // remove. Read off the emitted code, not from a list of names.
+            let cloned = (!code)
+                .then(|| l.split_once(" = sp."))
+                .flatten()
+                .and_then(|(lhs, rhs)| rhs.strip_suffix(".clone();").map(|f| (lhs, f)));
+            if let Some((lhs, f)) = cloned {
+                let ty = lhs.trim().split(' ').next().unwrap_or("");
+                let decl = format!("{ty} {f} = new {}[", ty.trim_end_matches("[]"));
+                let literal = batch.match_indices(&decl).any(|(i, _)| {
+                    batch[i + decl.len()..]
+                        .split_once(']')
+                        .is_some_and(|(n, _)| n.parse::<u32>().is_ok())
+                });
+                if literal {
+                    clones += 1;
+                    cloning.insert(f.to_string());
+                } else {
+                    offenders.push(format!("{name}: clones a non-fixed-size array: {l}"));
+                }
+            } else if allocates_handle || l.contains("copyFrom") || l.contains("PEEK_SCRATCH") {
+                offenders.push(format!("{name}: {l}"));
+            }
+        }
+        // A frame that clones with nothing refused was never offered the wide
+        // set, and allocates per peek for nothing.
+        let accs = accumulator_fields(&s, &batch);
+        if !cloning.is_empty() && !refused_accumulator_store(peek, &accs) {
+            offenders.push(format!(
+                "{name}: clones {cloning:?} but no accumulator store is refusable"
+            ));
+        }
+        // The other half of the split. The frame must TOUCH an accumulator: a
+        // field it never names is evidence either way.
+        if cloning.is_empty() && accs.iter().any(|f| peek.contains(&format!("{f}["))) {
+            fully_shadowed.insert(name.clone());
+        }
+    }
+    assert!(swept > 170, "only {swept} peek(s) swept");
+    assert_eq!(frames, swept, "{frames} of {swept} peek(s) run a frame");
+    assert!(writes >= 500, "only {writes} local writes seen — the store sweep found nothing");
+    // Both sides of the split are floored, because the corpus has both and a
+    // sweep that stopped finding either would read green while measuring one.
+    assert!(clones >= 1, "no accumulator clone seen — the exemption is untested");
+    assert!(
+        fully_shadowed.len() >= 7,
+        "only {} handle(s) hold an accumulator the frame clones nothing of — the widened \
+         buffer set is no longer reaching them and peek allocates again",
+        fully_shadowed.len()
+    );
+    assert!(offenders.is_empty(), "a peek copies:\n{}", offenders.join("\n"));
 }
 
 #[test]

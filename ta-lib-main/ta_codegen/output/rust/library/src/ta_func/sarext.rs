@@ -95,6 +95,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Real parameters accept
     /// [`Core::REAL_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_SAREXT_Lookback")]
     #[inline]
     pub fn SAREXT_Lookback(&self, mut optInStartValue: f64, mut optInOffsetOnReverse: f64, mut optInAccelerationInitLong: f64, mut optInAccelerationLong: f64, mut optInAccelerationMaxLong: f64, mut optInAccelerationInitShort: f64, mut optInAccelerationShort: f64, mut optInAccelerationMaxShort: f64) -> Result<usize, RetCode> {
         if optInStartValue == Self::REAL_DEFAULT {
@@ -542,11 +543,7 @@ impl Core {
     /// negative values while short so reversals are distinguishable. Sign flip of the output marks
     /// a trend reversal (positive=long stop, negative=short stop).
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// SAR_next = SAR + AF*(EP - SAR), then clamped within the prior and current bar's range. On penetration, reverse: set SAR=EP (clamped), reset AF to its Init value, EP=extreme of the new direction. Output is +SAR when long, -SAR when short. On reversal an optional offset is applied: long->short SAR*(1+offset), short->long SAR*(1-offset).
-    /// ```
+    /// Formula and more info at [ta-lib.org/functions/sarext](https://ta-lib.org/functions/sarext).
     ///
     /// # Arguments
     ///
@@ -613,8 +610,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::SAR`] · [`Core::MINUS_DM`]
-    ///
-    /// Further reading: [ta-lib.org/functions/sarext](https://ta-lib.org/functions/sarext)
+    #[doc(alias = "TA_SAREXT")]
     #[doc(alias = "ParabolicSARExtended")]
     #[doc(alias = "ExtendedParabolicStopandReverse")]
     pub fn SAREXT(
@@ -683,24 +679,14 @@ impl Core {
 /// over the same series. Open with [`Core::sarext_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_SAREXT_Stream")]
 pub struct SarextStream {
     state: SarextStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl SarextStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `SarextStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -721,29 +707,7 @@ struct SarextStreamState {
     afShort: f64,
     ep: f64,
     sar: f64,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl SarextStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInStartValue = src.optInStartValue;
-        self.optInOffsetOnReverse = src.optInOffsetOnReverse;
-        self.optInAccelerationInitLong = src.optInAccelerationInitLong;
-        self.optInAccelerationLong = src.optInAccelerationLong;
-        self.optInAccelerationMaxLong = src.optInAccelerationMaxLong;
-        self.optInAccelerationInitShort = src.optInAccelerationInitShort;
-        self.optInAccelerationShort = src.optInAccelerationShort;
-        self.optInAccelerationMaxShort = src.optInAccelerationMaxShort;
-        self.isLong = src.isLong;
-        self.newHigh = src.newHigh;
-        self.newLow = src.newLow;
-        self.afLong = src.afLong;
-        self.afShort = src.afShort;
-        self.ep = src.ep;
-        self.sar = src.sar;
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -868,6 +832,7 @@ impl Core {
                 sp.sar = sp.newHigh;
             }
         }
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::sarext_open_internal`]
@@ -1223,6 +1188,7 @@ impl Core {
             afShort,
             ep,
             sar,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
         };
         Ok(SarextStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
@@ -1336,21 +1302,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl SarextStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_SAREXT_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1366,7 +1342,7 @@ impl SarextStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1376,7 +1352,8 @@ impl SarextStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_SAREXT_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -1385,6 +1362,9 @@ impl SarextStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::sarext_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
@@ -1396,30 +1376,174 @@ impl SarextStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. This handle holds only scalars, so the copy is a
-    /// few machine words and `peek` never allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_SAREXT_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inHigh, inLow)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut prevHigh: f64 = 0.0_f64;
+            let mut prevLow: f64 = 0.0_f64;
+            let mut afLong = sp.afLong;
+            let mut afShort = sp.afShort;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut ep = sp.ep;
+            let mut isLong = sp.isLong;
+            let mut newHigh = sp.newHigh;
+            let mut newLow = sp.newLow;
+            let mut sar = sp.sar;
+            prevLow = newLow;
+            prevHigh = newHigh;
+            newLow = inLow;
+            newHigh = inHigh;
+            if isLong == 1 {
+                // Switch to short if the low penetrates the SAR value.
+                if newLow <= sar {
+                    // Switch and Overide the SAR with the ep
+                    isLong = 0;
+                    sar = ep;
+                    // Make sure the overide SAR is within
+                    // yesterday's and today's range.
+                    if sar < prevHigh {
+                        sar = prevHigh;
+                    }
+                    if sar < newHigh {
+                        sar = newHigh;
+                    }
+                    // Output the overide SAR
+                    if sp.optInOffsetOnReverse != 0.0 {
+                        sar += sar * sp.optInOffsetOnReverse;
+                    }
+                    (*outReal) = 0_f64 - sar;
+                    // Adjust afShort and ep
+                    afShort = sp.optInAccelerationInitShort;
+                    ep = newLow;
+                    // Calculate the new SAR
+                    sar = (afShort as f64).mul_add(ep - sar, sar);
+                    // Make sure the new SAR is within
+                    // yesterday's and today's range.
+                    if sar < prevHigh {
+                        sar = prevHigh;
+                    }
+                    if sar < newHigh {
+                        sar = newHigh;
+                    }
+                } else {
+                    // No switch
+                    // Output the SAR (was calculated in the previous iteration)
+                    (*outReal) = sar;
+                    // Adjust afLong and ep.
+                    if newHigh > ep {
+                        ep = newHigh;
+                        afLong += sp.optInAccelerationLong;
+                        if afLong > sp.optInAccelerationMaxLong {
+                            afLong = sp.optInAccelerationMaxLong;
+                        }
+                    }
+                    // Calculate the new SAR
+                    sar = (afLong as f64).mul_add(ep - sar, sar);
+                    // Make sure the new SAR is within
+                    // yesterday's and today's range.
+                    if sar > prevLow {
+                        sar = prevLow;
+                    }
+                    if sar > newLow {
+                        sar = newLow;
+                    }
+                }
+            // Switch to long if the high penetrates the SAR value.
+            } else if newHigh >= sar {
+                // Switch and Overide the SAR with the ep
+                isLong = 1;
+                sar = ep;
+                // Make sure the overide SAR is within
+                // yesterday's and today's range.
+                if sar > prevLow {
+                    sar = prevLow;
+                }
+                if sar > newLow {
+                    sar = newLow;
+                }
+                // Output the overide SAR
+                if sp.optInOffsetOnReverse != 0.0 {
+                    sar -= sar * sp.optInOffsetOnReverse;
+                }
+                (*outReal) = sar;
+                // Adjust afLong and ep
+                afLong = sp.optInAccelerationInitLong;
+                ep = newHigh;
+                // Calculate the new SAR
+                sar = (afLong as f64).mul_add(ep - sar, sar);
+                // Make sure the new SAR is within
+                // yesterday's and today's range.
+                if sar > prevLow {
+                    sar = prevLow;
+                }
+                if sar > newLow {
+                    sar = newLow;
+                }
+            } else {
+                // No switch
+                // Output the SAR (was calculated in the previous iteration)
+                (*outReal) = 0_f64 - sar;
+                // Adjust afShort and ep.
+                if newLow < ep {
+                    ep = newLow;
+                    afShort += sp.optInAccelerationShort;
+                    if afShort > sp.optInAccelerationMaxShort {
+                        afShort = sp.optInAccelerationMaxShort;
+                    }
+                }
+                // Calculate the new SAR
+                sar = (afShort as f64).mul_add(ep - sar, sar);
+                // Make sure the new SAR is within
+                // yesterday's and today's range.
+                if sar < prevHigh {
+                    sar = prevHigh;
+                }
+                if sar < newHigh {
+                    sar = newHigh;
+                }
+            }
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_SAREXT_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::SAREXT`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

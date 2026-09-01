@@ -166,10 +166,12 @@ TA_RetCode TA_S_OBV( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_OBV_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_OBV_Value). */
+   double cur_outReal;
    double prevReal;
    double prevOBV;
 };
@@ -189,6 +191,7 @@ static void TA_OBV_StepImpl( struct TA_OBV_Stream *sp, double inReal, double inV
    }
    *outReal= sp->prevOBV;
    sp->prevReal = tempReal;
+   sp->cur_outReal = *outReal;
 }
 
 static TA_RetCode TA_OBV_OpenImpl( struct TA_OBV_Stream **stream, const double inReal[], const double inVolume[], int startIdx, int historyLen, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
@@ -248,6 +251,7 @@ static TA_RetCode TA_OBV_OpenImpl( struct TA_OBV_Stream **stream, const double i
       sp->prevOBV = prevOBV;
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -298,7 +302,11 @@ TA_RetCode TA_OBV_OpenAndFillInternal( struct TA_OBV_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_OBV_Update( TA_OBV_Stream *stream, double inReal, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_OBV_StepImpl( stream, inReal, inVolume, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -307,11 +315,23 @@ TA_LIB_API TA_RetCode TA_OBV_Update( TA_OBV_Stream *stream, double inReal, doubl
 TA_LIB_API TA_RetCode TA_OBV_Peek( const TA_OBV_Stream *stream, double inReal, double inVolume, double *outReal )
 {
    struct TA_OBV_Stream scratch;
+   struct TA_OBV_Stream *sp = &scratch;
+   double tempReal;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_OBV_StepImpl( &scratch, inReal, inVolume, outReal );
+   tempReal = inReal;
+   if( tempReal > sp->prevReal )
+   {
+      sp->prevOBV += inVolume;
+   } else if( tempReal < sp->prevReal )
+   {
+      sp->prevOBV -= inVolume;
+   }
+   *outReal= sp->prevOBV;
+   sp->prevReal = tempReal;
+   sp->cur_outReal = *outReal;
    return TA_SUCCESS;
 }
 
@@ -324,7 +344,11 @@ TA_LIB_API TA_RetCode TA_OBV_UpdateAndFill( TA_OBV_Stream *stream, const double 
    if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) || !TA_IS_FINITE( inVolume[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) || !TA_IS_FINITE( inVolume[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_OBV_StepImpl( stream, inReal[i], inVolume[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -334,6 +358,27 @@ TA_LIB_API TA_RetCode TA_OBV_UpdateAndFill( TA_OBV_Stream *stream, const double 
 TA_LIB_API TA_RetCode TA_OBV_Close( TA_OBV_Stream *stream )
 {
    if( stream ) TA_Free( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_OBV_Value( const TA_OBV_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_OBV_Clone( const TA_OBV_Stream *stream, TA_OBV_Stream **clone )
+{
+   struct TA_OBV_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_OBV_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   *clone = sp;
    return TA_SUCCESS;
 }
 

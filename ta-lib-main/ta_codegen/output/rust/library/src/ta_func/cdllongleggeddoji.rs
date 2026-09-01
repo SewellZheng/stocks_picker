@@ -66,6 +66,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLLONGLEGGEDDOJI`]: the number of leading input values consumed
     /// before the first output value can be produced.
+    #[doc(alias = "TA_CDLLONGLEGGEDDOJI_Lookback")]
     pub fn CDLLONGLEGGEDDOJI_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyDoji_rangeType: i32 = self.candle_settings.body_doji.range_type as i32;
@@ -283,20 +284,8 @@ impl Core {
     /// not a directional bias. Marks indecision/uncertainty; not inherently bullish or bearish
     /// despite the positive sign.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// One candle. Hit when: real body <= BodyDoji average (doji body) AND (lower shadow > ShadowLong average OR upper shadow > ShadowLong average), i.e. at least one long shadow.
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * Only one long shadow (upper or lower) is required, whereas the classic pattern shows both
-    ///   long upper and lower shadows.
-    /// * Bulkowski's testing found this continues in the direction of the prior trend only 51% of
-    ///   the time — statistically random — and ranks 37th of 103 patterns overall; in his
-    ///   words, "it means nothing."
-    ///   ([thepatternsite.com](https://thepatternsite.com/LongLegDoji.html))
+    /// Formula and more info at
+    /// [ta-lib.org/functions/cdllongleggeddoji](https://ta-lib.org/functions/cdllongleggeddoji).
     ///
     /// # Arguments
     ///
@@ -348,6 +337,10 @@ impl Core {
     ///     &mut out,
     /// )?;
     /// assert!(out_range.count > 0);
+    /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
+    /// // a candlestick pattern reports 0 where it does not fire, and a signed
+    /// // strength -- negative bearish, positive bullish -- where it does
+    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -355,9 +348,7 @@ impl Core {
     ///
     /// [`Core::CDLDOJI`] · [`Core::CDLGRAVESTONEDOJI`] · [`Core::CDLDRAGONFLYDOJI`] ·
     /// [`Core::CDLRICKSHAWMAN`]
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/cdllongleggeddoji](https://ta-lib.org/functions/cdllongleggeddoji)
+    #[doc(alias = "TA_CDLLONGLEGGEDDOJI")]
     #[doc(alias = "LongLeggedDoji")]
     pub fn CDLLONGLEGGEDDOJI(
         &self,
@@ -419,7 +410,7 @@ impl Core {
 /// over the same series. Open with [`Core::cdllongleggeddoji_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLLONGLEGGEDDOJI_Stream")]
@@ -429,20 +420,8 @@ pub struct CdllongleggeddojiStream {
     /// The `ShadowLong` setting this stream was opened with.
     cs_shadow_long: CandleSetting,
     state: CdllongleggeddojiStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl CdllongleggeddojiStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `CdllongleggeddojiStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.cs_body_doji = src.cs_body_doji;
-        self.cs_shadow_long = src.cs_shadow_long;
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -456,22 +435,7 @@ struct CdllongleggeddojiStreamState {
     ringPos_ShadowLongTrailingIdx: usize,
     ringCap_ShadowLongTrailingIdx: usize,
     ring_ShadowLongTrailingIdx_derived: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl CdllongleggeddojiStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.BodyDojiPeriodTotal = src.BodyDojiPeriodTotal;
-        self.ShadowLongPeriodTotal = src.ShadowLongPeriodTotal;
-        self.ringPos_BodyDojiTrailingIdx = src.ringPos_BodyDojiTrailingIdx;
-        self.ringCap_BodyDojiTrailingIdx = src.ringCap_BodyDojiTrailingIdx;
-        self.ring_BodyDojiTrailingIdx_derived.clone_from(&src.ring_BodyDojiTrailingIdx_derived);
-        self.ringPos_ShadowLongTrailingIdx = src.ringPos_ShadowLongTrailingIdx;
-        self.ringCap_ShadowLongTrailingIdx = src.ringCap_ShadowLongTrailingIdx;
-        self.ring_ShadowLongTrailingIdx_derived.clone_from(&src.ring_ShadowLongTrailingIdx_derived);
-    }
+    cur_outInteger: i32,
 }
 
 #[allow(unused_variables)]
@@ -568,6 +532,7 @@ impl Core {
             }
         }
         sp.ShadowLongPeriodTotal += _candlerange_3 - sp.ring_ShadowLongTrailingIdx_derived[sp.ringPos_ShadowLongTrailingIdx];
+        sp.cur_outInteger = (*outInteger);
         let mut _candlerange_4: f64;
         match BodyDoji_rangeType {
             0 => {
@@ -830,6 +795,7 @@ impl Core {
         let state = CdllongleggeddojiStreamState {
             BodyDojiPeriodTotal,
             ShadowLongPeriodTotal,
+            cur_outInteger: outInteger[(*outNBElement - 1) * outStride],
             ringPos_BodyDojiTrailingIdx: 0_usize,
             ringCap_BodyDojiTrailingIdx: cap_BodyDojiTrailingIdx as usize,
             ring_BodyDojiTrailingIdx_derived,
@@ -958,31 +924,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `CdllongleggeddojiStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDLLONGLEGGEDDOJI_PEEK_SCRATCH: std::cell::Cell<Option<Box<CdllongleggeddojiStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl CdllongleggeddojiStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_CDLLONGLEGGEDDOJI_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
@@ -998,7 +966,7 @@ impl CdllongleggeddojiStream {
     /// argument checks instead of `n`. `n` is `inOpen.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1008,7 +976,8 @@ impl CdllongleggeddojiStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_CDLLONGLEGGEDDOJI_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
         let barCount = inOpen.len();
@@ -1017,6 +986,9 @@ impl CdllongleggeddojiStream {
         }
         for i in 0..barCount {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::cdllongleggeddoji_step_impl(&mut self.state, &self.cs_body_doji, &self.cs_shadow_long, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
@@ -1028,36 +1000,157 @@ impl CdllongleggeddojiStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_CDLLONGLEGGEDDOJI_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        CDLLONGLEGGEDDOJI_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outInteger: i32 = 0_i32;
-            Core::cdllongleggeddoji_step_impl(&mut scratch, &self.cs_body_doji, &self.cs_shadow_long, inOpen, inHigh, inLow, inClose, &mut outInteger);
-            cell.set(Some(scratch));
-            Ok(outInteger)
-        })
+        let mut outInteger: i32 = 0_i32;
+        {
+            let sp = &self.state;
+            let outInteger = &mut outInteger;
+            let mut BodyDojiPeriodTotal = sp.BodyDojiPeriodTotal;
+            let mut ShadowLongPeriodTotal = sp.ShadowLongPeriodTotal;
+            let mut cur_outInteger = sp.cur_outInteger;
+            let mut ringPos_BodyDojiTrailingIdx = sp.ringPos_BodyDojiTrailingIdx;
+            let mut ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            #[allow(non_snake_case)]
+            let BodyDoji_rangeType: i32 = self.cs_body_doji.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyDoji_avgPeriod: i32 = self.cs_body_doji.avg_period;
+            #[allow(non_snake_case)]
+            let BodyDoji_factor: f64 = self.cs_body_doji.factor;
+            #[allow(non_snake_case)]
+            let ShadowLong_rangeType: i32 = self.cs_shadow_long.range_type as i32;
+            #[allow(non_snake_case)]
+            let ShadowLong_avgPeriod: i32 = self.cs_shadow_long.avg_period;
+            #[allow(non_snake_case)]
+            let ShadowLong_factor: f64 = self.cs_shadow_long.factor;
+            if sp.ringCap_BodyDojiTrailingIdx == 0 {
+                pkSlot0 = 0;
+                let mut _candlerange_12: f64;
+                match BodyDoji_rangeType {
+                    0 => {
+                        _candlerange_12 = (inClose - inOpen).abs();
+                    }
+                    1 => {
+                        _candlerange_12 = inHigh - inLow;
+                    }
+                    2 => {
+                        _candlerange_12 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                    }
+                    _ => {
+                        _candlerange_12 = 0.0;
+                    }
+                }
+                pkVal0 = _candlerange_12;
+            }
+            if sp.ringCap_ShadowLongTrailingIdx == 0 {
+                pkSlot1 = 0;
+                let mut _candlerange_13: f64;
+                match ShadowLong_rangeType {
+                    0 => {
+                        _candlerange_13 = (inClose - inOpen).abs();
+                    }
+                    1 => {
+                        _candlerange_13 = inHigh - inLow;
+                    }
+                    2 => {
+                        _candlerange_13 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                    }
+                    _ => {
+                        _candlerange_13 = 0.0;
+                    }
+                }
+                pkVal1 = _candlerange_13;
+            }
+            if (inClose - inOpen).abs() <= ((BodyDoji_factor) * (if (BodyDoji_avgPeriod) != 0 { (BodyDojiPeriodTotal) / (BodyDoji_avgPeriod as f64) } else { match BodyDoji_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyDoji_rangeType) == 2 { 2.0 } else { 1.0 })) && (((if inClose >= inOpen { inOpen } else { inClose }) - inLow) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (ShadowLong_rangeType) == 2 { 2.0 } else { 1.0 })) || (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (ShadowLong_rangeType) == 2 { 2.0 } else { 1.0 }))) {
+                (*outInteger) = 100;
+            } else {
+                (*outInteger) = 0;
+            }
+            // add the current range and subtract the first range: this is done after the pattern recognition
+            // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+            let mut _candlerange_14: f64;
+            match BodyDoji_rangeType {
+                0 => {
+                    _candlerange_14 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_14 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_14 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_14 = 0.0;
+                }
+            }
+            BodyDojiPeriodTotal += _candlerange_14 - (if (ringPos_BodyDojiTrailingIdx as usize) != pkSlot0 { sp.ring_BodyDojiTrailingIdx_derived[ringPos_BodyDojiTrailingIdx] } else { pkVal0 });
+            let mut _candlerange_15: f64;
+            match ShadowLong_rangeType {
+                0 => {
+                    _candlerange_15 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_15 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_15 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_15 = 0.0;
+                }
+            }
+            ShadowLongPeriodTotal += _candlerange_15 - (if (ringPos_ShadowLongTrailingIdx as usize) != pkSlot1 { sp.ring_ShadowLongTrailingIdx_derived[ringPos_ShadowLongTrailingIdx] } else { pkVal1 });
+            cur_outInteger = (*outInteger);
+            ringPos_BodyDojiTrailingIdx = ringPos_BodyDojiTrailingIdx + 1;
+            if ringPos_BodyDojiTrailingIdx >= sp.ringCap_BodyDojiTrailingIdx {
+                ringPos_BodyDojiTrailingIdx = 0;
+            }
+            ringPos_ShadowLongTrailingIdx = ringPos_ShadowLongTrailingIdx + 1;
+            if ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx {
+                ringPos_ShadowLongTrailingIdx = 0;
+            }
+        }
+        Ok(outInteger)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_CDLLONGLEGGEDDOJI_Value")]
+    pub fn value(&self) -> i32 {
+        self.state.cur_outInteger
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::CDLLONGLEGGEDDOJI`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

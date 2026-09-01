@@ -452,11 +452,11 @@
     * Open with {@link Core#cdl3whitesoldiersOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -508,12 +508,13 @@
       Cdl3whitesoldiersStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#CDL3WHITESOLDIERS} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -565,98 +566,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( Cdl3whitesoldiersStream other ) {
-         this.core = other.core;
-         if( this.ShadowVeryShortPeriodTotal != null && this.ShadowVeryShortPeriodTotal.length == other.ShadowVeryShortPeriodTotal.length ) {
-            System.arraycopy( other.ShadowVeryShortPeriodTotal, 0, this.ShadowVeryShortPeriodTotal, 0, other.ShadowVeryShortPeriodTotal.length );
-         } else {
-            this.ShadowVeryShortPeriodTotal = other.ShadowVeryShortPeriodTotal.clone();
-         }
-         if( this.NearPeriodTotal != null && this.NearPeriodTotal.length == other.NearPeriodTotal.length ) {
-            System.arraycopy( other.NearPeriodTotal, 0, this.NearPeriodTotal, 0, other.NearPeriodTotal.length );
-         } else {
-            this.NearPeriodTotal = other.NearPeriodTotal.clone();
-         }
-         if( this.FarPeriodTotal != null && this.FarPeriodTotal.length == other.FarPeriodTotal.length ) {
-            System.arraycopy( other.FarPeriodTotal, 0, this.FarPeriodTotal, 0, other.FarPeriodTotal.length );
-         } else {
-            this.FarPeriodTotal = other.FarPeriodTotal.clone();
-         }
-         this.BodyShortPeriodTotal = other.BodyShortPeriodTotal;
-         this.lag1_inOpen = other.lag1_inOpen;
-         this.lag2_inOpen = other.lag2_inOpen;
-         this.lag1_inHigh = other.lag1_inHigh;
-         this.lag2_inHigh = other.lag2_inHigh;
-         this.lag1_inLow = other.lag1_inLow;
-         this.lag2_inLow = other.lag2_inLow;
-         this.lag1_inClose = other.lag1_inClose;
-         this.lag2_inClose = other.lag2_inClose;
-         this.ringPos_BodyShortTrailingIdx = other.ringPos_BodyShortTrailingIdx;
-         this.ringCap_BodyShortTrailingIdx = other.ringCap_BodyShortTrailingIdx;
-         if( this.ring_BodyShortTrailingIdx_derived != null && this.ring_BodyShortTrailingIdx_derived.length == other.ring_BodyShortTrailingIdx_derived.length ) {
-            System.arraycopy( other.ring_BodyShortTrailingIdx_derived, 0, this.ring_BodyShortTrailingIdx_derived, 0, other.ring_BodyShortTrailingIdx_derived.length );
-         } else {
-            this.ring_BodyShortTrailingIdx_derived = other.ring_BodyShortTrailingIdx_derived.clone();
-         }
-         this.ringPos_FarTrailingIdx = other.ringPos_FarTrailingIdx;
-         this.ringCap_FarTrailingIdx = other.ringCap_FarTrailingIdx;
-         this.ringLag_FarTrailingIdx = other.ringLag_FarTrailingIdx;
-         if( this.ring_FarTrailingIdx_derived != null && this.ring_FarTrailingIdx_derived.length == other.ring_FarTrailingIdx_derived.length ) {
-            System.arraycopy( other.ring_FarTrailingIdx_derived, 0, this.ring_FarTrailingIdx_derived, 0, other.ring_FarTrailingIdx_derived.length );
-         } else {
-            this.ring_FarTrailingIdx_derived = other.ring_FarTrailingIdx_derived.clone();
-         }
-         this.ringPos_NearTrailingIdx = other.ringPos_NearTrailingIdx;
-         this.ringCap_NearTrailingIdx = other.ringCap_NearTrailingIdx;
-         this.ringLag_NearTrailingIdx = other.ringLag_NearTrailingIdx;
-         if( this.ring_NearTrailingIdx_derived != null && this.ring_NearTrailingIdx_derived.length == other.ring_NearTrailingIdx_derived.length ) {
-            System.arraycopy( other.ring_NearTrailingIdx_derived, 0, this.ring_NearTrailingIdx_derived, 0, other.ring_NearTrailingIdx_derived.length );
-         } else {
-            this.ring_NearTrailingIdx_derived = other.ring_NearTrailingIdx_derived.clone();
-         }
-         this.ringPos_ShadowVeryShortTrailingIdx = other.ringPos_ShadowVeryShortTrailingIdx;
-         this.ringCap_ShadowVeryShortTrailingIdx = other.ringCap_ShadowVeryShortTrailingIdx;
-         this.ringLag_ShadowVeryShortTrailingIdx = other.ringLag_ShadowVeryShortTrailingIdx;
-         if( this.ring_ShadowVeryShortTrailingIdx_derived != null && this.ring_ShadowVeryShortTrailingIdx_derived.length == other.ring_ShadowVeryShortTrailingIdx_derived.length ) {
-            System.arraycopy( other.ring_ShadowVeryShortTrailingIdx_derived, 0, this.ring_ShadowVeryShortTrailingIdx_derived, 0, other.ring_ShadowVeryShortTrailingIdx_derived.length );
-         } else {
-            this.ring_ShadowVeryShortTrailingIdx_derived = other.ring_ShadowVeryShortTrailingIdx_derived.clone();
-         }
-         this.cs_BodyShort_rangeType = other.cs_BodyShort_rangeType;
-         this.cs_BodyShort_avgPeriod = other.cs_BodyShort_avgPeriod;
-         this.cs_BodyShort_factor = other.cs_BodyShort_factor;
-         this.cs_Far_rangeType = other.cs_Far_rangeType;
-         this.cs_Far_avgPeriod = other.cs_Far_avgPeriod;
-         this.cs_Far_factor = other.cs_Far_factor;
-         this.cs_Near_rangeType = other.cs_Near_rangeType;
-         this.cs_Near_avgPeriod = other.cs_Near_avgPeriod;
-         this.cs_Near_factor = other.cs_Near_factor;
-         this.cs_ShadowVeryShort_rangeType = other.cs_ShadowVeryShort_rangeType;
-         this.cs_ShadowVeryShort_avgPeriod = other.cs_ShadowVeryShort_avgPeriod;
-         this.cs_ShadowVeryShort_factor = other.cs_ShadowVeryShort_factor;
-         this.cur_outInteger = other.cur_outInteger;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<Cdl3whitesoldiersStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
-         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("CDL3WHITESOLDIERS update: BadParam", RetCode.BadParam);
+         }
          core.cdl3whitesoldiersStepImpl(this, inOpen, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outInteger;
@@ -668,11 +598,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inOpen.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], int outInteger[] ) {
          requireArgument("CDL3WHITESOLDIERS updateAndFill", "inOpen", inOpen);
@@ -684,8 +615,10 @@
          if( inHigh.length != barCount || inLow.length != barCount || inClose.length != barCount || outInteger.length < barCount || (Object)outInteger == (Object)inOpen || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose )
             throw new TaLibArgumentException("CDL3WHITESOLDIERS updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inOpen[i]) || !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) )
+            if( !Double.isFinite(inOpen[i]) || !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("CDL3WHITESOLDIERS updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.cdl3whitesoldiersStepImpl(this, inOpen[i], inHigh[i], inLow[i], inClose[i]);
             outInteger[i] = this.cur_outInteger;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -694,30 +627,128 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period. It does allocate a small bounded amount
+       * per call — a size fixed by the indicator, never by the period.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDL3WHITESOLDIERS peek: BadParam", RetCode.BadParam);
-         Cdl3whitesoldiersStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new Cdl3whitesoldiersStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         Cdl3whitesoldiersStream sp = this;
+         int totIdx = 0;
+         double BodyShortPeriodTotal = sp.BodyShortPeriodTotal;
+         double[] FarPeriodTotal = sp.FarPeriodTotal.clone();
+         double[] NearPeriodTotal = sp.NearPeriodTotal.clone();
+         double[] ShadowVeryShortPeriodTotal = sp.ShadowVeryShortPeriodTotal.clone();
+         int cur_outInteger = sp.cur_outInteger;
+         double lag1_inClose = sp.lag1_inClose;
+         double lag1_inHigh = sp.lag1_inHigh;
+         double lag1_inLow = sp.lag1_inLow;
+         double lag1_inOpen = sp.lag1_inOpen;
+         double lag2_inClose = sp.lag2_inClose;
+         double lag2_inHigh = sp.lag2_inHigh;
+         double lag2_inLow = sp.lag2_inLow;
+         double lag2_inOpen = sp.lag2_inOpen;
+         int ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+         int ringPos_FarTrailingIdx = sp.ringPos_FarTrailingIdx;
+         int ringPos_NearTrailingIdx = sp.ringPos_NearTrailingIdx;
+         int ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         int pkSlot2 = -1;
+         double pkVal2 = 0.0;
+         int pkSlot3 = -1;
+         double pkVal3 = 0.0;
+         int BodyShort_rangeType = sp.cs_BodyShort_rangeType;
+         int BodyShort_avgPeriod = sp.cs_BodyShort_avgPeriod;
+         double BodyShort_factor = sp.cs_BodyShort_factor;
+         int Far_rangeType = sp.cs_Far_rangeType;
+         int Far_avgPeriod = sp.cs_Far_avgPeriod;
+         double Far_factor = sp.cs_Far_factor;
+         int Near_rangeType = sp.cs_Near_rangeType;
+         int Near_avgPeriod = sp.cs_Near_avgPeriod;
+         double Near_factor = sp.cs_Near_factor;
+         int ShadowVeryShort_rangeType = sp.cs_ShadowVeryShort_rangeType;
+         int ShadowVeryShort_avgPeriod = sp.cs_ShadowVeryShort_avgPeriod;
+         double ShadowVeryShort_factor = sp.cs_ShadowVeryShort_factor;
+         if( sp.ringCap_BodyShortTrailingIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
          }
-         core.cdl3whitesoldiersStepImpl(scratch, inOpen, inHigh, inLow, inClose);
-         return scratch.cur_outInteger;
+         pkSlot1 = ringPos_FarTrailingIdx;
+         pkVal1 = ((Far_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Far_rangeType == 1) ? (inHigh - inLow) : ((Far_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+         pkSlot2 = ringPos_NearTrailingIdx;
+         pkVal2 = ((Near_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((Near_rangeType == 1) ? (inHigh - inLow) : ((Near_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+         pkSlot3 = ringPos_ShadowVeryShortTrailingIdx;
+         pkVal3 = ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)));
+         if( ((lag2_inClose >= lag2_inOpen) ? 1 : 0 - 1) == 1 && /* 1st white */
+             (lag2_inHigh - ((lag2_inClose >= lag2_inOpen) ? lag2_inClose : lag2_inOpen)) < ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal[2] / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(lag2_inClose - lag2_inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (lag2_inHigh - lag2_inLow) : ((ShadowVeryShort_rangeType == 2) ? ((lag2_inHigh - (((lag2_inClose) >= (lag2_inOpen)) ? (lag2_inClose) : (lag2_inOpen))) + ((((lag2_inClose) >= (lag2_inOpen)) ? (lag2_inOpen) : (lag2_inClose)) - lag2_inLow)) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
+             ((lag1_inClose >= lag1_inOpen) ? 1 : 0 - 1) == 1 && /* very short upper shadow 2nd white */
+             (lag1_inHigh - ((lag1_inClose >= lag1_inOpen) ? lag1_inClose : lag1_inOpen)) < ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal[1] / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(lag1_inClose - lag1_inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (lag1_inHigh - lag1_inLow) : ((ShadowVeryShort_rangeType == 2) ? ((lag1_inHigh - (((lag1_inClose) >= (lag1_inOpen)) ? (lag1_inClose) : (lag1_inOpen))) + ((((lag1_inClose) >= (lag1_inOpen)) ? (lag1_inOpen) : (lag1_inClose)) - lag1_inLow)) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
+             ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&           /* very short upper shadow 3rd white */
+             (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < ((ShadowVeryShort_factor * (((ShadowVeryShort_avgPeriod != 0) ? (ShadowVeryShortPeriodTotal[0] / ShadowVeryShort_avgPeriod) : ((ShadowVeryShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((ShadowVeryShort_rangeType == 1) ? (inHigh - inLow) : ((ShadowVeryShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)))) / ((ShadowVeryShort_rangeType == 2) ? 2.0 : 1.0)))) &&
+             inClose > lag1_inClose &&                           /* very short upper shadow */
+             lag1_inClose > lag2_inClose &&                      /* consecutive higher closes */
+             lag1_inOpen > lag2_inOpen &&                        /* 2nd opens within/near 1st real body */
+             lag1_inOpen <= lag2_inClose + ((Near_factor * (((Near_avgPeriod != 0) ? (NearPeriodTotal[2] / Near_avgPeriod) : ((Near_rangeType == 0) ? (Math.abs(lag2_inClose - lag2_inOpen)) : ((Near_rangeType == 1) ? (lag2_inHigh - lag2_inLow) : ((Near_rangeType == 2) ? ((lag2_inHigh - (((lag2_inClose) >= (lag2_inOpen)) ? (lag2_inClose) : (lag2_inOpen))) + ((((lag2_inClose) >= (lag2_inOpen)) ? (lag2_inOpen) : (lag2_inClose)) - lag2_inLow)) : 0.0)))) / ((Near_rangeType == 2) ? 2.0 : 1.0)))) &&
+             inOpen > lag1_inOpen &&                             /* 3rd opens within/near 2nd real body */
+             inOpen <= lag1_inClose + ((Near_factor * (((Near_avgPeriod != 0) ? (NearPeriodTotal[1] / Near_avgPeriod) : ((Near_rangeType == 0) ? (Math.abs(lag1_inClose - lag1_inOpen)) : ((Near_rangeType == 1) ? (lag1_inHigh - lag1_inLow) : ((Near_rangeType == 2) ? ((lag1_inHigh - (((lag1_inClose) >= (lag1_inOpen)) ? (lag1_inClose) : (lag1_inOpen))) + ((((lag1_inClose) >= (lag1_inOpen)) ? (lag1_inOpen) : (lag1_inClose)) - lag1_inLow)) : 0.0)))) / ((Near_rangeType == 2) ? 2.0 : 1.0)))) &&
+             Math.abs(lag1_inClose - lag1_inOpen) > Math.abs(lag2_inClose - lag2_inOpen) - ((Far_factor * (((Far_avgPeriod != 0) ? (FarPeriodTotal[2] / Far_avgPeriod) : ((Far_rangeType == 0) ? (Math.abs(lag2_inClose - lag2_inOpen)) : ((Far_rangeType == 1) ? (lag2_inHigh - lag2_inLow) : ((Far_rangeType == 2) ? ((lag2_inHigh - (((lag2_inClose) >= (lag2_inOpen)) ? (lag2_inClose) : (lag2_inOpen))) + ((((lag2_inClose) >= (lag2_inOpen)) ? (lag2_inOpen) : (lag2_inClose)) - lag2_inLow)) : 0.0)))) / ((Far_rangeType == 2) ? 2.0 : 1.0)))) &&
+             Math.abs(inClose - inOpen) > Math.abs(lag1_inClose - lag1_inOpen) - ((Far_factor * (((Far_avgPeriod != 0) ? (FarPeriodTotal[1] / Far_avgPeriod) : ((Far_rangeType == 0) ? (Math.abs(lag1_inClose - lag1_inOpen)) : ((Far_rangeType == 1) ? (lag1_inHigh - lag1_inLow) : ((Far_rangeType == 2) ? ((lag1_inHigh - (((lag1_inClose) >= (lag1_inOpen)) ? (lag1_inClose) : (lag1_inOpen))) + ((((lag1_inClose) >= (lag1_inOpen)) ? (lag1_inOpen) : (lag1_inClose)) - lag1_inLow)) : 0.0)))) / ((Far_rangeType == 2) ? 2.0 : 1.0)))) && /* 2nd not far shorter than 1st */
+             Math.abs(inClose - inOpen) > ((BodyShort_factor * (((BodyShort_avgPeriod != 0) ? (BodyShortPeriodTotal / BodyShort_avgPeriod) : ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0)))) / ((BodyShort_rangeType == 2) ? 2.0 : 1.0)))) ) /* 3rd not far shorter than 2nd not short real body */
+         {
+            cur_outInteger = 100;
+         } else {
+            cur_outInteger = 0;
+         }
+         /* add the current range and subtract the first range: this is done after the pattern recognition
+          * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+          */
+         for( totIdx = 2; totIdx >= 0; totIdx -= 1 ) {
+            ShadowVeryShortPeriodTotal[totIdx] = ShadowVeryShortPeriodTotal[totIdx] + (((((ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp.ringCap_ShadowVeryShortTrailingIdx) ? ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx - sp.ringCap_ShadowVeryShortTrailingIdx : ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx) != pkSlot3) ? sp.ring_ShadowVeryShortTrailingIdx_derived[(ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp.ringCap_ShadowVeryShortTrailingIdx) ? ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx - sp.ringCap_ShadowVeryShortTrailingIdx : ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx] : pkVal3) - (((ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - sp.ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp.ringCap_ShadowVeryShortTrailingIdx != pkSlot3) ? sp.ring_ShadowVeryShortTrailingIdx_derived[(ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - sp.ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp.ringCap_ShadowVeryShortTrailingIdx] : pkVal3));
+         }
+         for( totIdx = 2; totIdx >= 1; totIdx -= 1 ) {
+            FarPeriodTotal[totIdx] = FarPeriodTotal[totIdx] + (((((ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - totIdx >= sp.ringCap_FarTrailingIdx) ? ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - totIdx - sp.ringCap_FarTrailingIdx : ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - totIdx) != pkSlot1) ? sp.ring_FarTrailingIdx_derived[(ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - totIdx >= sp.ringCap_FarTrailingIdx) ? ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - totIdx - sp.ringCap_FarTrailingIdx : ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - totIdx] : pkVal1) - (((ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - sp.ringLag_FarTrailingIdx - totIdx) % sp.ringCap_FarTrailingIdx != pkSlot1) ? sp.ring_FarTrailingIdx_derived[(ringPos_FarTrailingIdx + sp.ringCap_FarTrailingIdx - sp.ringLag_FarTrailingIdx - totIdx) % sp.ringCap_FarTrailingIdx] : pkVal1));
+            NearPeriodTotal[totIdx] = NearPeriodTotal[totIdx] + (((((ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - totIdx >= sp.ringCap_NearTrailingIdx) ? ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - totIdx - sp.ringCap_NearTrailingIdx : ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - totIdx) != pkSlot2) ? sp.ring_NearTrailingIdx_derived[(ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - totIdx >= sp.ringCap_NearTrailingIdx) ? ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - totIdx - sp.ringCap_NearTrailingIdx : ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - totIdx] : pkVal2) - (((ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - totIdx) % sp.ringCap_NearTrailingIdx != pkSlot2) ? sp.ring_NearTrailingIdx_derived[(ringPos_NearTrailingIdx + sp.ringCap_NearTrailingIdx - sp.ringLag_NearTrailingIdx - totIdx) % sp.ringCap_NearTrailingIdx] : pkVal2));
+         }
+         BodyShortPeriodTotal += ((BodyShort_rangeType == 0) ? (Math.abs(inClose - inOpen)) : ((BodyShort_rangeType == 1) ? (inHigh - inLow) : ((BodyShort_rangeType == 2) ? ((inHigh - (((inClose) >= (inOpen)) ? (inClose) : (inOpen))) + ((((inClose) >= (inOpen)) ? (inOpen) : (inClose)) - inLow)) : 0.0))) - ((ringPos_BodyShortTrailingIdx != pkSlot0) ? sp.ring_BodyShortTrailingIdx_derived[ringPos_BodyShortTrailingIdx] : pkVal0);
+         lag2_inOpen = lag1_inOpen;
+         lag1_inOpen = inOpen;
+         lag2_inHigh = lag1_inHigh;
+         lag1_inHigh = inHigh;
+         lag2_inLow = lag1_inLow;
+         lag1_inLow = inLow;
+         lag2_inClose = lag1_inClose;
+         lag1_inClose = inClose;
+         ringPos_BodyShortTrailingIdx = ringPos_BodyShortTrailingIdx + 1;
+         if( ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx ) {
+            ringPos_BodyShortTrailingIdx = 0;
+         }
+         ringPos_FarTrailingIdx = ringPos_FarTrailingIdx + 1;
+         if( ringPos_FarTrailingIdx >= sp.ringCap_FarTrailingIdx ) {
+            ringPos_FarTrailingIdx = 0;
+         }
+         ringPos_NearTrailingIdx = ringPos_NearTrailingIdx + 1;
+         if( ringPos_NearTrailingIdx >= sp.ringCap_NearTrailingIdx ) {
+            ringPos_NearTrailingIdx = 0;
+         }
+         ringPos_ShadowVeryShortTrailingIdx = ringPos_ShadowVeryShortTrailingIdx + 1;
+         if( ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx ) {
+            ringPos_ShadowVeryShortTrailingIdx = 0;
+         }
+         return cur_outInteger;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public int value() {
@@ -725,10 +756,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public Cdl3whitesoldiersStream copy() {
+      @Override
+      public Cdl3whitesoldiersStream clone() {
          return new Cdl3whitesoldiersStream(this);
       }
    }

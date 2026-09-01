@@ -755,10 +755,13 @@ TA_RetCode TA_S_HT_PHASOR( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HT_PHASOR_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_HT_PHASOR_Value). */
+   double cur_outInPhase;
+   double cur_outQuadrature;
    double period;
    double periodWMASum;
    double periodWMASub;
@@ -803,7 +806,6 @@ struct TA_HT_PHASOR_Stream {
    int ringPos_trailingWMAIdx;
    int ringCap_trailingWMAIdx;
    double *ring_trailingWMAIdx_inReal;
-   double *ringMirror_trailingWMAIdx_inReal;
 };
 
 /* Private function, not in public API. */
@@ -811,7 +813,6 @@ static void TA_HT_PHASOR_ReleaseImpl( struct TA_HT_PHASOR_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingWMAIdx_inReal ) TA_Free( sp->ring_trailingWMAIdx_inReal );
-   if( sp->ringMirror_trailingWMAIdx_inReal ) TA_Free( sp->ringMirror_trailingWMAIdx_inReal );
    TA_Free( sp );
 }
 
@@ -979,6 +980,8 @@ static void TA_HT_PHASOR_StepImpl( struct TA_HT_PHASOR_Stream *sp, double inReal
    }
    sp->period = fma(0.2, sp->period, 0.8 * tempReal);
    /* Ooof... let's do the next price bar now! */
+   sp->cur_outInPhase = *outInPhase;
+   sp->cur_outQuadrature = *outQuadrature;
    sp->ring_trailingWMAIdx_inReal[sp->ringPos_trailingWMAIdx] = inReal;
    sp->ringPos_trailingWMAIdx = sp->ringPos_trailingWMAIdx + 1;
    if( sp->ringPos_trailingWMAIdx >= sp->ringCap_trailingWMAIdx )
@@ -1404,13 +1407,13 @@ static TA_RetCode TA_HT_PHASOR_OpenImpl( struct TA_HT_PHASOR_Stream **stream, co
       { size_t allocN = (size_t)(sp->ringCap_trailingWMAIdx > 0 ? sp->ringCap_trailingWMAIdx : 1);
         sp->ring_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_PHASOR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingWMAIdx_inReal ) { TA_HT_PHASOR_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingWMAIdx_inReal, inReal + (historyLen - sp->ringCap_trailingWMAIdx), sizeof(double) * (size_t)sp->ringCap_trailingWMAIdx );
       }
       sp->ringPos_trailingWMAIdx = 0;
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outInPhase = outInPhase[(*outNBElement - 1) * outStride];
+      sp->cur_outQuadrature = outQuadrature[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1463,7 +1466,11 @@ TA_RetCode TA_HT_PHASOR_OpenAndFillInternal( struct TA_HT_PHASOR_Stream **stream
 TA_LIB_API TA_RetCode TA_HT_PHASOR_Update( TA_HT_PHASOR_Stream *stream, double inReal, double *outInPhase, double *outQuadrature )
 {
    if( !stream || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_HT_PHASOR_StepImpl( stream, inReal, outInPhase, outQuadrature );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1472,13 +1479,174 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Update( TA_HT_PHASOR_Stream *stream, double i
 TA_LIB_API TA_RetCode TA_HT_PHASOR_Peek( const TA_HT_PHASOR_Stream *stream, double inReal, double *outInPhase, double *outQuadrature )
 {
    struct TA_HT_PHASOR_Stream scratch;
+   struct TA_HT_PHASOR_Stream *sp = &scratch;
+   double tempReal;
+   double tempReal2;
+   double adjustedPrevPeriod;
+   double smoothedValue;
+   double hilbertTempReal;
+   double detrender;
+   double Q1;
+   double jI;
+   double jQ;
+   double Q2;
+   double I2;
+   double todayValue;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
 
    if( !stream || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_trailingWMAIdx_inReal = stream->ringMirror_trailingWMAIdx_inReal;
-   memcpy( scratch.ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingWMAIdx > 0 ? stream->ringCap_trailingWMAIdx : 1) );
-   TA_HT_PHASOR_StepImpl( &scratch, inReal, outInPhase, outQuadrature );
+   if( sp->ringCap_trailingWMAIdx == 0 )
+   {
+      pkSlot0 = 0;
+      pkVal0 = inReal;
+   }
+   adjustedPrevPeriod = fma(0.075, sp->period, 0.54);
+   todayValue = inReal;
+   sp->periodWMASub += todayValue;
+   sp->periodWMASub -= sp->trailingWMAValue;
+   sp->periodWMASum += todayValue * 4.0;
+   sp->trailingWMAValue = (sp->ringPos_trailingWMAIdx != pkSlot0) ? sp->ring_trailingWMAIdx_inReal[sp->ringPos_trailingWMAIdx] : pkVal0;
+   smoothedValue = sp->periodWMASum * 0.1;
+   sp->periodWMASum -= sp->periodWMASub;
+   if( sp->streamParity == 0 )
+   {
+      /* Do the Hilbert Transforms for even price bar */
+      hilbertTempReal = sp->a * smoothedValue;
+      detrender = 0 - sp->detrender_Even[sp->hilbertIdx];
+      detrender += hilbertTempReal;
+      detrender -= sp->prev_detrender_Even;
+      sp->prev_detrender_Even = sp->b * sp->prev_detrender_input_Even;
+      detrender += sp->prev_detrender_Even;
+      sp->prev_detrender_input_Even = smoothedValue;
+      detrender *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * detrender;
+      Q1 = 0 - sp->Q1_Even[sp->hilbertIdx];
+      Q1 += hilbertTempReal;
+      Q1 -= sp->prev_Q1_Even;
+      sp->prev_Q1_Even = sp->b * sp->prev_Q1_input_Even;
+      Q1 += sp->prev_Q1_Even;
+      sp->prev_Q1_input_Even = detrender;
+      Q1 *= adjustedPrevPeriod;
+      *outQuadrature= Q1;
+      *outInPhase= sp->I1ForEvenPrev3;
+      hilbertTempReal = sp->a * sp->I1ForEvenPrev3;
+      jI = 0 - sp->jI_Even[sp->hilbertIdx];
+      jI += hilbertTempReal;
+      jI -= sp->prev_jI_Even;
+      sp->prev_jI_Even = sp->b * sp->prev_jI_input_Even;
+      jI += sp->prev_jI_Even;
+      sp->prev_jI_input_Even = sp->I1ForEvenPrev3;
+      jI *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * Q1;
+      jQ = 0 - sp->jQ_Even[sp->hilbertIdx];
+      jQ += hilbertTempReal;
+      jQ -= sp->prev_jQ_Even;
+      sp->prev_jQ_Even = sp->b * sp->prev_jQ_input_Even;
+      jQ += sp->prev_jQ_Even;
+      sp->prev_jQ_input_Even = Q1;
+      jQ *= adjustedPrevPeriod;
+      if( ++sp->hilbertIdx == 3 )
+      {
+         sp->hilbertIdx = 0;
+      }
+      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
+      I2 = fma(0.2, sp->I1ForEvenPrev3 - jQ, 0.8 * sp->prevI2);
+      /* The variable I1 is the detrender delayed for
+       * 3 price bars.
+       *
+       * Save the current detrender value for being
+       * used by the "odd" logic later.
+       */
+      sp->I1ForOddPrev3 = sp->I1ForOddPrev2;
+      sp->I1ForOddPrev2 = detrender;
+   } else 
+   {
+      /* Do the Hilbert Transforms for odd price bar */
+      hilbertTempReal = sp->a * smoothedValue;
+      detrender = 0 - sp->detrender_Odd[sp->hilbertIdx];
+      detrender += hilbertTempReal;
+      detrender -= sp->prev_detrender_Odd;
+      sp->prev_detrender_Odd = sp->b * sp->prev_detrender_input_Odd;
+      detrender += sp->prev_detrender_Odd;
+      sp->prev_detrender_input_Odd = smoothedValue;
+      detrender *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * detrender;
+      Q1 = 0 - sp->Q1_Odd[sp->hilbertIdx];
+      Q1 += hilbertTempReal;
+      Q1 -= sp->prev_Q1_Odd;
+      sp->prev_Q1_Odd = sp->b * sp->prev_Q1_input_Odd;
+      Q1 += sp->prev_Q1_Odd;
+      sp->prev_Q1_input_Odd = detrender;
+      Q1 *= adjustedPrevPeriod;
+      *outQuadrature= Q1;
+      *outInPhase= sp->I1ForOddPrev3;
+      hilbertTempReal = sp->a * sp->I1ForOddPrev3;
+      jI = 0 - sp->jI_Odd[sp->hilbertIdx];
+      jI += hilbertTempReal;
+      jI -= sp->prev_jI_Odd;
+      sp->prev_jI_Odd = sp->b * sp->prev_jI_input_Odd;
+      jI += sp->prev_jI_Odd;
+      sp->prev_jI_input_Odd = sp->I1ForOddPrev3;
+      jI *= adjustedPrevPeriod;
+      hilbertTempReal = sp->a * Q1;
+      jQ = 0 - sp->jQ_Odd[sp->hilbertIdx];
+      jQ += hilbertTempReal;
+      jQ -= sp->prev_jQ_Odd;
+      sp->prev_jQ_Odd = sp->b * sp->prev_jQ_input_Odd;
+      jQ += sp->prev_jQ_Odd;
+      sp->prev_jQ_input_Odd = Q1;
+      jQ *= adjustedPrevPeriod;
+      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
+      I2 = fma(0.2, sp->I1ForOddPrev3 - jQ, 0.8 * sp->prevI2);
+      /* The varaiable I1 is the detrender delayed for
+       * 3 price bars.
+       *
+       * Save the current detrender value for being
+       * used by the "even" logic later.
+       */
+      sp->I1ForEvenPrev3 = sp->I1ForEvenPrev2;
+      sp->I1ForEvenPrev2 = detrender;
+   }
+   /* Adjust the period for next price bar */
+   sp->Re = fma(0.8, sp->Re, 0.2 * (fma(I2, sp->prevI2, Q2 * sp->prevQ2)));
+   sp->Im = fma(0.8, sp->Im, 0.2 * (I2 * sp->prevQ2 - Q2 * sp->prevI2));
+   sp->prevQ2 = Q2;
+   sp->prevI2 = I2;
+   tempReal = sp->period;
+   if( sp->Im != 0.0 && sp->Re != 0.0 )
+   {
+      sp->period = 360.0 / (atan(sp->Im / sp->Re) * sp->rad2Deg);
+   }
+   tempReal2 = 1.5 * tempReal;
+   if( sp->period > tempReal2 )
+   {
+      sp->period = tempReal2;
+   }
+   tempReal2 = 0.67 * tempReal;
+   if( sp->period < tempReal2 )
+   {
+      sp->period = tempReal2;
+   }
+   if( sp->period < 6 )
+   {
+      sp->period = 6;
+   } else if( sp->period > 50 )
+   {
+      sp->period = 50;
+   }
+   sp->period = fma(0.2, sp->period, 0.8 * tempReal);
+   /* Ooof... let's do the next price bar now! */
+   sp->cur_outInPhase = *outInPhase;
+   sp->cur_outQuadrature = *outQuadrature;
+   sp->ringPos_trailingWMAIdx = sp->ringPos_trailingWMAIdx + 1;
+   if( sp->ringPos_trailingWMAIdx >= sp->ringCap_trailingWMAIdx )
+   {
+      sp->ringPos_trailingWMAIdx = 0;
+   }
+   sp->streamParity = 1 - sp->streamParity;
    return TA_SUCCESS;
 }
 
@@ -1491,7 +1659,11 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_UpdateAndFill( TA_HT_PHASOR_Stream *stream, c
    if( (const void *)outInPhase == (const void *)inReal || (const void *)outQuadrature == (const void *)inReal || (const void *)outInPhase == (const void *)outQuadrature ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_HT_PHASOR_StepImpl( stream, inReal[i], &outInPhase[i], &outQuadrature[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -1501,6 +1673,34 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_UpdateAndFill( TA_HT_PHASOR_Stream *stream, c
 TA_LIB_API TA_RetCode TA_HT_PHASOR_Close( TA_HT_PHASOR_Stream *stream )
 {
    TA_HT_PHASOR_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_PHASOR_Value( const TA_HT_PHASOR_Stream *stream, double *outInPhase, double *outQuadrature )
+{
+   if( !stream || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
+   *outInPhase = stream->cur_outInPhase;
+   *outQuadrature = stream->cur_outQuadrature;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_PHASOR_Clone( const TA_HT_PHASOR_Stream *stream, TA_HT_PHASOR_Stream **clone )
+{
+   struct TA_HT_PHASOR_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_HT_PHASOR_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->ring_trailingWMAIdx_inReal = NULL;
+   if( stream->ring_trailingWMAIdx_inReal )
+   { size_t copyN = (size_t)(sp->ringCap_trailingWMAIdx > 0 ? sp->ringCap_trailingWMAIdx : 1);
+     sp->ring_trailingWMAIdx_inReal = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_trailingWMAIdx_inReal ) { TA_HT_PHASOR_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_trailingWMAIdx_inReal, stream->ring_trailingWMAIdx_inReal, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

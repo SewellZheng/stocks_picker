@@ -534,10 +534,12 @@ TA_RetCode TA_S_MIDPOINT( int    startIdx,
 /* Using midpoint_ALT1 for TA_ALT={STREAM,ALL_LANGUAGES} */
 
 struct TA_MIDPOINT_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_MIDPOINT_Value). */
+   double cur_outReal;
    int optInTimePeriod;
    double lowest;
    double highest;
@@ -550,7 +552,6 @@ struct TA_MIDPOINT_Stream {
    int xPhys;
    int xMask;
    double *x_inReal;
-   double *xMirror_inReal;
 };
 
 /* Private function, not in public API. */
@@ -558,7 +559,6 @@ static void TA_MIDPOINT_ReleaseImpl( struct TA_MIDPOINT_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inReal ) TA_Free( sp->x_inReal );
-   if( sp->xMirror_inReal ) TA_Free( sp->xMirror_inReal );
    TA_Free( sp );
 }
 
@@ -623,6 +623,7 @@ static void TA_MIDPOINT_StepImpl( struct TA_MIDPOINT_Stream *sp, double inReal, 
    *outReal= (sp->highest + sp->lowest) / 2.0;
    sp->trailingIdx += 1;
    sp->today += 1;
+   sp->cur_outReal = *outReal;
 }
 
 static TA_RetCode TA_MIDPOINT_OpenImpl( struct TA_MIDPOINT_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
@@ -792,8 +793,6 @@ static TA_RetCode TA_MIDPOINT_OpenImpl( struct TA_MIDPOINT_Stream **stream, cons
       sp->xMask = sp->xPhys - 1;
       sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inReal ) { TA_MIDPOINT_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inReal ) { TA_MIDPOINT_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -802,6 +801,7 @@ static TA_RetCode TA_MIDPOINT_OpenImpl( struct TA_MIDPOINT_Stream **stream, cons
       }
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -852,7 +852,11 @@ TA_RetCode TA_MIDPOINT_OpenAndFillInternal( struct TA_MIDPOINT_Stream **stream, 
 TA_LIB_API TA_RetCode TA_MIDPOINT_Update( TA_MIDPOINT_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_MIDPOINT_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -861,13 +865,72 @@ TA_LIB_API TA_RetCode TA_MIDPOINT_Update( TA_MIDPOINT_Stream *stream, double inR
 TA_LIB_API TA_RetCode TA_MIDPOINT_Peek( const TA_MIDPOINT_Stream *stream, double inReal, double *outReal )
 {
    struct TA_MIDPOINT_Stream scratch;
+   struct TA_MIDPOINT_Stream *sp = &scratch;
+   double tmpLow;
+   double tmpHigh;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.x_inReal = stream->xMirror_inReal;
-   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
-   TA_MIDPOINT_StepImpl( &scratch, inReal, outReal );
+   if( sp->today >= 1073741824 )
+   {
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
+      sp->today -= rebaseShift;
+      sp->trailingIdx -= rebaseShift;
+      sp->highestIdx -= rebaseShift;
+      sp->i -= rebaseShift;
+      sp->lowestIdx -= rebaseShift;
+   }
+   pkSlot0 = sp->today & sp->xMask;
+   pkVal0 = inReal;
+   tmpHigh = ((sp->today & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->today & sp->xMask] : pkVal0;
+   tmpLow = tmpHigh;
+   if( sp->highestIdx < sp->trailingIdx )
+   {
+      sp->highestIdx = sp->trailingIdx;
+      sp->highest = ((sp->highestIdx & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->highestIdx & sp->xMask] : pkVal0;
+      sp->i = sp->highestIdx;
+      TA_UNROLL(4)
+      while( ++sp->i <= sp->today )
+      {
+         tmpHigh = ((sp->i & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->i & sp->xMask] : pkVal0;
+         if( tmpHigh > sp->highest )
+         {
+            sp->highestIdx = sp->i;
+            sp->highest = tmpHigh;
+         }
+      }
+   } else if( tmpHigh >= sp->highest )
+   {
+      sp->highestIdx = sp->today;
+      sp->highest = tmpHigh;
+   }
+   if( sp->lowestIdx < sp->trailingIdx )
+   {
+      sp->lowestIdx = sp->trailingIdx;
+      sp->lowest = ((sp->lowestIdx & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->lowestIdx & sp->xMask] : pkVal0;
+      sp->i = sp->lowestIdx;
+      TA_UNROLL(4)
+      while( ++sp->i <= sp->today )
+      {
+         tmpLow = ((sp->i & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->i & sp->xMask] : pkVal0;
+         if( tmpLow < sp->lowest )
+         {
+            sp->lowestIdx = sp->i;
+            sp->lowest = tmpLow;
+         }
+      }
+   } else if( tmpLow <= sp->lowest )
+   {
+      sp->lowestIdx = sp->today;
+      sp->lowest = tmpLow;
+   }
+   *outReal= (sp->highest + sp->lowest) / 2.0;
+   sp->trailingIdx += 1;
+   sp->today += 1;
+   sp->cur_outReal = *outReal;
    return TA_SUCCESS;
 }
 
@@ -880,7 +943,11 @@ TA_LIB_API TA_RetCode TA_MIDPOINT_UpdateAndFill( TA_MIDPOINT_Stream *stream, con
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_MIDPOINT_StepImpl( stream, inReal[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -890,6 +957,33 @@ TA_LIB_API TA_RetCode TA_MIDPOINT_UpdateAndFill( TA_MIDPOINT_Stream *stream, con
 TA_LIB_API TA_RetCode TA_MIDPOINT_Close( TA_MIDPOINT_Stream *stream )
 {
    TA_MIDPOINT_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MIDPOINT_Value( const TA_MIDPOINT_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MIDPOINT_Clone( const TA_MIDPOINT_Stream *stream, TA_MIDPOINT_Stream **clone )
+{
+   struct TA_MIDPOINT_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_MIDPOINT_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->x_inReal = NULL;
+   if( stream->x_inReal )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inReal = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inReal ) { TA_MIDPOINT_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inReal, stream->x_inReal, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

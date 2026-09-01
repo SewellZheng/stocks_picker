@@ -272,17 +272,15 @@ TA_RetCode TA_S_APO( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_APO_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_APO_Value). */
+   double cur_outReal;
    int optInFastPeriod;
    int optInSlowPeriod;
    TA_MAType optInMAType;
-   /* Peek runs the SAME step body on a scratch copy; sub handles are
-    * heap pointers a struct copy cannot clone, so the copy carries this
-    * flag and the step calls sub-Peek instead of sub-Update. */
-   int peekMode;
    TA_MA_Stream *sub0;
    TA_MA_Stream *sub1;
 };
@@ -296,19 +294,11 @@ static TA_RetCode TA_APO_StepImpl( struct TA_APO_Stream *sp, double inReal, doub
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {
-      TA_RetCode subRc;
-      if( sp->peekMode )
-         subRc = TA_MA_Peek( (const TA_MA_Stream *)sp->sub0, inReal, &cur_tempBuffer );
-      else
-         subRc = TA_MA_Update( sp->sub0, inReal, &cur_tempBuffer );
+      TA_RetCode subRc = TA_MA_Update( sp->sub0, inReal, &cur_tempBuffer );
       if( subRc != TA_SUCCESS ) return subRc;
    }
    {
-      TA_RetCode subRc;
-      if( sp->peekMode )
-         subRc = TA_MA_Peek( (const TA_MA_Stream *)sp->sub1, inReal, &cur_outReal );
-      else
-         subRc = TA_MA_Update( sp->sub1, inReal, &cur_outReal );
+      TA_RetCode subRc = TA_MA_Update( sp->sub1, inReal, &cur_outReal );
       if( subRc != TA_SUCCESS ) return subRc;
    }
    /* Combine map (batch tail, per bar). */
@@ -478,6 +468,7 @@ static TA_RetCode TA_APO_OpenImpl( struct TA_APO_Stream **stream, const double i
       if( !outStride ) TA_Free( sc_outReal );
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -530,9 +521,14 @@ TA_LIB_API TA_RetCode TA_APO_Update( TA_APO_Stream *stream, double inReal, doubl
    TA_RetCode retCode;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    retCode = TA_APO_StepImpl( stream, inReal, outReal );
    if( retCode != TA_SUCCESS ) return retCode;
+   stream->cur_outReal = *outReal;
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
@@ -540,12 +536,27 @@ TA_LIB_API TA_RetCode TA_APO_Update( TA_APO_Stream *stream, double inReal, doubl
 TA_LIB_API TA_RetCode TA_APO_Peek( const TA_APO_Stream *stream, double inReal, double *outReal )
 {
    struct TA_APO_Stream scratch;
+   struct TA_APO_Stream *sp = &scratch;
+   double cur_tempBuffer = 0.0;
+   double cur_outReal = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.peekMode = 1;
-   return TA_APO_StepImpl( &scratch, inReal, outReal );
+
+   /* Pipeline the new bar through the sub-streams (batch tail order). */
+   {
+      TA_RetCode subRc = TA_MA_Peek( (const TA_MA_Stream *)sp->sub0, inReal, &cur_tempBuffer );
+      if( subRc != TA_SUCCESS ) return subRc;
+   }
+   {
+      TA_RetCode subRc = TA_MA_Peek( (const TA_MA_Stream *)sp->sub1, inReal, &cur_outReal );
+      if( subRc != TA_SUCCESS ) return subRc;
+   }
+   /* Combine map (batch tail, per bar). */
+   cur_outReal = cur_tempBuffer - cur_outReal;
+   *outReal = cur_outReal;
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_APO_UpdateAndFill( TA_APO_Stream *stream, const double inReal[], int barCount, double outReal[] )
@@ -558,9 +569,14 @@ TA_LIB_API TA_RetCode TA_APO_UpdateAndFill( TA_APO_Stream *stream, const double 
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       retCode = TA_APO_StepImpl( stream, inReal[i], &outReal[i] );
       if( retCode != TA_SUCCESS ) return retCode;
+      stream->cur_outReal = outReal[i];
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
    return TA_SUCCESS;
@@ -572,6 +588,35 @@ TA_LIB_API TA_RetCode TA_APO_Close( TA_APO_Stream *stream )
    TA_MA_Close( stream->sub0 );
    TA_MA_Close( stream->sub1 );
    TA_Free( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_APO_Value( const TA_APO_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_APO_Clone( const TA_APO_Stream *stream, TA_APO_Stream **clone )
+{
+   struct TA_APO_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_APO_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->sub0 = NULL;
+   sp->sub1 = NULL;
+   if( stream->sub0 )
+   { TA_RetCode subRc = TA_MA_Clone( stream->sub0, &sp->sub0 );
+     if( subRc != TA_SUCCESS ) { TA_APO_Close( sp ); return subRc; } }
+   if( stream->sub1 )
+   { TA_RetCode subRc = TA_MA_Clone( stream->sub1, &sp->sub1 );
+     if( subRc != TA_SUCCESS ) { TA_APO_Close( sp ); return subRc; } }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

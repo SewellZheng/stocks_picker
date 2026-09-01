@@ -67,6 +67,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::HT_DCPHASE`]: the number of leading input values consumed before
     /// the first output value can be produced.
+    #[doc(alias = "TA_HT_DCPHASE_Lookback")]
     pub fn HT_DCPHASE_Lookback(&self) -> Result<usize, RetCode> {
         // 31 input are skip
         // +32 output are skip to account for misc lookback
@@ -526,6 +527,9 @@ impl Core {
     /// price. One real output per bar. Output is degrees, in the range −45 to 315 (a full 360°
     /// span).
     ///
+    /// Formula and more info at
+    /// [ta-lib.org/functions/ht_dcphase](https://ta-lib.org/functions/ht_dcphase).
+    ///
     /// # Arguments
     ///
     /// * `startIdx` — Start index of the requested calculation range.
@@ -575,8 +579,7 @@ impl Core {
     ///
     /// * John F. Ehlers, *Rocket Science for Traders: Digital Signal Processing Applications*, John
     ///   Wiley & Sons (ISBN 0471405671)
-    ///
-    /// Further reading: [ta-lib.org/functions/ht_dcphase](https://ta-lib.org/functions/ht_dcphase)
+    #[doc(alias = "TA_HT_DCPHASE")]
     #[doc(alias = "HilbertTransformDominantCyclePhase")]
     pub fn HT_DCPHASE(
         &self,
@@ -623,24 +626,14 @@ impl Core {
 /// over the same series. Open with [`Core::ht_dcphase_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_HT_DCPHASE_Stream")]
 pub struct HtDcphaseStream {
     state: HtDcphaseStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl HtDcphaseStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `HtDcphaseStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -697,65 +690,7 @@ struct HtDcphaseStreamState {
     ring_trailingWMAIdx_inReal: Vec<f64>,
     cbSize_smoothPrice: usize,
     cb_smoothPrice: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl HtDcphaseStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.period = src.period;
-        self.periodWMASum = src.periodWMASum;
-        self.periodWMASub = src.periodWMASub;
-        self.trailingWMAValue = src.trailingWMAValue;
-        self.a = src.a;
-        self.b = src.b;
-        self.hilbertIdx = src.hilbertIdx;
-        self.detrender_Odd = src.detrender_Odd;
-        self.detrender_Even = src.detrender_Even;
-        self.prev_detrender_Odd = src.prev_detrender_Odd;
-        self.prev_detrender_Even = src.prev_detrender_Even;
-        self.prev_detrender_input_Odd = src.prev_detrender_input_Odd;
-        self.prev_detrender_input_Even = src.prev_detrender_input_Even;
-        self.Q1_Odd = src.Q1_Odd;
-        self.Q1_Even = src.Q1_Even;
-        self.prev_Q1_Odd = src.prev_Q1_Odd;
-        self.prev_Q1_Even = src.prev_Q1_Even;
-        self.prev_Q1_input_Odd = src.prev_Q1_input_Odd;
-        self.prev_Q1_input_Even = src.prev_Q1_input_Even;
-        self.jI_Odd = src.jI_Odd;
-        self.jI_Even = src.jI_Even;
-        self.prev_jI_Odd = src.prev_jI_Odd;
-        self.prev_jI_Even = src.prev_jI_Even;
-        self.prev_jI_input_Odd = src.prev_jI_input_Odd;
-        self.prev_jI_input_Even = src.prev_jI_input_Even;
-        self.jQ_Odd = src.jQ_Odd;
-        self.jQ_Even = src.jQ_Even;
-        self.prev_jQ_Odd = src.prev_jQ_Odd;
-        self.prev_jQ_Even = src.prev_jQ_Even;
-        self.prev_jQ_input_Odd = src.prev_jQ_input_Odd;
-        self.prev_jQ_input_Even = src.prev_jQ_input_Even;
-        self.prevQ2 = src.prevQ2;
-        self.prevI2 = src.prevI2;
-        self.Re = src.Re;
-        self.Im = src.Im;
-        self.I1ForOddPrev2 = src.I1ForOddPrev2;
-        self.I1ForOddPrev3 = src.I1ForOddPrev3;
-        self.I1ForEvenPrev2 = src.I1ForEvenPrev2;
-        self.I1ForEvenPrev3 = src.I1ForEvenPrev3;
-        self.rad2Deg = src.rad2Deg;
-        self.constDeg2RadBy360 = src.constDeg2RadBy360;
-        self.smoothPeriod = src.smoothPeriod;
-        self.DCPhase = src.DCPhase;
-        self.smoothPrice_Idx = src.smoothPrice_Idx;
-        self.maxIdx_smoothPrice = src.maxIdx_smoothPrice;
-        self.streamParity = src.streamParity;
-        self.ringPos_trailingWMAIdx = src.ringPos_trailingWMAIdx;
-        self.ringCap_trailingWMAIdx = src.ringCap_trailingWMAIdx;
-        self.ring_trailingWMAIdx_inReal.clone_from(&src.ring_trailingWMAIdx_inReal);
-        self.cbSize_smoothPrice = src.cbSize_smoothPrice;
-        self.cb_smoothPrice.clone_from(&src.cb_smoothPrice);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -966,6 +901,7 @@ impl Core {
         if sp.smoothPrice_Idx > sp.maxIdx_smoothPrice {
             sp.smoothPrice_Idx = 0;
         }
+        sp.cur_outReal = (*outReal);
         sp.ring_trailingWMAIdx_inReal[sp.ringPos_trailingWMAIdx] = inReal;
         sp.ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx + 1;
         if sp.ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx {
@@ -1445,6 +1381,7 @@ impl Core {
             smoothPrice_Idx,
             maxIdx_smoothPrice,
             streamParity: historyLen % 2,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             ringPos_trailingWMAIdx: 0_usize,
             ringCap_trailingWMAIdx: cap_trailingWMAIdx as usize,
             ring_trailingWMAIdx_inReal,
@@ -1556,31 +1493,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `HtDcphaseStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static HT_DCPHASE_PEEK_SCRATCH: std::cell::Cell<Option<Box<HtDcphaseStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl HtDcphaseStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_HT_DCPHASE_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1596,7 +1535,7 @@ impl HtDcphaseStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1606,7 +1545,8 @@ impl HtDcphaseStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_HT_DCPHASE_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -1615,6 +1555,9 @@ impl HtDcphaseStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::ht_dcphase_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
@@ -1626,36 +1569,290 @@ impl HtDcphaseStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_HT_DCPHASE_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        HT_DCPHASE_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::ht_dcphase_step_impl(&mut scratch, inReal, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut i: usize = 0_usize;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut tempReal2: f64 = 0.0_f64;
+            let mut adjustedPrevPeriod: f64 = 0.0_f64;
+            let mut smoothedValue: f64 = 0.0_f64;
+            let mut hilbertTempReal: f64 = 0.0_f64;
+            let mut detrender: f64 = 0.0_f64;
+            let mut Q1: f64 = 0.0_f64;
+            let mut jI: f64 = 0.0_f64;
+            let mut jQ: f64 = 0.0_f64;
+            let mut Q2: f64 = 0.0_f64;
+            let mut I2: f64 = 0.0_f64;
+            let mut todayValue: f64 = 0.0_f64;
+            let mut idx: usize = 0_usize;
+            let mut DCPeriodInt: i32 = 0_i32;
+            let mut DCPeriod: f64 = 0.0_f64;
+            let mut imagPart: f64 = 0.0_f64;
+            let mut realPart: f64 = 0.0_f64;
+            let mut DCPhase = sp.DCPhase;
+            let mut I1ForEvenPrev2 = sp.I1ForEvenPrev2;
+            let mut I1ForEvenPrev3 = sp.I1ForEvenPrev3;
+            let mut I1ForOddPrev2 = sp.I1ForOddPrev2;
+            let mut I1ForOddPrev3 = sp.I1ForOddPrev3;
+            let mut Im = sp.Im;
+            let mut Re = sp.Re;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut hilbertIdx = sp.hilbertIdx;
+            let mut period = sp.period;
+            let mut periodWMASub = sp.periodWMASub;
+            let mut periodWMASum = sp.periodWMASum;
+            let mut prevI2 = sp.prevI2;
+            let mut prevQ2 = sp.prevQ2;
+            let mut prev_Q1_Even = sp.prev_Q1_Even;
+            let mut prev_Q1_Odd = sp.prev_Q1_Odd;
+            let mut prev_Q1_input_Even = sp.prev_Q1_input_Even;
+            let mut prev_Q1_input_Odd = sp.prev_Q1_input_Odd;
+            let mut prev_detrender_Even = sp.prev_detrender_Even;
+            let mut prev_detrender_Odd = sp.prev_detrender_Odd;
+            let mut prev_detrender_input_Even = sp.prev_detrender_input_Even;
+            let mut prev_detrender_input_Odd = sp.prev_detrender_input_Odd;
+            let mut prev_jI_Even = sp.prev_jI_Even;
+            let mut prev_jI_Odd = sp.prev_jI_Odd;
+            let mut prev_jI_input_Even = sp.prev_jI_input_Even;
+            let mut prev_jI_input_Odd = sp.prev_jI_input_Odd;
+            let mut prev_jQ_Even = sp.prev_jQ_Even;
+            let mut prev_jQ_Odd = sp.prev_jQ_Odd;
+            let mut prev_jQ_input_Even = sp.prev_jQ_input_Even;
+            let mut prev_jQ_input_Odd = sp.prev_jQ_input_Odd;
+            let mut ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+            let mut smoothPeriod = sp.smoothPeriod;
+            let mut smoothPrice_Idx = sp.smoothPrice_Idx;
+            let mut streamParity = sp.streamParity;
+            let mut trailingWMAValue = sp.trailingWMAValue;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            if sp.ringCap_trailingWMAIdx == 0 {
+                pkSlot0 = 0;
+                pkVal0 = inReal;
+            }
+            adjustedPrevPeriod = (0.075 as f64).mul_add(period, 0.54);
+            todayValue = inReal;
+            periodWMASub += todayValue;
+            periodWMASub -= trailingWMAValue;
+            periodWMASum += todayValue * 4.0;
+            trailingWMAValue = (if (ringPos_trailingWMAIdx as usize) != pkSlot0 { sp.ring_trailingWMAIdx_inReal[ringPos_trailingWMAIdx] } else { pkVal0 });
+            smoothedValue = periodWMASum * 0.1;
+            periodWMASum -= periodWMASub;
+            // Remember the smoothedValue into the smoothPrice
+            // circular buffer.
+            pkSlot1 = smoothPrice_Idx as usize;
+            pkVal1 = smoothedValue;
+            if streamParity == 0 {
+                // Do the Hilbert Transforms for even price bar
+                hilbertTempReal = sp.a * smoothedValue;
+                detrender = 0_f64 - sp.detrender_Even[hilbertIdx];
+                detrender += hilbertTempReal;
+                detrender -= prev_detrender_Even;
+                prev_detrender_Even = sp.b * prev_detrender_input_Even;
+                detrender += prev_detrender_Even;
+                prev_detrender_input_Even = smoothedValue;
+                detrender *= adjustedPrevPeriod;
+                hilbertTempReal = sp.a * detrender;
+                Q1 = 0_f64 - sp.Q1_Even[hilbertIdx];
+                Q1 += hilbertTempReal;
+                Q1 -= prev_Q1_Even;
+                prev_Q1_Even = sp.b * prev_Q1_input_Even;
+                Q1 += prev_Q1_Even;
+                prev_Q1_input_Even = detrender;
+                Q1 *= adjustedPrevPeriod;
+                hilbertTempReal = sp.a * I1ForEvenPrev3;
+                jI = 0_f64 - sp.jI_Even[hilbertIdx];
+                jI += hilbertTempReal;
+                jI -= prev_jI_Even;
+                prev_jI_Even = sp.b * prev_jI_input_Even;
+                jI += prev_jI_Even;
+                prev_jI_input_Even = I1ForEvenPrev3;
+                jI *= adjustedPrevPeriod;
+                hilbertTempReal = sp.a * Q1;
+                jQ = 0_f64 - sp.jQ_Even[hilbertIdx];
+                jQ += hilbertTempReal;
+                jQ -= prev_jQ_Even;
+                prev_jQ_Even = sp.b * prev_jQ_input_Even;
+                jQ += prev_jQ_Even;
+                prev_jQ_input_Even = Q1;
+                jQ *= adjustedPrevPeriod;
+                if { hilbertIdx += 1; hilbertIdx } == 3 {
+                    hilbertIdx = 0;
+                }
+                Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * prevQ2);
+                I2 = (0.2 as f64).mul_add(I1ForEvenPrev3 - jQ, 0.8 * prevI2);
+                // The variable I1 is the detrender delayed for
+                // 3 price bars.
+                //
+                // Save the current detrender value for being
+                // used by the "odd" logic later.
+                I1ForOddPrev3 = I1ForOddPrev2;
+                I1ForOddPrev2 = detrender;
+            } else {
+                // Do the Hilbert Transforms for odd price bar
+                hilbertTempReal = sp.a * smoothedValue;
+                detrender = 0_f64 - sp.detrender_Odd[hilbertIdx];
+                detrender += hilbertTempReal;
+                detrender -= prev_detrender_Odd;
+                prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
+                detrender += prev_detrender_Odd;
+                prev_detrender_input_Odd = smoothedValue;
+                detrender *= adjustedPrevPeriod;
+                hilbertTempReal = sp.a * detrender;
+                Q1 = 0_f64 - sp.Q1_Odd[hilbertIdx];
+                Q1 += hilbertTempReal;
+                Q1 -= prev_Q1_Odd;
+                prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
+                Q1 += prev_Q1_Odd;
+                prev_Q1_input_Odd = detrender;
+                Q1 *= adjustedPrevPeriod;
+                hilbertTempReal = sp.a * I1ForOddPrev3;
+                jI = 0_f64 - sp.jI_Odd[hilbertIdx];
+                jI += hilbertTempReal;
+                jI -= prev_jI_Odd;
+                prev_jI_Odd = sp.b * prev_jI_input_Odd;
+                jI += prev_jI_Odd;
+                prev_jI_input_Odd = I1ForOddPrev3;
+                jI *= adjustedPrevPeriod;
+                hilbertTempReal = sp.a * Q1;
+                jQ = 0_f64 - sp.jQ_Odd[hilbertIdx];
+                jQ += hilbertTempReal;
+                jQ -= prev_jQ_Odd;
+                prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
+                jQ += prev_jQ_Odd;
+                prev_jQ_input_Odd = Q1;
+                jQ *= adjustedPrevPeriod;
+                Q2 = (0.2 as f64).mul_add(Q1 + jI, 0.8 * prevQ2);
+                I2 = (0.2 as f64).mul_add(I1ForOddPrev3 - jQ, 0.8 * prevI2);
+                // The varaiable I1 is the detrender delayed for
+                // 3 price bars.
+                //
+                // Save the current detrender value for being
+                // used by the "even" logic later.
+                I1ForEvenPrev3 = I1ForEvenPrev2;
+                I1ForEvenPrev2 = detrender;
+            }
+            // Adjust the period for next price bar
+            Re = (0.8 as f64).mul_add(Re, 0.2 * ((I2 as f64).mul_add(prevI2, Q2 * prevQ2)));
+            Im = (0.8 as f64).mul_add(Im, 0.2 * (I2 * prevQ2 - Q2 * prevI2));
+            prevQ2 = Q2;
+            prevI2 = I2;
+            tempReal = period;
+            if Im != 0.0 && Re != 0.0 {
+                period = 360.0 / ((Im / Re).atan() * sp.rad2Deg);
+            }
+            tempReal2 = 1.5 * tempReal;
+            if period > tempReal2 {
+                period = tempReal2;
+            }
+            tempReal2 = 0.67 * tempReal;
+            if period < tempReal2 {
+                period = tempReal2;
+            }
+            if period < 6_f64 {
+                period = 6.0;
+            } else if period > 50_f64 {
+                period = 50.0;
+            }
+            period = (0.2 as f64).mul_add(period, 0.8 * tempReal);
+            smoothPeriod = (0.67 as f64).mul_add(smoothPeriod, 0.33 * period);
+            // Compute Dominant Cycle Phase
+            DCPeriod = smoothPeriod + 0.5;
+            DCPeriodInt = (DCPeriod) as i32;
+            realPart = 0.0;
+            imagPart = 0.0;
+            // idx is used to iterate for up to 50 of the last
+            // value of smoothPrice.
+            idx = smoothPrice_Idx;
+            // for( i = 0; ((i) as i32) < DCPeriodInt; i += 1 )
+            i = 0;
+            while ((i) as i32) < DCPeriodInt {
+                tempReal = (i as f64) * sp.constDeg2RadBy360 / (DCPeriodInt as f64);
+                tempReal2 = (if (idx as usize) != pkSlot1 { sp.cb_smoothPrice[idx] } else { pkVal1 });
+                realPart += (tempReal).sin() * tempReal2;
+                imagPart += (tempReal).cos() * tempReal2;
+                if idx == 0 {
+                    idx = (50 - 1) as usize;
+                } else {
+                    idx -= 1;
+                }
+                i += 1;
+            }
+            tempReal = (imagPart).abs();
+            if tempReal > 0.0 {
+                DCPhase = (realPart / imagPart).atan() * sp.rad2Deg;
+            } else if tempReal <= 0.01 {
+                if realPart < 0.0 {
+                    DCPhase -= 90.0;
+                } else if realPart > 0.0 {
+                    DCPhase += 90.0;
+                }
+            }
+            DCPhase += 90.0;
+            // Compensate for one bar lag of the weighted moving average
+            DCPhase += 360.0 / smoothPeriod;
+            if imagPart < 0.0 {
+                DCPhase += 180.0;
+            }
+            if DCPhase > 315.0 {
+                DCPhase -= 360.0;
+            }
+            (*outReal) = DCPhase;
+            // Ooof... let's do the next price bar now!
+            smoothPrice_Idx = smoothPrice_Idx + 1;
+            if smoothPrice_Idx > sp.maxIdx_smoothPrice {
+                smoothPrice_Idx = 0;
+            }
+            cur_outReal = (*outReal);
+            ringPos_trailingWMAIdx = ringPos_trailingWMAIdx + 1;
+            if ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx {
+                ringPos_trailingWMAIdx = 0;
+            }
+            streamParity = 1 - streamParity;
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_HT_DCPHASE_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::HT_DCPHASE`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

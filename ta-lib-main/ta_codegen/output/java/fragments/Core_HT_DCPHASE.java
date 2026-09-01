@@ -913,11 +913,11 @@
     * Open with {@link Core#htDcphaseOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -981,12 +981,13 @@
       HtDcphaseStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#HT_DCPHASE} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -1050,122 +1051,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( HtDcphaseStream other ) {
-         this.core = other.core;
-         this.period = other.period;
-         this.periodWMASum = other.periodWMASum;
-         this.periodWMASub = other.periodWMASub;
-         this.trailingWMAValue = other.trailingWMAValue;
-         this.a = other.a;
-         this.b = other.b;
-         this.hilbertIdx = other.hilbertIdx;
-         if( this.detrender_Odd != null && this.detrender_Odd.length == other.detrender_Odd.length ) {
-            System.arraycopy( other.detrender_Odd, 0, this.detrender_Odd, 0, other.detrender_Odd.length );
-         } else {
-            this.detrender_Odd = other.detrender_Odd.clone();
-         }
-         if( this.detrender_Even != null && this.detrender_Even.length == other.detrender_Even.length ) {
-            System.arraycopy( other.detrender_Even, 0, this.detrender_Even, 0, other.detrender_Even.length );
-         } else {
-            this.detrender_Even = other.detrender_Even.clone();
-         }
-         this.prev_detrender_Odd = other.prev_detrender_Odd;
-         this.prev_detrender_Even = other.prev_detrender_Even;
-         this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
-         this.prev_detrender_input_Even = other.prev_detrender_input_Even;
-         if( this.Q1_Odd != null && this.Q1_Odd.length == other.Q1_Odd.length ) {
-            System.arraycopy( other.Q1_Odd, 0, this.Q1_Odd, 0, other.Q1_Odd.length );
-         } else {
-            this.Q1_Odd = other.Q1_Odd.clone();
-         }
-         if( this.Q1_Even != null && this.Q1_Even.length == other.Q1_Even.length ) {
-            System.arraycopy( other.Q1_Even, 0, this.Q1_Even, 0, other.Q1_Even.length );
-         } else {
-            this.Q1_Even = other.Q1_Even.clone();
-         }
-         this.prev_Q1_Odd = other.prev_Q1_Odd;
-         this.prev_Q1_Even = other.prev_Q1_Even;
-         this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
-         this.prev_Q1_input_Even = other.prev_Q1_input_Even;
-         if( this.jI_Odd != null && this.jI_Odd.length == other.jI_Odd.length ) {
-            System.arraycopy( other.jI_Odd, 0, this.jI_Odd, 0, other.jI_Odd.length );
-         } else {
-            this.jI_Odd = other.jI_Odd.clone();
-         }
-         if( this.jI_Even != null && this.jI_Even.length == other.jI_Even.length ) {
-            System.arraycopy( other.jI_Even, 0, this.jI_Even, 0, other.jI_Even.length );
-         } else {
-            this.jI_Even = other.jI_Even.clone();
-         }
-         this.prev_jI_Odd = other.prev_jI_Odd;
-         this.prev_jI_Even = other.prev_jI_Even;
-         this.prev_jI_input_Odd = other.prev_jI_input_Odd;
-         this.prev_jI_input_Even = other.prev_jI_input_Even;
-         if( this.jQ_Odd != null && this.jQ_Odd.length == other.jQ_Odd.length ) {
-            System.arraycopy( other.jQ_Odd, 0, this.jQ_Odd, 0, other.jQ_Odd.length );
-         } else {
-            this.jQ_Odd = other.jQ_Odd.clone();
-         }
-         if( this.jQ_Even != null && this.jQ_Even.length == other.jQ_Even.length ) {
-            System.arraycopy( other.jQ_Even, 0, this.jQ_Even, 0, other.jQ_Even.length );
-         } else {
-            this.jQ_Even = other.jQ_Even.clone();
-         }
-         this.prev_jQ_Odd = other.prev_jQ_Odd;
-         this.prev_jQ_Even = other.prev_jQ_Even;
-         this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
-         this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.prevQ2 = other.prevQ2;
-         this.prevI2 = other.prevI2;
-         this.Re = other.Re;
-         this.Im = other.Im;
-         this.I1ForOddPrev2 = other.I1ForOddPrev2;
-         this.I1ForOddPrev3 = other.I1ForOddPrev3;
-         this.I1ForEvenPrev2 = other.I1ForEvenPrev2;
-         this.I1ForEvenPrev3 = other.I1ForEvenPrev3;
-         this.rad2Deg = other.rad2Deg;
-         this.constDeg2RadBy360 = other.constDeg2RadBy360;
-         this.smoothPeriod = other.smoothPeriod;
-         this.DCPhase = other.DCPhase;
-         this.smoothPrice_Idx = other.smoothPrice_Idx;
-         this.maxIdx_smoothPrice = other.maxIdx_smoothPrice;
-         this.streamParity = other.streamParity;
-         this.ringPos_trailingWMAIdx = other.ringPos_trailingWMAIdx;
-         this.ringCap_trailingWMAIdx = other.ringCap_trailingWMAIdx;
-         if( this.ring_trailingWMAIdx_inReal != null && this.ring_trailingWMAIdx_inReal.length == other.ring_trailingWMAIdx_inReal.length ) {
-            System.arraycopy( other.ring_trailingWMAIdx_inReal, 0, this.ring_trailingWMAIdx_inReal, 0, other.ring_trailingWMAIdx_inReal.length );
-         } else {
-            this.ring_trailingWMAIdx_inReal = other.ring_trailingWMAIdx_inReal.clone();
-         }
-         this.cbSize_smoothPrice = other.cbSize_smoothPrice;
-         if( this.cb_smoothPrice != null && this.cb_smoothPrice.length == other.cb_smoothPrice.length ) {
-            System.arraycopy( other.cb_smoothPrice, 0, this.cb_smoothPrice, 0, other.cb_smoothPrice.length );
-         } else {
-            this.cb_smoothPrice = other.cb_smoothPrice.clone();
-         }
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<HtDcphaseStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) )
+         if( !Double.isFinite(inReal) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("HT_DCPHASE update: BadParam", RetCode.BadParam);
+         }
          core.htDcphaseStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -1177,11 +1083,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inReal.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
          requireArgument("HT_DCPHASE updateAndFill", "inReal", inReal);
@@ -1190,8 +1097,10 @@
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("HT_DCPHASE updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) )
+            if( !Double.isFinite(inReal[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("HT_DCPHASE updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.htDcphaseStepImpl(this, inReal[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -1200,30 +1109,264 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("HT_DCPHASE peek: BadParam", RetCode.BadParam);
-         HtDcphaseStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new HtDcphaseStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         HtDcphaseStream sp = this;
+         int i = 0;
+         double tempReal = 0.0;
+         double tempReal2 = 0.0;
+         double adjustedPrevPeriod = 0.0;
+         double smoothedValue = 0.0;
+         double hilbertTempReal = 0.0;
+         double detrender = 0.0;
+         double Q1 = 0.0;
+         double jI = 0.0;
+         double jQ = 0.0;
+         double Q2 = 0.0;
+         double I2 = 0.0;
+         double todayValue = 0.0;
+         int idx = 0;
+         int DCPeriodInt = 0;
+         double DCPeriod = 0.0;
+         double imagPart = 0.0;
+         double realPart = 0.0;
+         double DCPhase = sp.DCPhase;
+         double I1ForEvenPrev2 = sp.I1ForEvenPrev2;
+         double I1ForEvenPrev3 = sp.I1ForEvenPrev3;
+         double I1ForOddPrev2 = sp.I1ForOddPrev2;
+         double I1ForOddPrev3 = sp.I1ForOddPrev3;
+         double Im = sp.Im;
+         double Re = sp.Re;
+         double cur_outReal = sp.cur_outReal;
+         int hilbertIdx = sp.hilbertIdx;
+         double period = sp.period;
+         double periodWMASub = sp.periodWMASub;
+         double periodWMASum = sp.periodWMASum;
+         double prevI2 = sp.prevI2;
+         double prevQ2 = sp.prevQ2;
+         double prev_Q1_Even = sp.prev_Q1_Even;
+         double prev_Q1_Odd = sp.prev_Q1_Odd;
+         double prev_Q1_input_Even = sp.prev_Q1_input_Even;
+         double prev_Q1_input_Odd = sp.prev_Q1_input_Odd;
+         double prev_detrender_Even = sp.prev_detrender_Even;
+         double prev_detrender_Odd = sp.prev_detrender_Odd;
+         double prev_detrender_input_Even = sp.prev_detrender_input_Even;
+         double prev_detrender_input_Odd = sp.prev_detrender_input_Odd;
+         double prev_jI_Even = sp.prev_jI_Even;
+         double prev_jI_Odd = sp.prev_jI_Odd;
+         double prev_jI_input_Even = sp.prev_jI_input_Even;
+         double prev_jI_input_Odd = sp.prev_jI_input_Odd;
+         double prev_jQ_Even = sp.prev_jQ_Even;
+         double prev_jQ_Odd = sp.prev_jQ_Odd;
+         double prev_jQ_input_Even = sp.prev_jQ_input_Even;
+         double prev_jQ_input_Odd = sp.prev_jQ_input_Odd;
+         int ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+         double smoothPeriod = sp.smoothPeriod;
+         int smoothPrice_Idx = sp.smoothPrice_Idx;
+         int streamParity = sp.streamParity;
+         double trailingWMAValue = sp.trailingWMAValue;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         if( sp.ringCap_trailingWMAIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = inReal;
          }
-         core.htDcphaseStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         adjustedPrevPeriod = Math.fma(0.075, period, 0.54);
+         todayValue = inReal;
+         periodWMASub += todayValue;
+         periodWMASub -= trailingWMAValue;
+         periodWMASum += todayValue * 4.0;
+         trailingWMAValue = (ringPos_trailingWMAIdx != pkSlot0) ? sp.ring_trailingWMAIdx_inReal[ringPos_trailingWMAIdx] : pkVal0;
+         smoothedValue = periodWMASum * 0.1;
+         periodWMASum -= periodWMASub;
+         /* Remember the smoothedValue into the smoothPrice
+          * circular buffer.
+          */
+         pkSlot1 = smoothPrice_Idx;
+         pkVal1 = smoothedValue;
+         if( streamParity == 0 ) {
+            /* Do the Hilbert Transforms for even price bar */
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0 - sp.detrender_Even[hilbertIdx];
+            detrender += hilbertTempReal;
+            detrender -= prev_detrender_Even;
+            prev_detrender_Even = sp.b * prev_detrender_input_Even;
+            detrender += prev_detrender_Even;
+            prev_detrender_input_Even = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0 - sp.Q1_Even[hilbertIdx];
+            Q1 += hilbertTempReal;
+            Q1 -= prev_Q1_Even;
+            prev_Q1_Even = sp.b * prev_Q1_input_Even;
+            Q1 += prev_Q1_Even;
+            prev_Q1_input_Even = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * I1ForEvenPrev3;
+            jI = 0 - sp.jI_Even[hilbertIdx];
+            jI += hilbertTempReal;
+            jI -= prev_jI_Even;
+            prev_jI_Even = sp.b * prev_jI_input_Even;
+            jI += prev_jI_Even;
+            prev_jI_input_Even = I1ForEvenPrev3;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0 - sp.jQ_Even[hilbertIdx];
+            jQ += hilbertTempReal;
+            jQ -= prev_jQ_Even;
+            prev_jQ_Even = sp.b * prev_jQ_input_Even;
+            jQ += prev_jQ_Even;
+            prev_jQ_input_Even = Q1;
+            jQ *= adjustedPrevPeriod;
+            if( ++hilbertIdx == 3 ) {
+               hilbertIdx = 0;
+            }
+            Q2 = Math.fma(0.2, Q1 + jI, 0.8 * prevQ2);
+            I2 = Math.fma(0.2, I1ForEvenPrev3 - jQ, 0.8 * prevI2);
+            /* The variable I1 is the detrender delayed for
+             * 3 price bars.
+             *
+             * Save the current detrender value for being
+             * used by the "odd" logic later.
+             */
+            I1ForOddPrev3 = I1ForOddPrev2;
+            I1ForOddPrev2 = detrender;
+         } else {
+            /* Do the Hilbert Transforms for odd price bar */
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0 - sp.detrender_Odd[hilbertIdx];
+            detrender += hilbertTempReal;
+            detrender -= prev_detrender_Odd;
+            prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
+            detrender += prev_detrender_Odd;
+            prev_detrender_input_Odd = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0 - sp.Q1_Odd[hilbertIdx];
+            Q1 += hilbertTempReal;
+            Q1 -= prev_Q1_Odd;
+            prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
+            Q1 += prev_Q1_Odd;
+            prev_Q1_input_Odd = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * I1ForOddPrev3;
+            jI = 0 - sp.jI_Odd[hilbertIdx];
+            jI += hilbertTempReal;
+            jI -= prev_jI_Odd;
+            prev_jI_Odd = sp.b * prev_jI_input_Odd;
+            jI += prev_jI_Odd;
+            prev_jI_input_Odd = I1ForOddPrev3;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0 - sp.jQ_Odd[hilbertIdx];
+            jQ += hilbertTempReal;
+            jQ -= prev_jQ_Odd;
+            prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
+            jQ += prev_jQ_Odd;
+            prev_jQ_input_Odd = Q1;
+            jQ *= adjustedPrevPeriod;
+            Q2 = Math.fma(0.2, Q1 + jI, 0.8 * prevQ2);
+            I2 = Math.fma(0.2, I1ForOddPrev3 - jQ, 0.8 * prevI2);
+            /* The varaiable I1 is the detrender delayed for
+             * 3 price bars.
+             *
+             * Save the current detrender value for being
+             * used by the "even" logic later.
+             */
+            I1ForEvenPrev3 = I1ForEvenPrev2;
+            I1ForEvenPrev2 = detrender;
+         }
+         /* Adjust the period for next price bar */
+         Re = Math.fma(0.8, Re, 0.2 * (Math.fma(I2, prevI2, Q2 * prevQ2)));
+         Im = Math.fma(0.8, Im, 0.2 * (I2 * prevQ2 - Q2 * prevI2));
+         prevQ2 = Q2;
+         prevI2 = I2;
+         tempReal = period;
+         if( Im != 0.0 && Re != 0.0 ) {
+            period = 360.0 / (Math.atan(Im / Re) * sp.rad2Deg);
+         }
+         tempReal2 = 1.5 * tempReal;
+         if( period > tempReal2 ) {
+            period = tempReal2;
+         }
+         tempReal2 = 0.67 * tempReal;
+         if( period < tempReal2 ) {
+            period = tempReal2;
+         }
+         if( period < 6 ) {
+            period = 6;
+         } else if( period > 50 ) {
+            period = 50;
+         }
+         period = Math.fma(0.2, period, 0.8 * tempReal);
+         smoothPeriod = Math.fma(0.67, smoothPeriod, 0.33 * period);
+         /* Compute Dominant Cycle Phase */
+         DCPeriod = smoothPeriod + 0.5;
+         DCPeriodInt = (int)DCPeriod;
+         realPart = 0.0;
+         imagPart = 0.0;
+         /* idx is used to iterate for up to 50 of the last
+          * value of smoothPrice.
+          */
+         idx = smoothPrice_Idx;
+         for( i = 0; i < DCPeriodInt; i += 1 ) {
+            tempReal = (double)i * sp.constDeg2RadBy360 / (double)DCPeriodInt;
+            tempReal2 = (idx != pkSlot1) ? sp.cb_smoothPrice[idx] : pkVal1;
+            realPart += Math.sin(tempReal) * tempReal2;
+            imagPart += Math.cos(tempReal) * tempReal2;
+            if( idx == 0 ) {
+               idx = 50 - 1;
+            } else {
+               idx -= 1;
+            }
+         }
+         tempReal = Math.abs(imagPart);
+         if( tempReal > 0.0 ) {
+            DCPhase = Math.atan(realPart / imagPart) * sp.rad2Deg;
+         } else if( tempReal <= 0.01 ) {
+            if( realPart < 0.0 ) {
+               DCPhase -= 90.0;
+            } else if( realPart > 0.0 ) {
+               DCPhase += 90.0;
+            }
+         }
+         DCPhase += 90.0;
+         /* Compensate for one bar lag of the weighted moving average */
+         DCPhase += 360.0 / smoothPeriod;
+         if( imagPart < 0.0 ) {
+            DCPhase += 180.0;
+         }
+         if( DCPhase > 315.0 ) {
+            DCPhase -= 360.0;
+         }
+         cur_outReal = DCPhase;
+         /* Ooof... let's do the next price bar now! */
+         smoothPrice_Idx = smoothPrice_Idx + 1;
+         if( smoothPrice_Idx > sp.maxIdx_smoothPrice ) {
+            smoothPrice_Idx = 0;
+         }
+         ringPos_trailingWMAIdx = ringPos_trailingWMAIdx + 1;
+         if( ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx ) {
+            ringPos_trailingWMAIdx = 0;
+         }
+         streamParity = 1 - streamParity;
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -1231,10 +1374,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public HtDcphaseStream copy() {
+      @Override
+      public HtDcphaseStream clone() {
          return new HtDcphaseStream(this);
       }
    }

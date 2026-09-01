@@ -443,11 +443,11 @@
     * Open with {@link Core#accbandsOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -472,12 +472,13 @@
       AccbandsStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#ACCBANDS} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -502,40 +503,6 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( AccbandsStream other ) {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.periodTotalUpper = other.periodTotalUpper;
-         this.periodTotalMiddle = other.periodTotalMiddle;
-         this.periodTotalLower = other.periodTotalLower;
-         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
-         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
-         if( this.ring_trailingIdx_inHigh != null && this.ring_trailingIdx_inHigh.length == other.ring_trailingIdx_inHigh.length ) {
-            System.arraycopy( other.ring_trailingIdx_inHigh, 0, this.ring_trailingIdx_inHigh, 0, other.ring_trailingIdx_inHigh.length );
-         } else {
-            this.ring_trailingIdx_inHigh = other.ring_trailingIdx_inHigh.clone();
-         }
-         if( this.ring_trailingIdx_inLow != null && this.ring_trailingIdx_inLow.length == other.ring_trailingIdx_inLow.length ) {
-            System.arraycopy( other.ring_trailingIdx_inLow, 0, this.ring_trailingIdx_inLow, 0, other.ring_trailingIdx_inLow.length );
-         } else {
-            this.ring_trailingIdx_inLow = other.ring_trailingIdx_inLow.clone();
-         }
-         if( this.ring_trailingIdx_inClose != null && this.ring_trailingIdx_inClose.length == other.ring_trailingIdx_inClose.length ) {
-            System.arraycopy( other.ring_trailingIdx_inClose, 0, this.ring_trailingIdx_inClose, 0, other.ring_trailingIdx_inClose.length );
-         } else {
-            this.ring_trailingIdx_inClose = other.ring_trailingIdx_inClose.clone();
-         }
-         this.cur_outRealUpperBand = other.cur_outRealUpperBand;
-         this.cur_outRealMiddleBand = other.cur_outRealMiddleBand;
-         this.cur_outRealLowerBand = other.cur_outRealLowerBand;
-         this.cachedValue = other.cachedValue;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<AccbandsStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * One output set, in batch output order. Immutable.
        *
@@ -555,16 +522,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public Value update( double inHigh, double inLow, double inClose ) {
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("ACCBANDS update: BadParam", RetCode.BadParam);
+         }
          core.accbandsStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
@@ -577,11 +550,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inHigh.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] ) {
          requireArgument("ACCBANDS updateAndFill", "inHigh", inHigh);
@@ -596,8 +570,10 @@
          int done = 0;
          try {
             for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) )
+               if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
+                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                   throw new TaLibArgumentException("ACCBANDS updateAndFill: BadParam", RetCode.BadParam);
+               }
                core.accbandsStepImpl(this, inHigh[i], inLow[i], inClose[i]);
                outRealUpperBand[i] = this.cur_outRealUpperBand;
                outRealMiddleBand[i] = this.cur_outRealMiddleBand;
@@ -612,30 +588,84 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period. It does allocate a small bounded amount
+       * per call — a size fixed by the indicator, never by the period.
        */
       public Value peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("ACCBANDS peek: BadParam", RetCode.BadParam);
-         AccbandsStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new AccbandsStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         AccbandsStream sp = this;
+         double tempUpper = 0.0;
+         double tempMiddle = 0.0;
+         double tempLower = 0.0;
+         double tempReal = 0.0;
+         double cur_outRealLowerBand = sp.cur_outRealLowerBand;
+         double cur_outRealMiddleBand = sp.cur_outRealMiddleBand;
+         double cur_outRealUpperBand = sp.cur_outRealUpperBand;
+         double periodTotalLower = sp.periodTotalLower;
+         double periodTotalMiddle = sp.periodTotalMiddle;
+         double periodTotalUpper = sp.periodTotalUpper;
+         int ringPos_trailingIdx = sp.ringPos_trailingIdx;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         int pkSlot2 = -1;
+         double pkVal2 = 0.0;
+         if( sp.ringCap_trailingIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = inHigh;
+            pkSlot1 = 0;
+            pkVal1 = inLow;
+            pkSlot2 = 0;
+            pkVal2 = inClose;
          }
-         core.accbandsStepImpl(scratch, inHigh, inLow, inClose);
-         return new Value(scratch.cur_outRealUpperBand, scratch.cur_outRealMiddleBand, scratch.cur_outRealLowerBand);
+         /* Add the incoming bar to each running sum. */
+         tempReal = inHigh + inLow;
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs(inHigh) + Math.abs(inLow))) ) {
+            tempReal = 4 * (inHigh - inLow) / tempReal;
+            periodTotalUpper += inHigh * (1 + tempReal);
+            periodTotalLower += inLow * (1 - tempReal);
+         } else {
+            periodTotalUpper += inHigh;
+            periodTotalLower += inLow;
+         }
+         periodTotalMiddle += inClose;
+         /* Record the current window sums. */
+         tempUpper = periodTotalUpper;
+         tempMiddle = periodTotalMiddle;
+         tempLower = periodTotalLower;
+         /* Remove the trailing bar from each running sum. */
+         tempReal = ((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) + ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1);
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) + Math.abs((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1))) ) {
+            tempReal = 4 * (((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) - ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1)) / tempReal;
+            periodTotalUpper -= ((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) * (1 + tempReal);
+            periodTotalLower -= ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1) * (1 - tempReal);
+         } else {
+            periodTotalUpper -= (ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0;
+            periodTotalLower -= (ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1;
+         }
+         periodTotalMiddle -= (ringPos_trailingIdx != pkSlot2) ? sp.ring_trailingIdx_inClose[ringPos_trailingIdx] : pkVal2;
+         /* Write the three bands. */
+         cur_outRealUpperBand = tempUpper / (double)sp.optInTimePeriod;
+         cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
+         cur_outRealLowerBand = tempLower / (double)sp.optInTimePeriod;
+         ringPos_trailingIdx = ringPos_trailingIdx + 1;
+         if( ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+            ringPos_trailingIdx = 0;
+         }
+         return new Value(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public Value value() {
@@ -643,10 +673,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public AccbandsStream copy() {
+      @Override
+      public AccbandsStream clone() {
          return new AccbandsStream(this);
       }
    }

@@ -196,25 +196,44 @@ public class MetadataTest {
      * and no single case stands in for them.
      */
     static void byNameFoldsAsciiCase() {
+        int canonical = 0;
         for (FunctionInfo f : Functions.all()) {
             FunctionInfo lower = Functions.byName(asciiLower(f.name()));
             FunctionInfo mixed = Functions.byName(alternating(f.name()));
             check(lower == f, f.name() + ": lower-case lookup finds it");
             check(mixed == f, f.name() + ": mixed-case lookup finds it");
-            // A third line stood here asserting lower.name().equals(f.name()),
-            // "the name reported back stays canonical". It cannot fail: the
-            // line above pins lower == f, so it compares one object's name to
-            // itself. Nothing replaces it, and the reason is specific to this
-            // backend -- BY_NAME is keyed on the STORED spelling while byName
-            // folds upward, so a row stored in lower case is unreachable by
-            // its own name. Measured, by lower-casing the SMA row: four checks
-            // fail (byName(SMA), byName round-trips, and both lookups here).
-            // C matches case-insensitively on both sides and has no second
-            // reader of the stored spelling anywhere in ta_regtest, so there
-            // the canonical spelling is asserted outright, as it already is in
-            // Rust. C# folds on both sides too but is caught by the rest of
-            // its own suite; see the note at the same site there.
+
+            // "Canonical" has to name something for a fold to fold onto it.
+            // Both spellings probed above are derived from the stored one, so
+            // a row stored in lower case folds onto itself just as happily and
+            // neither lookup notices; this is the line that does. Same
+            // assertion C (test_abstract.c, nameFoldCb) and Rust
+            // (abstract_api.rs, registry_tests) carry.
+            //
+            // It is not the line that used to stand here. That one asserted
+            // lower.name().equals(f.name()), "the name reported back stays
+            // canonical", which cannot fail: `lower == f` above pins the two
+            // to one object, so it compared a name to itself.
+            //
+            // A lower-cased row is not invisible to Java without this -- and
+            // that is the reason to say it rather than leave it. BY_NAME is
+            // keyed on the STORED spelling while byName folds upward, so the
+            // row becomes unreachable by its own name and four checks fail
+            // (byName(SMA), byName round-trips, and both lookups above),
+            // none of them naming the defect. This one names it.
+            check(isStoredUpperCase(f.name()),
+                  f.name() + ": is stored in its canonical upper case");
+            canonical++;
         }
+
+        // The sweep's own non-vacuity guard, the counterpart of C's
+        // `nbCanonical == 0` check. It is insurance, not a second
+        // discriminator: registryIsComplete() already fails on an empty
+        // registry, so the only way here is if all() stopped agreeing with
+        // itself between two calls.
+        check(canonical > 0 && canonical == Functions.all().size(),
+              "the canonical-spelling check ran on every row (" + canonical + "/"
+              + Functions.all().size() + ")");
 
         // Caught rather than chained: a regression here throws, and the suite
         // has to report that as one failed check instead of a stack trace that
@@ -239,6 +258,23 @@ public class MetadataTest {
         check(Functions.byName("sma ") == null, "a trailing space is still part of the name");
         check(Functions.byName("ht-dcperiod") == null, "a separator is still part of the name");
         check(Functions.byName("") == null, "the empty name resolves to nothing");
+    }
+
+    /**
+     * True if the stored spelling carries no ASCII lower case.
+     *
+     * <p>Spelled as "no lower-case letter" rather than {@code s.equals(upper(s))}
+     * so it stays an ASCII claim: a name is upper case here in the same sense
+     * {@code asciiLower} is a fold, and neither borrows a locale's opinion.
+     */
+    private static boolean isStoredUpperCase(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= 'a' && c <= 'z') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** ASCII-only lower fold, so the probe cannot inherit the bug it looks for. */
@@ -861,6 +897,57 @@ public class MetadataTest {
               "newCall(core) uses the given Core (" + viaTuned + " vs " + tuned.RSI_Lookback(14) + ")");
         check(viaTuned == viaDefault + 9,
               "the unstable period reaches the binder: " + viaDefault + " + 9 == " + viaTuned);
+
+        /* lookback() is not call(). Dispatch reads `h.core()` in two places --
+         * `Dispatch.lookback` (above) and `Dispatch.call` -- and only the first
+         * of them was pinned. Measured on this tree: rewriting the one line in
+         * `Dispatch.call` to `Core core = Core.DEFAULT;`, so that every
+         * call-by-name silently ignores the Core it was handed, leaves all six
+         * Java suites green (BatchApiTest 181, CoreApiTest 66, DivZeroTest 91,
+         * MetadataTest 1540, SMathOverflowTest 4, StreamSmokeTest 3859). The
+         * blanket rewrite of BOTH lines fails 2 of 1540 -- the three checks
+         * above -- which is exactly the half that was already covered.
+         *
+         * The unstable period is the oracle again, and it discriminates on the
+         * range rather than on the values: it does not change how RSI is
+         * computed, it withholds the first 9 bars it computes. So a call that
+         * honours `tuned` starts 9 bars later and produces 9 fewer values.
+         */
+        double[] outDefault = new double[N];
+        OutRange rDefault = rsi.newCall()
+            .setInput(0, CLOSE).setOptInput(0, 14).setOutput(0, outDefault).call(0, N - 1);
+        double[] outTuned = new double[N];
+        OutRange rTuned = rsi.newCall(tuned)
+            .setInput(0, CLOSE).setOptInput(0, 14).setOutput(0, outTuned).call(0, N - 1);
+
+        check(rTuned.begIdx() == rDefault.begIdx() + 9,
+              "call(core) starts where that Core's lookback says: "
+              + rDefault.begIdx() + " + 9 == " + rTuned.begIdx());
+        check(rTuned.count() == rDefault.count() - 9,
+              "call(core) withholds the 9 unstable bars: "
+              + rDefault.count() + " - 9 == " + rTuned.count());
+
+        /* And the binder's answer is the typed call's answer on that same Core,
+         * bit for bit -- the same standard callByNameMatchesTheTypedApi() holds
+         * the 176 functions to on Core.DEFAULT, now on a Core that is not it.
+         */
+        double[] direct = new double[N];
+        OutRange rDirect = tuned.RSI(0, N - 1, CLOSE, 14, direct);
+        check(rDirect.begIdx() == rTuned.begIdx() && rDirect.count() == rTuned.count(),
+              "the binder and the typed call agree on the range for the tuned Core");
+        boolean sameBits = true;
+        for (int i = 0; i < rTuned.count(); i++) {
+            sameBits &= Double.doubleToRawLongBits(direct[i])
+                     == Double.doubleToRawLongBits(outTuned[i]);
+        }
+        check(sameBits, "the binder and the typed call agree bit for bit on the tuned Core");
+        /* Non-vacuity: the bit compare above had something to compare, and the
+         * two Cores really do answer differently -- without this a binder that
+         * produced nothing at all would satisfy every check above.
+         */
+        check(rTuned.count() > 0 && rDefault.count() > rTuned.count(),
+              "both calls produced values, and the tuned Core produced fewer ("
+              + rDefault.count() + " vs " + rTuned.count() + ")");
     }
 
     public static void main(String[] args) throws Exception {

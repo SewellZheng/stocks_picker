@@ -87,6 +87,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_BETA_Lookback")]
     #[inline]
     pub fn BETA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -462,11 +463,7 @@ impl Core {
     /// security moves relative to a market index. Beta = 1 moves with the index; \< 1 less
     /// volatile, > 1 more volatile.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// Per-bar returns: $x_i=(p^0_i-p^0_{i-1})/p^0_{i-1}$ from inReal0, $y_i=(p^1_i-p^1_{i-1})/p^1_{i-1}$ from inReal1. With $n$=period over the window: $\beta = \dfrac{n\,S_{xy}-S_x S_y}{n\,S_{xx}-S_x^2}$, where $S_{xx}=\sum x^2,\ S_{xy}=\sum xy,\ S_x=\sum x,\ S_y=\sum y$.
-    /// ```
+    /// Formula and more info at [ta-lib.org/functions/beta](https://ta-lib.org/functions/beta).
     ///
     /// # Arguments
     ///
@@ -520,8 +517,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::CORREL`] · [`Core::LINEARREG_SLOPE`] · [`Core::VAR`] · [`Core::STDDEV`]
-    ///
-    /// Further reading: [ta-lib.org/functions/beta](https://ta-lib.org/functions/beta)
+    #[doc(alias = "TA_BETA")]
     #[doc(alias = "Betacoefficient")]
     pub fn BETA(
         &self,
@@ -575,24 +571,14 @@ impl Core {
 /// over the same series. Open with [`Core::beta_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_BETA_Stream")]
 pub struct BetaStream {
     state: BetaStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl BetaStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `BetaStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -620,36 +606,7 @@ struct BetaStreamState {
     xMask: i32,
     x_inReal0: Vec<f64>,
     x_inReal1: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl BetaStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.S_xx = src.S_xx;
-        self.S_xy = src.S_xy;
-        self.S_x = src.S_x;
-        self.S_y = src.S_y;
-        self.last_price_x = src.last_price_x;
-        self.last_price_y = src.last_price_y;
-        self.trailing_last_price_x = src.trailing_last_price_x;
-        self.trailing_last_price_y = src.trailing_last_price_y;
-        self.shift_x = src.shift_x;
-        self.shift_y = src.shift_y;
-        self.leaving_xx = src.leaving_xx;
-        self.leaving_yy = src.leaving_yy;
-        self.S_yy = src.S_yy;
-        self.barsSinceReseed = src.barsSinceReseed;
-        self.n = src.n;
-        self.trailingIdx = src.trailingIdx;
-        self.j = src.j;
-        self.i = src.i;
-        self.xMask = src.xMask;
-        self.x_inReal0.clone_from(&src.x_inReal0);
-        self.x_inReal1.clone_from(&src.x_inReal1);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -848,6 +805,7 @@ impl Core {
         sp.S_xy -= x * y;
         sp.S_x -= x;
         sp.S_y -= y;
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::beta_open_internal`]
@@ -1245,6 +1203,7 @@ impl Core {
             trailingIdx: (trailingIdx) as i32,
             j: (j) as i32,
             i: (i) as i32,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             xMask: (physX - 1) as i32,
             x_inReal0,
             x_inReal1,
@@ -1363,31 +1322,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `BetaStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static BETA_PEEK_SCRATCH: std::cell::Cell<Option<Box<BetaStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl BetaStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_BETA_Update")]
     pub fn update(&mut self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
         if !inReal0.is_finite() || !inReal1.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1403,7 +1364,7 @@ impl BetaStream {
     /// argument checks instead of `n`. `n` is `inReal0.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1413,7 +1374,8 @@ impl BetaStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_BETA_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal0: &[f64], inReal1: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal0.len();
@@ -1422,6 +1384,9 @@ impl BetaStream {
         }
         for i in 0..barCount {
             if !inReal0[i].is_finite() || !inReal1[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::beta_step_impl(&mut self.state, inReal0[i], inReal1[i], &mut outReal[i]);
@@ -1433,36 +1398,266 @@ impl BetaStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_BETA_Peek")]
     pub fn peek(&self, inReal0: f64, inReal1: f64) -> Result<f64, RetCode> {
         if !inReal0.is_finite() || !inReal1.is_finite() {
             return Err(RetCode::BadParam);
         }
-        BETA_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::beta_step_impl(&mut scratch, inReal0, inReal1, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tmp_real: f64 = 0.0_f64;
+            let mut denom: f64 = 0.0_f64;
+            let mut denom_scale: f64 = 0.0_f64;
+            let mut prev_x: f64 = 0.0_f64;
+            let mut prev_y: f64 = 0.0_f64;
+            let mut windowStart: usize = 0_usize;
+            let mut x: f64 = 0.0_f64;
+            let mut y: f64 = 0.0_f64;
+            let mut S_x = sp.S_x;
+            let mut S_xx = sp.S_xx;
+            let mut S_xy = sp.S_xy;
+            let mut S_y = sp.S_y;
+            let mut S_yy = sp.S_yy;
+            let mut barsSinceReseed = sp.barsSinceReseed;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut i = sp.i;
+            let mut j = sp.j;
+            let mut last_price_x = sp.last_price_x;
+            let mut last_price_y = sp.last_price_y;
+            let mut leaving_xx = sp.leaving_xx;
+            let mut leaving_yy = sp.leaving_yy;
+            let mut shift_x = sp.shift_x;
+            let mut shift_y = sp.shift_y;
+            let mut trailingIdx = sp.trailingIdx;
+            let mut trailing_last_price_x = sp.trailing_last_price_x;
+            let mut trailing_last_price_y = sp.trailing_last_price_y;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            let mut pkIdx0: usize = 0;
+            if i >= 1073741824 {
+                let rebaseShift: i32 = trailingIdx & !sp.xMask;
+                i -= rebaseShift;
+                trailingIdx -= rebaseShift;
+                j -= rebaseShift;
+            }
+            pkSlot0 = (i & sp.xMask) as usize;
+            pkVal0 = inReal0;
+            pkSlot1 = (i & sp.xMask) as usize;
+            pkVal1 = inReal1;
+            tmp_real = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(i & sp.xMask) as usize] } else { pkVal0 });
+            if last_price_x != 0.0 {
+                x = (tmp_real - last_price_x) / last_price_x - shift_x;
+            } else {
+                x = 0_f64 - shift_x;
+            }
+            last_price_x = tmp_real;
+            pkIdx0 = ((({ let _v = i; i += 1; _v }) as i32) & sp.xMask) as usize;
+            tmp_real = (if (pkIdx0 as usize) != pkSlot1 { sp.x_inReal1[(pkIdx0) as usize] } else { pkVal1 });
+            if last_price_y != 0.0 {
+                y = (tmp_real - last_price_y) / last_price_y - shift_y;
+            } else {
+                y = 0_f64 - shift_y;
+            }
+            last_price_y = tmp_real;
+            S_xx += x * x;
+            S_yy += y * y;
+            S_xy += x * y;
+            S_x += x;
+            S_y += y;
+            denom_scale = sp.n * S_xx;
+            denom = denom_scale - S_x * S_x;
+            // Re-anchor and rebuild when the shift has gone stale. The same three
+            // triggers as TA_VAR: the denominator has shrunk below 1e-6 of the scale
+            // it is extracted from; OR the return that just left sat so far from the
+            // shift that its squared term dwarfs what remains; OR at least every 32
+            // windows.
+            //
+            // The outlier trigger earns its multiply and compare here, contrary to
+            // what "returns are stationary" suggests: a bad tick makes one return
+            // enormous, the ordinary ones fall below its ulp and are never really
+            // added, and when it leaves the subtraction takes back a term they were
+            // never part of. The residue is a consistent OFFSET, so the cancellation
+            // trigger above cannot see it -- denom/denom_scale stays ~1 -- and only
+            // the periodic re-anchor recovers, up to 32*period bars later. Measured
+            // without it: a 1e8 tick left 286 of 386 bars wrong, the worst by 0.36
+            // ABSOLUTE. Cost is ~3% and mostly unmeasurable on the bench corpus
+            // (randwalk/GBM/trend-chop), where it fires on 0.00% of bars -- but that
+            // is a corpus figure, not a bound. Isolated against the same body without
+            // the disjunct it is +16-20% on a stale-quote/illiquid series (1.5% fire
+            // rate) and +54-64% on constructed near-flat or gapped shapes (5.1%).
+            // The cost is the reseed it triggers, so it tracks the fire rate; on data
+            // that never triggers it, the compare is free.
+            //
+            // BOTH axes are watched, and the y one is not redundant. The denominator
+            // is x-only, so it is tempting to conclude -- as an earlier draft of this
+            // did -- that a y trigger catches nothing. It catches plenty: the OUTPUT
+            // also reads S_xy and S_y, which a y-side outlier corrupts with nothing on
+            // the x side able to see it. Measured on test_beta_outlier_transit's own
+            // ladder with the spike moved from px to py: 12 of 24 rungs fail without
+            // the second disjunct, worst 156x relative; 0 of 24 with it. The earlier
+            // experiment that found it inert was run on an x-only corpus, where it is
+            // inert by construction. TA_CORREL, fixed by the same #242 work, watches
+            // both from the start; this brings BETA level. S_yy exists only to scale
+            // this test -- nothing else reads it.
+            //
+            // The threshold is 1e3 where TA_VAR uses 1e6, because a return amplifies:
+            // a tick multiplying the price by k puts k-1 into the return and (k-1)^2
+            // into S_xx, so the ratio when that term leaves lands an order or two
+            // below the value-scale case var.c was tuned on. At 1e6 a 1e5 tick slips
+            // through and leaves a flat 2.5e-5 relative error on 285 of 386 bars.
+            // Pinned by test_beta_outlier_transit.
+            //
+            // Reading the window here is safe when outReal aliases an input: the
+            // outputs written so far occupy [0, outIdx-1] while windowStart-1 is
+            // startIdx-optInTimePeriod+outIdx, which is >= outIdx.
+            barsSinceReseed -= 1;
+            if denom < 0.000001 * denom_scale || leaving_xx > 1000.0 * S_xx || leaving_yy > 1000.0 * S_yy || barsSinceReseed <= 0 {
+                barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
+                windowStart = (trailingIdx) as usize;
+                // Walk the window forward from the price the trailing cursor already
+                // carries. A return needs its predecessor, and reading inReal[j-1]
+                // would reach one slot BEFORE the window -- which the batch can do and
+                // a streaming ring sized for the window cannot. trailing_last_price_*
+                // IS that predecessor, so carrying it forward keeps every read inside
+                // [trailingIdx, i-1] and the two paths stay identical.
+                prev_x = trailing_last_price_x;
+                prev_y = trailing_last_price_y;
+                tmp_real = 0.0;
+                shift_y = 0.0;
+                // for( j = (windowStart) as i32; j < i; j += 1 )
+                j = (windowStart) as i32;
+                while j < i {
+                    if prev_x != 0.0 {
+                        tmp_real += ((if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 }) - prev_x) / prev_x;
+                    }
+                    prev_x = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 });
+                    if prev_y != 0.0 {
+                        shift_y += ((if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 }) - prev_y) / prev_y;
+                    }
+                    prev_y = (if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 });
+                    j += 1;
+                }
+                shift_x = tmp_real / sp.n;
+                shift_y = shift_y / sp.n;
+                prev_x = trailing_last_price_x;
+                prev_y = trailing_last_price_y;
+                S_xx = 0.0;
+                S_yy = 0.0;
+                S_xy = 0.0;
+                S_x = 0.0;
+                S_y = 0.0;
+                // for( j = (windowStart) as i32; j < i; j += 1 )
+                j = (windowStart) as i32;
+                while j < i {
+                    if prev_x != 0.0 {
+                        x = ((if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 }) - prev_x) / prev_x - shift_x;
+                    } else {
+                        x = 0_f64 - shift_x;
+                    }
+                    prev_x = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(j & sp.xMask) as usize] } else { pkVal0 });
+                    if prev_y != 0.0 {
+                        y = ((if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 }) - prev_y) / prev_y - shift_y;
+                    } else {
+                        y = 0_f64 - shift_y;
+                    }
+                    prev_y = (if ((j & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(j & sp.xMask) as usize] } else { pkVal1 });
+                    S_xx += x * x;
+                    S_yy += y * y;
+                    S_xy += x * y;
+                    S_x += x;
+                    S_y += y;
+                    j += 1;
+                }
+                denom_scale = sp.n * S_xx;
+                denom = denom_scale - S_x * S_x;
+                // n*S_xx - S_x*S_x is non-negative by Cauchy-Schwarz, but it is
+                // extracted as a difference, so its SIGN is not guaranteed on a window
+                // whose returns are all the same value. Enforce the invariant HERE and
+                // not at the divide: a negative denom always reseeds on the same bar
+                // (it makes the first trigger true whenever denom_scale is positive,
+                // and denom_scale == 0 reduces that trigger to `denom < 0`), so the
+                // divide below can rely on it being >= 0.
+                if denom < 0.0 {
+                    denom = 0.0;
+                }
+            }
+            // Always read the trailing before writing the output because the input and output
+            // buffer can be the same.
+            tmp_real = (if ((trailingIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal0[(trailingIdx & sp.xMask) as usize] } else { pkVal0 });
+            if trailing_last_price_x != 0.0 {
+                x = (tmp_real - trailing_last_price_x) / trailing_last_price_x - shift_x;
+            } else {
+                x = 0_f64 - shift_x;
+            }
+            trailing_last_price_x = tmp_real;
+            tmp_real = (if ((trailingIdx & sp.xMask) as usize) != pkSlot1 { sp.x_inReal1[(trailingIdx & sp.xMask) as usize] } else { pkVal1 });
+            trailingIdx += 1;
+            if trailing_last_price_y != 0.0 {
+                y = (tmp_real - trailing_last_price_y) / trailing_last_price_y - shift_y;
+            } else {
+                y = 0_f64 - shift_y;
+            }
+            trailing_last_price_y = tmp_real;
+            // Write the output.
+            //
+            // The denominator is tested against ITS OWN scale, not a fixed band: it
+            // is quadratic in the return volatility, so an absolute 1e-14 threshold
+            // stops meaning "the regressor does not vary" and starts meaning "the
+            // returns are small". The literal is TA_EPSILON, and the plain `>` also
+            // rejects a negative denominator rather than dividing by it.
+            if denom > 0.00000000000001 * denom_scale {
+                (*outReal) = (sp.n * S_xy - S_x * S_y) / denom;
+            } else {
+                (*outReal) = 0.0;
+            }
+            // Remove the calculation starting with the trailingIdx.
+            leaving_xx = x * x;
+            leaving_yy = y * y;
+            S_xx -= x * x;
+            S_yy -= y * y;
+            S_xy -= x * y;
+            S_x -= x;
+            S_y -= y;
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_BETA_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::BETA`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

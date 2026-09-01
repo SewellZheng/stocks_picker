@@ -6,7 +6,7 @@
 //! check: the transition build panics on a cursor/startIdx leak, so a clean
 //! render proves the analyzer normalizations fired.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::registry::Registry;
@@ -25,6 +25,25 @@ fn load_indicator(name: &str) -> (ir::FuncDef, HashMap<String, ir::EnumDef>) {
     parser::c_source::wire_parsed_source(&mut func, &parsed);
     let enums = parser::enums::load_enums(&input_dir().join("enums.yaml"));
     (func, enums)
+}
+
+/// Every indicator directory whose YAML declares a stream.
+fn streaming_indicators() -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(input_dir())
+        .expect("input dir")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            let yaml = e.path().join(format!("{name}.yaml"));
+            yaml.exists()
+                .then(|| parser::yaml::parse_yaml(&yaml))
+                .filter(|f| f.streaming)
+                .map(|_| name)
+        })
+        .collect();
+    v.sort();
+    v
 }
 
 fn rust_stream_section(name: &str) -> String {
@@ -79,7 +98,8 @@ fn test_rust_sma_ring_stream_section() {
     assert!(s.contains("struct SmaStreamState {"));
     assert!(s.contains("ring_trailingIdx_inReal: Vec<f64>,"));
     assert!(s.contains("ringPos_trailingIdx: usize,"));
-    // The C mirror/peekMode machinery is deleted by design (clone-peek).
+    // Rust's peek copies the handle; no backend carries a mirror or a routing
+    // flag any more, so these hold everywhere rather than marking a difference.
     assert!(!s.contains("Mirror"), "no peek mirrors in the Rust tier");
     assert!(!s.contains("peekMode"), "no peekMode in the Rust tier");
     assert!(!s.contains("unsafe"), "stream sections are safe Rust");
@@ -100,17 +120,12 @@ fn test_rust_sma_ring_stream_section() {
     // Capture: numeric ring cap from live locals + tail copy.
     assert!(s.contains("let cap_trailingIdx: i64 = (i as i64) - (trailingIdx as i64);"));
     assert!(s.contains(".copy_from_slice(&inReal[historyLen - cap_trailingIdx as usize..]);"));
-    // Handle impl: fallible update (non-finite bars are rejected),
-    // scratch-peek, auto-trait pin.
+    // Handle impl: fallible update (non-finite bars are rejected), the peek
+    // frame, auto-trait pin.
     assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
-    // Every state gets the buffer-reusing restore (#201) — a state can be some
-    // other handle's sub — but SMA's own peek does not use it: one ring, no
-    // sub-handle and a loop-free transition is the shape whose stack copy the
-    // optimizer deletes outright, which no scratch can beat.
-    assert!(s.contains("self.ring_trailingIdx_inReal.clone_from(&src.ring_trailingIdx_inReal);"));
     assert!(s.contains("pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {"));
-    assert!(s.contains("let mut scratch = self.clone();"));
-    assert!(s.contains("scratch.update(inReal)"));
+    assert!(s.contains("let sp = &self.state;"));
+    assert!(!s.contains("let mut scratch = self.clone();"));
     assert!(!s.contains("PEEK_SCRATCH"));
     assert!(s.contains("_assert_auto::<SmaStream>();"));
     // Short history is an error, not batch's empty success.
@@ -129,13 +144,8 @@ fn test_rust_ema_scalar_recurrence_stream_section() {
     assert!(s.contains("self.compatibility"));
     // Update returns the bare value.
     assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
-    // No heap in the state, so peek keeps the throwaway copy and no
-    // thread-local scratch is emitted at all (#201).
-    assert!(s.contains("let mut scratch = self.clone();"));
-    assert!(!s.contains("PEEK_SCRATCH"), "a scalar state needs no scratch buffer");
-    // The restore is still emitted: EMA is a sub-stream of several composed
-    // handles, whose own scratch restores through it.
-    assert!(s.contains("fn restore_from(&mut self, src: &Self) {"));
+    // Peek runs a frame against the borrowed state.
+    assert!(s.contains("let sp = &self.state;"));
 }
 
 #[test]
@@ -161,33 +171,9 @@ fn test_rust_cdldoji_candle_settings_and_int_output() {
     // point of that work. This assertion named `_inOpen`/`_inClose` until then,
     // and the collapse left it matching nothing.
     assert!(s.contains("ring_BodyDojiTrailingIdx_derived"));
-    // #201 gave `peek` a per-thread scratch wherever copying a handle really
-    // allocates — `StateShape::scratch_pays()`, `buffers >= 2 || subs >= 2 ||
-    // banks >= 1`. CDLDOJI used to qualify on four per-OHLC ring buffers.
-    //
-    // #229 then collapsed those four into one derived ring, which drops the
-    // handle to a SINGLE buffer, so the election no longer fires and `peek` is a
-    // plain clone again. That is a behaviour change, not a rename: twelve
-    // functions crossed the threshold (cdl2crows, cdlbreakaway, cdldarkcloudcover,
-    // cdldoji, cdlhikkakemod, cdlladderbottom, cdlmatchinglow, cdlspinningtop,
-    // cdlsticksandwich, cdltasukigap, cdltristar, qstick), consistently in Rust
-    // and Java, and their peek went from zero allocations per call after warm-up
-    // to one — against a clone a quarter the size. That trade is a CONSEQUENCE of
-    // #229 rather than a decision it recorded.
-    //
-    // Measured, so nobody has to re-derive the worry from the mechanism:
-    // CDLDOJI peek is 27.7 ns/call before the collapse and 27.1 ns/call after
-    // (best of 4 alternating passes) — a 2% gap inside a 5–28% run-to-run
-    // spread, i.e. no difference this machine can resolve. The extra
-    // allocation is paid for by the smaller copy. That is evidence it is not
-    // a regression on the shape that prompted the question, not evidence the
-    // trade is free on every shape.
-    //
-    // Asserted in both directions on purpose: the absence check alone would start
-    // passing for free the day the emitter stopped naming the scratch at all.
-    assert!(!s.contains("CDLDOJI_PEEK_SCRATCH"));
-    assert!(s.contains("let mut scratch = self.clone();"));
-    assert!(s.contains("scratch.update(inOpen, inHigh, inLow, inClose)"));
+    // The frame reads the settings the handle snapshotted, not a step parameter.
+    assert!(s.contains("let sp = &self.state;"));
+    assert!(s.contains("self.cs_body_doji"));
 }
 
 #[test]
@@ -492,6 +478,114 @@ fn rust_composed_copy_out_is_stride_guarded() {
     assert!(
         s.contains("let last_sc_outReal = sc_outReal[*outNBElement - 1];"),
         "scalar arm lifts the last value out before the borrow ends"
+    );
+}
+
+/// The handle's fixed-size accumulator fields: a `[f64; N]` member.
+fn rust_accumulator_fields(section: &str) -> BTreeSet<String> {
+    section
+        .lines()
+        .filter_map(|l| l.trim_end().strip_suffix(','))
+        .filter_map(|d| d.trim().split_once(": "))
+        .filter(|(n, t)| {
+            t.starts_with("[f64;") && n.chars().all(|c| c.is_alphanumeric() || c == '_')
+        })
+        .map(|(n, _)| n.to_string())
+        .collect()
+}
+
+/// A store `validate_peekable` refuses: a compound one, which renders as a
+/// store reading its own target. A refusal drops the whole function back to the
+/// narrow set, so one such store justifies every copy in it. The other two
+/// refusals (a store in a loop, a counter-moving index) have no instance here;
+/// one would surface as an offender below rather than be waved through.
+fn rust_refused_accumulator_store(body: &str, fields: &BTreeSet<String>) -> bool {
+    body.lines().any(|l| {
+        l.split_once('=').is_some_and(|(lhs, rhs)| {
+            // `!rhs.starts_with('=')`: `X[i] == X[j]` splits the same way a store
+            // does, and comparing two slots is not a store into either.
+            lhs.trim_end().ends_with(']')
+                && !rhs.starts_with('=')
+                && fields.iter().any(|f| {
+                    let sub = format!("{f}[");
+                    lhs.contains(&sub) && rhs.contains(&sub)
+                })
+        })
+    })
+}
+
+/// No tier copies a handle to peek it — swept over the whole corpus.
+///
+/// The property is structural, not a value one: a peek that copied and then
+/// wrote the copy would still answer correctly, so no value gate can see it.
+/// What it costs is the thing the frame exists to buy — a peek whose cost does
+/// not grow with the period — and the only place that is visible is here.
+///
+/// The accumulator half pins Rust's share of a decision that must be identical
+/// in all four backends; the other three sweeps cannot see a Rust-only
+/// regression, and no runtime gate can (the stores are dead).
+#[test]
+fn no_rust_peek_copies_the_handle() {
+    let mut swept = 0usize;
+    let mut frames = 0usize;
+    let mut localized = 0usize;
+    let mut fully_shadowed: BTreeSet<String> = BTreeSet::new();
+    let mut offenders: Vec<String> = Vec::new();
+    for name in streaming_indicators() {
+        let s = rust_stream_section(&name);
+        let Some(at) = s.find("    pub fn peek(&self") else { continue };
+        let end = s[at..].find("\n    }").map_or(s.len(), |k| at + k);
+        let peek = &s[at..end];
+        swept += 1;
+        if peek.contains("let sp = &self.state;") {
+            frames += 1;
+        }
+        for needle in ["self.clone()", "self.state.clone()", "PEEK_SCRATCH", "restore_from"] {
+            if peek.contains(needle) {
+                offenders.push(format!("{name}: {needle}"));
+            }
+        }
+        let accs = rust_accumulator_fields(&s);
+        let held: BTreeSet<String> = accs
+            .iter()
+            .filter(|f| peek.contains(&format!("let mut {f} = sp.{f};")))
+            .cloned()
+            .collect();
+        localized += held.len();
+        if !held.is_empty() && !rust_refused_accumulator_store(peek, &accs) {
+            offenders.push(format!(
+                "{name}: localizes {held:?} but no accumulator store is refusable"
+            ));
+        }
+        // The frame must TOUCH an accumulator: a field it never names is
+        // evidence either way.
+        if held.is_empty() && accs.iter().any(|f| peek.contains(&format!("{f}["))) {
+            fully_shadowed.insert(name.clone());
+        }
+    }
+    assert!(swept > 170, "only {swept} peek(s) swept");
+    assert!(
+        frames == swept,
+        "{} of {swept} peek(s) run a frame — the rest copy something",
+        frames
+    );
+    // Both sides of the split are floored, because the corpus has both and a
+    // sweep that stopped finding either would read green while measuring one.
+    assert!(
+        localized >= 1,
+        "no accumulator is still localized, so the refusal arm above is untested"
+    );
+    assert!(
+        fully_shadowed.len() >= 7,
+        "only {} handle(s) hold an accumulator the frame localizes none of — Rust has \
+         fallen back to the narrow buffer set while the other three did not, which is \
+         exactly the per-backend divergence the widened set must never have",
+        fully_shadowed.len()
+    );
+    assert!(
+        offenders.is_empty(),
+        "a peek copies the handle:\n{}",
+        offenders.join("\n")
     );
 }
 

@@ -247,20 +247,17 @@ TA_RetCode TA_S_ADXR( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_ADXR_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_ADXR_Value). */
+   double cur_outReal;
    int optInTimePeriod;
-   /* Peek runs the SAME step body on a scratch copy; sub handles are
-    * heap pointers a struct copy cannot clone, so the copy carries this
-    * flag and the step calls sub-Peek instead of sub-Update. */
-   int peekMode;
    TA_ADX_Stream *sub0;
    int lagRingPos_adx;
    int lagRingCap_adx;
    double *lagRing_adx;
-   double *lagRingMirror_adx;
 };
 
 /* Private function, not in public API. */
@@ -272,11 +269,7 @@ static TA_RetCode TA_ADXR_StepImpl( struct TA_ADXR_Stream *sp, double inHigh, do
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {
-      TA_RetCode subRc;
-      if( sp->peekMode )
-         subRc = TA_ADX_Peek( (const TA_ADX_Stream *)sp->sub0, inHigh, inLow, inClose, &cur_adx );
-      else
-         subRc = TA_ADX_Update( sp->sub0, inHigh, inLow, inClose, &cur_adx );
+      TA_RetCode subRc = TA_ADX_Update( sp->sub0, inHigh, inLow, inClose, &cur_adx );
       if( subRc != TA_SUCCESS ) return subRc;
    }
    /* Combine map (batch tail, per bar). */
@@ -411,8 +404,6 @@ static TA_RetCode TA_ADXR_OpenImpl( struct TA_ADXR_Stream **stream, const double
       sp->lagRingCap_adx = optInTimePeriod - 1;
       sp->lagRing_adx = (double *)TA_Malloc( sizeof(double) * (size_t)sp->lagRingCap_adx );
       if( !sp->lagRing_adx ) { TA_Free( sp ); free( adx ); TA_ADX_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
-      sp->lagRingMirror_adx = (double *)TA_Malloc( sizeof(double) * (size_t)sp->lagRingCap_adx );
-      if( !sp->lagRingMirror_adx ) { TA_Free( sp->lagRing_adx ); TA_Free( sp ); free( adx ); TA_ADX_Close( sub0 ); if( !outStride ) TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
       {
          int lagI;
          for( lagI = 0; lagI < sp->lagRingCap_adx; lagI++ )
@@ -427,6 +418,7 @@ static TA_RetCode TA_ADXR_OpenImpl( struct TA_ADXR_Stream **stream, const double
       if( !outStride ) TA_Free( sc_outReal );
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -479,9 +471,14 @@ TA_LIB_API TA_RetCode TA_ADXR_Update( TA_ADXR_Stream *stream, double inHigh, dou
    TA_RetCode retCode;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    retCode = TA_ADXR_StepImpl( stream, inHigh, inLow, inClose, outReal );
    if( retCode != TA_SUCCESS ) return retCode;
+   stream->cur_outReal = *outReal;
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
@@ -489,14 +486,23 @@ TA_LIB_API TA_RetCode TA_ADXR_Update( TA_ADXR_Stream *stream, double inHigh, dou
 TA_LIB_API TA_RetCode TA_ADXR_Peek( const TA_ADXR_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    struct TA_ADXR_Stream scratch;
+   struct TA_ADXR_Stream *sp = &scratch;
+   double cur_adx = 0.0;
+   double cur_outReal = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   memcpy( scratch.lagRingMirror_adx, stream->lagRing_adx, sizeof(double) * (size_t)stream->lagRingCap_adx );
-   scratch.lagRing_adx = scratch.lagRingMirror_adx;
-   scratch.peekMode = 1;
-   return TA_ADXR_StepImpl( &scratch, inHigh, inLow, inClose, outReal );
+
+   /* Pipeline the new bar through the sub-streams (batch tail order). */
+   {
+      TA_RetCode subRc = TA_ADX_Peek( (const TA_ADX_Stream *)sp->sub0, inHigh, inLow, inClose, &cur_adx );
+      if( subRc != TA_SUCCESS ) return subRc;
+   }
+   /* Combine map (batch tail, per bar). */
+   cur_outReal = ((cur_adx + sp->lagRing_adx[sp->lagRingPos_adx]) / 2.0);
+   *outReal = cur_outReal;
+   return TA_SUCCESS;
 }
 
 TA_LIB_API TA_RetCode TA_ADXR_UpdateAndFill( TA_ADXR_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outReal[] )
@@ -509,9 +515,14 @@ TA_LIB_API TA_RetCode TA_ADXR_UpdateAndFill( TA_ADXR_Stream *stream, const doubl
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       retCode = TA_ADXR_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outReal[i] );
       if( retCode != TA_SUCCESS ) return retCode;
+      stream->cur_outReal = outReal[i];
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
    return TA_SUCCESS;
@@ -522,8 +533,38 @@ TA_LIB_API TA_RetCode TA_ADXR_Close( TA_ADXR_Stream *stream )
    if( !stream ) return TA_SUCCESS;
    TA_ADX_Close( stream->sub0 );
    TA_Free( stream->lagRing_adx );
-   TA_Free( stream->lagRingMirror_adx );
    TA_Free( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_ADXR_Value( const TA_ADXR_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_ADXR_Clone( const TA_ADXR_Stream *stream, TA_ADXR_Stream **clone )
+{
+   struct TA_ADXR_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_ADXR_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->lagRing_adx = NULL;
+   sp->sub0 = NULL;
+   if( stream->lagRing_adx )
+   { size_t copyN = (size_t)sp->lagRingCap_adx;
+     sp->lagRing_adx = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->lagRing_adx ) { TA_ADXR_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->lagRing_adx, stream->lagRing_adx, sizeof(double) * copyN ); }
+   if( stream->sub0 )
+   { TA_RetCode subRc = TA_ADX_Clone( stream->sub0, &sp->sub0 );
+     if( subRc != TA_SUCCESS ) { TA_ADXR_Close( sp ); return subRc; } }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

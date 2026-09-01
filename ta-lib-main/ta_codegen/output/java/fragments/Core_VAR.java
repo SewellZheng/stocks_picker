@@ -484,11 +484,11 @@
     * Open with {@link Core#varOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -515,12 +515,13 @@
       VarStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#VAR} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -547,46 +548,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( VarStream other ) {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.optInNbDev = other.optInNbDev;
-         this.shift = other.shift;
-         this.periodTotal1 = other.periodTotal1;
-         this.periodTotal2 = other.periodTotal2;
-         this.invPeriod = other.invPeriod;
-         this.trailingIdx = other.trailingIdx;
-         this.nbInitialElementNeeded = other.nbInitialElementNeeded;
-         this.barsSinceReseed = other.barsSinceReseed;
-         this.j = other.j;
-         this.windowStart = other.windowStart;
-         this.i = other.i;
-         this.xMask = other.xMask;
-         if( this.x_inReal != null && this.x_inReal.length == other.x_inReal.length ) {
-            System.arraycopy( other.x_inReal, 0, this.x_inReal, 0, other.x_inReal.length );
-         } else {
-            this.x_inReal = other.x_inReal.clone();
-         }
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) )
+         if( !Double.isFinite(inReal) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("VAR update: BadParam", RetCode.BadParam);
+         }
          core.varStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -598,11 +580,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inReal.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
          requireArgument("VAR updateAndFill", "inReal", inReal);
@@ -611,8 +594,10 @@
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("VAR updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) )
+            if( !Double.isFinite(inReal[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("VAR updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.varStepImpl(this, inReal[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -621,22 +606,154 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a throwaway copy, which for this
-       * handle's shape is cheaper than reusing one.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("VAR peek: BadParam", RetCode.BadParam);
-         VarStream scratch = new VarStream(this);
-         core.varStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         VarStream sp = this;
+         double tempReal = 0.0;
+         double meanValue1 = 0.0;
+         double variance = 0.0;
+         int barsSinceReseed = sp.barsSinceReseed;
+         double cur_outReal = sp.cur_outReal;
+         int i = sp.i;
+         int j = sp.j;
+         double periodTotal1 = sp.periodTotal1;
+         double periodTotal2 = sp.periodTotal2;
+         double shift = sp.shift;
+         int trailingIdx = sp.trailingIdx;
+         int windowStart = sp.windowStart;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         if( i >= 1073741824 ) {
+            int rebaseShift = trailingIdx & ~sp.xMask;
+            i -= rebaseShift;
+            trailingIdx -= rebaseShift;
+            j -= rebaseShift;
+            windowStart -= rebaseShift;
+         }
+         pkSlot0 = i & sp.xMask;
+         pkVal0 = inReal;
+         /* Add the incoming value, measured against the shift. */
+         tempReal = (((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0) - shift;
+         periodTotal1 += tempReal;
+         tempReal *= tempReal;
+         periodTotal2 += tempReal;
+         meanValue1 = periodTotal1 * sp.invPeriod;
+         variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+         /* Remove the trailing value (prepares the next window). */
+         tempReal = (((trailingIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[trailingIdx & sp.xMask] : pkVal0) - shift;
+         periodTotal1 -= tempReal;
+         tempReal *= tempReal;
+         periodTotal2 -= tempReal;
+         trailingIdx += 1;
+         /* Re-anchor the shift and rebuild the running sums with a fresh two-pass
+          * when the shift is stale enough that the subtraction loses digits - i.e.
+          * the variance has shrunk below 1e-6 of the mean squared deviation it is
+          * extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
+          * 2e-10, so partial cancellation, not just total collapse, is caught); OR
+          * when the value just removed sat so far from the shift that its squared term
+          * (tempReal) dwarfs the surviving sum (a large outlier passing through the
+          * window buries the small terms below its ulp, and the residual left when it
+          * leaves is cancellation garbage); OR at least every 32 windows so a slow
+          * drift stays bounded regardless of the series length. The strict `<` also
+          * leaves an exactly-constant window (variance 0, scale 0) alone instead of
+          * reseeding it every bar. Guarantees a non-negative output.
+          */
+         barsSinceReseed -= 1;
+         if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
+            barsSinceReseed = 32 * sp.optInTimePeriod;
+            windowStart = i - sp.nbInitialElementNeeded;
+            tempReal = 0.0;
+            for( j = windowStart; j <= i; j += 1 ) {
+               tempReal += ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
+            }
+            shift = tempReal * sp.invPeriod;
+            periodTotal1 = 0.0;
+            periodTotal2 = 0.0;
+            for( j = windowStart; j <= i; j += 1 ) {
+               tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
+               periodTotal1 += tempReal;
+               tempReal *= tempReal;
+               periodTotal2 += tempReal;
+            }
+            meanValue1 = periodTotal1 * sp.invPeriod;
+            variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            /* Floor the fresh figure at the same ratio the trigger above uses, now
+             * measured against the RE-ANCHORED sums. With the shift AT the window
+             * mean the deviations sum to ~0, so a real window has variance ~
+             * periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+             * only when every deviation is the same value, i.e. when the spread is
+             * at or under the rounding error of the mean itself. There is then no
+             * spread the anchor could resolve, the surviving digits are noise, and
+             * the honest answer is 0.
+             *
+             * The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+             * difference is load-bearing. periodTotal2*invPeriod is not the
+             * variance here: it is variance + e^2, where e is the rounding error of
+             * the reseed's own left-to-right sum for the mean -- exactly the term
+             * the two-pass subtraction then cancels out. So the ratio measures how
+             * badly that sum rounded, not how much signal survives, and matching
+             * the trigger's 1e-6 fired ten orders before cancellation eats any
+             * digits. It zeroed a variance the line above had just computed to nine
+             * correct significant figures: 100011 bars at 31498938283.624615 with
+             * two small outliers at period 99991 gives 1.0219900060103338e-09
+             * (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+             * survives and every intended bit-zero still zeroes -- the live ratios
+             * on flat data are 0 or ~1e-16, six orders the other side.
+             *
+             * This is the ONE dead-zone in the var/stddev/bbands family, and it is
+             * relative rather than the `variance < 0.0` it replaced because two
+             * things ride on it:
+             *
+             *  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+             *    side is >= 0 and any negative variance is clamped unconditionally -
+             *    where `< 0.0` needed the three-case argument below to know that a
+             *    negative one ever reaches this line.
+             *  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+             *    anything under a fixed TA_EPSILON first. That compares a SQUARED
+             *    quantity to 1e-14, which is a cliff at a price level and not a
+             *    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+             *    variance around 1e-16 and came back exactly 0 on every bar (#243).
+             *    Expressed here in the window's own units, the floor lets both of
+             *    them square-root what they are handed unconditionally.
+             *
+             * Clamping HERE and not at the output write is what keeps this off the
+             * per-bar path, and it is sufficient because a negative variance always
+             * reseeds on the same bar - the guard above covers all three cases:
+             * periodTotal2 > 0 makes its first disjunct `negative < positive`;
+             * periodTotal2 < 0 makes the second disjunct's right side negative,
+             * which the squared tempReal always exceeds; periodTotal2 == 0 reduces
+             * the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
+             * THIS - the alternative is an unconditional clamp at the output write,
+             * which needs no such argument but does cost ~3%.
+             */
+            if( variance < 0.000000000001 * (periodTotal2 * sp.invPeriod) ) {
+               variance = 0.0;
+            }
+            /* Re-remove the trailing value under the new shift so the carried state
+             * matches the non-reseed path.
+             */
+            tempReal = (((windowStart & sp.xMask) != pkSlot0) ? sp.x_inReal[windowStart & sp.xMask] : pkVal0) - shift;
+            periodTotal1 -= tempReal;
+            tempReal *= tempReal;
+            periodTotal2 -= tempReal;
+         }
+         cur_outReal = variance;
+         i += 1;
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -644,10 +761,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public VarStream copy() {
+      @Override
+      public VarStream clone() {
          return new VarStream(this);
       }
    }

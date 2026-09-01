@@ -17,12 +17,10 @@
 //! expression text is hand-built outside the shared renderers.
 //!
 //! Deliberate simplifications vs the C emitter (see design spec):
-//! - `peek(&self)` = `update` on a scratch copy of the state. No `peekMode`
-//!   flag threaded through the transition, and the handle is never written —
-//!   which is what keeps the signature `&self` and the handle `Sync`. A state
-//!   that owns no heap buffer is copied onto the stack; one that does is
-//!   restored into a reused thread-local scratch, so a peek calls the
-//!   allocator only the first time that thread peeks that function (#201).
+//! - `peek(&self)` runs a second frame of the transition that commits nothing,
+//!   as C does. The handle is never written — which is what keeps the signature
+//!   `&self` and the handle `Sync` — and no buffer is copied, so the cost is
+//!   flat in the period.
 //! - Drop replaces Close; RAII replaces every OOM-unwind ladder.
 //! - `historyLen` is the FIRST input slice's length: empty is
 //!   `Err(OutOfRangeStartIndex)` (rule S1), and a multi-input open additionally
@@ -268,6 +266,7 @@ fn build_typing_from(func: &FuncDef, body: &[Statement], models: &[&StreamModel]
 
     Typing {
         ctx: RustRenderCtx {
+            for_range_lowering: true,
             bounds_asserts: false,
             index_vars,
             real_vars,
@@ -284,6 +283,7 @@ fn build_typing_from(func: &FuncDef, body: &[Statement], models: &[&StreamModel]
             enum_vars: super::rust_lang::enum_local_types(func),
             circbuf_hybrid_static: HashMap::new(),
             nullable_outputs: HashSet::new(),
+            nullable_shadow: false,
         },
         extrema_i32,
     }
@@ -528,7 +528,7 @@ fn emit_loop(
     counter: &Cell<usize>,
 ) {
     let typing = build_typing(func, model);
-    let shape = emit_handle_and_state_structs(o, func, model, &typing);
+    emit_handle_and_state_structs(o, func, model, &typing);
 
     let _ = writeln!(o, "{IMPL_ALLOW}impl Core {{");
     emit_step(o, func, model, &typing, enums, registry, helpers, counter);
@@ -539,7 +539,9 @@ fn emit_loop(
     emit_open_and_fill_internal_wrapper(o, func, enums);
     let _ = writeln!(o, "}}\n");
 
-    emit_update_and_peek(o, func, shape, false);
+    let ctx = build_step_ctx(func, &[model], &typing);
+    let frame = build_peek_frame(func, model, &typing, &ctx, enums, registry, helpers, counter);
+    emit_update_and_peek(o, func, false, frame.as_deref());
     emit_trait_pin(o, func);
 }
 
@@ -850,9 +852,9 @@ fn emit_handle_and_state_structs(
     func: &FuncDef,
     model: &StreamModel,
     typing: &Typing,
-) -> StateShape {
+) {
     emit_handle_struct(o, func);
-    emit_state_struct_from(o, func, &state_fields(func, model, typing))
+    emit_state_struct_from(o, func, &state_fields(func, model, typing));
 }
 
 /// The public opaque handle struct (identical for every tier).
@@ -866,7 +868,6 @@ fn emit_handle_struct(o: &mut String, func: &FuncDef) {
     // reads none (issue #274). Ahead of `state`, so the fields a step touches
     // every bar sit together at the front of the handle.
     let mut cs_fields = String::new();
-    let mut cs_restore = String::new();
     for setting in &settings {
         let field = cs_binding(setting);
         let _ = write!(
@@ -874,7 +875,6 @@ fn emit_handle_struct(o: &mut String, func: &FuncDef) {
             "    /// The `{setting}` setting this stream was opened with.\n\
              \x20   {field}: CandleSetting,\n"
         );
-        let _ = writeln!(cs_restore, "        self.{field} = src.{field};");
     }
     let _ = writeln!(
         o,
@@ -882,130 +882,98 @@ fn emit_handle_struct(o: &mut String, func: &FuncDef) {
          /// over the same series. Open with [`Core::{sn}_open`]; dropping the handle\n\
          /// closes the stream. Cloning it forks an independent stream.\n\
          ///\n\
-         /// [`Self::out_range`] reports the bars it has produced a value for.\n\
+         /// [`Self::out_range`] reports the bars this handle has an output for.\n\
          #[must_use = \"a stream does nothing unless updated; dropping it closes the stream\"]\n\
          #[derive(Debug, Clone)]\n\
          #[doc(alias = \"TA_{n}_Stream\")]\n\
          pub struct {handle} {{\n{cs_fields}    state: {state},\n\
-         \x20   /// The bars this handle has produced a value for — see [`Self::out_range`].\n\
+         \x20   /// The bars this handle has an output for — see [`Self::out_range`].\n\
          \x20   out: OutRange,\n}}\n"
     );
-    // The handle's half of the scratch restore: only a handle embedded in
-    // another handle's state (a composed sub, a dispatch arm, a period bank
-    // slot) reaches it, so most functions never call their own.
-    let _ = writeln!(
-        o,
-        "#[allow(dead_code)]\nimpl {handle} {{\n\
-         \x20   /// Overwrite from `src`, reusing this handle's buffers instead of\n\
-         \x20   /// allocating new ones. See `{state}::restore_from`.\n\
-         \x20   pub(crate) fn restore_from(&mut self, src: &Self) {{\n\
-         {cs_restore}\
-         \x20       self.state.restore_from(&src.state);\n\
-         \x20       self.out = src.out;\n\
-         \x20   }}\n}}\n"
-    );
 }
 
-/// Whether a state field's type owns a heap allocation — i.e. whether cloning
-/// it calls the allocator. The ring/window buffers, the sub-handles and the
-/// dispatch sub-enum do; every scalar, index and enum parameter does not.
-fn field_owns_heap(rty: &str) -> bool {
-    rty.starts_with("Vec<") || rty.ends_with("Stream") || rty.ends_with("Sub")
-}
 
-/// What a state costs to copy, counted by kind — the input to the choice
-/// between `peek`'s two scratches.
-#[derive(Clone, Copy, Default)]
-struct StateShape {
-    /// `Vec<f64>` fields: the rings, windows and CIRCBUFs.
-    buffers: usize,
-    /// Sub-handles and the dispatch sub-enum: each owns a `Core` and a state.
-    subs: usize,
-    /// A period bank: one `Vec` plus a sub-handle per slot, so its clone is
-    /// unbounded in the number of allocations and never a candidate for the
-    /// fold that makes a single buffer free.
-    banks: usize,
-}
 
-impl StateShape {
-    /// Whether the state owns anything on the heap — a buffer, a sub-handle or
-    /// a bank. It is what separates a declined function whose copy is a few
-    /// machine words from one whose copy is only free if the optimizer says so.
-    fn owns_heap(self) -> bool {
-        self.buffers + self.subs + self.banks > 0
+/// `cur_<output>` initializer pairs at their zero default, for a state literal
+/// built somewhere the produced value is not in scope. Every such site is
+/// followed by a seed from the opener's own last value; the default only has to
+/// make the literal total.
+fn cur_ctor_defaults(func: &FuncDef, sep: &str) -> String {
+    let mut t = String::new();
+    // A multi-line literal is rendered one field per line at the struct's own
+    // indent; an inline one is spliced between braces and takes no indent.
+    let pad = if sep == "\n" { "            " } else { "" };
+    for (name, _, d) in cur_state_fields(func) {
+        let _ = write!(t, "{pad}{name}: {d},{sep}");
     }
-
-    /// Whether `peek` should reuse a thread-local scratch rather than keep the
-    /// throwaway copy every function used before #201.
-    ///
-    /// The throwaway is a local that dies at the end of `peek`, which leaves
-    /// the optimizer free to delete the clone outright and read the original
-    /// instead — and it does: `SUM::peek` measures 0.4 ns and `SMA::peek`
-    /// 1.0 ns, both under their own `update`, which a real clone cannot be.
-    /// A reused scratch has to survive the call, so it can never be deleted;
-    /// where the deletion was happening, reusing costs several nanoseconds
-    /// instead of saving them.
-    ///
-    /// So the test is not "does this allocate" but "would the allocation
-    /// survive optimization anyway". A single buffer read at fixed indices is
-    /// exactly the shape that gets folded away; two buffers, two sub-handles,
-    /// or a bank of them is not — the clone is then several allocations deep,
-    /// and no build in this tree has been seen to remove one.
-    ///
-    /// Deliberately conservative, because the two errors are not symmetric.
-    /// Declining a function that would have gained costs a win. Selecting one
-    /// whose clone the optimizer was already deleting makes it *slower than
-    /// the previous release* — and which functions those are is a property of
-    /// the compiler, so it moves with toolchain and target. Everything this
-    /// declines emits `peek` byte-identical to before, and cannot regress on
-    /// any of them (#201).
-    ///
-    /// To re-check the line on a new toolchain, no A/B is needed: a handle that
-    /// owns a buffer cannot be *cloned* faster than its own `update`, so any
-    /// function whose `peek` beats its `update` is one whose clone is already
-    /// being folded away. `stream_ab.py --call=peek` and `--call=update` over a
-    /// single revision names that set; it must stay inside what this declines.
-    /// Sufficient, not necessary — a partly folded clone can still sit above
-    /// `update` — so it bounds the risk rather than proving its absence.
-    ///
-    /// One shape looks like an oversight and is not: a single buffer *plus* a
-    /// sub-handle is declined, though that clone is two allocations deep and
-    /// the rationale above would take it. `ADXR` is the case, and selecting it
-    /// measured **+128%** — its clone is folded in practice, nested handle and
-    /// all. Widening to `buffers + subs >= 2` reinstates that regression.
-    fn scratch_pays(self) -> bool {
-        self.buffers >= 2 || self.subs >= 2 || self.banks >= 1
+    t
+}
+/// The `cur_<output>` initializer lines for a capture literal: the value(s) the
+/// opener just produced, so `value()` is right the instant the handle exists.
+fn cur_capture_fields(func: &FuncDef, typing: &Typing) -> String {
+    let nullable = super::common::nullable_output_names(func);
+    let mut t = String::new();
+    for out in &func.outputs {
+        let name = &out.name;
+        if nullable.contains(name) {
+            // No slot to read: a declinable output's array may be absent.
+            // `lastCur_<name>` is the transcribed open loop's own shadow of
+            // the guarded store (`nullable_shadow`), computed every
+            // iteration regardless of decline — matching what an Update
+            // recomputes, so `Open(P)+updates` and `Open(n)` agree.
+            let _ = writeln!(t, "            cur_{name}: lastCur_{name},");
+        } else if typing.ctx.vec_vars.contains(&format!("sc_{name}")) {
+            // A composed producer holds the caller's slice through the stride
+            // alias, so the output name itself is mutably borrowed here.
+            let _ = writeln!(t, "            cur_{name}: sc_{name}[*outNBElement - 1],");
+        } else {
+            let _ = writeln!(
+                t,
+                "            cur_{name}: {name}[(*outNBElement - 1) * outStride],"
+            );
+        }
     }
+    t
 }
 
-/// The private state struct from a prebuilt (name, rust_type, default) list,
-/// plus its `restore_from`. Returns the state's copy shape, which is what
-/// decides which scratch `peek` uses.
-fn emit_state_struct_from(
-    o: &mut String,
-    func: &FuncDef,
-    fields: &[(String, String, String)],
-) -> StateShape {
-    let state = state_type_name(func);
-    emit_state_struct_decl(o, &state, fields, &[]);
-    emit_state_restore(o, &state, fields)
+/// The private state struct from a prebuilt (name, rust_type, default) list.
+fn emit_state_struct_from(o: &mut String, func: &FuncDef, fields: &[(String, String, String)]) {
+    emit_state_struct_decl(o, func, &state_type_name(func), fields, &[]);
+}
+
+/// The `cur_<output>` field list — the value(s) at the last bar the stream
+/// counted, handed back by `value()`. Appended by every tier's state struct
+/// through the one declaration funnel, so a tier cannot be added without them.
+///
+/// Distinct from `lastOut_` even where both exist (DX): that one is the
+/// PREVIOUS bar's output, read by the body while computing this one.
+fn cur_state_fields(func: &FuncDef) -> Vec<(String, String, String)> {
+    func.outputs
+        .iter()
+        .map(|out| {
+            let t = out_rust_type(func, &out.name);
+            let d = if t == "i32" { "0_i32" } else { "0.0_f64" };
+            (format!("cur_{}", out.name), t.to_string(), d.to_string())
+        })
+        .collect()
 }
 
 /// `struct <State> { .. }` from a field list, with an optional comment line
 /// before named fields.
 ///
-/// Every tier declares its state through here and restores it through
-/// [`emit_state_restore`], from the SAME slice. A field that exists in the
-/// struct but not in the restore would leave the peek scratch holding the
-/// previous peek's value for it — a wrong answer with no compile error, and
-/// the two tiers that build their field list by hand (dispatch, period bank)
-/// are one edit away from it if the two ever read from different places.
+/// Every tier declares its state through here, so the two that build their
+/// field list by hand (dispatch, period bank) render it the same way as the
+/// rest.
 fn emit_state_struct_decl(
     o: &mut String,
+    func: &FuncDef,
     state: &str,
     fields: &[(String, String, String)],
     comments: &[(&str, String)],
 ) {
+    let owned: Vec<(String, String, String)> =
+        fields.iter().cloned().chain(cur_state_fields(func)).collect();
+    let fields = &owned[..];
     let _ = writeln!(o, "#[derive(Debug, Clone)]\n#[allow(non_snake_case, dead_code)]\nstruct {state} {{");
     for (name, rty, _) in fields {
         for (field, text) in comments {
@@ -1018,63 +986,6 @@ fn emit_state_struct_decl(
     let _ = writeln!(o, "}}\n");
 }
 
-/// `impl <State> { fn restore_from(&mut self, src: &Self) }` — a field-wise
-/// overwrite that reuses whatever this value already owns: `Vec::clone_from`
-/// keeps the existing allocation when the capacity fits, and a nested handle
-/// recurses into its own `restore_from`. It is `clone` with the allocator
-/// taken out of the loop, which is the whole point of the peek scratch.
-///
-/// Returns the state's copy shape.
-fn emit_state_restore(
-    o: &mut String,
-    state: &str,
-    fields: &[(String, String, String)],
-) -> StateShape {
-    let mut shape = StateShape::default();
-    let mut body = String::new();
-    for (name, rty, _) in fields {
-        if let Some(inner) = rty.strip_prefix("Vec<").and_then(|t| t.strip_suffix('>')) {
-            if inner.ends_with("Stream") {
-                shape.banks += 1;
-            } else {
-                shape.buffers += 1;
-            }
-        } else if field_owns_heap(rty) {
-            shape.subs += 1;
-        }
-        if let Some(inner) = rty.strip_prefix("Vec<").and_then(|t| t.strip_suffix('>')) {
-            if inner.ends_with("Stream") {
-                // A bank of sub-handles: same length in practice (the scratch
-                // serves one handle at a time), so restore in place and only
-                // rebuild the Vec when a differently-shaped handle peeks.
-                let _ = writeln!(
-                    &mut body,
-                    "        if self.{name}.len() == src.{name}.len() {{\n\
-                     \x20           for (dst, s) in self.{name}.iter_mut().zip(src.{name}.iter()) {{\n\
-                     \x20               dst.restore_from(s);\n\
-                     \x20           }}\n\
-                     \x20       }} else {{\n\
-                     \x20           self.{name}.clone_from(&src.{name});\n\
-                     \x20       }}"
-                );
-                continue;
-            }
-            let _ = writeln!(&mut body, "        self.{name}.clone_from(&src.{name});");
-        } else if field_owns_heap(rty) {
-            let _ = writeln!(&mut body, "        self.{name}.restore_from(&src.{name});");
-        } else {
-            let _ = writeln!(&mut body, "        self.{name} = src.{name};");
-        }
-    }
-    let _ = writeln!(
-        o,
-        "#[allow(non_snake_case, dead_code)]\nimpl {state} {{\n\
-         \x20   /// Overwrite every field from `src`, reusing this value's buffers\n\
-         \x20   /// instead of allocating new ones — `peek`'s scratch restore.\n\
-         \x20   fn restore_from(&mut self, src: &Self) {{\n{body}    }}\n}}\n"
-    );
-    shape
-}
 
 // ---------------------------------------------------------------------------
 // StepImpl
@@ -1174,18 +1085,371 @@ fn build_step_ctx(func: &FuncDef, models: &[&StreamModel], typing: &Typing) -> R
 /// whatever it is handed. A handle cannot do that, because its state is
 /// retained: one non-finite bar poisons every recursive accumulator in it for
 /// the rest of its life, long after the feed recovers.
-fn finite_bar_check(func: &FuncDef, indent: &str) -> String {
+///
+/// `advance` belongs to the committing entry points only: the rejected bar is
+/// still a bar and is still counted, but `peek` takes `&self` and must count
+/// nothing — pass `false` there and the borrow checker keeps it honest.
+fn finite_bar_check(func: &FuncDef, indent: &str, advance: bool) -> String {
     let bars = streaming::input_array_names(func);
     if bars.is_empty() {
         return String::new();
     }
     let conds: Vec<String> = bars.iter().map(|b| format!("!{b}.is_finite()")).collect();
+    let inner = format!("{indent}    ");
+    let advance = if advance { advance_out_count(&inner) } else { String::new() };
     format!(
-        "{indent}if {} {{\n{indent}    return Err(RetCode::BadParam);\n{indent}}}\n",
+        "{indent}if {} {{\n{advance}{inner}return Err(RetCode::BadParam);\n{indent}}}\n",
         conds.join(" || ")
     )
 }
 
+/// The one spelling of the `OutRange` advance. The saturation guard is not
+/// optional: the count is an index like any other and `TA_MAX_INDEX` bounds it
+/// (#180), so a stream driven past it must stop counting rather than wrap.
+fn advance_out_count(indent: &str) -> String {
+    format!("{indent}if self.out.count < Core::MAX_INDEX {{\n{indent}    self.out.count += 1;\n{indent}}}\n")
+}
+
+
+/// The state fields a transition writes, and the transition with every mention
+/// of them moved to a bare local.
+///
+/// A peek frame runs against `&self.state`, so anything it would store has to
+/// live in a local instead. The local keeps the field's OWN name: `stream_base`
+/// strips the `sp.` qualifier before classifying an operand, so `sp.x` and `x`
+/// fuse alike — any other spelling would silently move an FMA site.
+///
+/// Returns `None` when a written field's bare name would collide with a bar
+/// input or an output, where the local would shadow the parameter instead of
+/// failing to compile.
+fn localize_state_writes(
+    func: &FuncDef,
+    transition: &[Statement],
+    extra: &[String],
+    buffers: &[(String, bool)],
+) -> Option<(Vec<String>, Vec<Statement>)> {
+    fn note(e: &Expr, out: &mut std::collections::BTreeSet<String>) {
+        if let Expr::Var(v) = e {
+            if let Some(bare) = v.strip_prefix("sp.") {
+                out.insert(bare.to_string());
+            }
+        }
+    }
+    fn targets(list: &[Statement], out: &mut std::collections::BTreeSet<String>) {
+        for st in list {
+            if let Statement::Assign { target, .. } = st {
+                note(target, out);
+                // A fixed-size array field is written element-wise; it is `Copy`,
+                // so it localizes like a scalar. Heap buffers are excluded by the
+                // caller — those the peek frame never writes at all.
+                if let Expr::ArrayAccess(n, _) = target {
+                    note(&Expr::Var(n.clone()), out);
+                }
+            }
+            let inner: Vec<&[Statement]> = match st {
+                Statement::While { body, .. }
+                | Statement::DoWhile { body, .. }
+                | Statement::For { body, .. }
+                | Statement::Block { body } => vec![body.as_slice()],
+                Statement::ForC { init, update, body, .. } => vec![
+                    std::slice::from_ref(init.as_ref()),
+                    std::slice::from_ref(update.as_ref()),
+                    body.as_slice(),
+                ],
+                Statement::If { then_body, else_body, .. } => {
+                    vec![then_body.as_slice(), else_body.as_slice()]
+                }
+                Statement::Switch { cases, default, .. } => {
+                    let mut v: Vec<&[Statement]> = cases.iter().map(|(_, b)| b.as_slice()).collect();
+                    v.push(default.as_slice());
+                    v
+                }
+                _ => Vec::new(),
+            };
+            for b in inner {
+                targets(b, out);
+            }
+        }
+    }
+    let mut written: std::collections::BTreeSet<String> = extra.iter().cloned().collect();
+    for st in transition {
+        streaming::walk_stmt_exprs(st, &mut |top| {
+            streaming::walk_expr(top, &mut |e| match e {
+                Expr::PostIncrement(i)
+                | Expr::PostDecrement(i)
+                | Expr::PreIncrement(i)
+                | Expr::PreDecrement(i) => note(i, &mut written),
+                _ => {}
+            });
+        });
+    }
+    targets(transition, &mut written);
+    for (b, _) in buffers {
+        if let Some(bare) = b.strip_prefix("sp.") {
+            written.remove(bare);
+        }
+    }
+
+    let mut taken: std::collections::BTreeSet<String> =
+        streaming::input_array_names(func).into_iter().collect();
+    taken.extend(func.outputs.iter().map(|o| o.name.clone()));
+    if written.iter().any(|w| taken.contains(w)) {
+        return None;
+    }
+    let bare: std::collections::BTreeMap<String, String> =
+        written.iter().map(|w| (format!("sp.{w}"), w.clone())).collect();
+    let out = streaming::rewrite_stmts(
+        transition,
+        &|e| match e {
+            Expr::Var(ref v) => bare.get(v).map_or(e, |b| Expr::Var(b.clone())),
+            // A fixed-size array field is named through its subscript, which the
+            // `Var` arm never sees.
+            Expr::ArrayAccess(ref v, ref i) => match bare.get(v) {
+                Some(b) => Expr::ArrayAccess(b.clone(), i.clone()),
+                None => e,
+            },
+            other => other,
+        },
+        &|st| Some(st),
+    );
+    Some((written.into_iter().collect(), out))
+}
+
+/// The transition's own early exit — the param-degenerate identity
+/// short-circuit — is valueless, because a step returns `()`. Inline in `peek`
+/// it exits a `Result`, and inside the frame's block the outputs are `&mut`.
+fn answer_bare_returns_rust(func: &FuncDef, body: &[Statement]) -> Vec<Statement> {
+    let vals: Vec<String> = func.outputs.iter().map(|o| format!("(*{})", o.name)).collect();
+    let ret = if vals.len() == 1 { vals[0].clone() } else { format!("({})", vals.join(", ")) };
+    streaming::rewrite_stmts(body, &|e| e, &|st| match st {
+        Statement::Return { value: None } => Some(Statement::Return {
+            value: Some(Expr::Var(format!("Ok({ret})"))),
+        }),
+        other => Some(other),
+    })
+}
+
+/// One model's peek frame: the transition rewritten to commit nothing, against
+/// `&self.state`, at `indent`. `None` where the frame cannot be built, which
+/// the caller turns into a panic — every tier emits a frame.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn peek_frame_arm(
+    func: &FuncDef,
+    model: &StreamModel,
+    names: &dyn streaming::NameMap,
+    typing: &Typing,
+    ctx: &RustRenderCtx,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+    indent: usize,
+) -> Option<String> {
+    let pad = " ".repeat(indent);
+    let transition = streaming::build_transition(model, names).ok()?;
+    let pt =
+        streaming::peek_transition_widest(model, names, &transition, Some(VarType::Index)).ok()?;
+    // The extrema rebase moves the cursor before the first store, so its
+    // targets are localized with the transition's own.
+    let mut rebased: Vec<String> = Vec::new();
+    if let Some(ex) = model.extrema() {
+        rebased.push(model.cursor.clone());
+        rebased.push(ex.trailing.clone());
+        rebased.extend(ex.index_vars.iter().cloned());
+    }
+    let bufs = streaming::transition_buffers(model, names);
+    let (locals, body_ir) = localize_state_writes(func, &pt.body, &rebased, &bufs)?;
+    // A localized field keeps its own name, so the renderer must classify the
+    // bare spelling exactly as it classified `sp.<name>` — the sets carry both,
+    // and the extrema override touches only one of the pair. Mirror the
+    // qualified entry onto the bare one, or an `i32` cursor renders as a
+    // `usize` and the arithmetic around it stops compiling.
+    let mut ctx = ctx.clone();
+    for name in &locals {
+        let q = format!("sp.{name}");
+        for set in [
+            &mut ctx.index_vars,
+            &mut ctx.real_vars,
+            &mut ctx.vec_vars,
+            &mut ctx.real_array_vars,
+            &mut ctx.int_vec_vars,
+            &mut ctx.sentinel_vars,
+        ] {
+            if set.contains(&q) {
+                set.insert(name.clone());
+            } else {
+                set.remove(name);
+            }
+        }
+    }
+    ctx.for_range_lowering = false;
+    let ctx = &ctx;
+
+    let real_outs: HashSet<String> = func
+        .outputs
+        .iter()
+        .filter(|out| out.param_type != ParamType::Integer)
+        .map(|out| out.name.clone())
+        .collect();
+    let body_ir = streaming::rewrite_stmts(&body_ir, &|e| e, &|st| match st {
+        Statement::Assign {
+            target: Expr::PointerDeref(nm),
+            value: Expr::IntLiteral(n),
+            compound: false,
+        } if real_outs.contains(&nm) =>
+        {
+            #[allow(clippy::cast_precision_loss)]
+            Some(Statement::Assign {
+                target: Expr::PointerDeref(nm),
+                value: Expr::Literal(n as f64),
+                compound: false,
+            })
+        }
+        other => Some(other),
+    });
+
+    // The transition's own early exit — the param-degenerate identity
+    // short-circuit — is valueless, because a step returns `()`. Inline in
+    // `peek` it exits a `Result`.
+    // Inside the block the outputs are `&mut`, so an early exit dereferences.
+    let vals: Vec<String> = func.outputs.iter().map(|o| format!("(*{})", o.name)).collect();
+    let ret = if vals.len() == 1 { vals[0].clone() } else { format!("({})", vals.join(", ")) };
+    let body_ir = streaming::rewrite_stmts(&body_ir, &|e| e, &|st| match st {
+        Statement::Return { value: None } => Some(Statement::Return {
+            value: Some(Expr::Var(format!("Ok({ret})"))),
+        }),
+        other => Some(other),
+    });
+
+    let mut out = String::new();
+    for (name, ty) in &model.temps {
+        let (rty, default) = field_type_and_default(typing, name, ty, false);
+        out.push_str(&decl_line(&pad, name, &rty, default.as_ref()));
+    }
+    for name in &locals {
+        let _ = writeln!(out, "{pad}let mut {name} = sp.{name};");
+    }
+    for sh in &pt.shadows {
+        let (t, z) = if sh.int_elem { ("i32", "0_i32") } else { ("f64", "0.0_f64") };
+        let _ = writeln!(out, "{pad}let mut {}: usize = usize::MAX;", sh.slot_var);
+        let _ = writeln!(out, "{pad}let mut {}: {t} = {z};", sh.val_var);
+    }
+    for t in &pt.slot_temps {
+        let _ = writeln!(out, "{pad}let mut {t}: usize = 0;");
+    }
+    if let Some(ex) = model.extrema() {
+        let inner = " ".repeat(indent + 4);
+        let _ = writeln!(out, "{pad}if {} >= 1073741824 {{", model.cursor);
+        let _ = writeln!(out, "{inner}let rebaseShift: i32 = {} & !sp.xMask;", ex.trailing);
+        for v in &rebased {
+            let _ = writeln!(out, "{inner}{v} -= rebaseShift;");
+        }
+        let _ = writeln!(out, "{pad}}}");
+    }
+    let output_names: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
+    let opt_real_params: Vec<String> = func
+        .optional_inputs
+        .iter()
+        .filter(|p| p.param_type == ParamType::Real)
+        .map(|p| p.name.clone())
+        .collect();
+    let var_inits: HashMap<String, &Expr> = HashMap::new();
+    let mut body = String::new();
+    for st in &body_ir {
+        body.push_str(&render_statement(
+            st, indent, ctx, &[], &var_inits, &output_names, &opt_real_params, enums, registry,
+            helpers, counter,
+        ));
+    }
+    let step_settings = crate::candle_settings::detect_candle_settings(&model.steady_stmts);
+    if !step_settings.is_empty() {
+        // In a step these arrive as `cs_*` parameters; the frame is a method on
+        // the handle, which is where they are snapshotted.
+        out.push_str(&crate::candle_settings::emit_rust_unpacking_from(
+            &step_settings,
+            indent,
+            &|x| format!("self.{}", cs_binding(x)),
+        ));
+    }
+    out.push_str(&body);
+    Some(out)
+}
+
+/// The scaffolding every frame sits in: a block, so the `&mut` output
+/// rebindings end before the method returns them by value.
+fn peek_frame_head(func: &FuncDef) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "        {{");
+    let _ = writeln!(out, "            let sp = &self.state;");
+    // Rebinding each output as `&mut` keeps the body's `(*out) = …` spelling,
+    // and with it every cast the step renders.
+    for o in &func.outputs {
+        let _ = writeln!(out, "            let {0} = &mut {0};", o.name);
+    }
+    out
+}
+
+/// The loop tier's frame: the scaffolding and one arm.
+#[allow(clippy::too_many_arguments)]
+fn build_peek_frame(
+    func: &FuncDef,
+    model: &StreamModel,
+    typing: &Typing,
+    ctx: &RustRenderCtx,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) -> Option<String> {
+    let arm = peek_frame_arm(func, model, &RustStreamNames, typing, ctx, enums, registry, helpers, counter, 12)?;
+    let mut out = peek_frame_head(func);
+    out.push_str(&arm);
+    let _ = writeln!(out, "        }}");
+    Some(out)
+}
+
+/// The dual-mode frame: the identity short-circuit, then one arm per mode. Each
+/// arm carries its own locals inside its own block, so the two modes' state
+/// never shares a name.
+#[allow(clippy::too_many_arguments)]
+fn build_peek_frame_dual(
+    func: &FuncDef,
+    dmp: &streaming::DualModePlan,
+    typing: &Typing,
+    ctx: &RustRenderCtx,
+    opt_real_params: &[String],
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+) -> Option<String> {
+    let (ma, mb) = (&dmp.mode_a, &dmp.mode_b);
+    let a = peek_frame_arm(func, ma, &RustStreamNames, typing, ctx, enums, registry, helpers, counter, 16)?;
+    let b = peek_frame_arm(func, mb, &RustStreamNames, typing, ctx, enums, registry, helpers, counter, 16)?;
+    let mut out = peek_frame_head(func);
+    // Identity (HMA period 1) short-circuits ahead of the predicate, as it does
+    // in the batch and in Open: it is a property of the function, not of a mode.
+    if let Some(st) = streaming::identity_peek_branch(ma, &RustStreamNames) {
+        let st = answer_bare_returns_rust(func, std::slice::from_ref(&st));
+        let var_inits: HashMap<String, &Expr> = HashMap::new();
+        let output_names: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
+        for s in &st {
+            out.push_str(&render_statement(
+                s, 12, ctx, &[], &var_inits, &output_names, opt_real_params, enums, registry,
+                helpers, counter,
+            ));
+        }
+    }
+    let pred = params_on_state(func, &dmp.predicate);
+    let pred = render_expr(&pred, ctx, opt_real_params, registry, helpers);
+    let _ = writeln!(out, "            if {pred} {{");
+    out.push_str(&a);
+    let _ = writeln!(out, "            }} else {{");
+    out.push_str(&b);
+    let _ = writeln!(out, "            }}");
+    let _ = writeln!(out, "        }}");
+    Some(out)
+}
 
 /// `fn <NAME>_step_impl(&self, sp: &mut State, <bars>, <&mut outs>)`.
 #[allow(clippy::too_many_arguments)]
@@ -1840,8 +2104,19 @@ fn emit_open_region(
     // body keeps the empty set — a `<n>_step_impl` writes `&mut f64` scalars, and
     // nothing there is declinable.
     let mut open_ctx = typing.ctx.clone();
-    open_ctx.nullable_outputs = super::common::nullable_output_names(func);
+    let nullable = super::common::nullable_output_names(func);
+    open_ctx.nullable_outputs.clone_from(&nullable);
+    // The handle's `cur_<out>` has to hold what the store *would* have
+    // written even when the caller declined it — an Update always recomputes
+    // it (mama.c), so a capture that instead reads the array (absent) or
+    // defaults to zero diverges from `Open(P)+updates` the moment the store's
+    // RHS isn't already a bare local. Every guarded store also lands here,
+    // unconditionally (Java/C# `lastCur_*`); `cur_capture_fields` reads it.
+    open_ctx.nullable_shadow = true;
     let ctx = &open_ctx;
+    for name in &nullable {
+        let _ = writeln!(o, "        let mut lastCur_{name}: f64 = 0.0_f64;");
+    }
     let for_loop_vars = collect_for_loop_vars(body);
     let output_names: Vec<String> = func.outputs.iter().map(|out| out.name.clone()).collect();
     let opt_real_params: Vec<String> = func
@@ -1975,6 +2250,12 @@ fn emit_identity_fast_path(
     // Identity state: params captured, everything else deterministic defaults
     // (1-slot buffers keep the transition's cap-0 guard well-defined).
     let _ = writeln!(o, "            let state = {state} {{");
+    // The identity path produces its input verbatim, so the value at the last
+    // committed bar is the last history bar — the same expression the stride-0
+    // fill below writes.
+    for (out, inp) in &idp.pairs {
+        let _ = writeln!(o, "                cur_{out}: {inp}[historyLen - 1],");
+    }
     for (name, _, default) in fields {
         let _ = writeln!(o, "                {name}: {default},");
     }
@@ -2240,6 +2521,11 @@ fn emit_capture(
             "            lastOut_{name}: {name}[(*outNBElement - 1) * outStride],"
         );
     }
+    // Seed the value accessor from the same slot: an Open that succeeded
+    // produced at least one value, so `value()` is total on a live handle. A
+    // DECLINABLE output has no slot to read, so it takes the body's own
+    // variable — the same one the step retains from.
+    o.push_str(&cur_capture_fields(func, typing));
     for lag in &model.lags {
         for k in 1..=lag.depth {
             let _ = writeln!(
@@ -2569,12 +2855,16 @@ fn open_and_fill_doctest(
 }
 
 #[allow(clippy::too_many_lines)]
-fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_fallible: bool) {
+fn emit_update_and_peek(
+    o: &mut String,
+    func: &FuncDef,
+    step_fallible: bool,
+    peek_frame: Option<&str>,
+) {
     let sn = snake(func);
     let cs_args = cs_step_args(&handle_candle_settings(func));
     let n = func.name.to_uppercase();
     let handle = stream_type_name(func);
-    let state = state_type_name(func);
     let vt = value_type(func);
     let inputs = streaming::input_array_names(func);
     let mut sig_bars = String::new();
@@ -2598,43 +2888,12 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
         let _ = write!(out_refs, ", &mut {}", out.name);
     }
     let ret = open_value_tuple_names(func);
-    let reuse = shape.scratch_pays();
     // The sub-stream tiers' steps are fallible (their sub `update` is); the
     // self-contained ones cannot fail and return `()`.
     let step_try = if step_fallible { "?" } else { "" };
-
-    // A state whose copy really allocates gets a reused thread-local scratch: one
-    // allocation per thread per function for the whole life of the program,
-    // instead of one per peek. Thread-local rather than a field on the handle
-    // because `peek` takes `&self` and the handle is `Sync` — two threads may
-    // peek the same handle at once, and they must not share a scratch.
-    //
-    // The retention that buys: one state copy per (thread, function actually
-    // peeked), held until the thread ends, sized to the largest state that
-    // thread peeked. Dropping every stream handle does not release it. Bounded
-    // and small per entry, but a long-lived pool thread that peeked a wide
-    // `MAVP` bank holds that bank.
-    //
-    // A bare `{state}`, not the whole handle: what a step cannot write, a
-    // scratch has no business reproducing. The settings are read off the LIVE
-    // handle instead, and the `out: OutRange` the handle used to carry along
-    // went with them — `peek` commits no bar, so restoring a count it never
-    // reads and then re-incrementing it was work thrown away every call.
-    if reuse {
-        let _ = writeln!(
-            o,
-            "thread_local! {{\n\
-             \x20   /// `peek`'s reusable scratch state (see `{state}::restore_from`).\n\
-             \x20   /// Taken for the duration of the step and put back after, so a\n\
-             \x20   /// panicking step costs the scratch, never leaves it borrowed.\n\
-             \x20   static {n}_PEEK_SCRATCH: std::cell::Cell<Option<Box<{state}>>> =\n\x20       const {{ std::cell::Cell::new(None) }};\n\
-             }}\n"
-        );
-    }
-
     let _ = writeln!(
         o,
-        "#[allow(non_snake_case)]\n#[allow(unused_variables)]\nimpl {handle} {{"
+        "#[allow(non_snake_case)]\n#[allow(unused_variables)]\n#[allow(unused_mut)]\n#[allow(unused_assignments)]\n#[allow(unused_parens)]\nimpl {handle} {{"
     );
     let _ = writeln!(
         o,
@@ -2643,33 +2902,54 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
          \x20   /// # Errors\n\
          \x20   ///\n\
          \x20   /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).\n\
-         \x20   /// That check runs before anything is written, so the handle is left\n\
-         \x20   /// exactly as it was and the stream stays usable:\n\
-         \x20   /// skip the bar, or close and re-open on a clean history. This is the\n\
-         \x20   /// one place the streaming tier is stricter than the batch API, which\n\
-         \x20   /// computes on whatever it is given — a handle retains its state, so a\n\
-         \x20   /// single non-finite bar would poison every later value it produces."
+         \x20   /// That check runs before anything is written, so the handle's state is\n\
+         \x20   /// left exactly as it was and the stream stays usable: skip the bar, or\n\
+         \x20   /// close and re-open on a clean history. This is the one place the\n\
+         \x20   /// streaming tier is stricter than the batch API, which computes on\n\
+         \x20   /// whatever it is given — a handle retains its state, so a single\n\
+         \x20   /// non-finite bar would poison every later value it produces.\n\
+         \x20   ///\n\
+         \x20   /// [`Self::out_range`] counts the rejected bar all the same: it happened,\n\
+         \x20   /// so two handles fed the same series stay positionally aligned even when\n\
+         \x20   /// one rejects a bar the other accepts."
     );
     let _ = writeln!(o, "    #[doc(alias = \"TA_{n}_Update\")]");
     let _ = writeln!(
         o,
         "    pub fn update(&mut self, {sig_bars}) -> Result<{vt}, RetCode> {{"
     );
-    o.push_str(&finite_bar_check(func, "        "));
+    o.push_str(&finite_bar_check(func, "        ", true));
+    // Retain the value(s) this bar produced where the step has no transition
+    // tail to ride on — the composed, dispatch and period-bank steps write the
+    // caller's slots directly. `step_fallible` is exactly that set. Placed with
+    // the count so the two describe the same bar.
+    let cur_retain = |idx: Option<&str>| -> String {
+        if !step_fallible {
+            return String::new();
+        }
+        let mut t = String::new();
+        for out in &func.outputs {
+            let nm = &out.name;
+            match idx {
+                None => {
+                    let _ = writeln!(t, "        self.state.cur_{nm} = {nm};");
+                }
+                Some(i) => {
+                    let _ = writeln!(t, "            self.state.cur_{nm} = {nm}[{i}];");
+                }
+            }
+        }
+        t
+    };
     o.push_str(&out_decls);
     let _ = writeln!(
         o,
         "        Core::{sn}_step_impl(&mut self.state, {cs_args}{fwd_bars}{out_refs}){step_try};"
     );
-    // After the step, so a rejected bar (non-finite here, or a sub-stream's
-    // reject through `?`) leaves the range exactly where it was. `peek` runs the
-    // same step on a copy and so never reaches this.
-    let _ = writeln!(
-        o,
-        "        if self.out.count < Core::MAX_INDEX {{\n\
-         \x20           self.out.count += 1;\n\
-         \x20       }}"
-    );
+    o.push_str(&cur_retain(None));
+    // After the step: a sub-stream rejecting through `?` must not count the
+    // bar, and the non-finite check above owns the one rejection that does.
+    o.push_str(&advance_out_count("        "));
     let _ = writeln!(o, "        Ok({ret})");
     let _ = writeln!(o, "    }}\n");
     // --- update_and_fill ------------------------------------------------------
@@ -2758,7 +3038,7 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
          \x20   /// hold at least that many. Never allocates.\n\
          {declinable}\
          \x20   ///\n\
-         \x20   /// [`Self::out_range`] counts what was committed, which is what makes the\n\
+         \x20   /// [`Self::out_range`] counts what this call took in, which is what makes the\n\
          \x20   /// rejection below readable: there is no second out-parameter for it.\n\
          \x20   ///\n\
          \x20   /// # Errors\n\
@@ -2768,7 +3048,8 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
          \x20   /// is not finite. A non-finite bar `k` is rejected exactly as `update`\n\
          \x20   /// rejects it: bars `0..k` stay committed and their values written, bar `k`\n\
          \x20   /// and everything after it is not, and `out_range().count` has advanced by\n\
-         \x20   /// `k`."
+         \x20   /// `k + 1` — the committed bars, plus the rejected one, which is counted\n\
+         \x20   /// but never written."
     );
     let _ = writeln!(o, "    #[doc(alias = \"TA_{n}_UpdateAndFill\")]");
     let _ = writeln!(
@@ -2788,10 +3069,11 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
     let _ = writeln!(o, "        for i in 0..barCount {{");
     if !inputs.is_empty() {
         let conds: Vec<String> = inputs.iter().map(|a| format!("!{a}[i].is_finite()")).collect();
-        let _ = writeln!(
+        let _ = write!(
             o,
-            "            if {} {{\n                return Err(RetCode::BadParam);\n            }}",
-            conds.join(" || ")
+            "            if {} {{\n{}                return Err(RetCode::BadParam);\n            }}\n",
+            conds.join(" || "),
+            advance_out_count("                ")
         );
     }
     for out in &func.outputs {
@@ -2807,109 +3089,85 @@ fn emit_update_and_peek(o: &mut String, func: &FuncDef, shape: StateShape, step_
         o,
         "            Core::{sn}_step_impl(&mut self.state, {cs_args}{step_args}){step_try};"
     );
-    let _ = writeln!(
-        o,
-        "            if self.out.count < Core::MAX_INDEX {{\n\
-         \x20               self.out.count += 1;\n\
-         \x20           }}"
-    );
+    o.push_str(&cur_retain(Some("i")));
+    o.push_str(&advance_out_count("            "));
     let _ = writeln!(o, "        }}");
     let _ = writeln!(o, "        Ok(())");
     let _ = writeln!(o, "    }}\n");
 
-    let alloc_note = if reuse {
-        "The copy it runs on is held per thread and reused,\n    /// so only the first peek of this function on a thread allocates."
-    } else if shape.owns_heap() {
-        // Do NOT promise the fold here. It is why these are declined, but it is
-        // a code-generation outcome that varies by toolchain — measured real on
-        // another box for exactly these functions — and a doc that promises it
-        // sends someone into a tick loop expecting a free call.
-        "The copy is a throwaway. Its buffer clone is\n    /// often removed outright by the optimizer, which is why nothing is\n    /// reused here, but that is not a guarantee: budget for a clone of the\n    /// buffers it does own and prefer `update` on a `clone()` in a hot loop."
-    } else {
-        "This handle holds only scalars, so the copy is a\n    /// few machine words and `peek` never allocates."
-    };
     let _ = writeln!(
         o,
         "    /// Evaluate a forming bar without committing — bit-identical to what the\n\
-         \x20   /// next `update` with the same bar would return (it is the same code, run\n\
-         \x20   /// on a scratch copy of the state). Never writes the handle, so peeks may\n\
-         \x20   /// run concurrently with each other. {alloc_note}\n\
+         \x20   /// next `update` with the same bar would return: the same transition,\n\
+         \x20   /// rewritten so every store it would make lives in a local instead. It\n\
+         \x20   /// allocates nothing and copies no buffer, so its cost does not grow with\n\
+         \x20   /// the period, and it writes no part of the handle — peeks may run\n\
+         \x20   /// concurrently with each other.\n\
          \x20   ///\n\
          \x20   /// # Errors\n\
          \x20   ///\n\
-         \x20   /// [`RetCode::BadParam`] if any bar value is not finite, exactly as\n\
-         \x20   /// `update` rejects it."
+         \x20   /// [`RetCode::BadParam`] if any bar value is not finite, on the same test\n\
+         \x20   /// `update` applies — but a rejected peek changes nothing at all, where a\n\
+         \x20   /// rejected `update` still counts the bar in [`Self::out_range`]."
     );
     let _ = writeln!(o, "    #[doc(alias = \"TA_{n}_Peek\")]");
     let _ = writeln!(o, "    pub fn peek(&self, {sig_bars}) -> Result<{vt}, RetCode> {{");
-    // Ahead of the scratch copy, not left to the `update` below: a rejected bar
-    // must not pay for a handle clone.
-    o.push_str(&finite_bar_check(func, "        "));
-    if reuse {
-        // The step on the scratch state, with the settings read off the live
-        // handle — not `update` on a scratch handle.
-        //
-        // #201 chose the latter to keep the transition down to the one call
-        // site it had, because a second one changed what the inliner did with
-        // both and cost `update` up to 70% on steps sitting near the
-        // threshold. The price was a whole-handle copy per peek: the settings,
-        // which no step can write, and the `out` bookkeeping, which peek
-        // computes and discards — plus a second `is_finite` on a bar `peek`
-        // had already checked.
-        //
-        // What makes the second call site affordable is the tier: this is the
-        // set whose state clone the optimizer was never folding, so its steps
-        // are the corpus's largest and the least likely to have been inlined
-        // into `update` on merit. That is a measurement, not an argument —
-        // `stream_ab.py --call=update` is the gate, and the functions outside
-        // this tier are its control.
-        //
-        // One `with`, not a `take()` plus a `set()`: each is its own
-        // thread-local lookup, and on the cheapest indicators the second one
-        // is a measurable share of the call.
-        //
-        // The scratch goes back before the `?`, so a rejecting step costs the
-        // thread its scratch no more than an accepting one does.
-        let step_q = if step_fallible { "\n\x20           stepped?;" } else { "" };
-        let bind = if step_fallible { "let stepped = " } else { "" };
-        // `out_decls` is written at the method's own indent; inside the
-        // closure it sits one level deeper.
-        let mut peek_out_decls = String::new();
-        for l in out_decls.lines() {
-            let _ = writeln!(peek_out_decls, "    {l}");
-        }
-        let out_decls = peek_out_decls;
-        let _ = writeln!(
-            o,
-            "        {n}_PEEK_SCRATCH.with(|cell| {{\n\
-             \x20           let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));\n\
-             \x20           scratch.restore_from(&self.state);\n\
-             {out_decls}\
-             \x20           {bind}Core::{sn}_step_impl(&mut scratch, {cs_args}{fwd_bars}{out_refs});\n\
-             \x20           cell.set(Some(scratch));{step_q}\n\
-             \x20           Ok({ret})\n\
-             \x20       }})"
-        );
-    } else {
-        // Verbatim what every function did before #201, so these functions are
-        // byte-identical to the previous release: the clone is a local that
-        // dies here, and where the state is one buffer with no sub-handle and
-        // a loop-free transition, the optimizer deletes it outright.
-        let _ = writeln!(o, "        let mut scratch = self.clone();");
-        let _ = writeln!(o, "        scratch.update({fwd_bars})");
-    }
+    // Ahead of the frame, not left to the transition: a rejected bar must not
+    // run any of it.
+    o.push_str(&finite_bar_check(func, "        ", false));
+    // Not a fallback: every tier emits a frame, and a tier that could not is a
+    // generator bug to fail on, not to ship a copying peek for. Java and C#
+    // already answer that way, and the three must agree — a silent degradation
+    // in one backend only is the shape no value gate can see.
+    let frame = peek_frame.expect("every tier emits a peek frame");
+    o.push_str(&out_decls);
+    o.push_str(frame);
+    let _ = writeln!(o, "        Ok({ret})");
     let _ = writeln!(o, "    }}\n");
+    // The value accessor. `update` and `peek` both hand a value back, so this
+    // exists for the handle that has outlived the call that produced one — the
+    // case a fork creates: `clone()` gives a second handle at the same bar, and
+    // without this there is no way to ask it what that bar was short of
+    // committing another one.
+    let cur_expr = {
+        let parts: Vec<String> = func
+            .outputs
+            .iter()
+            .map(|o| format!("self.state.cur_{}", o.name))
+            .collect();
+        if parts.len() == 1 {
+            parts[0].clone()
+        } else {
+            format!("({})", parts.join(", "))
+        }
+    };
+    let _ = writeln!(
+        o,
+        "    /// The value(s) at the last bar the stream counted — the bar\n\
+         \x20   /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,\n\
+         \x20   /// refreshed by every accepted `update` and `update_and_fill`, and left\n\
+         \x20   /// alone by `peek`.\n\
+         \x20   ///\n\
+         \x20   /// A clone carries them verbatim, so a forked handle can be asked its\n\
+         \x20   /// current value without committing a bar to find out.\n\
+         \x20   #[must_use]\n\
+         \x20   #[doc(alias = \"TA_{n}_Value\")]\n\
+         \x20   pub fn value(&self) -> {vt} {{\n\
+         \x20       {cur_expr}\n\
+         \x20   }}\n"
+    );
     // The range accessor. Rust's `OpenAndFill` keeps returning the range beside
     // the handle (#179 C15) — this is the same pair, and the only way to read it
     // after an update or off a plain `Open`.
     let _ = writeln!(
         o,
-        "    /// The bars this stream has produced a value for, in the input series'\n\
+        "    /// The bars this stream has an output for, in the input series'\n\
          \x20   /// coordinates: `[beg_idx, beg_idx + count)`.\n\
          \x20   ///\n\
          \x20   /// It is what [`Core::{n}`] reports over the same bars: the opener sets it\n\
-         \x20   /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one\n\
-         \x20   /// to the count, `peek` leaves it alone, and a clone carries it verbatim.\n\
+         \x20   /// to `(lookback, historyLen - lookback)`, every `update` adds one to the\n\
+         \x20   /// count — a bar rejected for being non-finite included, because it still\n\
+         \x20   /// happened — `peek` leaves it alone, and a clone carries it verbatim.\n\
          \x20   /// A plain `Open` hands back only the last value, a subset of this range,\n\
          \x20   /// because the caller chose not to take the fill.\n\
          \x20   #[doc(alias = \"TA_StreamOutRange\")]\n\
@@ -3074,7 +3332,7 @@ fn emit_dual_mode(
     let union_fields = dual_union_fields(func, &fields_a, &fields_b);
 
     emit_handle_struct(o, func);
-    let shape = emit_state_struct_from(o, func, &union_fields);
+    emit_state_struct_from(o, func, &union_fields);
 
     let _ = writeln!(o, "{IMPL_ALLOW}impl Core {{");
 
@@ -3106,7 +3364,10 @@ fn emit_dual_mode(
     emit_open_and_fill_internal_wrapper(o, func, enums);
     let _ = writeln!(o, "}}\n");
 
-    emit_update_and_peek(o, func, shape, false);
+    let frame = build_peek_frame_dual(
+        func, dmp, &typing, &ctx, &opt_real_params, enums, registry, helpers, counter,
+    );
+    emit_update_and_peek(o, func, false, frame.as_deref());
     emit_trait_pin(o, func);
 }
 
@@ -3204,6 +3465,7 @@ fn plan_ctx(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> RustRenderCtx {
     index_vars.insert("endIdx".to_string());
     index_vars.insert("historyLen".to_string());
     RustRenderCtx {
+            for_range_lowering: true,
         bounds_asserts: false,
         index_vars,
         real_vars: HashSet::new(),
@@ -3225,6 +3487,7 @@ fn plan_ctx(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> RustRenderCtx {
         enum_vars: super::rust_lang::enum_local_types(func),
         circbuf_hybrid_static: HashMap::new(),
         nullable_outputs: HashSet::new(),
+        nullable_shadow: false,
     }
 }
 
@@ -3291,8 +3554,7 @@ fn emit_dispatch(
         "Sub-stream, tagged by {}; `{sub_enum}::Identity` on the identity path.",
         dp.param
     );
-    emit_state_struct_decl(o, &state, &state_fields, &[("sub", sub_note)]);
-    let shape = emit_state_restore(o, &state, &state_fields);
+    emit_state_struct_decl(o, func, &state, &state_fields, &[("sub", sub_note)]);
     let _ = writeln!(o, "#[derive(Debug, Clone)]\nenum {sub_enum} {{");
     if dp.identity.is_some() {
         let _ = writeln!(o, "    Identity,");
@@ -3306,29 +3568,6 @@ fn emit_dispatch(
         );
     }
     let _ = writeln!(o, "}}\n");
-    // The sub-enum's restore: same arm, restore in place; a different arm can
-    // only mean a differently-parameterised handle borrowed the scratch, so
-    // rebuild it. `Identity` carries nothing and falls through either way.
-    let mut arms = String::new();
-    for arm in dp.arms.iter().filter(|a| a.supported) {
-        let v = callee_variant(&arm.callee);
-        let _ = writeln!(
-            &mut arms,
-            "            ({sub_enum}::{v}(dst), {sub_enum}::{v}(s)) => dst.restore_from(s),"
-        );
-    }
-    let _ = writeln!(
-        o,
-        "#[allow(dead_code)]\nimpl {sub_enum} {{\n\
-         \x20   /// Overwrite from `src`, reusing the sub-handle's buffers.\n\
-         \x20   fn restore_from(&mut self, src: &Self) {{\n\
-         \x20       if std::mem::discriminant(&*self) != std::mem::discriminant(src) {{\n\
-         \x20           self.clone_from(src);\n\
-         \x20           return;\n\
-         \x20       }}\n\
-         \x20       match (self, src) {{\n{arms}            _ => {{}}\n        }}\n    }}\n}}\n"
-    );
-
     let _ = writeln!(o, "{IMPL_ALLOW}impl Core {{");
 
     // --- step ---------------------------------------------------------------
@@ -3378,6 +3617,58 @@ fn emit_dispatch(
     }
     let _ = writeln!(o, "        }}");
     emit_step_end(o, true);
+
+    // The peek frame: the same routing, into each callee's PUBLIC `peek`. The
+    // sub-handle is behind a `&`, which is the whole point — nothing here
+    // commits, so the dispatch tier needs no copy of the handle it delegates to.
+    let ret_expr = open_value_tuple_names(func);
+    let mut frame = String::from("        {\n            let sp = &self.state;\n");
+    if let Some(idp) = &dp.identity {
+        let cond = params_on_state(func, &idp.condition);
+        let cond = render_expr(&cond, &ctx, &[], registry, helpers);
+        let _ = writeln!(frame, "            if {cond} {{");
+        for (out, inp) in &idp.pairs {
+            let _ = writeln!(frame, "                {out} = {inp};");
+        }
+        let _ = writeln!(frame, "                return Ok({ret_expr});");
+        let _ = writeln!(frame, "            }}");
+    }
+    let _ = writeln!(frame, "            match &sp.sub {{");
+    if let Some(idp) = &dp.identity {
+        let mut ident = String::new();
+        for (out, inp) in &idp.pairs {
+            let _ = write!(ident, "{out} = {inp}; ");
+        }
+        let _ = writeln!(frame, "                {sub_enum}::Identity => {{ {ident}}}");
+    }
+    for arm in dp.arms.iter().filter(|a| a.supported) {
+        let variant = callee_variant(&arm.callee);
+        if arm.out_map.len() == 1 {
+            let streaming::OutSlot::Forward(k) = arm.out_map[0] else {
+                panic!("single-output arm cannot discard its only slot");
+            };
+            let _ = writeln!(
+                frame,
+                "                {sub_enum}::{variant}(sub) => {{ {} = sub.peek({bar_args})?; }}",
+                outputs[k]
+            );
+        } else {
+            // The callee answers a tuple; the arm's OutSlot map says which
+            // component lands where, and which the dispatch drops (MAMA's FAMA
+            // when MA routes only the MAMA line, #125).
+            let _ = writeln!(frame, "                {sub_enum}::{variant}(sub) => {{");
+            let _ = writeln!(frame, "                    let subValue = sub.peek({bar_args})?;");
+            for (i, slot) in arm.out_map.iter().enumerate() {
+                if let streaming::OutSlot::Forward(k) = slot {
+                    let _ = writeln!(frame, "                    {} = subValue.{i};", outputs[*k]);
+                }
+            }
+            let _ = writeln!(frame, "                }}");
+        }
+    }
+    let _ = writeln!(frame, "            }}");
+    let _ = writeln!(frame, "        }}");
+    let dispatch_frame = Some(frame);
 
     // --- open bodies --------------------------------------------------------
     // One body emitter, three modes. The scalar open warms the handle and hands
@@ -3432,7 +3723,12 @@ fn emit_dispatch(
             }
             let _ = writeln!(
                 o,
-                "            let state = {state} {{ {params_join}, sub: {sub_enum}::Identity }};"
+                "            let state = {state} {{ {params_join}, sub: {sub_enum}::Identity, {} }};",
+                idp.pairs
+                    .iter()
+                    .map(|(out, inp)| format!("cur_{out}: {inp}[historyLen - 1],"))
+                    .collect::<Vec<_>>()
+                    .join(" ")
             );
             match mode {
                 OutMode::Core => unreachable!("dispatch tier is exempt from the merge"),
@@ -3588,7 +3884,22 @@ fn emit_dispatch(
         }
         let _ = writeln!(o, "            _ => return Err(RetCode::BadParam),");
         let _ = writeln!(o, "        }};");
-        let _ = writeln!(o, "        let state = {state} {{ {params_join}, sub }};");
+        // The dispatch value is whatever the sub produced: `value` on the
+        // scalar opener, the last filled slot on the filling ones.
+        let cur_seed: String = func
+            .outputs
+            .iter()
+            .map(|out| {
+                let nm = &out.name;
+                match mode {
+                    OutMode::Scalar => format!("cur_{nm}: value,"),
+                    OutMode::Fill => format!("cur_{nm}: {nm}[fillRange.count - 1],"),
+                    _ => format!("cur_{nm}: {nm}[*outNBElement - 1],"),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let _ = writeln!(o, "        let state = {state} {{ {params_join}, sub, {cur_seed} }};");
         match mode {
             OutMode::Core => unreachable!("dispatch tier is exempt from the merge"),
             OutMode::Scalar => {
@@ -3608,7 +3919,7 @@ fn emit_dispatch(
     }
     let _ = writeln!(o, "}}\n");
 
-    emit_update_and_peek(o, func, shape, true);
+    emit_update_and_peek(o, func, true, dispatch_frame.as_deref());
     emit_trait_pin(o, func);
 }
 
@@ -3620,7 +3931,8 @@ fn emit_dispatch(
 /// Emit the period-bank stream section: open builds `bank: Vec<MaStream>` (one
 /// slot per period in `[min, max]`, all seeded at the SHARED max-period
 /// lookback anchor); update advances every slot in lockstep and returns the
-/// slot the clamped per-bar period selects; peek is the universal clone-peek.
+/// slot the clamped per-bar period selects; peek enters that one slot's own
+/// `peek` and advances nothing.
 /// The bank inherits the callee's per-MAType streamability (MAType_MAMA
 /// rejects at the first sub-open, propagated by `?`).
 #[allow(clippy::too_many_lines)]
@@ -3685,8 +3997,7 @@ fn emit_period_bank(
         "One sub-{} stream per period in [{min}, {max}], advanced in lockstep.",
         callee.to_uppercase()
     );
-    emit_state_struct_decl(o, &state, &state_fields, &[("bank", bank_note)]);
-    let shape = emit_state_restore(o, &state, &state_fields);
+    emit_state_struct_decl(o, func, &state, &state_fields, &[("bank", bank_note)]);
 
     let _ = writeln!(o, "{IMPL_ALLOW}impl Core {{");
 
@@ -3706,6 +4017,21 @@ fn emit_period_bank(
     let _ = writeln!(o, "            }}");
     let _ = writeln!(o, "        }}");
     emit_step_end(o, true);
+
+    // The peek frame: only the SELECTED slot is peeked. The other slots' next
+    // values are not this bar's output and peeking is non-committing per
+    // handle, so advancing them would be work thrown away — which is why the
+    // step advances all of them and the frame does not.
+    let mut bank_frame = String::from("        {\n            let sp = &self.state;\n");
+    let _ = writeln!(bank_frame, "            let mut cp: i32 = {period} as i32;");
+    let _ = writeln!(bank_frame, "            if cp < sp.{min} {{");
+    let _ = writeln!(bank_frame, "                cp = sp.{min};");
+    let _ = writeln!(bank_frame, "            }} else if cp > sp.{max} {{");
+    let _ = writeln!(bank_frame, "                cp = sp.{max};");
+    let _ = writeln!(bank_frame, "            }}");
+    let _ = writeln!(bank_frame, "            let slot: usize = (cp - sp.{min}) as usize;");
+    let _ = writeln!(bank_frame, "            {out} = sp.bank[slot].peek({price})?;");
+    let _ = writeln!(bank_frame, "        }}");
 
     // --- open_internal ------------------------------------------------------
     emit_open_sig(o, func, OutMode::Scalar, enums);
@@ -3743,7 +4069,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "        let mut cp: i32 = {period}[historyLen - 1] as i32;");
     let _ = writeln!(o, "        if cp < {min} {{\n            cp = {min};\n        }} else if cp > {max} {{\n            cp = {max};\n        }}");
     let _ = writeln!(o, "        let lastValue_{out}: f64 = scratch[(cp - {min}) as usize];");
-    let _ = writeln!(o, "        let state = {state} {{ {params_join}, bank }};");
+    let _ = writeln!(o, "        let state = {state} {{ {params_join}, bank, cur_{out}: lastValue_{out} }};");
     let _ = writeln!(
         o,
         "        Ok(({handle} {{ {cs_ctor}state, out: OutRange {{ beg_idx: subStart, count: historyLen - subStart }} }}, lastValue_{out}))"
@@ -3793,7 +4119,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "            {out}[t - lookbackTotal] = scratch[(cp - {min}) as usize];");
     let _ = writeln!(o, "            t += 1;");
     let _ = writeln!(o, "        }}");
-    let _ = writeln!(o, "        let state = {state} {{ {params_join}, bank }};");
+    let _ = writeln!(o, "        let state = {state} {{ {params_join}, bank, cur_{out}: {out}[historyLen - lookbackTotal - 1] }};");
     let _ = writeln!(
         o,
         "        Ok(({handle} {{ {cs_ctor}state, out: OutRange {{ beg_idx: lookbackTotal, count: historyLen - lookbackTotal }} }}, OutRange {{ beg_idx: lookbackTotal, count: historyLen - lookbackTotal }}))"
@@ -3801,7 +4127,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "    }}\n");
     let _ = writeln!(o, "}}\n");
 
-    emit_update_and_peek(o, func, shape, true);
+    emit_update_and_peek(o, func, true, Some(&bank_frame));
     emit_trait_pin(o, func);
 }
 
@@ -3810,8 +4136,8 @@ fn emit_period_bank(
 // sub-handles, mirroring c_stream.rs's emit_composed with the Rust
 // simplifications the design blesses: RAII replaces every cleanup ladder and
 // series-free replay, `free()` renders as a no-op so lag-ring seeding reads
-// the still-live intermediate Vec, and clone-peek deletes peekMode entirely
-// (sub handles derive Clone, so the universal peek deep-clones the tree).
+// the still-live intermediate Vec, and the peek frame drives each sub-stream's
+// own public `peek` rather than committing anything.
 // ---------------------------------------------------------------------------
 
 /// Composed producer name map: identical to [`RustStreamNames`] except the
@@ -4047,20 +4373,31 @@ fn emit_composed_step(
     registry: &Registry,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-) {
-    emit_step_sig(o, func, true);
+    frame: bool,
+) -> Option<String> {
+    // In a frame the body is a block inside `peek`, one level deeper, and the
+    // producer's own declarations come from the frame builder instead.
+    let indent = if frame { 12 } else { 8 };
+    let pad = " ".repeat(indent);
+    let mut sink = String::new();
+    let o: &mut String = if frame { &mut sink } else { o };
+    if !frame {
+        emit_step_sig(o, func, true);
+    }
     let cur_scalars = composed_cur_scalars(cp, inputs, outputs);
     let ctx = composed_step_ctx(func, cp, typing, &cur_scalars);
 
     if let Some(model) = &cp.producer {
-        for (name, ty) in &model.temps {
-            let (rty, default) = field_type_and_default(typing, name, ty, false);
-            o.push_str(&decl_line("        ", name, &rty, default.as_ref()));
+        if !frame {
+            for (name, ty) in &model.temps {
+                let (rty, default) = field_type_and_default(typing, name, ty, false);
+                o.push_str(&decl_line(&pad, name, &rty, default.as_ref()));
+            }
         }
     }
     for (name, ty) in &cp.map_temps {
         let (rty, default) = field_type_and_default(typing, name, ty, false);
-        o.push_str(&decl_line("        ", name, &rty, default.as_ref()));
+        o.push_str(&decl_line(&pad, name, &rty, default.as_ref()));
     }
     for name in &cur_scalars {
         // Typed by what the scalar stands for, as in C: an output's own element
@@ -4068,7 +4405,7 @@ fn emit_composed_step(
         // go wrong quietly -- `(*outX) = cur_outX` across f64/i32 is a type
         // error -- but it is the same rule, so it reads the same way.
         let (ty, zero) = if out_is_int(func, name) { ("i32", "0_i32") } else { ("f64", "0.0_f64") };
-        let _ = writeln!(o, "        let mut cur_{name}: {ty} = {zero};");
+        let _ = writeln!(o, "{pad}let mut cur_{name}: {ty} = {zero};");
     }
 
     // The cur-map: bar inputs are the step's scalar parameters.
@@ -4087,36 +4424,43 @@ fn emit_composed_step(
     let var_inits: HashMap<String, &Expr> = HashMap::new();
 
     if let Some(model) = &cp.producer {
-        emit_extrema_rebase(o, model, 8);
         let names = RustComposedNames {
             series: cp.series.clone().expect("producer plan carries a series"),
         };
-        let transition = streaming::build_transition(model, &names)
-            .unwrap_or_else(|e| panic!("streaming transition: {e}"));
-        let mut body = String::new();
-        for st in &transition {
-            body.push_str(&render_statement(
-                st, 8, &ctx, &[], &var_inits, &output_names, &opt_real_params, enums,
-                registry, helpers, counter,
-            ));
+        if frame {
+            o.push_str(&peek_frame_arm(
+                func, model, &names, typing, &ctx, enums, registry, helpers, counter, indent,
+            )?);
+        } else {
+            emit_extrema_rebase(o, model, indent);
+            let transition = streaming::build_transition(model, &names)
+                .unwrap_or_else(|e| panic!("streaming transition: {e}"));
+            let mut body = String::new();
+            for st in &transition {
+                body.push_str(&render_statement(
+                    st, indent, &ctx, &[], &var_inits, &output_names, &opt_real_params, enums,
+                    registry, helpers, counter,
+                ));
+            }
+            let step_settings = crate::candle_settings::detect_candle_settings(&model.steady_stmts);
+            if !step_settings.is_empty() {
+                // A step's settings come from its own parameters, never a `Core`
+                // receiver it no longer has (issue #274).
+                o.push_str(&crate::candle_settings::emit_rust_unpacking_from(
+                    &step_settings,
+                    indent,
+                    &|s| cs_binding(s),
+                ));
+            }
+            o.push_str(&body);
         }
-        let step_settings = crate::candle_settings::detect_candle_settings(&model.steady_stmts);
-        if !step_settings.is_empty() {
-            // A step's settings come from its own parameters, never a `Core`
-            // receiver it no longer has (issue #274).
-            o.push_str(&crate::candle_settings::emit_rust_unpacking_from(
-                &step_settings,
-                8,
-                &|s| cs_binding(s),
-            ));
-        }
-        o.push_str(&body);
         let series = cp.series.clone().expect("producer plan carries a series");
         cur.insert(series.clone(), format!("cur_{series}"));
     }
 
     // Pipeline: the batch tail, one scalar per bar through the sub handles.
-    let _ = writeln!(o, "\n        // Pipeline the new bar through the sub-streams (batch tail order).");
+    let verb = if frame { "peek" } else { "update" };
+    let _ = writeln!(o, "\n{pad}// Pipeline the new bar through the sub-streams (batch tail order).");
     let params: std::collections::BTreeSet<String> =
         func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     for step in &cp.steps {
@@ -4131,14 +4475,14 @@ fn emit_composed_step(
                 let arg_str = args.join(", ");
                 if sub.dsts.len() == 1 {
                     let d = &sub.dsts[0];
-                    let _ = writeln!(o, "        cur_{d} = sp.sub{sub_idx}.update({arg_str})?;");
+                    let _ = writeln!(o, "{pad}cur_{d} = sp.sub{sub_idx}.{verb}({arg_str})?;");
                 } else {
-                    let _ = writeln!(o, "        {{");
-                    let _ = writeln!(o, "            let _sub_out = sp.sub{sub_idx}.update({arg_str})?;");
+                    let _ = writeln!(o, "{pad}{{");
+                    let _ = writeln!(o, "{pad}    let _sub_out = sp.sub{sub_idx}.{verb}({arg_str})?;");
                     for (k, d) in sub.dsts.iter().enumerate() {
-                        let _ = writeln!(o, "            cur_{d} = _sub_out.{k};");
+                        let _ = writeln!(o, "{pad}    cur_{d} = _sub_out.{k};");
                     }
-                    let _ = writeln!(o, "        }}");
+                    let _ = writeln!(o, "{pad}}}");
                 }
                 for d in &sub.dsts {
                     cur.insert(d.clone(), format!("cur_{d}"));
@@ -4152,10 +4496,10 @@ fn emit_composed_step(
                 for out in streaming::map_output_writes(&cp.tail[*tail_idx], outputs) {
                     cur.entry(out.clone()).or_insert_with(|| format!("cur_{out}"));
                 }
-                let _ = writeln!(o, "        // Combine map (batch tail, per bar).");
+                let _ = writeln!(o, "{pad}// Combine map (batch tail, per bar).");
                 for st in &transform_map_step(&cp.tail[*tail_idx], &cur, &params, &cp.sub_lag_rings) {
                     o.push_str(&render_statement(
-                        st, 8, &ctx, &[], &var_inits, &output_names, &opt_real_params,
+                        st, indent, &ctx, &[], &var_inits, &output_names, &opt_real_params,
                         enums, registry, helpers, counter,
                     ));
                 }
@@ -4163,23 +4507,30 @@ fn emit_composed_step(
         }
     }
     // Push the new sub-output value into each lag ring AFTER every read of the
-    // oldest slot in the combine above (mirrors C, incl. the modulo advance).
-    for ring in &cp.sub_lag_rings {
-        let sn = &ring.series;
-        let _ = writeln!(o, "        sp.lagRing_{sn}[sp.lagRingPos_{sn}] = cur_{sn};");
-        let _ = writeln!(
-            o,
-            "        sp.lagRingPos_{sn} = (sp.lagRingPos_{sn} + 1) % sp.lagRingCap_{sn};"
-        );
+    // oldest slot in the combine above (mirrors C, incl. the modulo advance) —
+    // which is why a frame drops the push outright: nothing below loads it back.
+    if !frame {
+        for ring in &cp.sub_lag_rings {
+            let sn = &ring.series;
+            let _ = writeln!(o, "{pad}sp.lagRing_{sn}[sp.lagRingPos_{sn}] = cur_{sn};");
+            let _ = writeln!(
+                o,
+                "{pad}sp.lagRingPos_{sn} = (sp.lagRingPos_{sn} + 1) % sp.lagRingCap_{sn};"
+            );
+        }
     }
     for out in outputs {
         let _ = writeln!(
             o,
-            "        (*{out}) = {};",
+            "{pad}(*{out}) = {};",
             cur.get(out).expect("analyzer gated output")
         );
     }
+    if frame {
+        return Some(sink);
+    }
     emit_step_end(o, true);
+    None
 }
 
 /// Anchor rendering for a sub-open's startIdx: `max(0, a - b)`-form anchors
@@ -4450,8 +4801,11 @@ fn emit_composed_open(
             o, func, model, &model.state, typing, registry, helpers, counter, &extra,
         );
     } else {
-        // Loopless pipeline: params + extras + subs/rings only.
-        let _ = writeln!(o, "        let state = {state} {{");
+        // Loopless pipeline: params + extras + subs/rings only. The value(s)
+        // are not produced until the sub-streams have filled below, so `cur_`
+        // starts at its default and is seeded once the fill has run.
+        let _ = writeln!(o, "        let mut state = {state} {{");
+        o.push_str(&cur_ctor_defaults(func, "\n"));
         for p in &func.optional_inputs {
             let _ = writeln!(o, "            {},", p.name);
         }
@@ -4466,6 +4820,14 @@ fn emit_composed_open(
         // the ONE place a stride multiply cannot express the difference — a bulk
         // copy takes a base slice, not a subscript.
         {
+            // Seed the value accessor from the stride-aware alias BEFORE the
+            // hand-back: `sc_<out>` borrows `<out>` at stride 1, so reading it
+            // after the copy-out would hold that borrow across the write.
+            if cp.producer.is_none() {
+                for out in outputs {
+                    let _ = writeln!(o, "        state.cur_{out} = sc_{out}[*outNBElement - 1];");
+                }
+            }
             for out in outputs {
                 if alias_fill {
                     // Stride 1 already wrote through the borrow — nothing to hand
@@ -4693,12 +5055,12 @@ fn emit_composed(
         fields.push((format!("lagRingCap_{sr}"), "usize".into(), String::new()));
         fields.push((format!("lagRing_{sr}"), "Vec<f64>".into(), String::new()));
     }
-    let shape = emit_state_struct_from(o, func, &fields);
+    emit_state_struct_from(o, func, &fields);
 
     // --- impl Core ----------------------------------------------------------
     let _ = writeln!(o, "{IMPL_ALLOW}impl Core {{");
     emit_composed_step(
-        o, func, cp, &typing, &inputs, &outputs, enums, registry, helpers, counter,
+        o, func, cp, &typing, &inputs, &outputs, enums, registry, helpers, counter, false,
     );
     emit_composed_open(
         o, func, cp, &typing, &outputs, enums, registry, helpers, counter,
@@ -4709,6 +5071,19 @@ fn emit_composed(
     emit_open_and_fill_internal_wrapper(o, func, enums);
     let _ = writeln!(o, "}}\n");
 
-    emit_update_and_peek(o, func, shape, true);
+    let frame = {
+        let mut sink = String::new();
+        emit_composed_step(
+            &mut sink, func, cp, &typing, &inputs, &outputs, enums, registry, helpers, counter,
+            true,
+        )
+        .map(|body| {
+            let mut f = peek_frame_head(func);
+            f.push_str(&body);
+            let _ = writeln!(f, "        }}");
+            f
+        })
+    };
+    emit_update_and_peek(o, func, true, frame.as_deref());
     emit_trait_pin(o, func);
 }

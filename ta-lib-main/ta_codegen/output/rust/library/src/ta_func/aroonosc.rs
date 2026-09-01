@@ -79,6 +79,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_AROONOSC_Lookback")]
     #[inline]
     pub fn AROONOSC_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -222,15 +223,8 @@ impl Core {
     /// and strength on a -100..+100 scale. Positive when the high is more recent than the low
     /// (up-trend); negative when the low is more recent (down-trend).
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// factor = 100 / optInTimePeriod
-    /// AroonUp   = factor * (period - (today - highestIdx))
-    /// AroonDown = factor * (period - (today - lowestIdx))
-    /// AroonOsc  = AroonUp - AroonDown = factor * (highestIdx - lowestIdx)
-    /// highestIdx/lowestIdx = bar index of the highest high / lowest low in the last (period+1) bars.
-    /// ```
+    /// Formula and more info at
+    /// [ta-lib.org/functions/aroonosc](https://ta-lib.org/functions/aroonosc).
     ///
     /// # Arguments
     ///
@@ -286,8 +280,7 @@ impl Core {
     /// # References
     ///
     /// * Tushar S. Chande
-    ///
-    /// Further reading: [ta-lib.org/functions/aroonosc](https://ta-lib.org/functions/aroonosc)
+    #[doc(alias = "TA_AROONOSC")]
     #[doc(alias = "AroonOscillator")]
     pub fn AROONOSC(
         &self,
@@ -341,24 +334,14 @@ impl Core {
 /// over the same series. Open with [`Core::aroonosc_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_AROONOSC_Stream")]
 pub struct AroonoscStream {
     state: AroonoscStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl AroonoscStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `AroonoscStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -376,26 +359,7 @@ struct AroonoscStreamState {
     xMask: i32,
     x_inHigh: Vec<f64>,
     x_inLow: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl AroonoscStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.lowest = src.lowest;
-        self.highest = src.highest;
-        self.factor = src.factor;
-        self.trailingIdx = src.trailingIdx;
-        self.lowestIdx = src.lowestIdx;
-        self.highestIdx = src.highestIdx;
-        self.i = src.i;
-        self.today = src.today;
-        self.xMask = src.xMask;
-        self.x_inHigh.clone_from(&src.x_inHigh);
-        self.x_inLow.clone_from(&src.x_inLow);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -464,6 +428,7 @@ impl Core {
         (*outReal) = aroon;
         sp.trailingIdx += 1;
         sp.today += 1;
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::aroonosc_open_internal`]
@@ -622,6 +587,7 @@ impl Core {
             highestIdx: (highestIdx) as i32,
             i: (i) as i32,
             today: (today) as i32,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             xMask: (physX - 1) as i32,
             x_inHigh,
             x_inLow,
@@ -736,31 +702,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `AroonoscStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static AROONOSC_PEEK_SCRATCH: std::cell::Cell<Option<Box<AroonoscStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl AroonoscStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_AROONOSC_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -776,7 +744,7 @@ impl AroonoscStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -786,7 +754,8 @@ impl AroonoscStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_AROONOSC_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -795,6 +764,9 @@ impl AroonoscStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::aroonosc_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
@@ -806,36 +778,124 @@ impl AroonoscStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_AROONOSC_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
             return Err(RetCode::BadParam);
         }
-        AROONOSC_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::aroonosc_step_impl(&mut scratch, inHigh, inLow, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tmp: f64 = 0.0_f64;
+            let mut aroon: f64 = 0.0_f64;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut highest = sp.highest;
+            let mut highestIdx = sp.highestIdx;
+            let mut i = sp.i;
+            let mut lowest = sp.lowest;
+            let mut lowestIdx = sp.lowestIdx;
+            let mut today = sp.today;
+            let mut trailingIdx = sp.trailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            if today >= 1073741824 {
+                let rebaseShift: i32 = trailingIdx & !sp.xMask;
+                today -= rebaseShift;
+                trailingIdx -= rebaseShift;
+                highestIdx -= rebaseShift;
+                i -= rebaseShift;
+                lowestIdx -= rebaseShift;
+            }
+            pkSlot0 = (today & sp.xMask) as usize;
+            pkVal0 = inHigh;
+            pkSlot1 = (today & sp.xMask) as usize;
+            pkVal1 = inLow;
+            // Keep track of the lowestIdx
+            tmp = (if ((today & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(today & sp.xMask) as usize] } else { pkVal1 });
+            if lowestIdx < trailingIdx {
+                lowestIdx = trailingIdx;
+                lowest = (if ((lowestIdx & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(lowestIdx & sp.xMask) as usize] } else { pkVal1 });
+                i = lowestIdx;
+                while (({ i += 1; i }) as i32) <= today {
+                    tmp = (if ((i & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(i & sp.xMask) as usize] } else { pkVal1 });
+                    if tmp <= lowest {
+                        lowestIdx = i;
+                        lowest = tmp;
+                    }
+                }
+            } else if tmp <= lowest {
+                lowestIdx = today;
+                lowest = tmp;
+            }
+            // Keep track of the highestIdx
+            tmp = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(today & sp.xMask) as usize] } else { pkVal0 });
+            if highestIdx < trailingIdx {
+                highestIdx = trailingIdx;
+                highest = (if ((highestIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(highestIdx & sp.xMask) as usize] } else { pkVal0 });
+                i = highestIdx;
+                while (({ i += 1; i }) as i32) <= today {
+                    tmp = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(i & sp.xMask) as usize] } else { pkVal0 });
+                    if tmp >= highest {
+                        highestIdx = i;
+                        highest = tmp;
+                    }
+                }
+            } else if tmp >= highest {
+                highestIdx = today;
+                highest = tmp;
+            }
+            // The oscillator is the following:
+            //  AroonUp   = factor*(optInTimePeriod-(today-highestIdx));
+            //  AroonDown = factor*(optInTimePeriod-(today-lowestIdx));
+            //  AroonOsc  = AroonUp-AroonDown;
+            //
+            // An arithmetic simplification give us:
+            //  Aroon = factor*(highestIdx-lowestIdx)
+            aroon = sp.factor * (((highestIdx - lowestIdx)) as f64);
+            // Note: Do not forget that input and output buffer can be the same,
+            //       so writing to the output is the last thing being done here.
+            (*outReal) = aroon;
+            trailingIdx += 1;
+            today += 1;
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_AROONOSC_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::AROONOSC`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

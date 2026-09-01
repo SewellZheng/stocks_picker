@@ -398,10 +398,12 @@ TA_RetCode TA_S_TSF( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_TSF_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_TSF_Value). */
+   double cur_outReal;
    int optInTimePeriod;
    int lookbackTotal;
    int trailingIdx;
@@ -418,7 +420,6 @@ struct TA_TSF_Stream {
    int xPhys;
    int xMask;
    double *x_inReal;
-   double *xMirror_inReal;
 };
 
 /* Private function, not in public API. */
@@ -426,7 +427,6 @@ static void TA_TSF_ReleaseImpl( struct TA_TSF_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inReal ) TA_Free( sp->x_inReal );
-   if( sp->xMirror_inReal ) TA_Free( sp->xMirror_inReal );
    TA_Free( sp );
 }
 
@@ -535,6 +535,7 @@ static void TA_TSF_StepImpl( struct TA_TSF_Stream *sp, double inReal, double *ou
    sp->trailingIdx += 1;
    *outReal= fma(m, (double)sp->optInTimePeriod, b);
    sp->today += 1;
+   sp->cur_outReal = *outReal;
 }
 
 static TA_RetCode TA_TSF_OpenImpl( struct TA_TSF_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
@@ -769,8 +770,6 @@ static TA_RetCode TA_TSF_OpenImpl( struct TA_TSF_Stream **stream, const double i
       sp->xMask = sp->xPhys - 1;
       sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inReal ) { TA_TSF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inReal ) { TA_TSF_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -779,6 +778,7 @@ static TA_RetCode TA_TSF_OpenImpl( struct TA_TSF_Stream **stream, const double i
       }
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -829,7 +829,11 @@ TA_RetCode TA_TSF_OpenAndFillInternal( struct TA_TSF_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_TSF_Update( TA_TSF_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_TSF_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -838,13 +842,116 @@ TA_LIB_API TA_RetCode TA_TSF_Update( TA_TSF_Stream *stream, double inReal, doubl
 TA_LIB_API TA_RetCode TA_TSF_Peek( const TA_TSF_Stream *stream, double inReal, double *outReal )
 {
    struct TA_TSF_Stream scratch;
+   struct TA_TSF_Stream *sp = &scratch;
+   double m;
+   double b;
+   int windowStart;
+   double tempValue1;
+   double tempValue2;
+   double weightedTrailing;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.x_inReal = stream->xMirror_inReal;
-   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
-   TA_TSF_StepImpl( &scratch, inReal, outReal );
+   if( sp->today >= 1073741824 )
+   {
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
+      sp->today -= rebaseShift;
+      sp->trailingIdx -= rebaseShift;
+      sp->j -= rebaseShift;
+   }
+   pkSlot0 = sp->today & sp->xMask;
+   pkVal0 = inReal;
+   weightedTrailing = (double)sp->optInTimePeriod * sp->trailingValue;
+   sp->SumXY = sp->SumXY + sp->SumY - weightedTrailing;
+   sp->SumY = sp->SumY - sp->trailingValue + (((sp->today & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->today & sp->xMask] : pkVal0);
+   sp->sumAbs = sp->sumAbs - fabs(sp->trailingValue) + fabs(((sp->today & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->today & sp->xMask] : pkVal0);
+   /* Re-anchor: rebuild both sums from the window itself. #103 left them as
+    * running totals that are never rebuilt, so each bar's rounding joins a
+    * residue no later bar can subtract -- unbounded in the length of the
+    * call, and scaled by the largest value the sums have EVER held rather
+    * than by what the window holds now. Two triggers, and they cover
+    * different failures (issue #254):
+    *
+    *   - every 32*period bars, so a slow drift stays bounded however long
+    *     the series runs. Same interval as TA_VAR / TA_CORREL / TA_BETA.
+    *
+    *   - when the value the window just dropped carries more weight than
+    *     everything left in it. That is the one the interval cannot cover:
+    *     one large print inflates the residue for up to 32*period bars
+    *     after it is gone (measured 31x at period 5), and this rebuilds on
+    *     the bar it leaves instead.
+    *
+    * The threshold compares two DEGREE-1 quantities, which is why it is 100
+    * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
+    * against a sum of squares. On ordinary prices the ratio is ~1 and this
+    * never fires; it is a compare, not work. The constant is 100 rather than
+    * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
+    * measured accuracy gain.
+    *
+    * THE DENOMINATOR IS sumAbs, NOT SumY, AND THAT IS THE WHOLE POINT.
+    * SumY is a CANCELLING sum: on a zero-mean window it collapses toward 0
+    * while the departing value does not, so |weightedTrailing|/|SumY| is
+    * unbounded and the rebuild fires on EVERY bar -- an alternating +/-1
+    * series measured 10.9x slower at period 30, which is precisely the
+    * O(n*period) cost #103 removed. Same shape of error as #242's absolute
+    * guard on a quartic quantity: a ratio test is ill-posed when its
+    * denominator can cancel. sumAbs is a sum of magnitudes, so it is 0 only
+    * when every value in the window is 0 -- and then the numerator is 0 too
+    * and the test is false. There is no window it can misjudge.
+    *
+    * It is also the RIGHT quantity on the merits, not just the safe one: a
+    * fresh rebuild's own error is ~eps*sum|y|, so comparing the departing
+    * term against sum|y| asks exactly "would rebuilding beat what we are
+    * carrying?".
+    *
+    * Carrying it is free in practice. Measured on the shipped libta-lib.a it
+    * costs nothing against the |SumY| form on a price series (1.541 vs 1.605
+    * ns/bar at period 14) because the update is INDEPENDENT of the serial
+    * SumXY -> SumY dependency chain and fills slots that were idle. The
+    * rejected alternative -- keeping |SumY| and rate-limiting the trigger to
+    * once per `period` bars -- bounded the cliff at 1.2x rather than removing
+    * it, and silently dropped any print departing within `period` bars of a
+    * rebuild (~3% of them).
+    *
+    * The scan walks the window oldest-first with the weight counting DOWN,
+    * which is the priming scan's order and weighting -- so a reseeded bar is
+    * bit-identical to the same bar computed by a call that started there.
+    * That identity is the whole point: it is what the range-stability
+    * contract measures.
+    *
+    * Reading the window is safe when outReal aliases inReal (#130): the
+    * outputs written so far occupy [0, outIdx-1], and windowStart is
+    * today-lookbackTotal, which is >= outIdx because startIdx was clamped
+    * to at least lookbackTotal.
+    */
+   sp->barsSinceReseed -= 1;
+   if( sp->barsSinceReseed <= 0 || fabs(weightedTrailing) > 100.0 * sp->sumAbs )
+   {
+      sp->barsSinceReseed = 32 * sp->optInTimePeriod;
+      windowStart = sp->today - sp->lookbackTotal;
+      sp->SumY = 0;
+      sp->SumXY = 0;
+      sp->sumAbs = 0;
+      tempValue2 = (double)sp->lookbackTotal;
+      for( sp->j = windowStart; sp->j <= sp->today; sp->j += 1 )
+      {
+         tempValue1 = ((sp->j & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->j & sp->xMask] : pkVal0;
+         sp->SumY += tempValue1;
+         sp->SumXY += tempValue2 * tempValue1;
+         sp->sumAbs += fabs(tempValue1);
+         tempValue2 -= 1.0;
+      }
+   }
+   m = (sp->optInTimePeriod * sp->SumXY - sp->SumX * sp->SumY) / sp->Divisor;
+   b = (sp->SumY - m * sp->SumX) / (double)sp->optInTimePeriod;
+   sp->trailingValue = ((sp->trailingIdx & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->trailingIdx & sp->xMask] : pkVal0;
+   sp->trailingIdx += 1;
+   *outReal= fma(m, (double)sp->optInTimePeriod, b);
+   sp->today += 1;
+   sp->cur_outReal = *outReal;
    return TA_SUCCESS;
 }
 
@@ -857,7 +964,11 @@ TA_LIB_API TA_RetCode TA_TSF_UpdateAndFill( TA_TSF_Stream *stream, const double 
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_TSF_StepImpl( stream, inReal[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -867,6 +978,33 @@ TA_LIB_API TA_RetCode TA_TSF_UpdateAndFill( TA_TSF_Stream *stream, const double 
 TA_LIB_API TA_RetCode TA_TSF_Close( TA_TSF_Stream *stream )
 {
    TA_TSF_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_TSF_Value( const TA_TSF_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_TSF_Clone( const TA_TSF_Stream *stream, TA_TSF_Stream **clone )
+{
+   struct TA_TSF_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_TSF_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->x_inReal = NULL;
+   if( stream->x_inReal )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inReal = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inReal ) { TA_TSF_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inReal, stream->x_inReal, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

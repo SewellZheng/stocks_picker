@@ -837,11 +837,11 @@
     * Open with {@link Core#hmaOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -891,12 +891,13 @@
       HmaStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#HMA} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -946,88 +947,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( HmaStream other ) {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.dividerFull = other.dividerFull;
-         this.periodSubFull = other.periodSubFull;
-         this.periodSumFull = other.periodSumFull;
-         this.trailingFull = other.trailingFull;
-         this.lookbackFull = other.lookbackFull;
-         this.barsSinceReseedFull = other.barsSinceReseedFull;
-         this.halfPeriod = other.halfPeriod;
-         this.sqrtPeriod = other.sqrtPeriod;
-         this.ringSize = other.ringSize;
-         this.dividerHalf = other.dividerHalf;
-         this.dividerSqrt = other.dividerSqrt;
-         this.periodSubHalf = other.periodSubHalf;
-         this.periodSumHalf = other.periodSumHalf;
-         this.trailingHalf = other.trailingHalf;
-         this.periodSubSqrt = other.periodSubSqrt;
-         this.periodSumSqrt = other.periodSumSqrt;
-         this.trailingSqrt = other.trailingSqrt;
-         this.lookbackHalf = other.lookbackHalf;
-         this.barsSinceReseedHalf = other.barsSinceReseedHalf;
-         this.barsSinceReseedSqrt = other.barsSinceReseedSqrt;
-         this.dRing_Idx = other.dRing_Idx;
-         this.maxIdx_dRing = other.maxIdx_dRing;
-         this.ringPos_trailingIdxFull = other.ringPos_trailingIdxFull;
-         this.ringCap_trailingIdxFull = other.ringCap_trailingIdxFull;
-         if( this.ring_trailingIdxFull_inReal != null && this.ring_trailingIdxFull_inReal.length == other.ring_trailingIdxFull_inReal.length ) {
-            System.arraycopy( other.ring_trailingIdxFull_inReal, 0, this.ring_trailingIdxFull_inReal, 0, other.ring_trailingIdxFull_inReal.length );
-         } else {
-            this.ring_trailingIdxFull_inReal = other.ring_trailingIdxFull_inReal.clone();
-         }
-         this.winPos_jFull = other.winPos_jFull;
-         this.winCap_jFull = other.winCap_jFull;
-         if( this.win_jFull_inReal != null && this.win_jFull_inReal.length == other.win_jFull_inReal.length ) {
-            System.arraycopy( other.win_jFull_inReal, 0, this.win_jFull_inReal, 0, other.win_jFull_inReal.length );
-         } else {
-            this.win_jFull_inReal = other.win_jFull_inReal.clone();
-         }
-         this.cur_outReal = other.cur_outReal;
-         this.ringPos_trailingIdxHalf = other.ringPos_trailingIdxHalf;
-         this.ringCap_trailingIdxHalf = other.ringCap_trailingIdxHalf;
-         if( this.ring_trailingIdxHalf_inReal != null && this.ring_trailingIdxHalf_inReal.length == other.ring_trailingIdxHalf_inReal.length ) {
-            System.arraycopy( other.ring_trailingIdxHalf_inReal, 0, this.ring_trailingIdxHalf_inReal, 0, other.ring_trailingIdxHalf_inReal.length );
-         } else {
-            this.ring_trailingIdxHalf_inReal = other.ring_trailingIdxHalf_inReal.clone();
-         }
-         this.winPos_jHalf = other.winPos_jHalf;
-         this.winCap_jHalf = other.winCap_jHalf;
-         if( this.win_jHalf_inReal != null && this.win_jHalf_inReal.length == other.win_jHalf_inReal.length ) {
-            System.arraycopy( other.win_jHalf_inReal, 0, this.win_jHalf_inReal, 0, other.win_jHalf_inReal.length );
-         } else {
-            this.win_jHalf_inReal = other.win_jHalf_inReal.clone();
-         }
-         this.cbSize_dRing = other.cbSize_dRing;
-         if( this.cb_dRing != null && this.cb_dRing.length == other.cb_dRing.length ) {
-            System.arraycopy( other.cb_dRing, 0, this.cb_dRing, 0, other.cb_dRing.length );
-         } else {
-            this.cb_dRing = other.cb_dRing.clone();
-         }
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<HmaStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) )
+         if( !Double.isFinite(inReal) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("HMA update: BadParam", RetCode.BadParam);
+         }
          core.hmaStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -1039,11 +979,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inReal.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
          requireArgument("HMA updateAndFill", "inReal", inReal);
@@ -1052,8 +993,10 @@
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("HMA updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) )
+            if( !Double.isFinite(inReal[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("HMA updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.hmaStepImpl(this, inReal[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -1062,30 +1005,221 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("HMA peek: BadParam", RetCode.BadParam);
-         HmaStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new HmaStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         HmaStream sp = this;
+         double cur_outReal = 0.0;
+         if( sp.optInTimePeriod == 1 ) {
+            cur_outReal = inReal;
+            return cur_outReal ;
          }
-         core.hmaStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         if( sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 ) {
+            double tempReal = 0.0;
+            double fullOut = 0.0;
+            int jFull = 0;
+            int rw = 0;
+            double tempReal2 = 0.0;
+            int barsSinceReseedFull = sp.barsSinceReseedFull;
+            double periodSubFull = sp.periodSubFull;
+            double periodSumFull = sp.periodSumFull;
+            int ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull;
+            double trailingFull = sp.trailingFull;
+            int winPos_jFull = sp.winPos_jFull;
+            int pkSlot0 = -1;
+            double pkVal0 = 0.0;
+            int pkSlot1 = -1;
+            double pkVal1 = 0.0;
+            if( sp.ringCap_trailingIdxFull == 0 ) {
+               pkSlot0 = 0;
+               pkVal0 = inReal;
+            }
+            pkSlot1 = winPos_jFull;
+            pkVal1 = inReal;
+            tempReal = inReal;
+            periodSubFull += tempReal;
+            periodSubFull -= trailingFull;
+            periodSumFull += tempReal * sp.optInTimePeriod;
+            barsSinceReseedFull -= 1;
+            if( barsSinceReseedFull <= 0 ) {
+               barsSinceReseedFull = 8 * sp.optInTimePeriod;
+               periodSubFull = 0.0;
+               periodSumFull = 0.0;
+               rw = 1;
+               for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+                  tempReal2 = (((winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : winPos_jFull + sp.winCap_jFull - jFull) != pkSlot1) ? sp.win_jFull_inReal[(winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : winPos_jFull + sp.winCap_jFull - jFull] : pkVal1;
+                  periodSubFull += tempReal2;
+                  periodSumFull += tempReal2 * rw;
+                  rw += 1;
+               }
+            }
+            trailingFull = (ringPos_trailingIdxFull != pkSlot0) ? sp.ring_trailingIdxFull_inReal[ringPos_trailingIdxFull] : pkVal0;
+            fullOut = periodSumFull / sp.dividerFull;
+            periodSumFull -= periodSubFull;
+            cur_outReal = 2.0 * tempReal - fullOut;
+            ringPos_trailingIdxFull = ringPos_trailingIdxFull + 1;
+            if( ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+               ringPos_trailingIdxFull = 0;
+            }
+            winPos_jFull = winPos_jFull + 1;
+            if( winPos_jFull >= sp.winCap_jFull ) {
+               winPos_jFull = 0;
+            }
+         } else {
+            double tempReal = 0.0;
+            double fullOut = 0.0;
+            double halfOut = 0.0;
+            double diffReal = 0.0;
+            int jFull = 0;
+            int jHalf = 0;
+            int q = 0;
+            int rw = 0;
+            int ringWalk = 0;
+            double tempReal2 = 0.0;
+            int barsSinceReseedFull = sp.barsSinceReseedFull;
+            int barsSinceReseedHalf = sp.barsSinceReseedHalf;
+            int barsSinceReseedSqrt = sp.barsSinceReseedSqrt;
+            int dRing_Idx = sp.dRing_Idx;
+            double periodSubFull = sp.periodSubFull;
+            double periodSubHalf = sp.periodSubHalf;
+            double periodSubSqrt = sp.periodSubSqrt;
+            double periodSumFull = sp.periodSumFull;
+            double periodSumHalf = sp.periodSumHalf;
+            double periodSumSqrt = sp.periodSumSqrt;
+            int ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull;
+            int ringPos_trailingIdxHalf = sp.ringPos_trailingIdxHalf;
+            double trailingFull = sp.trailingFull;
+            double trailingHalf = sp.trailingHalf;
+            double trailingSqrt = sp.trailingSqrt;
+            int winPos_jFull = sp.winPos_jFull;
+            int winPos_jHalf = sp.winPos_jHalf;
+            int pkSlot0 = -1;
+            double pkVal0 = 0.0;
+            int pkSlot1 = -1;
+            double pkVal1 = 0.0;
+            int pkSlot2 = -1;
+            double pkVal2 = 0.0;
+            int pkSlot3 = -1;
+            double pkVal3 = 0.0;
+            if( sp.ringCap_trailingIdxFull == 0 ) {
+               pkSlot0 = 0;
+               pkVal0 = inReal;
+            }
+            if( sp.ringCap_trailingIdxHalf == 0 ) {
+               pkSlot1 = 0;
+               pkVal1 = inReal;
+            }
+            pkSlot2 = winPos_jFull;
+            pkVal2 = inReal;
+            pkSlot3 = winPos_jHalf;
+            pkVal3 = inReal;
+            tempReal = inReal;
+            periodSubFull += tempReal;
+            periodSubFull -= trailingFull;
+            periodSumFull += tempReal * sp.optInTimePeriod;
+            barsSinceReseedFull -= 1;
+            if( barsSinceReseedFull <= 0 ) {
+               barsSinceReseedFull = 8 * sp.optInTimePeriod;
+               periodSubFull = 0.0;
+               periodSumFull = 0.0;
+               rw = 1;
+               for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 ) {
+                  tempReal2 = (((winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : winPos_jFull + sp.winCap_jFull - jFull) != pkSlot2) ? sp.win_jFull_inReal[(winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull) ? winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull : winPos_jFull + sp.winCap_jFull - jFull] : pkVal2;
+                  periodSubFull += tempReal2;
+                  periodSumFull += tempReal2 * rw;
+                  rw += 1;
+               }
+            }
+            trailingFull = (ringPos_trailingIdxFull != pkSlot0) ? sp.ring_trailingIdxFull_inReal[ringPos_trailingIdxFull] : pkVal0;
+            fullOut = periodSumFull / sp.dividerFull;
+            periodSumFull -= periodSubFull;
+            periodSubHalf += tempReal;
+            periodSubHalf -= trailingHalf;
+            periodSumHalf += tempReal * sp.halfPeriod;
+            barsSinceReseedHalf -= 1;
+            if( barsSinceReseedHalf <= 0 ) {
+               barsSinceReseedHalf = 8 * sp.halfPeriod;
+               periodSubHalf = 0.0;
+               periodSumHalf = 0.0;
+               rw = 1;
+               for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 ) {
+                  tempReal2 = (((winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : winPos_jHalf + sp.winCap_jHalf - jHalf) != pkSlot3) ? sp.win_jHalf_inReal[(winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf) ? winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf : winPos_jHalf + sp.winCap_jHalf - jHalf] : pkVal3;
+                  periodSubHalf += tempReal2;
+                  periodSumHalf += tempReal2 * rw;
+                  rw += 1;
+               }
+            }
+            trailingHalf = (ringPos_trailingIdxHalf != pkSlot1) ? sp.ring_trailingIdxHalf_inReal[ringPos_trailingIdxHalf] : pkVal1;
+            halfOut = periodSumHalf / sp.dividerHalf;
+            periodSumHalf -= periodSubHalf;
+            diffReal = 2.0 * halfOut - fullOut;
+            periodSubSqrt += diffReal;
+            periodSubSqrt -= trailingSqrt;
+            periodSumSqrt += diffReal * sp.sqrtPeriod;
+            /* The outer WMA consumes a DERIVED series that is never
+             * materialised, so its rescan walks the de-lag ring: dRing_Idx is
+             * the oldest slot (the one about to expire) and diffReal is the
+             * newest value, which together are the whole window. Oldest first,
+             * weight counting up from 1 -- the priming order above.
+             */
+            barsSinceReseedSqrt -= 1;
+            if( barsSinceReseedSqrt <= 0 ) {
+               barsSinceReseedSqrt = 8 * sp.sqrtPeriod;
+               periodSubSqrt = 0.0;
+               periodSumSqrt = 0.0;
+               rw = 1;
+               ringWalk = dRing_Idx;
+               for( q = 0; q < sp.ringSize; q += 1 ) {
+                  tempReal2 = sp.cb_dRing[ringWalk];
+                  periodSubSqrt += tempReal2;
+                  periodSumSqrt += tempReal2 * rw;
+                  rw += 1;
+                  ringWalk += 1;
+                  if( ringWalk >= sp.ringSize ) {
+                     ringWalk = 0;
+                  }
+               }
+               periodSubSqrt += diffReal;
+               periodSumSqrt += diffReal * sp.sqrtPeriod;
+            }
+            trailingSqrt = sp.cb_dRing[dRing_Idx];
+            dRing_Idx = dRing_Idx + 1;
+            if( dRing_Idx > sp.maxIdx_dRing ) {
+               dRing_Idx = 0;
+            }
+            cur_outReal = periodSumSqrt / sp.dividerSqrt;
+            periodSumSqrt -= periodSubSqrt;
+            ringPos_trailingIdxFull = ringPos_trailingIdxFull + 1;
+            if( ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull ) {
+               ringPos_trailingIdxFull = 0;
+            }
+            ringPos_trailingIdxHalf = ringPos_trailingIdxHalf + 1;
+            if( ringPos_trailingIdxHalf >= sp.ringCap_trailingIdxHalf ) {
+               ringPos_trailingIdxHalf = 0;
+            }
+            winPos_jFull = winPos_jFull + 1;
+            if( winPos_jFull >= sp.winCap_jFull ) {
+               winPos_jFull = 0;
+            }
+            winPos_jHalf = winPos_jHalf + 1;
+            if( winPos_jHalf >= sp.winCap_jHalf ) {
+               winPos_jHalf = 0;
+            }
+         }
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -1093,10 +1227,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public HmaStream copy() {
+      @Override
+      public HmaStream clone() {
          return new HmaStream(this);
       }
    }

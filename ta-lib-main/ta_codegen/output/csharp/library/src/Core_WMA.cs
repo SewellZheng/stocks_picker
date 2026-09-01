@@ -550,14 +550,15 @@ public partial class Core
 
       internal WmaStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Wma</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
-      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
-      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
-      /// subset of this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
+      /// to the count — a non-finite bar is rejected but still counted, because the
+      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
+      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
+      /// this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -584,52 +585,29 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( WmaStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.lookbackWin = other.lookbackWin;
-         this.barsSinceReseed = other.barsSinceReseed;
-         this.periodSum = other.periodSum;
-         this.periodSub = other.periodSub;
-         this.trailingValue = other.trailingValue;
-         this.divider = other.divider;
-         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
-         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
-         if( this.ring_trailingIdx_inReal.Length != other.ring_trailingIdx_inReal.Length ) {
-            this.ring_trailingIdx_inReal = new double[other.ring_trailingIdx_inReal.Length];
-         }
-         Array.Copy( other.ring_trailingIdx_inReal, this.ring_trailingIdx_inReal, other.ring_trailingIdx_inReal.Length );
-         this.winPos_j = other.winPos_j;
-         this.winCap_j = other.winCap_j;
-         if( this.win_j_inReal.Length != other.win_j_inReal.Length ) {
-            this.win_j_inReal = new double[other.win_j_inReal.Length];
-         }
-         Array.Copy( other.win_j_inReal, this.win_j_inReal, other.win_j_inReal.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static WmaStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("WMA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("WMA", "update", RetCode.BadParam);
+         }
          core.WmaStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -638,26 +616,125 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>What <see cref="Update"/> would return for this bar.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("WMA", "peek", RetCode.BadParam);
-         WmaStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new WmaStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         WmaStream sp = this;
+         int j = 0;
+         int rw = 0;
+         double tempReal = 0.0;
+         int barsSinceReseed = sp.barsSinceReseed;
+         double cur_outReal = sp.cur_outReal;
+         double periodSub = sp.periodSub;
+         double periodSum = sp.periodSum;
+         int ringPos_trailingIdx = sp.ringPos_trailingIdx;
+         double trailingValue = sp.trailingValue;
+         int winPos_j = sp.winPos_j;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         if( sp.optInTimePeriod == 1 ) {
+            cur_outReal = inReal;
+            return cur_outReal ;
          }
-         core.WmaStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         if( sp.ringCap_trailingIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = inReal;
+         }
+         pkSlot1 = winPos_j;
+         pkVal1 = inReal;
+         /* Add the current price bar to the sum
+          * who are carried through the iterations.
+          */
+         tempReal = inReal;
+         periodSub += tempReal;
+         periodSub -= trailingValue;
+         periodSum += tempReal * sp.optInTimePeriod;
+         /* Re-anchor: rebuild both totals from the window itself.
+          *
+          * periodSum and periodSub were running totals that were never
+          * recomputed, so each bar's rounding joined a residue no later bar
+          * could subtract, and its size was set by the largest value the totals
+          * had ever held rather than by the current window. That is the defect
+          * #254 fixed in the LINEARREG family, and `periodSum -= periodSub`
+          * below is the same weight-shifting identity as that family's
+          * `SumXY = SumXY + SumY - period*trailingValue` -- which is why WMA has
+          * it and TA_SMA, whose output lives at its own sum's scale, does not.
+          * Measured before the fix: worst range disagreement 1.41e-08 at 200000
+          * bars against a 1e-10 tier, over the tier from ~10000 bars on ordinary
+          * closes or ~1000 with one large print. After: 1.79e-12, flat in call
+          * length.
+          *
+          * ONE TRIGGER, NOT TWO, AND THE INTERVAL IS 8*period NOT 32. The
+          * LINEARREG family also carries an OUTLIER trigger (rebuild when the
+          * departing value outweighs the window) because for a slope the
+          * interval alone FAILS the tier outright, at 2.38e-10. WMA is not in
+          * that position: its weights are bounded by `period` and its divider is
+          * period*(period+1)/2, which dilutes the residue enough that the
+          * interval alone holds. Swept over periods 2, 3, 4, 14, 50, 200, 1000,
+          * 5000 and 20000 on 60000 bars, clean and with a 1000x print, the worst
+          * is 2.2e-11 -- 4.6x inside the band, and the margin does not thin at
+          * either end of the period range. Measured, the trigger bought 1.4e-11 -> 7e-12 and cost 1.17x
+          * here and 1.65x in TA_HMA, whose three fused stages each pay it. The
+          * shorter interval buys most of the accuracy for ~1.1x instead.
+          *
+          * The rebuild walks the window OLDEST FIRST with the weight counting UP
+          * from 1 -- the priming scan's own order and weighting -- so a
+          * re-anchored bar is bit-identical to the same bar computed by a call
+          * that started there. That identity is what the range-stability
+          * contract measures, and what test_wma.c W2/W3 assert.
+          *
+          * The loop start is written INLINE rather than through a `windowStart`
+          * local: only that form is recognised as a rescan window, which is what
+          * keeps this on the stream classifier's primary path. See
+          * docs/ta_codegen_input_code.md.
+          *
+          * Reading the window is safe when outReal aliases inReal: the outputs
+          * written so far occupy [0, outIdx-1], and the window starts at
+          * startIdx-lookbackTotal+outIdx, which is >= outIdx.
+          */
+         barsSinceReseed -= 1;
+         if( barsSinceReseed <= 0 ) {
+            barsSinceReseed = 8 * sp.optInTimePeriod;
+            periodSub = (double)0.0;
+            periodSum = (double)0.0;
+            rw = 1;
+            for( j = sp.lookbackWin; j >= 0; j -= 1 ) {
+               tempReal = (((winPos_j + sp.winCap_j - j >= sp.winCap_j) ? winPos_j + sp.winCap_j - j - sp.winCap_j : winPos_j + sp.winCap_j - j) != pkSlot1) ? sp.win_j_inReal[(winPos_j + sp.winCap_j - j >= sp.winCap_j) ? winPos_j + sp.winCap_j - j - sp.winCap_j : winPos_j + sp.winCap_j - j] : pkVal1;
+               periodSub += tempReal;
+               periodSum += tempReal * rw;
+               rw += 1;
+            }
+         }
+         /* Save the trailing value for being substract at
+          * the next iteration.
+          * (must be saved here just in case outReal and
+          *  inReal are the same buffer).
+          */
+         trailingValue = (ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inReal[ringPos_trailingIdx] : pkVal0;
+         /* Calculate the WMA for this price bar. */
+         cur_outReal = periodSum / sp.divider;
+         /* Prepare the periodSum for the next iteration. */
+         periodSum -= periodSub;
+         ringPos_trailingIdx = ringPos_trailingIdx + 1;
+         if( ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+            ringPos_trailingIdx = 0;
+         }
+         winPos_j = winPos_j + 1;
+         if( winPos_j >= sp.winCap_j ) {
+            winPos_j = 0;
+         }
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -665,11 +742,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
       /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
@@ -679,15 +758,20 @@ public partial class Core
          if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("WMA", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("WMA", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inReal[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("WMA", "updateAndFill", RetCode.BadParam);
+            }
             core.WmaStepImpl(this, inReal[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

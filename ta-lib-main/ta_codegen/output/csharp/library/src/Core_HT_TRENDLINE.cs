@@ -983,15 +983,15 @@ public partial class Core
 
       internal HtTrendlineStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.HtTrendline</c> reports over the same bars: the opener
-      /// sets it to <c>(lookback, historyLen - lookback)</c>, every accepted
-      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
-      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
-      /// last value, a subset of this range, because the caller chose not to take
-      /// the fill.</para>
+      /// sets it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c>
+      /// adds one to the count — a non-finite bar is rejected but still counted,
+      /// because the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -1064,114 +1064,29 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( HtTrendlineStream other )
-      {
-         this.core = other.core;
-         this.period = other.period;
-         this.periodWMASum = other.periodWMASum;
-         this.periodWMASub = other.periodWMASub;
-         this.trailingWMAValue = other.trailingWMAValue;
-         this.iTrend1 = other.iTrend1;
-         this.iTrend2 = other.iTrend2;
-         this.iTrend3 = other.iTrend3;
-         this.a = other.a;
-         this.b = other.b;
-         this.hilbertIdx = other.hilbertIdx;
-         if( this.detrender_Odd.Length != other.detrender_Odd.Length ) {
-            this.detrender_Odd = new double[other.detrender_Odd.Length];
-         }
-         Array.Copy( other.detrender_Odd, this.detrender_Odd, other.detrender_Odd.Length );
-         if( this.detrender_Even.Length != other.detrender_Even.Length ) {
-            this.detrender_Even = new double[other.detrender_Even.Length];
-         }
-         Array.Copy( other.detrender_Even, this.detrender_Even, other.detrender_Even.Length );
-         this.prev_detrender_Odd = other.prev_detrender_Odd;
-         this.prev_detrender_Even = other.prev_detrender_Even;
-         this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
-         this.prev_detrender_input_Even = other.prev_detrender_input_Even;
-         if( this.Q1_Odd.Length != other.Q1_Odd.Length ) {
-            this.Q1_Odd = new double[other.Q1_Odd.Length];
-         }
-         Array.Copy( other.Q1_Odd, this.Q1_Odd, other.Q1_Odd.Length );
-         if( this.Q1_Even.Length != other.Q1_Even.Length ) {
-            this.Q1_Even = new double[other.Q1_Even.Length];
-         }
-         Array.Copy( other.Q1_Even, this.Q1_Even, other.Q1_Even.Length );
-         this.prev_Q1_Odd = other.prev_Q1_Odd;
-         this.prev_Q1_Even = other.prev_Q1_Even;
-         this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
-         this.prev_Q1_input_Even = other.prev_Q1_input_Even;
-         if( this.jI_Odd.Length != other.jI_Odd.Length ) {
-            this.jI_Odd = new double[other.jI_Odd.Length];
-         }
-         Array.Copy( other.jI_Odd, this.jI_Odd, other.jI_Odd.Length );
-         if( this.jI_Even.Length != other.jI_Even.Length ) {
-            this.jI_Even = new double[other.jI_Even.Length];
-         }
-         Array.Copy( other.jI_Even, this.jI_Even, other.jI_Even.Length );
-         this.prev_jI_Odd = other.prev_jI_Odd;
-         this.prev_jI_Even = other.prev_jI_Even;
-         this.prev_jI_input_Odd = other.prev_jI_input_Odd;
-         this.prev_jI_input_Even = other.prev_jI_input_Even;
-         if( this.jQ_Odd.Length != other.jQ_Odd.Length ) {
-            this.jQ_Odd = new double[other.jQ_Odd.Length];
-         }
-         Array.Copy( other.jQ_Odd, this.jQ_Odd, other.jQ_Odd.Length );
-         if( this.jQ_Even.Length != other.jQ_Even.Length ) {
-            this.jQ_Even = new double[other.jQ_Even.Length];
-         }
-         Array.Copy( other.jQ_Even, this.jQ_Even, other.jQ_Even.Length );
-         this.prev_jQ_Odd = other.prev_jQ_Odd;
-         this.prev_jQ_Even = other.prev_jQ_Even;
-         this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
-         this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.prevQ2 = other.prevQ2;
-         this.prevI2 = other.prevI2;
-         this.Re = other.Re;
-         this.Im = other.Im;
-         this.I1ForOddPrev2 = other.I1ForOddPrev2;
-         this.I1ForOddPrev3 = other.I1ForOddPrev3;
-         this.I1ForEvenPrev2 = other.I1ForEvenPrev2;
-         this.I1ForEvenPrev3 = other.I1ForEvenPrev3;
-         this.rad2Deg = other.rad2Deg;
-         this.smoothPeriod = other.smoothPeriod;
-         this.streamParity = other.streamParity;
-         this.ringPos_trailingWMAIdx = other.ringPos_trailingWMAIdx;
-         this.ringCap_trailingWMAIdx = other.ringCap_trailingWMAIdx;
-         if( this.ring_trailingWMAIdx_inReal.Length != other.ring_trailingWMAIdx_inReal.Length ) {
-            this.ring_trailingWMAIdx_inReal = new double[other.ring_trailingWMAIdx_inReal.Length];
-         }
-         Array.Copy( other.ring_trailingWMAIdx_inReal, this.ring_trailingWMAIdx_inReal, other.ring_trailingWMAIdx_inReal.Length );
-         this.winPos_i = other.winPos_i;
-         this.winCap_i = other.winCap_i;
-         if( this.win_i_inReal.Length != other.win_i_inReal.Length ) {
-            this.win_i_inReal = new double[other.win_i_inReal.Length];
-         }
-         Array.Copy( other.win_i_inReal, this.win_i_inReal, other.win_i_inReal.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static HtTrendlineStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("HT_TRENDLINE", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("HT_TRENDLINE", "update", RetCode.BadParam);
+         }
          core.HtTrendlineStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -1180,26 +1095,245 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>What <see cref="Update"/> would return for this bar.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("HT_TRENDLINE", "peek", RetCode.BadParam);
-         HtTrendlineStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new HtTrendlineStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         HtTrendlineStream sp = this;
+         int i = 0;
+         double tempReal = 0.0;
+         double tempReal2 = 0.0;
+         double adjustedPrevPeriod = 0.0;
+         double smoothedValue = 0.0;
+         double hilbertTempReal = 0.0;
+         double detrender = 0.0;
+         double Q1 = 0.0;
+         double jI = 0.0;
+         double jQ = 0.0;
+         double Q2 = 0.0;
+         double I2 = 0.0;
+         double todayValue = 0.0;
+         int DCPeriodInt = 0;
+         double DCPeriod = 0.0;
+         double I1ForEvenPrev2 = sp.I1ForEvenPrev2;
+         double I1ForEvenPrev3 = sp.I1ForEvenPrev3;
+         double I1ForOddPrev2 = sp.I1ForOddPrev2;
+         double I1ForOddPrev3 = sp.I1ForOddPrev3;
+         double Im = sp.Im;
+         double Re = sp.Re;
+         double cur_outReal = sp.cur_outReal;
+         int hilbertIdx = sp.hilbertIdx;
+         double iTrend1 = sp.iTrend1;
+         double iTrend2 = sp.iTrend2;
+         double iTrend3 = sp.iTrend3;
+         double period = sp.period;
+         double periodWMASub = sp.periodWMASub;
+         double periodWMASum = sp.periodWMASum;
+         double prevI2 = sp.prevI2;
+         double prevQ2 = sp.prevQ2;
+         double prev_Q1_Even = sp.prev_Q1_Even;
+         double prev_Q1_Odd = sp.prev_Q1_Odd;
+         double prev_Q1_input_Even = sp.prev_Q1_input_Even;
+         double prev_Q1_input_Odd = sp.prev_Q1_input_Odd;
+         double prev_detrender_Even = sp.prev_detrender_Even;
+         double prev_detrender_Odd = sp.prev_detrender_Odd;
+         double prev_detrender_input_Even = sp.prev_detrender_input_Even;
+         double prev_detrender_input_Odd = sp.prev_detrender_input_Odd;
+         double prev_jI_Even = sp.prev_jI_Even;
+         double prev_jI_Odd = sp.prev_jI_Odd;
+         double prev_jI_input_Even = sp.prev_jI_input_Even;
+         double prev_jI_input_Odd = sp.prev_jI_input_Odd;
+         double prev_jQ_Even = sp.prev_jQ_Even;
+         double prev_jQ_Odd = sp.prev_jQ_Odd;
+         double prev_jQ_input_Even = sp.prev_jQ_input_Even;
+         double prev_jQ_input_Odd = sp.prev_jQ_input_Odd;
+         int ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+         double smoothPeriod = sp.smoothPeriod;
+         int streamParity = sp.streamParity;
+         double trailingWMAValue = sp.trailingWMAValue;
+         int winPos_i = sp.winPos_i;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         if( sp.ringCap_trailingWMAIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = inReal;
          }
-         core.HtTrendlineStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         pkSlot1 = winPos_i;
+         pkVal1 = inReal;
+         adjustedPrevPeriod = Math.FusedMultiplyAdd(0.075, period, 0.54);
+         todayValue = inReal;
+         periodWMASub += todayValue;
+         periodWMASub -= trailingWMAValue;
+         periodWMASum += todayValue * 4.0;
+         trailingWMAValue = (ringPos_trailingWMAIdx != pkSlot0) ? sp.ring_trailingWMAIdx_inReal[ringPos_trailingWMAIdx] : pkVal0;
+         smoothedValue = periodWMASum * 0.1;
+         periodWMASum -= periodWMASub;
+         if( streamParity == 0 ) {
+            /* Do the Hilbert Transforms for even price bar */
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0 - sp.detrender_Even[hilbertIdx];
+            detrender += hilbertTempReal;
+            detrender -= prev_detrender_Even;
+            prev_detrender_Even = sp.b * prev_detrender_input_Even;
+            detrender += prev_detrender_Even;
+            prev_detrender_input_Even = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0 - sp.Q1_Even[hilbertIdx];
+            Q1 += hilbertTempReal;
+            Q1 -= prev_Q1_Even;
+            prev_Q1_Even = sp.b * prev_Q1_input_Even;
+            Q1 += prev_Q1_Even;
+            prev_Q1_input_Even = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * I1ForEvenPrev3;
+            jI = 0 - sp.jI_Even[hilbertIdx];
+            jI += hilbertTempReal;
+            jI -= prev_jI_Even;
+            prev_jI_Even = sp.b * prev_jI_input_Even;
+            jI += prev_jI_Even;
+            prev_jI_input_Even = I1ForEvenPrev3;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0 - sp.jQ_Even[hilbertIdx];
+            jQ += hilbertTempReal;
+            jQ -= prev_jQ_Even;
+            prev_jQ_Even = sp.b * prev_jQ_input_Even;
+            jQ += prev_jQ_Even;
+            prev_jQ_input_Even = Q1;
+            jQ *= adjustedPrevPeriod;
+            if( ++hilbertIdx == 3 ) {
+               hilbertIdx = 0;
+            }
+            Q2 = Math.FusedMultiplyAdd(0.2, Q1 + jI, 0.8 * prevQ2);
+            I2 = Math.FusedMultiplyAdd(0.2, I1ForEvenPrev3 - jQ, 0.8 * prevI2);
+            /* The variable I1 is the detrender delayed for
+             * 3 price bars.
+             *
+             * Save the current detrender value for being
+             * used by the "odd" logic later.
+             */
+            I1ForOddPrev3 = I1ForOddPrev2;
+            I1ForOddPrev2 = detrender;
+         } else {
+            /* Do the Hilbert Transforms for odd price bar */
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0 - sp.detrender_Odd[hilbertIdx];
+            detrender += hilbertTempReal;
+            detrender -= prev_detrender_Odd;
+            prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
+            detrender += prev_detrender_Odd;
+            prev_detrender_input_Odd = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0 - sp.Q1_Odd[hilbertIdx];
+            Q1 += hilbertTempReal;
+            Q1 -= prev_Q1_Odd;
+            prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
+            Q1 += prev_Q1_Odd;
+            prev_Q1_input_Odd = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * I1ForOddPrev3;
+            jI = 0 - sp.jI_Odd[hilbertIdx];
+            jI += hilbertTempReal;
+            jI -= prev_jI_Odd;
+            prev_jI_Odd = sp.b * prev_jI_input_Odd;
+            jI += prev_jI_Odd;
+            prev_jI_input_Odd = I1ForOddPrev3;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0 - sp.jQ_Odd[hilbertIdx];
+            jQ += hilbertTempReal;
+            jQ -= prev_jQ_Odd;
+            prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
+            jQ += prev_jQ_Odd;
+            prev_jQ_input_Odd = Q1;
+            jQ *= adjustedPrevPeriod;
+            Q2 = Math.FusedMultiplyAdd(0.2, Q1 + jI, 0.8 * prevQ2);
+            I2 = Math.FusedMultiplyAdd(0.2, I1ForOddPrev3 - jQ, 0.8 * prevI2);
+            /* The varaiable I1 is the detrender delayed for
+             * 3 price bars.
+             *
+             * Save the current detrender value for being
+             * used by the "even" logic later.
+             */
+            I1ForEvenPrev3 = I1ForEvenPrev2;
+            I1ForEvenPrev2 = detrender;
+         }
+         /* Adjust the period for next price bar */
+         Re = Math.FusedMultiplyAdd(0.8, Re, 0.2 * (Math.FusedMultiplyAdd(I2, prevI2, Q2 * prevQ2)));
+         Im = Math.FusedMultiplyAdd(0.8, Im, 0.2 * (I2 * prevQ2 - Q2 * prevI2));
+         prevQ2 = Q2;
+         prevI2 = I2;
+         tempReal = period;
+         if( Im != 0.0 && Re != 0.0 ) {
+            period = 360.0 / (Math.Atan(Im / Re) * sp.rad2Deg);
+         }
+         tempReal2 = 1.5 * tempReal;
+         if( period > tempReal2 ) {
+            period = tempReal2;
+         }
+         tempReal2 = 0.67 * tempReal;
+         if( period < tempReal2 ) {
+            period = tempReal2;
+         }
+         if( period < 6 ) {
+            period = 6;
+         } else if( period > 50 ) {
+            period = 50;
+         }
+         period = Math.FusedMultiplyAdd(0.2, period, 0.8 * tempReal);
+         smoothPeriod = Math.FusedMultiplyAdd(0.67, smoothPeriod, 0.33 * period);
+         /* Compute Trendline */
+         DCPeriod = smoothPeriod + 0.5;
+         DCPeriodInt = (int)DCPeriod;
+         /* Average the RAW price over the dominant cycle period
+          * (Ehlers, "Rocket Science for Traders": the Instantaneous
+          * Trendline sums Price — not SmoothPrice, which only feeds
+          * the Hilbert detrender above). See issue #88.
+          */
+         /* Sum the last DCPeriodInt (<= 50) raw prices. The fixed 50-iteration
+          * loop with an inner guard is a streaming-friendly rewrite of the
+          * data-dependent backward scan `for(i<DCPeriodInt) sum += inReal[idx--]`
+          * (idx starting at today): identical terms in identical order, so
+          * bit-for-bit unchanged, but the constant cap lets the rescan-window
+          * machinery bound the window (DCPeriod is clamped to [6.5, 50.5]).
+          */
+         tempReal = 0.0;
+         for( i = 0; i < 50; i += 1 ) {
+            if( i < DCPeriodInt ) {
+               tempReal += (((winPos_i + sp.winCap_i - i >= sp.winCap_i) ? winPos_i + sp.winCap_i - i - sp.winCap_i : winPos_i + sp.winCap_i - i) != pkSlot1) ? sp.win_i_inReal[(winPos_i + sp.winCap_i - i >= sp.winCap_i) ? winPos_i + sp.winCap_i - i - sp.winCap_i : winPos_i + sp.winCap_i - i] : pkVal1;
+            }
+         }
+         if( DCPeriodInt > 0 ) {
+            tempReal = tempReal / (double)DCPeriodInt;
+         }
+         tempReal2 = (Math.FusedMultiplyAdd(2.0, iTrend2, Math.FusedMultiplyAdd(4.0, tempReal, 3.0 * iTrend1)) + iTrend3) / 10.0;
+         iTrend3 = iTrend2;
+         iTrend2 = iTrend1;
+         iTrend1 = tempReal;
+         cur_outReal = tempReal2;
+         /* Ooof... let's do the next price bar now! */
+         ringPos_trailingWMAIdx = ringPos_trailingWMAIdx + 1;
+         if( ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx ) {
+            ringPos_trailingWMAIdx = 0;
+         }
+         winPos_i = winPos_i + 1;
+         if( winPos_i >= sp.winCap_i ) {
+            winPos_i = 0;
+         }
+         streamParity = 1 - streamParity;
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -1207,11 +1341,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
       /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
@@ -1221,15 +1357,20 @@ public partial class Core
          if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("HT_TRENDLINE", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("HT_TRENDLINE", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inReal[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("HT_TRENDLINE", "updateAndFill", RetCode.BadParam);
+            }
             core.HtTrendlineStepImpl(this, inReal[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

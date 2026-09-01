@@ -84,6 +84,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_TRIMA_Lookback")]
     #[inline]
     pub fn TRIMA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -392,18 +393,7 @@ impl Core {
     /// middle of the window most heavily. Equivalent to an SMA of an SMA, computed here via an
     /// incremental triangular-weighted running numerator.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// Weights rise then fall (4-period: (1a+2b+2c+1d)/6; 5-period: (1a+2b+3c+2d+1e)/9). With n = period>>1: odd divides by (n+1)^2, even by n(n+1). Equivalent to odd: SMA(SMA(x,(period+1)/2),(period+1)/2); even: SMA(SMA(x,period/2),period/2+1).
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * Follows the generally accepted (Metastock) definition rather than the TradeStation
-    ///   variant.
-    /// * A period of 1 performs no smoothing: the output is a copy of the input. Allowed since
-    ///   0.6.5 (issues #48/#59).
+    /// Formula and more info at [ta-lib.org/functions/trima](https://ta-lib.org/functions/trima).
     ///
     /// # Arguments
     ///
@@ -453,8 +443,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::SMA`] · [`Core::WMA`] · [`Core::MA`]
-    ///
-    /// Further reading: [ta-lib.org/functions/trima](https://ta-lib.org/functions/trima)
+    #[doc(alias = "TA_TRIMA")]
     #[doc(alias = "TriangularMovingAverage")]
     pub fn TRIMA(
         &self,
@@ -503,24 +492,14 @@ impl Core {
 /// over the same series. Open with [`Core::trima_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_TRIMA_Stream")]
 pub struct TrimaStream {
     state: TrimaStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl TrimaStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `TrimaStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -538,26 +517,7 @@ struct TrimaStreamState {
     ringPos_trailingIdx: usize,
     ringCap_trailingIdx: usize,
     ring_trailingIdx_inReal: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl TrimaStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.numerator = src.numerator;
-        self.numeratorSub = src.numeratorSub;
-        self.numeratorAdd = src.numeratorAdd;
-        self.factor = src.factor;
-        self.tempReal = src.tempReal;
-        self.ringPos_middleIdx = src.ringPos_middleIdx;
-        self.ringCap_middleIdx = src.ringCap_middleIdx;
-        self.ring_middleIdx_inReal.clone_from(&src.ring_middleIdx_inReal);
-        self.ringPos_trailingIdx = src.ringPos_trailingIdx;
-        self.ringCap_trailingIdx = src.ringCap_trailingIdx;
-        self.ring_trailingIdx_inReal.clone_from(&src.ring_trailingIdx_inReal);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -589,6 +549,7 @@ impl Core {
             // Step (4)
             sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
             (*outReal) = sp.numerator * sp.factor;
+            sp.cur_outReal = (*outReal);
             sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] = inReal;
             sp.ringPos_middleIdx = sp.ringPos_middleIdx + 1;
             if sp.ringPos_middleIdx >= sp.ringCap_middleIdx {
@@ -621,6 +582,7 @@ impl Core {
             // Step (4)
             sp.tempReal = sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx];
             (*outReal) = sp.numerator * sp.factor;
+            sp.cur_outReal = (*outReal);
             sp.ring_middleIdx_inReal[sp.ringPos_middleIdx] = inReal;
             sp.ringPos_middleIdx = sp.ringPos_middleIdx + 1;
             if sp.ringPos_middleIdx >= sp.ringCap_middleIdx {
@@ -881,6 +843,7 @@ impl Core {
                 numeratorAdd,
                 factor,
                 tempReal,
+                cur_outReal: outReal[(*outNBElement - 1) * outStride],
                 ringPos_middleIdx: 0_usize,
                 ringCap_middleIdx: cap_middleIdx as usize,
                 ring_middleIdx_inReal,
@@ -1089,6 +1052,7 @@ impl Core {
                 numeratorAdd,
                 factor,
                 tempReal,
+                cur_outReal: outReal[(*outNBElement - 1) * outStride],
                 ringPos_middleIdx: 0_usize,
                 ringCap_middleIdx: cap_middleIdx as usize,
                 ring_middleIdx_inReal,
@@ -1202,31 +1166,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `TrimaStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static TRIMA_PEEK_SCRATCH: std::cell::Cell<Option<Box<TrimaStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl TrimaStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_TRIMA_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1242,7 +1208,7 @@ impl TrimaStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1252,7 +1218,8 @@ impl TrimaStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_TRIMA_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -1261,6 +1228,9 @@ impl TrimaStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::trima_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
@@ -1272,36 +1242,139 @@ impl TrimaStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_TRIMA_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        TRIMA_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::trima_step_impl(&mut scratch, inReal, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            if sp.optInTimePeriod % 2 == 1 {
+                let mut cur_outReal = sp.cur_outReal;
+                let mut numerator = sp.numerator;
+                let mut numeratorAdd = sp.numeratorAdd;
+                let mut numeratorSub = sp.numeratorSub;
+                let mut ringPos_middleIdx = sp.ringPos_middleIdx;
+                let mut ringPos_trailingIdx = sp.ringPos_trailingIdx;
+                let mut tempReal = sp.tempReal;
+                let mut pkSlot0: usize = usize::MAX;
+                let mut pkVal0: f64 = 0.0_f64;
+                let mut pkSlot1: usize = usize::MAX;
+                let mut pkVal1: f64 = 0.0_f64;
+                if sp.ringCap_middleIdx == 0 {
+                    pkSlot0 = 0;
+                    pkVal0 = inReal;
+                }
+                if sp.ringCap_trailingIdx == 0 {
+                    pkSlot1 = 0;
+                    pkVal1 = inReal;
+                }
+                // Step (1)
+                numerator -= numeratorSub;
+                numeratorSub -= tempReal;
+                tempReal = (if (ringPos_middleIdx as usize) != pkSlot0 { sp.ring_middleIdx_inReal[ringPos_middleIdx] } else { pkVal0 });
+                numeratorSub += tempReal;
+                // Step (2)
+                numerator += numeratorAdd;
+                numeratorAdd -= tempReal;
+                tempReal = inReal;
+                numeratorAdd += tempReal;
+                // Step (3)
+                numerator += tempReal;
+                // Step (4)
+                tempReal = (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inReal[ringPos_trailingIdx] } else { pkVal1 });
+                (*outReal) = numerator * sp.factor;
+                cur_outReal = (*outReal);
+                ringPos_middleIdx = ringPos_middleIdx + 1;
+                if ringPos_middleIdx >= sp.ringCap_middleIdx {
+                    ringPos_middleIdx = 0;
+                }
+                ringPos_trailingIdx = ringPos_trailingIdx + 1;
+                if ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+                    ringPos_trailingIdx = 0;
+                }
+            } else {
+                let mut cur_outReal = sp.cur_outReal;
+                let mut numerator = sp.numerator;
+                let mut numeratorAdd = sp.numeratorAdd;
+                let mut numeratorSub = sp.numeratorSub;
+                let mut ringPos_middleIdx = sp.ringPos_middleIdx;
+                let mut ringPos_trailingIdx = sp.ringPos_trailingIdx;
+                let mut tempReal = sp.tempReal;
+                let mut pkSlot0: usize = usize::MAX;
+                let mut pkVal0: f64 = 0.0_f64;
+                let mut pkSlot1: usize = usize::MAX;
+                let mut pkVal1: f64 = 0.0_f64;
+                if sp.ringCap_middleIdx == 0 {
+                    pkSlot0 = 0;
+                    pkVal0 = inReal;
+                }
+                if sp.ringCap_trailingIdx == 0 {
+                    pkSlot1 = 0;
+                    pkVal1 = inReal;
+                }
+                // Step (1)
+                numerator -= numeratorSub;
+                numeratorSub -= tempReal;
+                tempReal = (if (ringPos_middleIdx as usize) != pkSlot0 { sp.ring_middleIdx_inReal[ringPos_middleIdx] } else { pkVal0 });
+                numeratorSub += tempReal;
+                // Step (2)
+                numeratorAdd -= tempReal;
+                numerator += numeratorAdd;
+                tempReal = inReal;
+                numeratorAdd += tempReal;
+                // Step (3)
+                numerator += tempReal;
+                // Step (4)
+                tempReal = (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inReal[ringPos_trailingIdx] } else { pkVal1 });
+                (*outReal) = numerator * sp.factor;
+                cur_outReal = (*outReal);
+                ringPos_middleIdx = ringPos_middleIdx + 1;
+                if ringPos_middleIdx >= sp.ringCap_middleIdx {
+                    ringPos_middleIdx = 0;
+                }
+                ringPos_trailingIdx = ringPos_trailingIdx + 1;
+                if ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+                    ringPos_trailingIdx = 0;
+                }
+            }
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_TRIMA_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::TRIMA`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

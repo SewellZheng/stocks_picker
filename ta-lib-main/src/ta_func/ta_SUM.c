@@ -212,16 +212,17 @@ TA_RetCode TA_S_SUM( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_SUM_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_SUM_Value). */
+   double cur_outReal;
    int optInTimePeriod;
    double periodTotal;
    int ringPos_trailingIdx;
    int ringCap_trailingIdx;
    double *ring_trailingIdx_inReal;
-   double *ringMirror_trailingIdx_inReal;
 };
 
 /* Private function, not in public API. */
@@ -229,7 +230,6 @@ static void TA_SUM_ReleaseImpl( struct TA_SUM_Stream *sp )
 {
    if( !sp ) return;
    if( sp->ring_trailingIdx_inReal ) TA_Free( sp->ring_trailingIdx_inReal );
-   if( sp->ringMirror_trailingIdx_inReal ) TA_Free( sp->ringMirror_trailingIdx_inReal );
    TA_Free( sp );
 }
 
@@ -246,6 +246,7 @@ static void TA_SUM_StepImpl( struct TA_SUM_Stream *sp, double inReal, double *ou
    tempReal = sp->periodTotal;
    sp->periodTotal -= sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx];
    *outReal= tempReal;
+   sp->cur_outReal = *outReal;
    sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] = inReal;
    sp->ringPos_trailingIdx = sp->ringPos_trailingIdx + 1;
    if( sp->ringPos_trailingIdx >= sp->ringCap_trailingIdx )
@@ -346,13 +347,12 @@ static TA_RetCode TA_SUM_OpenImpl( struct TA_SUM_Stream **stream, const double i
       { size_t allocN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
         sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_trailingIdx_inReal ) { TA_SUM_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_trailingIdx_inReal ) { TA_SUM_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         memcpy( sp->ring_trailingIdx_inReal, inReal + (historyLen - sp->ringCap_trailingIdx), sizeof(double) * (size_t)sp->ringCap_trailingIdx );
       }
       sp->ringPos_trailingIdx = 0;
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -403,7 +403,11 @@ TA_RetCode TA_SUM_OpenAndFillInternal( struct TA_SUM_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_SUM_Update( TA_SUM_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_SUM_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -412,13 +416,29 @@ TA_LIB_API TA_RetCode TA_SUM_Update( TA_SUM_Stream *stream, double inReal, doubl
 TA_LIB_API TA_RetCode TA_SUM_Peek( const TA_SUM_Stream *stream, double inReal, double *outReal )
 {
    struct TA_SUM_Stream scratch;
+   struct TA_SUM_Stream *sp = &scratch;
+   double tempReal;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_trailingIdx_inReal = stream->ringMirror_trailingIdx_inReal;
-   memcpy( scratch.ring_trailingIdx_inReal, stream->ring_trailingIdx_inReal, sizeof(double) * (size_t)(stream->ringCap_trailingIdx > 0 ? stream->ringCap_trailingIdx : 1) );
-   TA_SUM_StepImpl( &scratch, inReal, outReal );
+   if( sp->ringCap_trailingIdx == 0 )
+   {
+      pkSlot0 = 0;
+      pkVal0 = inReal;
+   }
+   sp->periodTotal += inReal;
+   tempReal = sp->periodTotal;
+   sp->periodTotal -= (sp->ringPos_trailingIdx != pkSlot0) ? sp->ring_trailingIdx_inReal[sp->ringPos_trailingIdx] : pkVal0;
+   *outReal= tempReal;
+   sp->cur_outReal = *outReal;
+   sp->ringPos_trailingIdx = sp->ringPos_trailingIdx + 1;
+   if( sp->ringPos_trailingIdx >= sp->ringCap_trailingIdx )
+   {
+      sp->ringPos_trailingIdx = 0;
+   }
    return TA_SUCCESS;
 }
 
@@ -431,7 +451,11 @@ TA_LIB_API TA_RetCode TA_SUM_UpdateAndFill( TA_SUM_Stream *stream, const double 
    if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_SUM_StepImpl( stream, inReal[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -441,6 +465,33 @@ TA_LIB_API TA_RetCode TA_SUM_UpdateAndFill( TA_SUM_Stream *stream, const double 
 TA_LIB_API TA_RetCode TA_SUM_Close( TA_SUM_Stream *stream )
 {
    TA_SUM_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SUM_Value( const TA_SUM_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SUM_Clone( const TA_SUM_Stream *stream, TA_SUM_Stream **clone )
+{
+   struct TA_SUM_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_SUM_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->ring_trailingIdx_inReal = NULL;
+   if( stream->ring_trailingIdx_inReal )
+   { size_t copyN = (size_t)(sp->ringCap_trailingIdx > 0 ? sp->ringCap_trailingIdx : 1);
+     sp->ring_trailingIdx_inReal = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_trailingIdx_inReal ) { TA_SUM_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_trailingIdx_inReal, stream->ring_trailingIdx_inReal, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

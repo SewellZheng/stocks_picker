@@ -88,6 +88,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_ACCBANDS_Lookback")]
     #[inline]
     pub fn ACCBANDS_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -247,13 +248,8 @@ impl Core {
     /// Acceleration Bands: three overlap lines around price. The middle band is an SMA of the
     /// close; the upper/lower bands are SMAs of the high/low scaled by an intraday-range factor.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// factor = 4*(H-L)/(H+L)
-    /// upperRaw = H*(1+factor), lowerRaw = L*(1-factor)
-    /// Upper = SMA(upperRaw, N), Middle = SMA(Close, N), Lower = SMA(lowerRaw, N)
-    /// ```
+    /// Formula and more info at
+    /// [ta-lib.org/functions/accbands](https://ta-lib.org/functions/accbands).
     ///
     /// # Arguments
     ///
@@ -316,8 +312,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::SMA`] · [`Core::BBANDS`]
-    ///
-    /// Further reading: [ta-lib.org/functions/accbands](https://ta-lib.org/functions/accbands)
+    #[doc(alias = "TA_ACCBANDS")]
     #[doc(alias = "AccelerationBands")]
     pub fn ACCBANDS(
         &self,
@@ -386,24 +381,14 @@ impl Core {
 /// over the same series. Open with [`Core::accbands_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_ACCBANDS_Stream")]
 pub struct AccbandsStream {
     state: AccbandsStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl AccbandsStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `AccbandsStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -418,23 +403,9 @@ struct AccbandsStreamState {
     ring_trailingIdx_inHigh: Vec<f64>,
     ring_trailingIdx_inLow: Vec<f64>,
     ring_trailingIdx_inClose: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl AccbandsStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.periodTotalUpper = src.periodTotalUpper;
-        self.periodTotalMiddle = src.periodTotalMiddle;
-        self.periodTotalLower = src.periodTotalLower;
-        self.ringPos_trailingIdx = src.ringPos_trailingIdx;
-        self.ringCap_trailingIdx = src.ringCap_trailingIdx;
-        self.ring_trailingIdx_inHigh.clone_from(&src.ring_trailingIdx_inHigh);
-        self.ring_trailingIdx_inLow.clone_from(&src.ring_trailingIdx_inLow);
-        self.ring_trailingIdx_inClose.clone_from(&src.ring_trailingIdx_inClose);
-    }
+    cur_outRealUpperBand: f64,
+    cur_outRealMiddleBand: f64,
+    cur_outRealLowerBand: f64,
 }
 
 #[allow(unused_variables)]
@@ -483,6 +454,9 @@ impl Core {
         (*outRealUpperBand) = tempUpper / (sp.optInTimePeriod as f64);
         (*outRealMiddleBand) = tempMiddle / (sp.optInTimePeriod as f64);
         (*outRealLowerBand) = tempLower / (sp.optInTimePeriod as f64);
+        sp.cur_outRealUpperBand = (*outRealUpperBand);
+        sp.cur_outRealMiddleBand = (*outRealMiddleBand);
+        sp.cur_outRealLowerBand = (*outRealLowerBand);
         sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] = inHigh;
         sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] = inLow;
         sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] = inClose;
@@ -647,6 +621,9 @@ impl Core {
             periodTotalUpper,
             periodTotalMiddle,
             periodTotalLower,
+            cur_outRealUpperBand: outRealUpperBand[(*outNBElement - 1) * outStride],
+            cur_outRealMiddleBand: outRealMiddleBand[(*outNBElement - 1) * outStride],
+            cur_outRealLowerBand: outRealLowerBand[(*outNBElement - 1) * outStride],
             ringPos_trailingIdx: 0_usize,
             ringCap_trailingIdx: cap_trailingIdx as usize,
             ring_trailingIdx_inHigh,
@@ -796,31 +773,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `AccbandsStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static ACCBANDS_PEEK_SCRATCH: std::cell::Cell<Option<Box<AccbandsStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl AccbandsStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_ACCBANDS_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outRealUpperBand: f64 = 0.0_f64;
@@ -838,7 +817,7 @@ impl AccbandsStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -848,7 +827,8 @@ impl AccbandsStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_ACCBANDS_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outRealUpperBand: &mut [f64], outRealMiddleBand: &mut [f64], outRealLowerBand: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -857,6 +837,9 @@ impl AccbandsStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::accbands_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outRealUpperBand[i], &mut outRealMiddleBand[i], &mut outRealLowerBand[i]);
@@ -868,38 +851,116 @@ impl AccbandsStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_ACCBANDS_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        ACCBANDS_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outRealUpperBand: f64 = 0.0_f64;
-            let mut outRealMiddleBand: f64 = 0.0_f64;
-            let mut outRealLowerBand: f64 = 0.0_f64;
-            Core::accbands_step_impl(&mut scratch, inHigh, inLow, inClose, &mut outRealUpperBand, &mut outRealMiddleBand, &mut outRealLowerBand);
-            cell.set(Some(scratch));
-            Ok((outRealUpperBand, outRealMiddleBand, outRealLowerBand))
-        })
+        let mut outRealUpperBand: f64 = 0.0_f64;
+        let mut outRealMiddleBand: f64 = 0.0_f64;
+        let mut outRealLowerBand: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outRealUpperBand = &mut outRealUpperBand;
+            let outRealMiddleBand = &mut outRealMiddleBand;
+            let outRealLowerBand = &mut outRealLowerBand;
+            let mut tempUpper: f64 = 0.0_f64;
+            let mut tempMiddle: f64 = 0.0_f64;
+            let mut tempLower: f64 = 0.0_f64;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut cur_outRealLowerBand = sp.cur_outRealLowerBand;
+            let mut cur_outRealMiddleBand = sp.cur_outRealMiddleBand;
+            let mut cur_outRealUpperBand = sp.cur_outRealUpperBand;
+            let mut periodTotalLower = sp.periodTotalLower;
+            let mut periodTotalMiddle = sp.periodTotalMiddle;
+            let mut periodTotalUpper = sp.periodTotalUpper;
+            let mut ringPos_trailingIdx = sp.ringPos_trailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            let mut pkSlot2: usize = usize::MAX;
+            let mut pkVal2: f64 = 0.0_f64;
+            if sp.ringCap_trailingIdx == 0 {
+                pkSlot0 = 0;
+                pkVal0 = inHigh;
+                pkSlot1 = 0;
+                pkVal1 = inLow;
+                pkSlot2 = 0;
+                pkVal2 = inClose;
+            }
+            // Add the incoming bar to each running sum.
+            tempReal = inHigh + inLow;
+            if !(((tempReal).abs() <= 1e-14 * ((inHigh).abs() + (inLow).abs()))) {
+                tempReal = 4_f64 * (inHigh - inLow) / tempReal;
+                periodTotalUpper += inHigh * (1_f64 + tempReal);
+                periodTotalLower += inLow * (1_f64 - tempReal);
+            } else {
+                periodTotalUpper += inHigh;
+                periodTotalLower += inLow;
+            }
+            periodTotalMiddle += inClose;
+            // Record the current window sums.
+            tempUpper = periodTotalUpper;
+            tempMiddle = periodTotalMiddle;
+            tempLower = periodTotalLower;
+            // Remove the trailing bar from each running sum.
+            tempReal = (if (ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] } else { pkVal0 }) + (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[ringPos_trailingIdx] } else { pkVal1 });
+            if !(((tempReal).abs() <= 1e-14 * (((if (ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] } else { pkVal0 })).abs() + ((if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[ringPos_trailingIdx] } else { pkVal1 })).abs()))) {
+                tempReal = 4_f64 * ((if (ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] } else { pkVal0 }) - (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[ringPos_trailingIdx] } else { pkVal1 })) / tempReal;
+                periodTotalUpper -= (if (ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] } else { pkVal0 }) * (1_f64 + tempReal);
+                periodTotalLower -= (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[ringPos_trailingIdx] } else { pkVal1 }) * (1_f64 - tempReal);
+            } else {
+                periodTotalUpper -= (if (ringPos_trailingIdx as usize) != pkSlot0 { sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] } else { pkVal0 });
+                periodTotalLower -= (if (ringPos_trailingIdx as usize) != pkSlot1 { sp.ring_trailingIdx_inLow[ringPos_trailingIdx] } else { pkVal1 });
+            }
+            periodTotalMiddle -= (if (ringPos_trailingIdx as usize) != pkSlot2 { sp.ring_trailingIdx_inClose[ringPos_trailingIdx] } else { pkVal2 });
+            // Write the three bands.
+            (*outRealUpperBand) = tempUpper / (sp.optInTimePeriod as f64);
+            (*outRealMiddleBand) = tempMiddle / (sp.optInTimePeriod as f64);
+            (*outRealLowerBand) = tempLower / (sp.optInTimePeriod as f64);
+            cur_outRealUpperBand = (*outRealUpperBand);
+            cur_outRealMiddleBand = (*outRealMiddleBand);
+            cur_outRealLowerBand = (*outRealLowerBand);
+            ringPos_trailingIdx = ringPos_trailingIdx + 1;
+            if ringPos_trailingIdx >= sp.ringCap_trailingIdx {
+                ringPos_trailingIdx = 0;
+            }
+        }
+        Ok((outRealUpperBand, outRealMiddleBand, outRealLowerBand))
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_ACCBANDS_Value")]
+    pub fn value(&self) -> (f64, f64, f64) {
+        (self.state.cur_outRealUpperBand, self.state.cur_outRealMiddleBand, self.state.cur_outRealLowerBand)
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::ACCBANDS`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

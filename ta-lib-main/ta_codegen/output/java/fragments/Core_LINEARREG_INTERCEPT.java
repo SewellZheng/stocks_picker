@@ -464,11 +464,11 @@
     * Open with {@link Core#linearregInterceptOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -495,12 +495,13 @@
       LinearregInterceptStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#LINEARREG_INTERCEPT} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -527,46 +528,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( LinearregInterceptStream other ) {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.lookbackTotal = other.lookbackTotal;
-         this.trailingIdx = other.trailingIdx;
-         this.SumX = other.SumX;
-         this.SumXY = other.SumXY;
-         this.SumY = other.SumY;
-         this.Divisor = other.Divisor;
-         this.barsSinceReseed = other.barsSinceReseed;
-         this.trailingValue = other.trailingValue;
-         this.sumAbs = other.sumAbs;
-         this.j = other.j;
-         this.today = other.today;
-         this.xMask = other.xMask;
-         if( this.x_inReal != null && this.x_inReal.length == other.x_inReal.length ) {
-            System.arraycopy( other.x_inReal, 0, this.x_inReal, 0, other.x_inReal.length );
-         } else {
-            this.x_inReal = other.x_inReal.clone();
-         }
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) )
+         if( !Double.isFinite(inReal) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("LINEARREG_INTERCEPT update: BadParam", RetCode.BadParam);
+         }
          core.linearregInterceptStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -578,11 +560,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inReal.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
          requireArgument("LINEARREG_INTERCEPT updateAndFill", "inReal", inReal);
@@ -591,8 +574,10 @@
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("LINEARREG_INTERCEPT updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) )
+            if( !Double.isFinite(inReal[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("LINEARREG_INTERCEPT updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.linearregInterceptStepImpl(this, inReal[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -601,22 +586,132 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a throwaway copy, which for this
-       * handle's shape is cheaper than reusing one.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("LINEARREG_INTERCEPT peek: BadParam", RetCode.BadParam);
-         LinearregInterceptStream scratch = new LinearregInterceptStream(this);
-         core.linearregInterceptStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         LinearregInterceptStream sp = this;
+         double m = 0.0;
+         int windowStart = 0;
+         double tempValue1 = 0.0;
+         double tempValue2 = 0.0;
+         double weightedTrailing = 0.0;
+         double SumXY = sp.SumXY;
+         double SumY = sp.SumY;
+         int barsSinceReseed = sp.barsSinceReseed;
+         double cur_outReal = sp.cur_outReal;
+         int j = sp.j;
+         double sumAbs = sp.sumAbs;
+         int today = sp.today;
+         int trailingIdx = sp.trailingIdx;
+         double trailingValue = sp.trailingValue;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         if( today >= 1073741824 ) {
+            int rebaseShift = trailingIdx & ~sp.xMask;
+            today -= rebaseShift;
+            trailingIdx -= rebaseShift;
+            j -= rebaseShift;
+         }
+         pkSlot0 = today & sp.xMask;
+         pkVal0 = inReal;
+         weightedTrailing = (double)sp.optInTimePeriod * trailingValue;
+         SumXY = SumXY + SumY - weightedTrailing;
+         SumY = SumY - trailingValue + (((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0);
+         sumAbs = sumAbs - Math.abs(trailingValue) + Math.abs(((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0);
+         /* Re-anchor: rebuild both sums from the window itself. #103 left them as
+          * running totals that are never rebuilt, so each bar's rounding joins a
+          * residue no later bar can subtract -- unbounded in the length of the
+          * call, and scaled by the largest value the sums have EVER held rather
+          * than by what the window holds now. Two triggers, and they cover
+          * different failures (issue #254):
+          *
+          *   - every 32*period bars, so a slow drift stays bounded however long
+          *     the series runs. Same interval as TA_VAR / TA_CORREL / TA_BETA.
+          *
+          *   - when the value the window just dropped carries more weight than
+          *     everything left in it. That is the one the interval cannot cover:
+          *     one large print inflates the residue for up to 32*period bars
+          *     after it is gone (measured 31x at period 5), and this rebuilds on
+          *     the bar it leaves instead.
+          *
+          * The threshold compares two DEGREE-1 quantities, which is why it is 100
+          * and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
+          * against a sum of squares. On ordinary prices the ratio is ~1 and this
+          * never fires; it is a compare, not work. The constant is 100 rather than
+          * 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
+          * measured accuracy gain.
+          *
+          * THE DENOMINATOR IS sumAbs, NOT SumY, AND THAT IS THE WHOLE POINT.
+          * SumY is a CANCELLING sum: on a zero-mean window it collapses toward 0
+          * while the departing value does not, so |weightedTrailing|/|SumY| is
+          * unbounded and the rebuild fires on EVERY bar -- an alternating +/-1
+          * series measured 10.9x slower at period 30, which is precisely the
+          * O(n*period) cost #103 removed. Same shape of error as #242's absolute
+          * guard on a quartic quantity: a ratio test is ill-posed when its
+          * denominator can cancel. sumAbs is a sum of magnitudes, so it is 0 only
+          * when every value in the window is 0 -- and then the numerator is 0 too
+          * and the test is false. There is no window it can misjudge.
+          *
+          * It is also the RIGHT quantity on the merits, not just the safe one: a
+          * fresh rebuild's own error is ~eps*sum|y|, so comparing the departing
+          * term against sum|y| asks exactly "would rebuilding beat what we are
+          * carrying?".
+          *
+          * Carrying it is free in practice. Measured on the shipped libta-lib.a it
+          * costs nothing against the |SumY| form on a price series (1.541 vs 1.605
+          * ns/bar at period 14) because the update is INDEPENDENT of the serial
+          * SumXY -> SumY dependency chain and fills slots that were idle. The
+          * rejected alternative -- keeping |SumY| and rate-limiting the trigger to
+          * once per `period` bars -- bounded the cliff at 1.2x rather than removing
+          * it, and silently dropped any print departing within `period` bars of a
+          * rebuild (~3% of them).
+          *
+          * The scan walks the window oldest-first with the weight counting DOWN,
+          * which is the priming scan's order and weighting -- so a reseeded bar is
+          * bit-identical to the same bar computed by a call that started there.
+          * That identity is the whole point: it is what the range-stability
+          * contract measures.
+          *
+          * Reading the window is safe when outReal aliases inReal (#130): the
+          * outputs written so far occupy [0, outIdx-1], and windowStart is
+          * today-lookbackTotal, which is >= outIdx because startIdx was clamped
+          * to at least lookbackTotal.
+          */
+         barsSinceReseed -= 1;
+         if( barsSinceReseed <= 0 || Math.abs(weightedTrailing) > 100.0 * sumAbs ) {
+            barsSinceReseed = 32 * sp.optInTimePeriod;
+            windowStart = today - sp.lookbackTotal;
+            SumY = 0;
+            SumXY = 0;
+            sumAbs = 0;
+            tempValue2 = (double)sp.lookbackTotal;
+            for( j = windowStart; j <= today; j += 1 ) {
+               tempValue1 = ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
+               SumY += tempValue1;
+               SumXY += tempValue2 * tempValue1;
+               sumAbs += Math.abs(tempValue1);
+               tempValue2 -= 1.0;
+            }
+         }
+         m = (sp.optInTimePeriod * SumXY - sp.SumX * SumY) / sp.Divisor;
+         trailingValue = ((trailingIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[trailingIdx & sp.xMask] : pkVal0;
+         trailingIdx += 1;
+         cur_outReal = (SumY - m * sp.SumX) / (double)sp.optInTimePeriod;
+         today += 1;
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -624,10 +719,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public LinearregInterceptStream copy() {
+      @Override
+      public LinearregInterceptStream clone() {
          return new LinearregInterceptStream(this);
       }
    }

@@ -379,11 +379,11 @@
     * Open with {@link Core#vwapOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -399,12 +399,13 @@
       VwapStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#VWAP} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -420,31 +421,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( VwapStream other ) {
-         this.core = other.core;
-         this.sumPV = other.sumPV;
-         this.sumV = other.sumV;
-         this.vwap = other.vwap;
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("VWAP update: BadParam", RetCode.BadParam);
+         }
          core.vwapStepImpl(this, inHigh, inLow, inClose, inVolume);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -456,11 +453,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inHigh.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double inVolume[], double outReal[] ) {
          requireArgument("VWAP updateAndFill", "inHigh", inHigh);
@@ -472,8 +470,10 @@
          if( inLow.length != barCount || inClose.length != barCount || inVolume.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outReal == (Object)inVolume )
             throw new TaLibArgumentException("VWAP updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) || !Double.isFinite(inVolume[i]) )
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) || !Double.isFinite(inVolume[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("VWAP updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.vwapStepImpl(this, inHigh[i], inLow[i], inClose[i], inVolume[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -482,22 +482,116 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a throwaway copy, which for this
-       * handle's shape is cheaper than reusing one.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("VWAP peek: BadParam", RetCode.BadParam);
-         VwapStream scratch = new VwapStream(this);
-         core.vwapStepImpl(scratch, inHigh, inLow, inClose, inVolume);
-         return scratch.cur_outReal;
+         VwapStream sp = this;
+         double typPrice = 0.0;
+         double volume = 0.0;
+         double tempReal = 0.0;
+         double cur_outReal = sp.cur_outReal;
+         double sumPV = sp.sumPV;
+         double sumV = sp.sumV;
+         double vwap = sp.vwap;
+         /* The typical price is written exactly as in ta_TYPPRICE.c so that the
+          * two agree bit for bit and this stays a true composite of it.
+          */
+         typPrice = (inHigh + inLow + inClose) / 3.0;
+         volume = inVolume;
+         /* A bar is weighted only if both of its terms are real numbers. That is
+          * the whole condition: a NaN or an infinity in the price or the volume
+          * is the only way a bar cannot be weighted, and every other bar --
+          * including one that traded nothing -- is weighted normally.
+          *
+          * The test gates BOTH adds. Letting the volume in without its matching
+          * price term would leave a weight in the divisor that nothing paid for,
+          * biasing every later value: a NaN close with a good volume would drag
+          * the next value 25% low.
+          *
+          * Skipping the bar is what makes this recoverable. These are CUMULATIVE
+          * sums with no trailing term to subtract anything back out, so a single
+          * non-finite bar allowed in would leave both sums non-finite for the
+          * REST of the call -- the line would repeat one stale value on every
+          * later bar however clean it was, silently, and looking like a plausible
+          * price the whole way. Skipping keeps the state usable, so the average
+          * resumes on the very next bar that can be weighted.
+          *
+          * Testing the two INPUTS, not the product and not the candidate sums, is
+          * a measured choice:
+          *
+          *   - The candidate sums would have to be committed conditionally, which
+          *     puts four cmovs in the loop-carried dependency chain and costs
+          *     +60% on this loop. Both forms below leave the adds unconditional
+          *     inside a predicted branch and measure free.
+          *   - The product alone would also detect every unusable bar, one test
+          *     instead of two, and measures the same. But it would additionally
+          *     drop a WELL-FORMED bar whose price and volume are both finite and
+          *     whose product merely overflows -- silently, and taking that bar's
+          *     volume out of the divisor with it. Testing the inputs leaves that
+          *     case exactly as it was before this guard existed: the overflow
+          *     reaches the sum and the call reports Inf, which is the documented
+          *     `double` overflow class rather than an indicator defect, and is
+          *     louder than a freeze.
+          *
+          * So this changes behaviour for one thing only: a bar whose price or
+          * volume is not a finite number. On finite data the test is always true
+          * and no value the function has ever produced moves. Only the batch path
+          * needs it -- the streaming Update/Peek entry points reject a non-finite
+          * bar with TA_BAD_PARAM before it reaches any accumulator.
+          */
+         /* The product is kept in its own statement so no compiler may contract it
+          * into an FMA. Contracting here would make the C output disagree with the
+          * Rust, Java and C# backends under the cross-language bitwise gate. Same
+          * reason as in ta_codegen/input/vwma/vwma.c.
+          *
+          * Computed before the guard rather than inside it, and unconditionally,
+          * so it stays a per-bar temporary. Assigned only on the taken arm it
+          * would instead be live across bars, and the streaming tier would carry
+          * it as a fourth state field in every handle -- 8 bytes to hold a value
+          * no later bar reads. The multiply on a skipped bar is discarded.
+          */
+         tempReal = typPrice * volume;
+         if( (Double.isFinite(typPrice)) && (Double.isFinite(volume)) ) {
+            sumPV += tempReal;
+            sumV += volume;
+         }
+         /* Bars that traded nothing carry no weight, so a zero-volume bar in
+          * the middle of a series leaves both sums untouched and repeats the
+          * previous value on its own -- no arm needed for that. A bar skipped
+          * by the guard above repeats it for the same reason.
+          *
+          * The arm below is for the one case the ratio cannot express: a
+          * leading run of bars before any volume has traded, where there are
+          * no weights at all and the weighted mean is undefined. The last
+          * value computed is carried forward instead, which is 0.0 until the
+          * first bar with volume. Volume is non-negative, so once the divisor
+          * leaves zero it never returns and this arm cannot fire again.
+          *
+          * A successful call therefore never emits NaN or Inf (issue #112),
+          * which is the divergence from pandas-ta-classic and from
+          * trading-signals: the first emits NaN there, the second no bar at
+          * all. Testing sumV rather than the bar's own volume also keeps a
+          * negative divisor -- which no non-negative volume series can
+          * produce -- out of a price-scale output, as ta_CMF.c does.
+          */
+         if( sumV > 0.0 ) {
+            vwap = sumPV / sumV;
+         }
+         cur_outReal = vwap;
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -505,10 +599,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public VwapStream copy() {
+      @Override
+      public VwapStream clone() {
          return new VwapStream(this);
       }
    }

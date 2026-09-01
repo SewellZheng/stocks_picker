@@ -744,11 +744,11 @@
     * Open with {@link Core#ultoscOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -779,12 +779,13 @@
       UltoscStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#ULTOSC} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -815,57 +816,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( UltoscStream other ) {
-         this.core = other.core;
-         this.optInTimePeriod1 = other.optInTimePeriod1;
-         this.optInTimePeriod2 = other.optInTimePeriod2;
-         this.optInTimePeriod3 = other.optInTimePeriod3;
-         this.a1Total = other.a1Total;
-         this.a2Total = other.a2Total;
-         this.a3Total = other.a3Total;
-         this.b1Total = other.b1Total;
-         this.b2Total = other.b2Total;
-         this.b3Total = other.b3Total;
-         this.trailingPos1 = other.trailingPos1;
-         this.trailingPos2 = other.trailingPos2;
-         this.nullRun = other.nullRun;
-         this.term_Idx = other.term_Idx;
-         this.maxIdx_term = other.maxIdx_term;
-         this.lag1_inClose = other.lag1_inClose;
-         this.cbSize_term = other.cbSize_term;
-         if( this.cb_term_closeMinusTrueLow != null && this.cb_term_closeMinusTrueLow.length == other.cb_term_closeMinusTrueLow.length ) {
-            System.arraycopy( other.cb_term_closeMinusTrueLow, 0, this.cb_term_closeMinusTrueLow, 0, other.cb_term_closeMinusTrueLow.length );
-         } else {
-            this.cb_term_closeMinusTrueLow = other.cb_term_closeMinusTrueLow.clone();
-         }
-         if( this.cb_term_trueRange != null && this.cb_term_trueRange.length == other.cb_term_trueRange.length ) {
-            System.arraycopy( other.cb_term_trueRange, 0, this.cb_term_trueRange, 0, other.cb_term_trueRange.length );
-         } else {
-            this.cb_term_trueRange = other.cb_term_trueRange.clone();
-         }
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<UltoscStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("ULTOSC update: BadParam", RetCode.BadParam);
+         }
          core.ultoscStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -877,11 +848,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inHigh.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
          requireArgument("ULTOSC updateAndFill", "inHigh", inHigh);
@@ -892,8 +864,10 @@
          if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
             throw new TaLibArgumentException("ULTOSC updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) )
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("ULTOSC updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.ultoscStepImpl(this, inHigh[i], inLow[i], inClose[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -902,30 +876,141 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("ULTOSC peek: BadParam", RetCode.BadParam);
-         UltoscStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new UltoscStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         UltoscStream sp = this;
+         double trueLow = 0.0;
+         double trueRange = 0.0;
+         double closeMinusTrueLow = 0.0;
+         double tempDouble = 0.0;
+         double output = 0.0;
+         double tempHT = 0.0;
+         double tempLT = 0.0;
+         double tempCY = 0.0;
+         double a1Total = sp.a1Total;
+         double a2Total = sp.a2Total;
+         double a3Total = sp.a3Total;
+         double b1Total = sp.b1Total;
+         double b2Total = sp.b2Total;
+         double b3Total = sp.b3Total;
+         double cur_outReal = sp.cur_outReal;
+         double lag1_inClose = sp.lag1_inClose;
+         int nullRun = sp.nullRun;
+         int term_Idx = sp.term_Idx;
+         int trailingPos1 = sp.trailingPos1;
+         int trailingPos2 = sp.trailingPos2;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         /* Add on today's terms */
+         tempLT = inLow;
+         tempHT = inHigh;
+         tempCY = lag1_inClose;
+         trueLow = Math.min(tempLT, tempCY);
+         closeMinusTrueLow = inClose - trueLow;
+         trueRange = tempHT - tempLT;
+         tempDouble = Math.abs(tempCY - tempHT);
+         if( tempDouble > trueRange ) {
+            trueRange = tempDouble;
          }
-         core.ultoscStepImpl(scratch, inHigh, inLow, inClose);
-         return scratch.cur_outReal;
+         tempDouble = Math.abs(tempCY - tempLT);
+         if( tempDouble > trueRange ) {
+            trueRange = tempDouble;
+         }
+         pkSlot0 = term_Idx;
+         pkVal0 = closeMinusTrueLow;
+         pkSlot1 = term_Idx;
+         pkVal1 = trueRange;
+         a1Total += closeMinusTrueLow;
+         a2Total += closeMinusTrueLow;
+         a3Total += closeMinusTrueLow;
+         b1Total += trueRange;
+         b2Total += trueRange;
+         b3Total += trueRange;
+         /* Once a whole window of no-contribution bars has gone by, every slot it
+          * spans is 0.0, so its totals are known to be exactly zero and the
+          * residue can be dropped. The periods are sorted shortest-first, so a
+          * run long enough for a longer window is long enough for every shorter
+          * one.
+          */
+         if( trueRange == 0.0 && closeMinusTrueLow == 0.0 ) {
+            nullRun += 1;
+         } else {
+            nullRun = 0;
+         }
+         if( nullRun >= sp.optInTimePeriod1 ) {
+            a1Total = 0.0;
+            b1Total = 0.0;
+            if( nullRun >= sp.optInTimePeriod2 ) {
+               a2Total = 0.0;
+               b2Total = 0.0;
+               if( nullRun >= sp.optInTimePeriod3 ) {
+                  nullRun = sp.optInTimePeriod3;
+                  a3Total = 0.0;
+                  b3Total = 0.0;
+               }
+            }
+         }
+         /* Calculate the oscillator value for today. Each window contributes only
+          * when it holds a true range; the totals are sums of non-negative terms
+          * and the reseed above removes their residue, so the test is exact.
+          */
+         output = 0.0;
+         if( b1Total > 0.0 ) {
+            output += 4.0 * (a1Total / b1Total);
+         }
+         if( b2Total > 0.0 ) {
+            output += 2.0 * (a2Total / b2Total);
+         }
+         if( b3Total > 0.0 ) {
+            output += a3Total / b3Total;
+         }
+         /* Remove the trailing terms to prepare for next day. Each was evaluated
+          * once, when its bar entered the ring.
+          */
+         a1Total -= (trailingPos1 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos1] : pkVal0;
+         b1Total -= (trailingPos1 != pkSlot1) ? sp.cb_term_trueRange[trailingPos1] : pkVal1;
+         trailingPos1 += 1;
+         if( trailingPos1 >= sp.optInTimePeriod3 ) {
+            trailingPos1 = 0;
+         }
+         a2Total -= (trailingPos2 != pkSlot0) ? sp.cb_term_closeMinusTrueLow[trailingPos2] : pkVal0;
+         b2Total -= (trailingPos2 != pkSlot1) ? sp.cb_term_trueRange[trailingPos2] : pkVal1;
+         trailingPos2 += 1;
+         if( trailingPos2 >= sp.optInTimePeriod3 ) {
+            trailingPos2 = 0;
+         }
+         term_Idx = term_Idx + 1;
+         if( term_Idx > sp.maxIdx_term ) {
+            term_Idx = 0;
+         }
+         a3Total -= (term_Idx != pkSlot0) ? sp.cb_term_closeMinusTrueLow[term_Idx] : pkVal0;
+         b3Total -= (term_Idx != pkSlot1) ? sp.cb_term_trueRange[term_Idx] : pkVal1;
+         /* Last operation is to write the output. Must
+          * be done after the trailing index have all been
+          * taken care of because the caller is allowed
+          * to have the input array to be also the output
+          * array.
+          */
+         cur_outReal = 100.0 * (output / 7.0);
+         /* Increment indexes */
+         lag1_inClose = inClose;
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -933,10 +1018,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public UltoscStream copy() {
+      @Override
+      public UltoscStream clone() {
          return new UltoscStream(this);
       }
    }

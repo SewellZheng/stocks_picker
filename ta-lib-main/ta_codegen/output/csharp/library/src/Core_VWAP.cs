@@ -453,29 +453,19 @@ public partial class Core
 
       internal VwapStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Vwap</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
-      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
-      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
-      /// subset of this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
+      /// to the count — a non-finite bar is rejected but still counted, because the
+      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
+      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
+      /// this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
       internal VwapStream( VwapStream other )
-      {
-         this.core = other.core;
-         this.sumPV = other.sumPV;
-         this.sumV = other.sumV;
-         this.vwap = other.vwap;
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      internal void CopyFrom( VwapStream other )
       {
          this.core = other.core;
          this.sumPV = other.sumPV;
@@ -491,11 +481,14 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -504,7 +497,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow, double inClose, double inVolume )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("VWAP", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("VWAP", "update", RetCode.BadParam);
+         }
          core.VwapStepImpl(this, inHigh, inLow, inClose, inVolume);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -513,11 +510,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a fresh copy of this handle, so it allocates one — proportional
-      /// to the state this indicator carries. If you peek on every tick and that
-      /// matters, hold the value <see cref="Update"/> returns instead.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -527,9 +525,100 @@ public partial class Core
       public double Peek( double inHigh, double inLow, double inClose, double inVolume )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("VWAP", "peek", RetCode.BadParam);
-         VwapStream scratch = new VwapStream(this);
-         core.VwapStepImpl(scratch, inHigh, inLow, inClose, inVolume);
-         return scratch.cur_outReal;
+         VwapStream sp = this;
+         double typPrice = 0.0;
+         double volume = 0.0;
+         double tempReal = 0.0;
+         double cur_outReal = sp.cur_outReal;
+         double sumPV = sp.sumPV;
+         double sumV = sp.sumV;
+         double vwap = sp.vwap;
+         /* The typical price is written exactly as in ta_TYPPRICE.c so that the
+          * two agree bit for bit and this stays a true composite of it.
+          */
+         typPrice = (inHigh + inLow + inClose) / 3.0;
+         volume = inVolume;
+         /* A bar is weighted only if both of its terms are real numbers. That is
+          * the whole condition: a NaN or an infinity in the price or the volume
+          * is the only way a bar cannot be weighted, and every other bar --
+          * including one that traded nothing -- is weighted normally.
+          *
+          * The test gates BOTH adds. Letting the volume in without its matching
+          * price term would leave a weight in the divisor that nothing paid for,
+          * biasing every later value: a NaN close with a good volume would drag
+          * the next value 25% low.
+          *
+          * Skipping the bar is what makes this recoverable. These are CUMULATIVE
+          * sums with no trailing term to subtract anything back out, so a single
+          * non-finite bar allowed in would leave both sums non-finite for the
+          * REST of the call -- the line would repeat one stale value on every
+          * later bar however clean it was, silently, and looking like a plausible
+          * price the whole way. Skipping keeps the state usable, so the average
+          * resumes on the very next bar that can be weighted.
+          *
+          * Testing the two INPUTS, not the product and not the candidate sums, is
+          * a measured choice:
+          *
+          *   - The candidate sums would have to be committed conditionally, which
+          *     puts four cmovs in the loop-carried dependency chain and costs
+          *     +60% on this loop. Both forms below leave the adds unconditional
+          *     inside a predicted branch and measure free.
+          *   - The product alone would also detect every unusable bar, one test
+          *     instead of two, and measures the same. But it would additionally
+          *     drop a WELL-FORMED bar whose price and volume are both finite and
+          *     whose product merely overflows -- silently, and taking that bar's
+          *     volume out of the divisor with it. Testing the inputs leaves that
+          *     case exactly as it was before this guard existed: the overflow
+          *     reaches the sum and the call reports Inf, which is the documented
+          *     `double` overflow class rather than an indicator defect, and is
+          *     louder than a freeze.
+          *
+          * So this changes behaviour for one thing only: a bar whose price or
+          * volume is not a finite number. On finite data the test is always true
+          * and no value the function has ever produced moves. Only the batch path
+          * needs it -- the streaming Update/Peek entry points reject a non-finite
+          * bar with TA_BAD_PARAM before it reaches any accumulator.
+          */
+         /* The product is kept in its own statement so no compiler may contract it
+          * into an FMA. Contracting here would make the C output disagree with the
+          * Rust, Java and C# backends under the cross-language bitwise gate. Same
+          * reason as in ta_codegen/input/vwma/vwma.c.
+          *
+          * Computed before the guard rather than inside it, and unconditionally,
+          * so it stays a per-bar temporary. Assigned only on the taken arm it
+          * would instead be live across bars, and the streaming tier would carry
+          * it as a fourth state field in every handle -- 8 bytes to hold a value
+          * no later bar reads. The multiply on a skipped bar is discarded.
+          */
+         tempReal = typPrice * volume;
+         if( (double.IsFinite(typPrice)) && (double.IsFinite(volume)) ) {
+            sumPV += tempReal;
+            sumV += volume;
+         }
+         /* Bars that traded nothing carry no weight, so a zero-volume bar in
+          * the middle of a series leaves both sums untouched and repeats the
+          * previous value on its own -- no arm needed for that. A bar skipped
+          * by the guard above repeats it for the same reason.
+          *
+          * The arm below is for the one case the ratio cannot express: a
+          * leading run of bars before any volume has traded, where there are
+          * no weights at all and the weighted mean is undefined. The last
+          * value computed is carried forward instead, which is 0.0 until the
+          * first bar with volume. Volume is non-negative, so once the divisor
+          * leaves zero it never returns and this arm cannot fire again.
+          *
+          * A successful call therefore never emits NaN or Inf (issue #112),
+          * which is the divergence from pandas-ta-classic and from
+          * trading-signals: the first emits NaN there, the second no bar at
+          * all. Testing sumV rather than the bar's own volume also keeps a
+          * negative divisor -- which no non-negative volume series can
+          * produce -- out of a price-scale output, as ta_CMF.c does.
+          */
+         if( sumV > 0.0 ) {
+            vwap = sumPV / sumV;
+         }
+         cur_outReal = vwap;
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -537,11 +626,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
       /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
@@ -554,15 +645,20 @@ public partial class Core
          if( inLow.Length != barCount || inClose.Length != barCount || inVolume.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) throw Core.StreamFailure("VWAP", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) || !double.IsFinite(inVolume[i]) ) throw Core.StreamFailure("VWAP", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) || !double.IsFinite(inVolume[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("VWAP", "updateAndFill", RetCode.BadParam);
+            }
             core.VwapStepImpl(this, inHigh[i], inLow[i], inClose[i], inVolume[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

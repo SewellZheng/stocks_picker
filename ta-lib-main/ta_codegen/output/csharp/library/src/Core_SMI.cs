@@ -920,14 +920,15 @@ public partial class Core
 
       internal SmiStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Smi</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
-      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
-      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
-      /// subset of this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
+      /// to the count — a non-finite bar is rejected but still counted, because the
+      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
+      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
+      /// this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -966,60 +967,19 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( SmiStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.optInFastPeriod = other.optInFastPeriod;
-         this.optInSlowPeriod = other.optInSlowPeriod;
-         this.optInSignalPeriod = other.optInSignalPeriod;
-         this.kSlow = other.kSlow;
-         this.kFast = other.kFast;
-         this.kSignal = other.kSignal;
-         this.highest = other.highest;
-         this.lowest = other.lowest;
-         this.emaSlowNum = other.emaSlowNum;
-         this.emaSlowDen = other.emaSlowDen;
-         this.emaFastNum = other.emaFastNum;
-         this.emaFastDen = other.emaFastDen;
-         this.prevSignal = other.prevSignal;
-         this.trailingIdx = other.trailingIdx;
-         this.highestIdx = other.highestIdx;
-         this.lowestIdx = other.lowestIdx;
-         this.i = other.i;
-         this.today = other.today;
-         this.xMask = other.xMask;
-         if( this.x_inHigh.Length != other.x_inHigh.Length ) {
-            this.x_inHigh = new double[other.x_inHigh.Length];
-         }
-         Array.Copy( other.x_inHigh, this.x_inHigh, other.x_inHigh.Length );
-         if( this.x_inLow.Length != other.x_inLow.Length ) {
-            this.x_inLow = new double[other.x_inLow.Length];
-         }
-         Array.Copy( other.x_inLow, this.x_inLow, other.x_inLow.Length );
-         if( this.x_inClose.Length != other.x_inClose.Length ) {
-            this.x_inClose = new double[other.x_inClose.Length];
-         }
-         Array.Copy( other.x_inClose, this.x_inClose, other.x_inClose.Length );
-         this.cur_outSMI = other.cur_outSMI;
-         this.cur_outSMISignal = other.cur_outSMISignal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static SmiStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -1027,7 +987,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public SmiValue Update( double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("SMI", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("SMI", "update", RetCode.BadParam);
+         }
          core.SmiStepImpl(this, inHigh, inLow, inClose);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new SmiValue(cur_outSMI, cur_outSMISignal);
@@ -1036,11 +1000,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -1049,15 +1014,109 @@ public partial class Core
       public SmiValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("SMI", "peek", RetCode.BadParam);
-         SmiStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new SmiStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         SmiStream sp = this;
+         double tmp = 0.0;
+         double num = 0.0;
+         double den = 0.0;
+         double halfDen = 0.0;
+         double smiValue = 0.0;
+         double cur_outSMI = sp.cur_outSMI;
+         double cur_outSMISignal = sp.cur_outSMISignal;
+         double emaFastDen = sp.emaFastDen;
+         double emaFastNum = sp.emaFastNum;
+         double emaSlowDen = sp.emaSlowDen;
+         double emaSlowNum = sp.emaSlowNum;
+         double highest = sp.highest;
+         int highestIdx = sp.highestIdx;
+         int i = sp.i;
+         double lowest = sp.lowest;
+         int lowestIdx = sp.lowestIdx;
+         double prevSignal = sp.prevSignal;
+         int today = sp.today;
+         int trailingIdx = sp.trailingIdx;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         int pkSlot2 = -1;
+         double pkVal2 = 0.0;
+         if( today >= 1073741824 ) {
+            int rebaseShift = trailingIdx & ~sp.xMask;
+            today -= rebaseShift;
+            trailingIdx -= rebaseShift;
+            highestIdx -= rebaseShift;
+            i -= rebaseShift;
+            lowestIdx -= rebaseShift;
          }
-         core.SmiStepImpl(scratch, inHigh, inLow, inClose);
-         return new SmiValue(scratch.cur_outSMI, scratch.cur_outSMISignal);
+         pkSlot0 = today & sp.xMask;
+         pkVal0 = inHigh;
+         pkSlot1 = today & sp.xMask;
+         pkVal1 = inLow;
+         pkSlot2 = today & sp.xMask;
+         pkVal2 = inClose;
+         /* Set the lowest low */
+         tmp = ((today & sp.xMask) != pkSlot1) ? sp.x_inLow[today & sp.xMask] : pkVal1;
+         if( lowestIdx < trailingIdx ) {
+            lowestIdx = trailingIdx;
+            lowest = ((lowestIdx & sp.xMask) != pkSlot1) ? sp.x_inLow[lowestIdx & sp.xMask] : pkVal1;
+            i = lowestIdx;
+            while( ++i <= today ) {
+               tmp = ((i & sp.xMask) != pkSlot1) ? sp.x_inLow[i & sp.xMask] : pkVal1;
+               if( tmp < lowest ) {
+                  lowestIdx = i;
+                  lowest = tmp;
+               }
+            }
+         } else if( tmp <= lowest ) {
+            lowestIdx = today;
+            lowest = tmp;
+         }
+         /* Set the highest high */
+         tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
+         if( highestIdx < trailingIdx ) {
+            highestIdx = trailingIdx;
+            highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inHigh[highestIdx & sp.xMask] : pkVal0;
+            i = highestIdx;
+            while( ++i <= today ) {
+               tmp = ((i & sp.xMask) != pkSlot0) ? sp.x_inHigh[i & sp.xMask] : pkVal0;
+               if( tmp > highest ) {
+                  highestIdx = i;
+                  highest = tmp;
+               }
+            }
+         } else if( tmp >= highest ) {
+            highestIdx = today;
+            highest = tmp;
+         }
+         den = highest - lowest;
+         num = (((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - (highest + lowest) * 0.5;
+         emaSlowNum = Math.FusedMultiplyAdd(num - emaSlowNum, sp.kSlow, emaSlowNum);
+         emaSlowDen = Math.FusedMultiplyAdd(den - emaSlowDen, sp.kSlow, emaSlowDen);
+         emaFastNum = Math.FusedMultiplyAdd(emaSlowNum - emaFastNum, sp.kFast, emaFastNum);
+         emaFastDen = Math.FusedMultiplyAdd(emaSlowDen - emaFastDen, sp.kFast, emaFastDen);
+         /* The denominator is an EMA of an EMA of the high-low range: every term
+          * is non-negative and every weight is positive, so it carries no
+          * cancellation residue and is zero only when every range that reached it
+          * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+          * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+          * convention. Test it exactly: the range carries the quote unit, so the
+          * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+          * instrument quoted below it (issue #253). Issue #107's machine-flat
+          * window is caught by the exact test as well, since the residue an
+          * EMA leaves there is zero, not sub-epsilon.
+          */
+         halfDen = 0.5 * emaFastDen;
+         if( halfDen > 0.0 ) {
+            smiValue = 100.0 * emaFastNum / halfDen;
+         } else {
+            smiValue = 0.0;
+         }
+         prevSignal = Math.FusedMultiplyAdd(smiValue - prevSignal, sp.kSignal, prevSignal);
+         cur_outSMI = smiValue;
+         cur_outSMISignal = prevSignal;
+         trailingIdx = trailingIdx + 1;
+         today = today + 1;
+         return new SmiValue(cur_outSMI, cur_outSMISignal);
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -1065,11 +1124,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
       /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
@@ -1082,7 +1143,11 @@ public partial class Core
          if( inLow.Length != barCount || inClose.Length != barCount || outSMI.Length < barCount || outSMISignal.Length < barCount || outSMI.Overlaps(inHigh) || outSMI.Overlaps(inLow) || outSMI.Overlaps(inClose) || outSMISignal.Overlaps(inHigh) || outSMISignal.Overlaps(inLow) || outSMISignal.Overlaps(inClose) || outSMI.Overlaps(outSMISignal) ) throw Core.StreamFailure("SMI", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) ) throw Core.StreamFailure("SMI", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("SMI", "updateAndFill", RetCode.BadParam);
+            }
             core.SmiStepImpl(this, inHigh[i], inLow[i], inClose[i]);
             outSMI[i] = cur_outSMI;
             outSMISignal[i] = cur_outSMISignal;
@@ -1090,8 +1155,9 @@ public partial class Core
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

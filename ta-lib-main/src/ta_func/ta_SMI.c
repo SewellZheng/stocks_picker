@@ -727,10 +727,13 @@ TA_RetCode TA_S_SMI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_SMI_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_SMI_Value). */
+   double cur_outSMI;
+   double cur_outSMISignal;
    int optInTimePeriod;
    int optInFastPeriod;
    int optInSlowPeriod;
@@ -754,11 +757,8 @@ struct TA_SMI_Stream {
    int xPhys;
    int xMask;
    double *x_inHigh;
-   double *xMirror_inHigh;
    double *x_inLow;
-   double *xMirror_inLow;
    double *x_inClose;
-   double *xMirror_inClose;
 };
 
 /* Private function, not in public API. */
@@ -766,11 +766,8 @@ static void TA_SMI_ReleaseImpl( struct TA_SMI_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inHigh ) TA_Free( sp->x_inHigh );
-   if( sp->xMirror_inHigh ) TA_Free( sp->xMirror_inHigh );
    if( sp->x_inLow ) TA_Free( sp->x_inLow );
-   if( sp->xMirror_inLow ) TA_Free( sp->xMirror_inLow );
    if( sp->x_inClose ) TA_Free( sp->x_inClose );
-   if( sp->xMirror_inClose ) TA_Free( sp->xMirror_inClose );
    TA_Free( sp );
 }
 
@@ -782,8 +779,9 @@ static void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double inHigh, double inL
    double den;
    double halfDen;
    double smiValue;
-   double prevSignal = sp->prevSignal;
+   double prevSignal;
 
+   prevSignal = sp->prevSignal;
    if( sp->today >= 1073741824 )
    {
       int rebaseShift = sp->trailingIdx & ~sp->xMask;
@@ -868,6 +866,8 @@ static void TA_SMI_StepImpl( struct TA_SMI_Stream *sp, double inHigh, double inL
    *outSMISignal= prevSignal;
    sp->trailingIdx = sp->trailingIdx + 1;
    sp->today = sp->today + 1;
+   sp->cur_outSMI = *outSMI;
+   sp->cur_outSMISignal = *outSMISignal;
    sp->prevSignal = prevSignal;
 }
 
@@ -1234,16 +1234,10 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
       sp->xMask = sp->xPhys - 1;
       sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inHigh ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inHigh ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inLow ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inLow ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inClose ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inClose = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inClose ) { TA_SMI_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -1254,6 +1248,8 @@ static TA_RetCode TA_SMI_OpenImpl( struct TA_SMI_Stream **stream, const double i
       }
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outSMI = outSMI[(*outNBElement - 1) * outStride];
+      sp->cur_outSMISignal = outSMISignal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1306,7 +1302,11 @@ TA_RetCode TA_SMI_OpenAndFillInternal( struct TA_SMI_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_SMI_Update( TA_SMI_Stream *stream, double inHigh, double inLow, double inClose, double *outSMI, double *outSMISignal )
 {
    if( !stream || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_SMI_StepImpl( stream, inHigh, inLow, inClose, outSMI, outSMISignal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1315,17 +1315,114 @@ TA_LIB_API TA_RetCode TA_SMI_Update( TA_SMI_Stream *stream, double inHigh, doubl
 TA_LIB_API TA_RetCode TA_SMI_Peek( const TA_SMI_Stream *stream, double inHigh, double inLow, double inClose, double *outSMI, double *outSMISignal )
 {
    struct TA_SMI_Stream scratch;
+   struct TA_SMI_Stream *sp = &scratch;
+   double tmp;
+   double num;
+   double den;
+   double halfDen;
+   double smiValue;
+   double prevSignal;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
+   int pkSlot1 = -1;
+   double pkVal1 = 0.0;
+   int pkSlot2 = -1;
+   double pkVal2 = 0.0;
 
    if( !stream || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.x_inHigh = stream->xMirror_inHigh;
-   memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xPhys );
-   scratch.x_inLow = stream->xMirror_inLow;
-   memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xPhys );
-   scratch.x_inClose = stream->xMirror_inClose;
-   memcpy( scratch.x_inClose, stream->x_inClose, sizeof(double) * (size_t)stream->xPhys );
-   TA_SMI_StepImpl( &scratch, inHigh, inLow, inClose, outSMI, outSMISignal );
+   prevSignal = sp->prevSignal;
+   if( sp->today >= 1073741824 )
+   {
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
+      sp->today -= rebaseShift;
+      sp->trailingIdx -= rebaseShift;
+      sp->highestIdx -= rebaseShift;
+      sp->i -= rebaseShift;
+      sp->lowestIdx -= rebaseShift;
+   }
+   pkSlot0 = sp->today & sp->xMask;
+   pkVal0 = inHigh;
+   pkSlot1 = sp->today & sp->xMask;
+   pkVal1 = inLow;
+   pkSlot2 = sp->today & sp->xMask;
+   pkVal2 = inClose;
+   /* Set the lowest low */
+   tmp = ((sp->today & sp->xMask) != pkSlot1) ? sp->x_inLow[sp->today & sp->xMask] : pkVal1;
+   if( sp->lowestIdx < sp->trailingIdx )
+   {
+      sp->lowestIdx = sp->trailingIdx;
+      sp->lowest = ((sp->lowestIdx & sp->xMask) != pkSlot1) ? sp->x_inLow[sp->lowestIdx & sp->xMask] : pkVal1;
+      sp->i = sp->lowestIdx;
+      while( ++sp->i <= sp->today )
+      {
+         tmp = ((sp->i & sp->xMask) != pkSlot1) ? sp->x_inLow[sp->i & sp->xMask] : pkVal1;
+         if( tmp < sp->lowest )
+         {
+            sp->lowestIdx = sp->i;
+            sp->lowest = tmp;
+         }
+      }
+   } else if( tmp <= sp->lowest )
+   {
+      sp->lowestIdx = sp->today;
+      sp->lowest = tmp;
+   }
+   /* Set the highest high */
+   tmp = ((sp->today & sp->xMask) != pkSlot0) ? sp->x_inHigh[sp->today & sp->xMask] : pkVal0;
+   if( sp->highestIdx < sp->trailingIdx )
+   {
+      sp->highestIdx = sp->trailingIdx;
+      sp->highest = ((sp->highestIdx & sp->xMask) != pkSlot0) ? sp->x_inHigh[sp->highestIdx & sp->xMask] : pkVal0;
+      sp->i = sp->highestIdx;
+      while( ++sp->i <= sp->today )
+      {
+         tmp = ((sp->i & sp->xMask) != pkSlot0) ? sp->x_inHigh[sp->i & sp->xMask] : pkVal0;
+         if( tmp > sp->highest )
+         {
+            sp->highestIdx = sp->i;
+            sp->highest = tmp;
+         }
+      }
+   } else if( tmp >= sp->highest )
+   {
+      sp->highestIdx = sp->today;
+      sp->highest = tmp;
+   }
+   den = sp->highest - sp->lowest;
+   num = (((sp->today & sp->xMask) != pkSlot2) ? sp->x_inClose[sp->today & sp->xMask] : pkVal2) - (sp->highest + sp->lowest) * 0.5;
+   sp->emaSlowNum = fma(num - sp->emaSlowNum, sp->kSlow, sp->emaSlowNum);
+   sp->emaSlowDen = fma(den - sp->emaSlowDen, sp->kSlow, sp->emaSlowDen);
+   sp->emaFastNum = fma(sp->emaSlowNum - sp->emaFastNum, sp->kFast, sp->emaFastNum);
+   sp->emaFastDen = fma(sp->emaSlowDen - sp->emaFastDen, sp->kFast, sp->emaFastDen);
+   /* The denominator is an EMA of an EMA of the high-low range: every term
+    * is non-negative and every weight is positive, so it carries no
+    * cancellation residue and is zero only when every range that reached it
+    * was exactly zero -- 0/0, since a window of H == L bars makes num zero
+    * too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+    * convention. Test it exactly: the range carries the quote unit, so the
+    * fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+    * instrument quoted below it (issue #253). Issue #107's machine-flat
+    * window is caught by the exact test as well, since the residue an
+    * EMA leaves there is zero, not sub-epsilon.
+    */
+   halfDen = 0.5 * sp->emaFastDen;
+   if( halfDen > 0.0 )
+   {
+      smiValue = 100.0 * sp->emaFastNum / halfDen;
+   } else 
+   {
+      smiValue = 0.0;
+   }
+   prevSignal = fma(smiValue - prevSignal, sp->kSignal, prevSignal);
+   *outSMI= smiValue;
+   *outSMISignal= prevSignal;
+   sp->trailingIdx = sp->trailingIdx + 1;
+   sp->today = sp->today + 1;
+   sp->cur_outSMI = *outSMI;
+   sp->cur_outSMISignal = *outSMISignal;
+   sp->prevSignal = prevSignal;
    return TA_SUCCESS;
 }
 
@@ -1338,7 +1435,11 @@ TA_LIB_API TA_RetCode TA_SMI_UpdateAndFill( TA_SMI_Stream *stream, const double 
    if( (const void *)outSMI == (const void *)inHigh || (const void *)outSMI == (const void *)inLow || (const void *)outSMI == (const void *)inClose || (const void *)outSMISignal == (const void *)inHigh || (const void *)outSMISignal == (const void *)inLow || (const void *)outSMISignal == (const void *)inClose || (const void *)outSMI == (const void *)outSMISignal ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_SMI_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outSMI[i], &outSMISignal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -1348,6 +1449,46 @@ TA_LIB_API TA_RetCode TA_SMI_UpdateAndFill( TA_SMI_Stream *stream, const double 
 TA_LIB_API TA_RetCode TA_SMI_Close( TA_SMI_Stream *stream )
 {
    TA_SMI_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SMI_Value( const TA_SMI_Stream *stream, double *outSMI, double *outSMISignal )
+{
+   if( !stream || !outSMI || !outSMISignal ) return TA_BAD_PARAM;
+   *outSMI = stream->cur_outSMI;
+   *outSMISignal = stream->cur_outSMISignal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SMI_Clone( const TA_SMI_Stream *stream, TA_SMI_Stream **clone )
+{
+   struct TA_SMI_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_SMI_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->x_inHigh = NULL;
+   sp->x_inLow = NULL;
+   sp->x_inClose = NULL;
+   if( stream->x_inHigh )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inHigh ) { TA_SMI_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inHigh, stream->x_inHigh, sizeof(double) * copyN ); }
+   if( stream->x_inLow )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inLow = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inLow ) { TA_SMI_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inLow, stream->x_inLow, sizeof(double) * copyN ); }
+   if( stream->x_inClose )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inClose = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inClose ) { TA_SMI_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inClose, stream->x_inClose, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

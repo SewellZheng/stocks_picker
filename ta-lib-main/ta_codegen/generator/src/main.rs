@@ -722,6 +722,9 @@ fn generate(func_filter: Option<&str>, backend_filter: Option<&str>) {
         // to regenerate.
         backends::java_enums::generate(&enums, &java_pkg.join("FuncUnstId.java"));
         backends::java_enums::generate_matype(&enums, &java_pkg.join("MAType.java"));
+        // Whole-corpus count regardless of --func: `all_funcs` is every
+        // definition even under a filtered run (see its own comment above).
+        sync_pom_indicator_count(&root, all_funcs.len());
         // Core.java's GENCODE section splices ALL indicators into a single file,
         // so only regenerate on a full (unfiltered) run — a --func subset would
         // drop every other indicator's methods.
@@ -2291,6 +2294,27 @@ const RUST_GENERATED_TEST_MODULES: &[&str] = &["no_phantom_io"];
 /// ta-lib's dependency does not resolve.
 const DISPATCH_VERSION: &str = "0.1.2";
 
+/// Rewrite the Java pom's `<description>` "<N> indicators" from the corpus
+/// count -- the one field `generate` overwrites in an otherwise hand-written,
+/// preserved file (see CLAUDE.md). It is published to Maven Central and
+/// immutable per version, so a stale count cannot be fixed after release
+/// (issue tracked in #317); tying it to `generate` means it can no longer go
+/// stale between the indicator that added it and the release that ships it.
+fn sync_pom_indicator_count(root: &Path, n_funcs: usize) {
+    let pom_path = root.join("ta_codegen/output/java/library/pom.xml");
+    let text = std::fs::read_to_string(&pom_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", pom_path.display()));
+    let marker = " indicators";
+    let marker_pos = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("{}: no \"{marker}\" found in <description>", pom_path.display()));
+    let digits_start = text[..marker_pos]
+        .rfind(|c: char| !c.is_ascii_digit())
+        .map_or(0, |i| i + 1);
+    let new_text = format!("{}{n_funcs}{}", &text[..digits_start], &text[marker_pos..]);
+    backends::write_if_changed(&pom_path, &new_text, "pom.xml", n_funcs);
+}
+
 fn generate_rust_crate_scaffolding(
     out_base: &Path,
     funcs: &[ir::FuncDef],
@@ -2323,6 +2347,12 @@ fn generate_rust_crate_scaffolding(
     let install_req = crate_version
         .rsplit_once('.')
         .map_or_else(|| crate_version.clone(), |(major_minor, _)| major_minor.to_string());
+    // The crate-docs category index (#179 D6): the grouping the registry has
+    // always known, finally said in the docs. Built in `rust_doc` rather than
+    // here so it is reachable from `tests/backend_suite.rs` — `funcs` is the
+    // whole corpus, and the property worth pinning is that every one of them
+    // reaches the page.
+    let func_index = backends::rust_doc::category_index(funcs);
     // Applied to the two long prose literals below, which hold Rust and TOML
     // samples and so cannot be `format!` strings (every brace would need
     // doubling, in text that is read far more often than it is edited).
@@ -2330,6 +2360,7 @@ fn generate_rust_crate_scaffolding(
         text.replace("$N_FUNCS", &n_funcs.to_string())
             .replace("$N_CANDLES", &n_candles.to_string())
             .replace("$INSTALL_REQ", &install_req)
+            .replace("$FUNC_INDEX", &func_index)
     };
     // Two-crate Cargo workspace: `library/` is the published `ta-lib` crate;
     // `tools/` holds the JSON-RPC server/bench — a layer on top of the library.
@@ -2605,8 +2636,62 @@ path = "src/lib.rs"
 //! performs via `target_clones`); both paths are correctly rounded, so results
 //! are bit-identical either way. The streaming tier stays single-path.
 //!
+//! # Live data
+//!
+//! The calls above take a whole series at once. For a feed that arrives one bar
+//! at a time, each indicator also has a *streaming* form: an `*_open` method
+//! ([`Core::sma_open`], [`Core::rsi_open`], …) warms a handle up on the history
+//! you already have, and from then on one bar in gives that bar's value out,
+//! with no re-scan of the series and no allocation per bar.
+//!
+//! ```
+//! use ta_lib::Core;
+//!
+//! let history = [11.0, 12.0, 13.0, 14.0, 15.0];
+//! let core = Core::new();
+//! let (mut sma, last) = core.sma_open(&history, 3)?;
+//!
+//! assert_eq!(last, 14.0); // (13 + 14 + 15) / 3, the last history bar
+//! assert_eq!(sma.out_range().count, 3);
+//!
+//! // A bar that has not closed yet: ask without committing it.
+//! assert_eq!(sma.peek(16.0)?, 15.0);
+//! assert_eq!(sma.out_range().count, 3);
+//!
+//! // Once it closes, commit it — same value, and the range advances.
+//! assert_eq!(sma.update(16.0)?, 15.0);
+//! assert_eq!(sma.out_range().count, 4);
+//!
+//! // A non-finite bar is rejected, and still counted: the handle's output for
+//! // it is the previous one, held, and its state is untouched.
+//! assert!(sma.update(f64::NAN).is_err());
+//! assert_eq!(sma.out_range().count, 5);
+//! # Ok::<(), ta_lib::RetCode>(())
+//! ```
+//!
+//! The handle's value at every bar is bit-identical to what the batch call
+//! reports for that bar. [`SmaStream::out_range`] carries the same
+//! [`OutRange`] the batch tier returns — the bars the handle has an output for
+//! — and every bar handed to [`SmaStream::update`] advances it by one, a bar
+//! rejected as non-finite included: its output is the previous one, held.
+//! [`SmaStream::peek`] leaves it alone; cloning a handle forks an independent
+//! stream, and dropping it closes the stream.
+//!
 //! The full function reference, grouped by category, is at
-//! [ta-lib.org/functions](https://ta-lib.org/functions/).
+//! [ta-lib.org/functions](https://ta-lib.org/functions/); the guides are at
+//! [ta-lib.org/api/rust](https://ta-lib.org/api/rust/) and, for the streaming
+//! tier, [ta-lib.org/api/rust/stream](https://ta-lib.org/api/rust/stream/).
+//!
+//! # Indicators by category
+//!
+//! Every indicator is a method on [`Core`], and the methods are one flat
+//! alphabetical list — so this is where the grouping lives. It is the same
+//! grouping the registry answers at run time ([`abstract_api::Group`], reported
+//! per function as [`FuncInfo::group`](abstract_api::FuncInfo::group)), and each
+//! entry carries that row's own one-line hint. Follow a link for the function's
+//! formula, arguments, ranges and a runnable example.
+//!
+$FUNC_INDEX
 
 #![forbid(unsafe_code)]
 // Every public item, and every public enum variant and struct field, carries its
@@ -2628,6 +2713,24 @@ path = "src/lib.rs"
 mod ta_func;
 pub mod abstract_api;
 pub use ta_func::*;
+
+// The README is the crate's front page on crates.io and on GitHub, and its Rust
+// sample is a claim about this API — yet nothing in the tree compiled it:
+// `readme = "README.md"` is packaging metadata, and every other doctest here
+// comes from a generated per-function page. So the front page was the one piece
+// of Rust in this crate that could say anything, and twice it did: the install
+// line resolved to no published version (#179 A1) and the indicator count was
+// seven stale (#179 A2), both found by reading rather than by a gate. The counts
+// and the install requirement are derived now; this covers the code.
+//
+// `cfg(doctest)` is what keeps it to `cargo test --doc`: the item does not exist
+// during `cargo build`, `cargo clippy` or `cargo doc`, so the README's headings
+// never appear in the rendered docs and its links are not resolved as intra-doc
+// links (they are ordinary Markdown links, and must stay that way to render on
+// crates.io).
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeExamples;
 "#;
     let lib_path = src_dir.join("lib.rs");
     write_if_changed(&lib_path, fill(lib_rs)).unwrap();
@@ -2692,11 +2795,16 @@ period and candlestick thresholds — are chosen up front with a builder and the
 frozen:
 
 ```rust
-use ta_lib::{Core, FuncUnstId};
+use ta_lib::{Core, FuncUnstId, RetCode};
 
-let core = Core::builder()
-    .unstable_period(FuncUnstId::EMA, 10)
-    .build()?;
+fn main() -> Result<(), RetCode> {
+    let core = Core::builder()
+        .unstable_period(FuncUnstId::EMA, 10)
+        .build()?;
+
+    assert_eq!(core.get_unstable_period(FuncUnstId::EMA)?, 10);
+    Ok(())
+}
 ```
 
 The setters are infallible so that they chain; a rejected argument is reported
@@ -2706,9 +2814,51 @@ Because a configured `Core` only ever reads its settings, it is `Send + Sync` an
 can be shared read-only across threads (e.g. an `Arc<Core>` with concurrent
 indicator calls) without locking. To change a setting, build a new `Core`.
 
+## Live data
+
+The calls above take a whole series at once. For a feed that arrives one bar at
+a time, each indicator also has a **streaming** form: an `*_open` method warms a
+handle up on the history you already have, and from then on one bar in gives
+that bar's value out — no re-scan of the series, no allocation per bar, and
+bit-identical to what the batch call reports for the same bar.
+
+```rust
+use ta_lib::{Core, RetCode};
+
+fn main() -> Result<(), RetCode> {
+    let history = [11.0, 12.0, 13.0, 14.0, 15.0];
+    let core = Core::new();
+    let (mut sma, last) = core.sma_open(&history, 3)?;
+
+    assert_eq!(last, 14.0); // (13 + 14 + 15) / 3, the last history bar
+    assert_eq!(sma.out_range().count, 3);
+
+    // A bar that has not closed yet: ask without committing it.
+    assert_eq!(sma.peek(16.0)?, 15.0);
+    assert_eq!(sma.out_range().count, 3);
+
+    // Once it closes, commit it — same value, and the range advances.
+    assert_eq!(sma.update(16.0)?, 15.0);
+    assert_eq!(sma.out_range().count, 4);
+
+    // A non-finite bar is rejected, and still counted: the handle's output for
+    // it is the previous one, held, and its state is untouched.
+    assert!(sma.update(f64::NAN).is_err());
+    assert_eq!(sma.out_range().count, 5);
+    Ok(())
+}
+```
+
+`out_range()` carries the same `OutRange` the batch tier returns — the bars the
+handle has an output for — and every bar handed to `update` advances it by one,
+a bar rejected as non-finite included: its output is the previous one, held.
+`peek` leaves it alone. Cloning a handle forks an independent stream, and
+dropping it closes the stream.
+
 ## Documentation
 
 - API reference: <https://docs.rs/ta-lib>
+- Rust guide: <https://ta-lib.org/api/rust/> — and the streaming tier: <https://ta-lib.org/api/rust/stream/>
 - Per-function reference (formulas, notes, sources): <https://ta-lib.org/functions/>
 - Project home: <https://ta-lib.org>
 

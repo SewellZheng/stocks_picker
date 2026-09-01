@@ -68,6 +68,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLHARAMI`]: the number of leading input values consumed before
     /// the first output value can be produced.
+    #[doc(alias = "TA_CDLHARAMI_Lookback")]
     pub fn CDLHARAMI_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
@@ -309,14 +310,8 @@ impl Core {
     /// first candle's real body. A reversal signal whose direction is the opposite of the first
     /// candle's color.
     ///
-    /// # Notes
-    ///
-    /// * Does not verify the prior trend (downtrend for bullish, uptrend for bearish) that the
-    ///   reversal signal assumes.
-    /// * Bulkowski's testing found the bearish Harami actually acts as a bullish CONTINUATION 53%
-    ///   of the time — more often than it reverses the prior uptrend — rating the pattern "near
-    ///   random" overall (rank 72 of 103).
-    ///   ([thepatternsite.com](https://thepatternsite.com/HaramiBear.html))
+    /// Formula and more info at
+    /// [ta-lib.org/functions/cdlharami](https://ta-lib.org/functions/cdlharami).
     ///
     /// # Arguments
     ///
@@ -366,14 +361,17 @@ impl Core {
     ///
     /// let out_range = core.CDLHARAMI(0, open.len() - 1, &open, &high, &low, &close, &mut out)?;
     /// assert!(out_range.count > 0);
+    /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
+    /// // a candlestick pattern reports 0 where it does not fire, and a signed
+    /// // strength -- negative bearish, positive bullish -- where it does
+    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
     /// # See also
     ///
     /// [`Core::CDLHARAMICROSS`] · [`Core::CDLENGULFING`]
-    ///
-    /// Further reading: [ta-lib.org/functions/cdlharami](https://ta-lib.org/functions/cdlharami)
+    #[doc(alias = "TA_CDLHARAMI")]
     #[doc(alias = "Harami")]
     #[doc(alias = "HaramiPattern")]
     pub fn CDLHARAMI(
@@ -436,7 +434,7 @@ impl Core {
 /// over the same series. Open with [`Core::cdlharami_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLHARAMI_Stream")]
@@ -446,20 +444,8 @@ pub struct CdlharamiStream {
     /// The `BodyShort` setting this stream was opened with.
     cs_body_short: CandleSetting,
     state: CdlharamiStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl CdlharamiStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `CdlharamiStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.cs_body_long = src.cs_body_long;
-        self.cs_body_short = src.cs_body_short;
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -477,26 +463,7 @@ struct CdlharamiStreamState {
     ringPos_BodyShortTrailingIdx: usize,
     ringCap_BodyShortTrailingIdx: usize,
     ring_BodyShortTrailingIdx_derived: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl CdlharamiStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.BodyShortPeriodTotal = src.BodyShortPeriodTotal;
-        self.BodyLongPeriodTotal = src.BodyLongPeriodTotal;
-        self.lag1_inOpen = src.lag1_inOpen;
-        self.lag1_inHigh = src.lag1_inHigh;
-        self.lag1_inLow = src.lag1_inLow;
-        self.lag1_inClose = src.lag1_inClose;
-        self.ringPos_BodyLongTrailingIdx = src.ringPos_BodyLongTrailingIdx;
-        self.ringCap_BodyLongTrailingIdx = src.ringCap_BodyLongTrailingIdx;
-        self.ring_BodyLongTrailingIdx_derived.clone_from(&src.ring_BodyLongTrailingIdx_derived);
-        self.ringPos_BodyShortTrailingIdx = src.ringPos_BodyShortTrailingIdx;
-        self.ringCap_BodyShortTrailingIdx = src.ringCap_BodyShortTrailingIdx;
-        self.ring_BodyShortTrailingIdx_derived.clone_from(&src.ring_BodyShortTrailingIdx_derived);
-    }
+    cur_outInteger: i32,
 }
 
 #[allow(unused_variables)]
@@ -609,6 +576,7 @@ impl Core {
             }
         }
         sp.BodyShortPeriodTotal += _candlerange_3 - sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx];
+        sp.cur_outInteger = (*outInteger);
         sp.lag1_inOpen = inOpen;
         sp.lag1_inHigh = inHigh;
         sp.lag1_inLow = inLow;
@@ -896,6 +864,7 @@ impl Core {
         let state = CdlharamiStreamState {
             BodyShortPeriodTotal,
             BodyLongPeriodTotal,
+            cur_outInteger: outInteger[(*outNBElement - 1) * outStride],
             lag1_inOpen: inOpen[historyLen - 1],
             lag1_inHigh: inHigh[historyLen - 1],
             lag1_inLow: inLow[historyLen - 1],
@@ -1028,31 +997,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `CdlharamiStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDLHARAMI_PEEK_SCRATCH: std::cell::Cell<Option<Box<CdlharamiStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl CdlharamiStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_CDLHARAMI_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
@@ -1068,7 +1039,7 @@ impl CdlharamiStream {
     /// argument checks instead of `n`. `n` is `inOpen.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1078,7 +1049,8 @@ impl CdlharamiStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_CDLHARAMI_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
         let barCount = inOpen.len();
@@ -1087,6 +1059,9 @@ impl CdlharamiStream {
         }
         for i in 0..barCount {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::cdlharami_step_impl(&mut self.state, &self.cs_body_long, &self.cs_body_short, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
@@ -1098,36 +1073,181 @@ impl CdlharamiStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_CDLHARAMI_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        CDLHARAMI_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outInteger: i32 = 0_i32;
-            Core::cdlharami_step_impl(&mut scratch, &self.cs_body_long, &self.cs_body_short, inOpen, inHigh, inLow, inClose, &mut outInteger);
-            cell.set(Some(scratch));
-            Ok(outInteger)
-        })
+        let mut outInteger: i32 = 0_i32;
+        {
+            let sp = &self.state;
+            let outInteger = &mut outInteger;
+            let mut BodyLongPeriodTotal = sp.BodyLongPeriodTotal;
+            let mut BodyShortPeriodTotal = sp.BodyShortPeriodTotal;
+            let mut cur_outInteger = sp.cur_outInteger;
+            let mut lag1_inClose = sp.lag1_inClose;
+            let mut lag1_inHigh = sp.lag1_inHigh;
+            let mut lag1_inLow = sp.lag1_inLow;
+            let mut lag1_inOpen = sp.lag1_inOpen;
+            let mut ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+            let mut ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            #[allow(non_snake_case)]
+            let BodyLong_rangeType: i32 = self.cs_body_long.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyLong_avgPeriod: i32 = self.cs_body_long.avg_period;
+            #[allow(non_snake_case)]
+            let BodyLong_factor: f64 = self.cs_body_long.factor;
+            #[allow(non_snake_case)]
+            let BodyShort_rangeType: i32 = self.cs_body_short.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyShort_avgPeriod: i32 = self.cs_body_short.avg_period;
+            #[allow(non_snake_case)]
+            let BodyShort_factor: f64 = self.cs_body_short.factor;
+            if sp.ringCap_BodyLongTrailingIdx == 0 {
+                pkSlot0 = 0;
+                let mut _candlerange_12: f64;
+                match BodyLong_rangeType {
+                    0 => {
+                        _candlerange_12 = (inClose - inOpen).abs();
+                    }
+                    1 => {
+                        _candlerange_12 = inHigh - inLow;
+                    }
+                    2 => {
+                        _candlerange_12 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                    }
+                    _ => {
+                        _candlerange_12 = 0.0;
+                    }
+                }
+                pkVal0 = _candlerange_12;
+            }
+            if sp.ringCap_BodyShortTrailingIdx == 0 {
+                pkSlot1 = 0;
+                let mut _candlerange_13: f64;
+                match BodyShort_rangeType {
+                    0 => {
+                        _candlerange_13 = (inClose - inOpen).abs();
+                    }
+                    1 => {
+                        _candlerange_13 = inHigh - inLow;
+                    }
+                    2 => {
+                        _candlerange_13 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                    }
+                    _ => {
+                        _candlerange_13 = 0.0;
+                    }
+                }
+                pkVal1 = _candlerange_13;
+            }
+            if (lag1_inClose - lag1_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((lag1_inClose) - (lag1_inOpen)).abs(), 1 => (lag1_inHigh) - (lag1_inLow), 2 => ((lag1_inHigh) - (if (lag1_inClose) >= (lag1_inOpen) { (lag1_inClose) } else { (lag1_inOpen) })) + ((if (lag1_inClose) >= (lag1_inOpen) { (lag1_inOpen) } else { (lag1_inClose) }) - (lag1_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) {
+                // 1st: long
+                if (inClose - inOpen).abs() <= ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) {
+                    // 2nd: short
+                    // 2nd is engulfed by 1st
+                    if (inClose).max(inOpen) < (lag1_inClose).max(lag1_inOpen) && (inClose).min(inOpen) > (lag1_inClose).min(lag1_inOpen) {
+                        (*outInteger) = ((0 - (if lag1_inClose >= lag1_inOpen { 1 } else { 0 - 1 })) * 100) as i32;
+                        // 2nd is engulfed by 1st
+                        // (one end of real body can match;
+                        // engulfing guaranteed by "long" and "short")
+                    } else if (inClose).max(inOpen) <= (lag1_inClose).max(lag1_inOpen) && (inClose).min(inOpen) >= (lag1_inClose).min(lag1_inOpen) {
+                        (*outInteger) = ((0 - (if lag1_inClose >= lag1_inOpen { 1 } else { 0 - 1 })) * 80) as i32;
+                    } else {
+                        (*outInteger) = 0;
+                    }
+                } else {
+                    (*outInteger) = 0;
+                }
+            } else {
+                (*outInteger) = 0;
+            }
+            // add the current range and subtract the first range: this is done after the pattern recognition
+            // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+            let mut _candlerange_14: f64;
+            match BodyLong_rangeType {
+                0 => {
+                    _candlerange_14 = (lag1_inClose - lag1_inOpen).abs();
+                }
+                1 => {
+                    _candlerange_14 = lag1_inHigh - lag1_inLow;
+                }
+                2 => {
+                    _candlerange_14 = (lag1_inHigh - (if lag1_inClose >= lag1_inOpen { lag1_inClose } else { lag1_inOpen })) + ((if lag1_inClose >= lag1_inOpen { lag1_inOpen } else { lag1_inClose }) - lag1_inLow);
+                }
+                _ => {
+                    _candlerange_14 = 0.0;
+                }
+            }
+            BodyLongPeriodTotal += _candlerange_14 - (if (ringPos_BodyLongTrailingIdx as usize) != pkSlot0 { sp.ring_BodyLongTrailingIdx_derived[ringPos_BodyLongTrailingIdx] } else { pkVal0 });
+            let mut _candlerange_15: f64;
+            match BodyShort_rangeType {
+                0 => {
+                    _candlerange_15 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_15 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_15 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_15 = 0.0;
+                }
+            }
+            BodyShortPeriodTotal += _candlerange_15 - (if (ringPos_BodyShortTrailingIdx as usize) != pkSlot1 { sp.ring_BodyShortTrailingIdx_derived[ringPos_BodyShortTrailingIdx] } else { pkVal1 });
+            cur_outInteger = (*outInteger);
+            lag1_inOpen = inOpen;
+            lag1_inHigh = inHigh;
+            lag1_inLow = inLow;
+            lag1_inClose = inClose;
+            ringPos_BodyLongTrailingIdx = ringPos_BodyLongTrailingIdx + 1;
+            if ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
+                ringPos_BodyLongTrailingIdx = 0;
+            }
+            ringPos_BodyShortTrailingIdx = ringPos_BodyShortTrailingIdx + 1;
+            if ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx {
+                ringPos_BodyShortTrailingIdx = 0;
+            }
+        }
+        Ok(outInteger)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_CDLHARAMI_Value")]
+    pub fn value(&self) -> i32 {
+        self.state.cur_outInteger
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::CDLHARAMI`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

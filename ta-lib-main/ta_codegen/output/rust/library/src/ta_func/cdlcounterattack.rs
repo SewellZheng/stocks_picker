@@ -66,6 +66,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDLCOUNTERATTACK`]: the number of leading input values consumed
     /// before the first output value can be produced.
+    #[doc(alias = "TA_CDLCOUNTERATTACK_Lookback")]
     pub fn CDLCOUNTERATTACK_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
@@ -313,13 +314,8 @@ impl Core {
     /// (nearly) equal. Emits a bullish signal when the second candle is white and a bearish signal
     /// when it is black (a reversal signal, though its trend context is not checked).
     ///
-    /// # Notes
-    ///
-    /// * Does not verify the prior trend the reversal signal classically assumes.
-    /// * Bulkowski's testing found the bearish Counterattack/Meeting Lines does not reliably
-    ///   reverse at all — it acts as a bullish CONTINUATION 51% of the time — and the bullish
-    ///   version reverses only 56% of the time, both "near random" by his classification.
-    ///   ([thepatternsite.com](https://thepatternsite.com/MeetingLinesBear.html))
+    /// Formula and more info at
+    /// [ta-lib.org/functions/cdlcounterattack](https://ta-lib.org/functions/cdlcounterattack).
     ///
     /// # Arguments
     ///
@@ -371,15 +367,17 @@ impl Core {
     ///     &mut out,
     /// )?;
     /// assert!(out_range.count > 0);
+    /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
+    /// // a candlestick pattern reports 0 where it does not fire, and a signed
+    /// // strength -- negative bearish, positive bullish -- where it does
+    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
     /// # See also
     ///
     /// [`Core::CDLPIERCING`] · [`Core::CDLDARKCLOUDCOVER`] · [`Core::CDLGAPSIDESIDEWHITE`]
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/cdlcounterattack](https://ta-lib.org/functions/cdlcounterattack)
+    #[doc(alias = "TA_CDLCOUNTERATTACK")]
     #[doc(alias = "Counterattack")]
     #[doc(alias = "CounterattackLines")]
     #[doc(alias = "MeetingLines")]
@@ -443,7 +441,7 @@ impl Core {
 /// over the same series. Open with [`Core::cdlcounterattack_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLCOUNTERATTACK_Stream")]
@@ -453,20 +451,8 @@ pub struct CdlcounterattackStream {
     /// The `Equal` setting this stream was opened with.
     cs_equal: CandleSetting,
     state: CdlcounterattackStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl CdlcounterattackStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `CdlcounterattackStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.cs_body_long = src.cs_body_long;
-        self.cs_equal = src.cs_equal;
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -486,28 +472,7 @@ struct CdlcounterattackStreamState {
     ringCap_EqualTrailingIdx: usize,
     ringLag_EqualTrailingIdx: usize,
     ring_EqualTrailingIdx_derived: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl CdlcounterattackStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.EqualPeriodTotal = src.EqualPeriodTotal;
-        self.BodyLongPeriodTotal = src.BodyLongPeriodTotal;
-        self.lag1_inOpen = src.lag1_inOpen;
-        self.lag1_inHigh = src.lag1_inHigh;
-        self.lag1_inLow = src.lag1_inLow;
-        self.lag1_inClose = src.lag1_inClose;
-        self.ringPos_BodyLongTrailingIdx = src.ringPos_BodyLongTrailingIdx;
-        self.ringCap_BodyLongTrailingIdx = src.ringCap_BodyLongTrailingIdx;
-        self.ringLag_BodyLongTrailingIdx = src.ringLag_BodyLongTrailingIdx;
-        self.ring_BodyLongTrailingIdx_derived.clone_from(&src.ring_BodyLongTrailingIdx_derived);
-        self.ringPos_EqualTrailingIdx = src.ringPos_EqualTrailingIdx;
-        self.ringCap_EqualTrailingIdx = src.ringCap_EqualTrailingIdx;
-        self.ringLag_EqualTrailingIdx = src.ringLag_EqualTrailingIdx;
-        self.ring_EqualTrailingIdx_derived.clone_from(&src.ring_EqualTrailingIdx_derived);
-    }
+    cur_outInteger: i32,
 }
 
 #[allow(unused_variables)]
@@ -597,6 +562,7 @@ impl Core {
             if totIdx == 0 { break; }
             totIdx -= 1;
         }
+        sp.cur_outInteger = (*outInteger);
         sp.lag1_inOpen = inOpen;
         sp.lag1_inHigh = inHigh;
         sp.lag1_inLow = inLow;
@@ -863,6 +829,7 @@ impl Core {
         let state = CdlcounterattackStreamState {
             EqualPeriodTotal,
             BodyLongPeriodTotal,
+            cur_outInteger: outInteger[(*outNBElement - 1) * outStride],
             lag1_inOpen: inOpen[historyLen - 1],
             lag1_inHigh: inHigh[historyLen - 1],
             lag1_inLow: inLow[historyLen - 1],
@@ -997,31 +964,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `CdlcounterattackStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDLCOUNTERATTACK_PEEK_SCRATCH: std::cell::Cell<Option<Box<CdlcounterattackStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl CdlcounterattackStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_CDLCOUNTERATTACK_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
@@ -1037,7 +1006,7 @@ impl CdlcounterattackStream {
     /// argument checks instead of `n`. `n` is `inOpen.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1047,7 +1016,8 @@ impl CdlcounterattackStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_CDLCOUNTERATTACK_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
         let barCount = inOpen.len();
@@ -1056,6 +1026,9 @@ impl CdlcounterattackStream {
         }
         for i in 0..barCount {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::cdlcounterattack_step_impl(&mut self.state, &self.cs_body_long, &self.cs_equal, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
@@ -1067,36 +1040,158 @@ impl CdlcounterattackStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_CDLCOUNTERATTACK_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        CDLCOUNTERATTACK_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outInteger: i32 = 0_i32;
-            Core::cdlcounterattack_step_impl(&mut scratch, &self.cs_body_long, &self.cs_equal, inOpen, inHigh, inLow, inClose, &mut outInteger);
-            cell.set(Some(scratch));
-            Ok(outInteger)
-        })
+        let mut outInteger: i32 = 0_i32;
+        {
+            let sp = &self.state;
+            let outInteger = &mut outInteger;
+            let mut totIdx: usize = 0_usize;
+            let mut BodyLongPeriodTotal = sp.BodyLongPeriodTotal;
+            let mut EqualPeriodTotal = sp.EqualPeriodTotal;
+            let mut cur_outInteger = sp.cur_outInteger;
+            let mut lag1_inClose = sp.lag1_inClose;
+            let mut lag1_inHigh = sp.lag1_inHigh;
+            let mut lag1_inLow = sp.lag1_inLow;
+            let mut lag1_inOpen = sp.lag1_inOpen;
+            let mut ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+            let mut ringPos_EqualTrailingIdx = sp.ringPos_EqualTrailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            #[allow(non_snake_case)]
+            let BodyLong_rangeType: i32 = self.cs_body_long.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyLong_avgPeriod: i32 = self.cs_body_long.avg_period;
+            #[allow(non_snake_case)]
+            let BodyLong_factor: f64 = self.cs_body_long.factor;
+            #[allow(non_snake_case)]
+            let Equal_rangeType: i32 = self.cs_equal.range_type as i32;
+            #[allow(non_snake_case)]
+            let Equal_avgPeriod: i32 = self.cs_equal.avg_period;
+            #[allow(non_snake_case)]
+            let Equal_factor: f64 = self.cs_equal.factor;
+            pkSlot0 = ringPos_BodyLongTrailingIdx as usize;
+            let mut _candlerange_10: f64;
+            match BodyLong_rangeType {
+                0 => {
+                    _candlerange_10 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_10 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_10 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_10 = 0.0;
+                }
+            }
+            pkVal0 = _candlerange_10;
+            pkSlot1 = ringPos_EqualTrailingIdx as usize;
+            let mut _candlerange_11: f64;
+            match Equal_rangeType {
+                0 => {
+                    _candlerange_11 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_11 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_11 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_11 = 0.0;
+                }
+            }
+            pkVal1 = _candlerange_11;
+            if (if lag1_inClose >= lag1_inOpen { 1 } else { 0 - 1 }) == 0 - (if inClose >= inOpen { 1 } else { 0 - 1 }) && // opposite candles
+               (lag1_inClose - lag1_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal[1]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((lag1_inClose) - (lag1_inOpen)).abs(), 1 => (lag1_inHigh) - (lag1_inLow), 2 => ((lag1_inHigh) - (if (lag1_inClose) >= (lag1_inOpen) { (lag1_inClose) } else { (lag1_inOpen) })) + ((if (lag1_inClose) >= (lag1_inOpen) { (lag1_inOpen) } else { (lag1_inClose) }) - (lag1_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st long
+               (inClose - inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal[0]) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd long
+               inClose <= lag1_inClose + ((Equal_factor) * (if (Equal_avgPeriod) != 0 { (EqualPeriodTotal) / (Equal_avgPeriod as f64) } else { match Equal_rangeType { 0 => ((lag1_inClose) - (lag1_inOpen)).abs(), 1 => (lag1_inHigh) - (lag1_inLow), 2 => ((lag1_inHigh) - (if (lag1_inClose) >= (lag1_inOpen) { (lag1_inClose) } else { (lag1_inOpen) })) + ((if (lag1_inClose) >= (lag1_inOpen) { (lag1_inOpen) } else { (lag1_inClose) }) - (lag1_inLow)), _ => 0.0 } }) / (if (Equal_rangeType) == 2 { 2.0 } else { 1.0 })) && // equal closes
+               inClose >= lag1_inClose - ((Equal_factor) * (if (Equal_avgPeriod) != 0 { (EqualPeriodTotal) / (Equal_avgPeriod as f64) } else { match Equal_rangeType { 0 => ((lag1_inClose) - (lag1_inOpen)).abs(), 1 => (lag1_inHigh) - (lag1_inLow), 2 => ((lag1_inHigh) - (if (lag1_inClose) >= (lag1_inOpen) { (lag1_inClose) } else { (lag1_inOpen) })) + ((if (lag1_inClose) >= (lag1_inOpen) { (lag1_inOpen) } else { (lag1_inClose) }) - (lag1_inLow)), _ => 0.0 } }) / (if (Equal_rangeType) == 2 { 2.0 } else { 1.0 }))
+            {
+                (*outInteger) = ((if inClose >= inOpen { 1 } else { 0 - 1 }) * 100) as i32;
+            } else {
+                (*outInteger) = 0;
+            }
+            // add the current range and subtract the first range: this is done after the pattern recognition
+            // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+            let mut _candlerange_12: f64;
+            match Equal_rangeType {
+                0 => {
+                    _candlerange_12 = (lag1_inClose - lag1_inOpen).abs();
+                }
+                1 => {
+                    _candlerange_12 = lag1_inHigh - lag1_inLow;
+                }
+                2 => {
+                    _candlerange_12 = (lag1_inHigh - (if lag1_inClose >= lag1_inOpen { lag1_inClose } else { lag1_inOpen })) + ((if lag1_inClose >= lag1_inOpen { lag1_inOpen } else { lag1_inClose }) - lag1_inLow);
+                }
+                _ => {
+                    _candlerange_12 = 0.0;
+                }
+            }
+            EqualPeriodTotal += _candlerange_12 - (if (((ringPos_EqualTrailingIdx + sp.ringCap_EqualTrailingIdx - sp.ringLag_EqualTrailingIdx - 1) % sp.ringCap_EqualTrailingIdx) as usize) != pkSlot1 { sp.ring_EqualTrailingIdx_derived[((ringPos_EqualTrailingIdx + sp.ringCap_EqualTrailingIdx - sp.ringLag_EqualTrailingIdx - 1) % sp.ringCap_EqualTrailingIdx) as usize] } else { pkVal1 });
+            // for( totIdx = 1; totIdx >= 0; totIdx -= 1 )
+            totIdx = 1;
+            loop {
+                BodyLongPeriodTotal[totIdx] = BodyLongPeriodTotal[totIdx] + ((if ((if ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - totIdx >= sp.ringCap_BodyLongTrailingIdx { ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - totIdx - sp.ringCap_BodyLongTrailingIdx } else { ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - totIdx }) as usize) != pkSlot0 { sp.ring_BodyLongTrailingIdx_derived[((if ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - totIdx >= sp.ringCap_BodyLongTrailingIdx { ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - totIdx - sp.ringCap_BodyLongTrailingIdx } else { ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - totIdx })) as usize] } else { pkVal0 }) - (if (((ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - totIdx) % sp.ringCap_BodyLongTrailingIdx) as usize) != pkSlot0 { sp.ring_BodyLongTrailingIdx_derived[((ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - totIdx) % sp.ringCap_BodyLongTrailingIdx) as usize] } else { pkVal0 }));
+                if totIdx == 0 { break; }
+                totIdx -= 1;
+            }
+            cur_outInteger = (*outInteger);
+            lag1_inOpen = inOpen;
+            lag1_inHigh = inHigh;
+            lag1_inLow = inLow;
+            lag1_inClose = inClose;
+            ringPos_BodyLongTrailingIdx = ringPos_BodyLongTrailingIdx + 1;
+            if ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
+                ringPos_BodyLongTrailingIdx = 0;
+            }
+            ringPos_EqualTrailingIdx = ringPos_EqualTrailingIdx + 1;
+            if ringPos_EqualTrailingIdx >= sp.ringCap_EqualTrailingIdx {
+                ringPos_EqualTrailingIdx = 0;
+            }
+        }
+        Ok(outInteger)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_CDLCOUNTERATTACK_Value")]
+    pub fn value(&self) -> i32 {
+        self.state.cur_outInteger
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::CDLCOUNTERATTACK`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

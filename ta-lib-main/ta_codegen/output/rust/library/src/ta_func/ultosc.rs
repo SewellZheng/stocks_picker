@@ -85,6 +85,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_ULTOSC_Lookback")]
     #[inline]
     pub fn ULTOSC_Lookback(&self, mut optInTimePeriod1: i32, mut optInTimePeriod2: i32, mut optInTimePeriod3: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod1) as i32) == (i32::MIN) {
@@ -422,19 +423,7 @@ impl Core {
     /// momentum to damp single-period noise. Ranges 0-100; conventionally >70 overbought, \<30
     /// oversold.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// trueLow = min(low, prevClose);  BP = close - trueLow
-    /// TR = max(high-low, |prevClose-high|, |prevClose-low|)
-    /// avg_n = (sum BP over n bars) / (sum TR over n bars)
-    /// ULTOSC = 100 * (4*avg_short + 2*avg_mid + avg_long) / 7
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * The three periods are sorted internally, so the 4/2/1 weighting always applies to the
-    ///   shortest, middle, and longest period regardless of the order in which you pass them.
+    /// Formula and more info at [ta-lib.org/functions/ultosc](https://ta-lib.org/functions/ultosc).
     ///
     /// # Arguments
     ///
@@ -496,8 +485,7 @@ impl Core {
     ///
     /// * Larry Williams, *The Ultimate Oscillator*, Technical Analysis of Stocks & Commodities,
     ///   V.3:4 (1985)
-    ///
-    /// Further reading: [ta-lib.org/functions/ultosc](https://ta-lib.org/functions/ultosc)
+    #[doc(alias = "TA_ULTOSC")]
     #[doc(alias = "UltimateOscillator")]
     #[doc(alias = "UO")]
     pub fn ULTOSC(
@@ -561,24 +549,14 @@ impl Core {
 /// over the same series. Open with [`Core::ultosc_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_ULTOSC_Stream")]
 pub struct UltoscStream {
     state: UltoscStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl UltoscStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `UltoscStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -602,32 +580,7 @@ struct UltoscStreamState {
     cbSize_term: usize,
     cb_term_closeMinusTrueLow: Vec<f64>,
     cb_term_trueRange: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl UltoscStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod1 = src.optInTimePeriod1;
-        self.optInTimePeriod2 = src.optInTimePeriod2;
-        self.optInTimePeriod3 = src.optInTimePeriod3;
-        self.a1Total = src.a1Total;
-        self.a2Total = src.a2Total;
-        self.a3Total = src.a3Total;
-        self.b1Total = src.b1Total;
-        self.b2Total = src.b2Total;
-        self.b3Total = src.b3Total;
-        self.trailingPos1 = src.trailingPos1;
-        self.trailingPos2 = src.trailingPos2;
-        self.nullRun = src.nullRun;
-        self.term_Idx = src.term_Idx;
-        self.maxIdx_term = src.maxIdx_term;
-        self.lag1_inClose = src.lag1_inClose;
-        self.cbSize_term = src.cbSize_term;
-        self.cb_term_closeMinusTrueLow.clone_from(&src.cb_term_closeMinusTrueLow);
-        self.cb_term_trueRange.clone_from(&src.cb_term_trueRange);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -731,6 +684,7 @@ impl Core {
         // array.
         (*outReal) = 100.0 * (output / 7.0);
         // Increment indexes
+        sp.cur_outReal = (*outReal);
         sp.lag1_inClose = inClose;
     }
 
@@ -1045,6 +999,7 @@ impl Core {
             nullRun,
             term_Idx,
             maxIdx_term,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             lag1_inClose: inClose[historyLen - 1],
             cbSize_term: cbSize_term,
             cb_term_closeMinusTrueLow: term_closeMinusTrueLow,
@@ -1166,31 +1121,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `UltoscStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static ULTOSC_PEEK_SCRATCH: std::cell::Cell<Option<Box<UltoscStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl UltoscStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_ULTOSC_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1206,7 +1163,7 @@ impl UltoscStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1216,7 +1173,8 @@ impl UltoscStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_ULTOSC_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -1225,6 +1183,9 @@ impl UltoscStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::ultosc_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
@@ -1236,36 +1197,164 @@ impl UltoscStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_ULTOSC_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        ULTOSC_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::ultosc_step_impl(&mut scratch, inHigh, inLow, inClose, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut trueLow: f64 = 0.0_f64;
+            let mut trueRange: f64 = 0.0_f64;
+            let mut closeMinusTrueLow: f64 = 0.0_f64;
+            let mut tempDouble: f64 = 0.0_f64;
+            let mut output: f64 = 0.0_f64;
+            let mut tempHT: f64 = 0.0_f64;
+            let mut tempLT: f64 = 0.0_f64;
+            let mut tempCY: f64 = 0.0_f64;
+            let mut a1Total = sp.a1Total;
+            let mut a2Total = sp.a2Total;
+            let mut a3Total = sp.a3Total;
+            let mut b1Total = sp.b1Total;
+            let mut b2Total = sp.b2Total;
+            let mut b3Total = sp.b3Total;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut lag1_inClose = sp.lag1_inClose;
+            let mut nullRun = sp.nullRun;
+            let mut term_Idx = sp.term_Idx;
+            let mut trailingPos1 = sp.trailingPos1;
+            let mut trailingPos2 = sp.trailingPos2;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            // Add on today's terms
+            tempLT = inLow;
+            tempHT = inHigh;
+            tempCY = lag1_inClose;
+            trueLow = (tempLT).min(tempCY);
+            closeMinusTrueLow = inClose - trueLow;
+            trueRange = tempHT - tempLT;
+            tempDouble = (tempCY - tempHT).abs();
+            if tempDouble > trueRange {
+                trueRange = tempDouble;
+            }
+            tempDouble = (tempCY - tempLT).abs();
+            if tempDouble > trueRange {
+                trueRange = tempDouble;
+            }
+            pkSlot0 = term_Idx as usize;
+            pkVal0 = closeMinusTrueLow;
+            pkSlot1 = term_Idx as usize;
+            pkVal1 = trueRange;
+            a1Total += closeMinusTrueLow;
+            a2Total += closeMinusTrueLow;
+            a3Total += closeMinusTrueLow;
+            b1Total += trueRange;
+            b2Total += trueRange;
+            b3Total += trueRange;
+            // Once a whole window of no-contribution bars has gone by, every slot it
+            // spans is 0.0, so its totals are known to be exactly zero and the
+            // residue can be dropped. The periods are sorted shortest-first, so a
+            // run long enough for a longer window is long enough for every shorter
+            // one.
+            if trueRange == 0.0 && closeMinusTrueLow == 0.0 {
+                nullRun += 1;
+            } else {
+                nullRun = 0;
+            }
+            if nullRun >= ((sp.optInTimePeriod1) as usize) {
+                a1Total = 0.0;
+                b1Total = 0.0;
+                if nullRun >= ((sp.optInTimePeriod2) as usize) {
+                    a2Total = 0.0;
+                    b2Total = 0.0;
+                    if nullRun >= ((sp.optInTimePeriod3) as usize) {
+                        nullRun = (sp.optInTimePeriod3) as usize;
+                        a3Total = 0.0;
+                        b3Total = 0.0;
+                    }
+                }
+            }
+            // Calculate the oscillator value for today. Each window contributes only
+            // when it holds a true range; the totals are sums of non-negative terms
+            // and the reseed above removes their residue, so the test is exact.
+            output = 0.0;
+            if b1Total > 0.0 {
+                output += 4.0 * (a1Total / b1Total);
+            }
+            if b2Total > 0.0 {
+                output += 2.0 * (a2Total / b2Total);
+            }
+            if b3Total > 0.0 {
+                output += a3Total / b3Total;
+            }
+            // Remove the trailing terms to prepare for next day. Each was evaluated
+            // once, when its bar entered the ring.
+            a1Total -= (if (trailingPos1 as usize) != pkSlot0 { sp.cb_term_closeMinusTrueLow[trailingPos1] } else { pkVal0 });
+            b1Total -= (if (trailingPos1 as usize) != pkSlot1 { sp.cb_term_trueRange[trailingPos1] } else { pkVal1 });
+            trailingPos1 += 1;
+            if trailingPos1 >= ((sp.optInTimePeriod3) as usize) {
+                trailingPos1 = 0;
+            }
+            a2Total -= (if (trailingPos2 as usize) != pkSlot0 { sp.cb_term_closeMinusTrueLow[trailingPos2] } else { pkVal0 });
+            b2Total -= (if (trailingPos2 as usize) != pkSlot1 { sp.cb_term_trueRange[trailingPos2] } else { pkVal1 });
+            trailingPos2 += 1;
+            if trailingPos2 >= ((sp.optInTimePeriod3) as usize) {
+                trailingPos2 = 0;
+            }
+            term_Idx = term_Idx + 1;
+            if term_Idx > sp.maxIdx_term {
+                term_Idx = 0;
+            }
+            a3Total -= (if (term_Idx as usize) != pkSlot0 { sp.cb_term_closeMinusTrueLow[term_Idx] } else { pkVal0 });
+            b3Total -= (if (term_Idx as usize) != pkSlot1 { sp.cb_term_trueRange[term_Idx] } else { pkVal1 });
+            // Last operation is to write the output. Must
+            // be done after the trailing index have all been
+            // taken care of because the caller is allowed
+            // to have the input array to be also the output
+            // array.
+            (*outReal) = 100.0 * (output / 7.0);
+            // Increment indexes
+            cur_outReal = (*outReal);
+            lag1_inClose = inClose;
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_ULTOSC_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::ULTOSC`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

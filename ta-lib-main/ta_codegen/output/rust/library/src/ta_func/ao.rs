@@ -78,6 +78,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_AO_Lookback")]
     #[inline]
     pub fn AO_Lookback(&self, mut optInFastPeriod: i32, mut optInSlowPeriod: i32) -> Result<usize, RetCode> {
         if ((optInFastPeriod) as i32) == (i32::MIN) {
@@ -244,14 +245,7 @@ impl Core {
     /// alongside the Alligator and the Accelerator/Decelerator
     /// ([`AC`](https://ta-lib.org/functions/ac)).
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// median_t = ( high_t + low_t ) / 2  
-    /// AO_t = SMA(median, fast)_t − SMA(median, slow)_t
-    ///
-    /// An inverted pair is not swapped: passing a fast period longer than the slow one is well defined and simply yields −AO.
-    /// ```
+    /// Formula and more info at [ta-lib.org/functions/ao](https://ta-lib.org/functions/ao).
     ///
     /// # Arguments
     ///
@@ -315,8 +309,7 @@ impl Core {
     ///   inputs, and both report the first value at the same bar.
     /// * pandas-ta-classic swaps an inverted pair before computing, so it answers AO(slow, fast)
     ///   where this answers its negation.
-    ///
-    /// Further reading: [ta-lib.org/functions/ao](https://ta-lib.org/functions/ao)
+    #[doc(alias = "TA_AO")]
     #[doc(alias = "AwesomeOscillator")]
     #[doc(alias = "BillWilliamsAwesomeOscillator")]
     #[doc(alias = "BWAO")]
@@ -374,24 +367,14 @@ impl Core {
 /// over the same series. Open with [`Core::ao_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_AO_Stream")]
 pub struct AoStream {
     state: AoStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl AoStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `AoStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -407,24 +390,7 @@ struct AoStreamState {
     ringPos_trailingSlowIdx: usize,
     ringCap_trailingSlowIdx: usize,
     ring_trailingSlowIdx_derived: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl AoStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInFastPeriod = src.optInFastPeriod;
-        self.optInSlowPeriod = src.optInSlowPeriod;
-        self.sumFast = src.sumFast;
-        self.sumSlow = src.sumSlow;
-        self.ringPos_trailingFastIdx = src.ringPos_trailingFastIdx;
-        self.ringCap_trailingFastIdx = src.ringCap_trailingFastIdx;
-        self.ring_trailingFastIdx_derived.clone_from(&src.ring_trailingFastIdx_derived);
-        self.ringPos_trailingSlowIdx = src.ringPos_trailingSlowIdx;
-        self.ringCap_trailingSlowIdx = src.ringCap_trailingSlowIdx;
-        self.ring_trailingSlowIdx_derived.clone_from(&src.ring_trailingSlowIdx_derived);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -456,6 +422,7 @@ impl Core {
         sp.sumFast -= sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx];
         sp.sumSlow -= sp.ring_trailingSlowIdx_derived[sp.ringPos_trailingSlowIdx];
         (*outReal) = tempReal;
+        sp.cur_outReal = (*outReal);
         sp.ring_trailingFastIdx_derived[sp.ringPos_trailingFastIdx] = (inHigh + inLow) / 2.0;
         sp.ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx + 1;
         if sp.ringPos_trailingFastIdx >= sp.ringCap_trailingFastIdx {
@@ -633,6 +600,7 @@ impl Core {
             optInSlowPeriod,
             sumFast,
             sumSlow,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             ringPos_trailingFastIdx: 0_usize,
             ringCap_trailingFastIdx: cap_trailingFastIdx as usize,
             ring_trailingFastIdx_derived,
@@ -750,31 +718,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `AoStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static AO_PEEK_SCRATCH: std::cell::Cell<Option<Box<AoStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl AoStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_AO_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -790,7 +760,7 @@ impl AoStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -800,7 +770,8 @@ impl AoStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_AO_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -809,6 +780,9 @@ impl AoStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::ao_step_impl(&mut self.state, inHigh[i], inLow[i], &mut outReal[i]);
@@ -820,36 +794,92 @@ impl AoStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_AO_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
             return Err(RetCode::BadParam);
         }
-        AO_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::ao_step_impl(&mut scratch, inHigh, inLow, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut medianPrice: f64 = 0.0_f64;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx;
+            let mut ringPos_trailingSlowIdx = sp.ringPos_trailingSlowIdx;
+            let mut sumFast = sp.sumFast;
+            let mut sumSlow = sp.sumSlow;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            if sp.ringCap_trailingFastIdx == 0 {
+                pkSlot0 = 0;
+                pkVal0 = (inHigh + inLow) / 2.0;
+            }
+            if sp.ringCap_trailingSlowIdx == 0 {
+                pkSlot1 = 0;
+                pkVal1 = (inHigh + inLow) / 2.0;
+            }
+            medianPrice = (inHigh + inLow) / 2.0;
+            sumFast += medianPrice;
+            sumSlow += medianPrice;
+            // Snapshot the oscillator before either total drops its trailing bar,
+            // mirroring the add-new / snapshot / subtract-old order of TA_SMA.
+            tempReal = sumFast / (sp.optInFastPeriod as f64) - sumSlow / (sp.optInSlowPeriod as f64);
+            // Read both trailing bars before writing the output. When startIdx is
+            // clamped to the lookback the longer window's trailing index equals
+            // outIdx exactly, so a store hoisted above this would read back the
+            // value it had just overwritten whenever the caller aliases outReal
+            // over inHigh or inLow.
+            sumFast -= (if (ringPos_trailingFastIdx as usize) != pkSlot0 { sp.ring_trailingFastIdx_derived[ringPos_trailingFastIdx] } else { pkVal0 });
+            sumSlow -= (if (ringPos_trailingSlowIdx as usize) != pkSlot1 { sp.ring_trailingSlowIdx_derived[ringPos_trailingSlowIdx] } else { pkVal1 });
+            (*outReal) = tempReal;
+            cur_outReal = (*outReal);
+            ringPos_trailingFastIdx = ringPos_trailingFastIdx + 1;
+            if ringPos_trailingFastIdx >= sp.ringCap_trailingFastIdx {
+                ringPos_trailingFastIdx = 0;
+            }
+            ringPos_trailingSlowIdx = ringPos_trailingSlowIdx + 1;
+            if ringPos_trailingSlowIdx >= sp.ringCap_trailingSlowIdx {
+                ringPos_trailingSlowIdx = 0;
+            }
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_AO_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::AO`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

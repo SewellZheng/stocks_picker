@@ -6,7 +6,7 @@
 //! fragment (which the shipped `Core.java` splice and the JSON-RPC server
 //! inline both pick up unchanged): a `public static final class <Base>Stream`
 //! nested in `Core` (per-handle state as package-private fields, `update`/
-//! `peek`/`value`/`copy` methods, a deep-copy constructor), a package-private
+//! `peek`/`value`/`clone` methods, a copy constructor), a package-private
 //! `<base>StepImpl(sp, bars...)` transition method on `Core` (so batch
 //! rendering conventions — `this.compatibility`, cross-calls, `Math.fma`
 //! sites — work verbatim), a `private RetCode <base>OpenImpl(sp, ...)`
@@ -38,11 +38,11 @@
 //! - There is no `close`: a handle is ordinary heap state — GC suffices (no
 //!   AutoCloseable, no finalizer). Handles are deliberately NOT serializable;
 //!   the sanctioned checkpoint story is re-opening from retained history.
-//! - `peek` = deep-copy constructor + step on the throwaway copy (the design
-//!   doc's stated cost model); `copy()` exposes the same constructor as an
-//!   independent stream. No mirror buffers, no `peekMode`. The copy is deep:
-//!   arrays clone, sub-handles copy recursively; only the `Core` reference is
-//!   shared (settings identity is the contract).
+//! - `peek` runs a non-committing frame against the live handle: its cost is
+//!   flat in the period, and what it allocates per call is bounded by the
+//!   indicator, never by the period. `clone()` exposes the copy constructor as
+//!   an independent stream — arrays clone, sub-streams clone recursively, and
+//!   only the `Core` reference is shared (settings identity is the contract).
 //! - Multi-output functions return a per-function immutable `Value` class
 //!   (public final fields, batch output order, generated toString/equals/
 //!   hashCode); `update` caches the instance so `value()` is a pure field
@@ -564,7 +564,11 @@ fn emit_loop_shape(
 ) {
     let step_settings = detect_candle_settings(&model.steady_stmts);
     let fields = state_fields(func, model, &step_settings);
-    emit_handle_class(o, func, &fields, &SubMembers::none());
+    let frame = peek_frame_arm(
+        func, model, &fields, &step_settings, stream_fma, enums, registry, helpers, counter, 9,
+        &BTreeSet::new(),
+    );
+    emit_handle_class(o, func, &fields, &SubMembers::none(), frame.as_deref());
     emit_step(o, func, model, &step_settings, stream_fma, enums, registry, helpers, counter);
     emit_open_body(
         o, func, model, body, &fields, &step_settings, stream_fma, enums, registry,
@@ -621,46 +625,41 @@ fn render_predicate(
 // ---------------------------------------------------------------------------
 
 /// The tier-owned members of a handle beyond `fields`: the statements that
-/// deep-copy them into a fresh handle, and the statements that overwrite them
-/// in an existing one without allocating. Both are raw Java; the loop tier
-/// owns none and passes [`SubMembers::none`].
+/// deep-copy them into a fresh handle. Raw Java; the loop tier owns none and
+/// passes [`SubMembers::none`].
 struct SubMembers {
     /// Deep-copy statements for the copy constructor.
     copy: String,
-    /// In-place overwrite statements for `copyFrom`.
-    restore: String,
-    /// How many sub-streams the handle owns. Each is a fresh object with its
-    /// own arrays and recursively its own subs.
-    subs: usize,
-    /// Whether what the subs own is unknown at generation time: the dispatch
-    /// arm is picked by an `MAType` at run time, and a period bank's width by
-    /// an argument. Neither can be counted here, and both are deep.
-    unbounded: bool,
 }
 
 impl SubMembers {
     fn none() -> Self {
-        Self { copy: String::new(), restore: String::new(), subs: 0, unbounded: false }
+        Self { copy: String::new() }
     }
 }
 
 /// Emit the nested handle class. `subs` holds the tier-owned members
 /// (sub-handle copies); loop tier passes [`SubMembers::none`].
-fn emit_handle_class(o: &mut String, func: &FuncDef, fields: &[Field], subs: &SubMembers) -> bool {
-    emit_handle_class_with_members(o, func, fields, subs, "")
+fn emit_handle_class(
+    o: &mut String,
+    func: &FuncDef,
+    fields: &[Field],
+    subs: &SubMembers,
+    frame: Option<&str>,
+) {
+    emit_handle_class_with_members(o, func, fields, subs, "", frame);
 }
 
 /// [`emit_handle_class`] with additional raw member declarations (dispatch's
-/// `Object sub;`, composed/period-bank sub-handle fields). Returns whether the
-/// handle owns anything on the heap, which is what decides whether `peek`
-/// reuses a scratch.
+/// `Object sub;`, composed/period-bank sub-handle fields).
 fn emit_handle_class_with_members(
     o: &mut String,
     func: &FuncDef,
     fields: &[Field],
     subs: &SubMembers,
     extra_members: &str,
-) -> bool {
+    frame: Option<&str>,
+) {
     let class = stream_class_name(func);
     let base = base_name(func);
     let jbase = method_base(func);
@@ -674,24 +673,22 @@ fn emit_handle_class_with_members(
          \x20   * Open with {{@link Core#{jbase}Open}}; there is no close — the handle is\n\
          \x20   * ordinary heap state, unreferenced handles are simply garbage-collected.\n\
          \x20   * <p>Concurrency: a handle is single-writer — {{@code update}}, {{@code peek}},\n\
-         \x20   * {{@code value}} and {{@code copy}} must not race with an {{@code update}} on\n\
+         \x20   * {{@code value}} and {{@code clone}} must not race with an {{@code update}} on\n\
          \x20   * the same handle. With no concurrent {{@code update}}, {{@code peek}}/\n\
-         \x20   * {{@code value}}/{{@code copy}} never write the handle and may be called\n\
-         \x20   * concurrently after safe publication. Independent handles (including\n\
-         \x20   * {{@code copy()}} results) are fully independent.\n\
+         \x20   * {{@code value}}/{{@code clone}} never write the stream and may be called\n\
+         \x20   * concurrently after safe publication. Independent streams (a\n\
+         \x20   * {{@code clone()}} result included) are fully independent.\n\
          \x20   * <p>Not serializable by design: to checkpoint, retain the history and\n\
          \x20   * re-open — the result is bit-identical by contract.\n\
          \x20   */"
     );
     let _ = writeln!(o, "   public static final class {class} {{");
-    // Not final: `copyFrom` retargets the peek scratch, which is one instance
-    // per thread per class and so outlives any one handle's Core.
     let _ = writeln!(o, "      Core core;");
     for (name, jty, _) in fields {
         let _ = writeln!(o, "      {jty} {name};");
     }
     o.push_str(extra_members);
-    // The bars this handle has produced a value for (issue #241). Two ints
+    // The bars this handle has an output for (issue #241). Two ints
     // rather than an `OutRange`: `update` runs on every bar and the emitted
     // javadoc promises it never allocates handle state, so the record is built
     // in the accessor instead of replaced per bar.
@@ -701,12 +698,13 @@ fn emit_handle_class_with_members(
     let _ = writeln!(
         o,
         "\n      /**\n\
-         \x20      * The bars this stream has produced a value for, in the input series'\n\
+         \x20      * The bars this stream has an output for, in the input series'\n\
          \x20      * coordinates: {{@code [begIdx, begIdx + count)}}.\n\
          \x20      * <p>It is what {{@link Core#{base}}} reports over the same bars: the\n\
          \x20      * opener sets it to {{@code (lookback, historyLen - lookback)}}, every\n\
-         \x20      * accepted {{@code update}} adds one to the count, {{@code peek}} leaves\n\
-         \x20      * it alone, and {{@code copy()}} carries it verbatim. A plain\n\
+         \x20      * {{@code update}} adds one to the count — a bar rejected for being\n\
+         \x20      * non-finite included, because it still happened — {{@code peek}} leaves\n\
+         \x20      * it alone, and {{@code clone()}} carries it verbatim. A plain\n\
          \x20      * {{@code open}} hands back only the last value, a subset of this range,\n\
          \x20      * because the caller chose not to take the fill.\n\
          \x20      */\n\
@@ -732,74 +730,10 @@ fn emit_handle_class_with_members(
     let _ = writeln!(o, "         this.outRangeCount = other.outRangeCount;");
     let _ = writeln!(o, "      }}");
 
-    // The copy constructor's in-place twin: same result, but it overwrites
-    // whatever this instance already owns instead of allocating a peer for it.
-    // Only `peek`'s scratch calls it, and only where there is an allocation to
-    // save (#201) — a handle whose fields are all scalars is cheaper to
-    // allocate outright than to look a scratch up.
-    let mut arrays = 0;
-    let _ = writeln!(o, "\n      void copyFrom( {class} other ) {{");
-    let _ = writeln!(o, "         this.core = other.core;");
-    for (name, jty, _) in fields {
-        if jty.ends_with("[]") {
-            arrays += 1;
-            let _ = writeln!(
-                o,
-                "         if( this.{name} != null && this.{name}.length == other.{name}.length ) {{\n\
-                 \x20           System.arraycopy( other.{name}, 0, this.{name}, 0, other.{name}.length );\n\
-                 \x20        }} else {{\n\
-                 \x20           this.{name} = other.{name}.clone();\n\
-                 \x20        }}"
-            );
-        } else {
-            let _ = writeln!(o, "         this.{name} = other.{name};");
-        }
-    }
-    o.push_str(&subs.restore);
-    let _ = writeln!(o, "         this.outRangeBegIdx = other.outRangeBegIdx;");
-    let _ = writeln!(o, "         this.outRangeCount = other.outRangeCount;");
-    let _ = writeln!(o, "      }}");
-
-    // What `peek` trades away by reusing a scratch is a `ThreadLocal.get()`,
-    // and what it buys back is the allocation of a peer handle. For one small
-    // array that is a wash — measured, it is a slight loss — so the reuse is
-    // for the shapes where the copy is several arrays or a sub-stream tree
-    // (#201). Everything else keeps the plain copy constructor.
-    //
-    // Two shapes look like oversights and are not. A single sub-handle
-    // (`STDDEV` over `VAR`), and one array plus a single sub-handle (`ADXR`
-    // over `ADX`), are both declined although each copy is two or three
-    // allocations deep. Measured on both, reusing the scratch is the slower
-    // arm: de-selecting them ran −7.6% / −6.2% (`STDDEV`) and −4.1% / −13.8%
-    // (`ADXR`) over two A/Bs against 167 unchanged controls, and `ADXR` cost
-    // +7.6% / +9.3% selected on a second box and JDK. Taking any sub-handle
-    // as sufficient — which is what this tested before — reinstates both.
-    // The predicate is now Rust's [`StateShape::scratch_pays`], reached there
-    // by the same measurement on the same shape.
-    //
-    // Java has no counterpart to Rust's elision signal (`peek` under its own
-    // `update` names the copies the optimizer already deletes). The ratio is
-    // not readable here: `peek` is timed as independent calls the CPU
-    // overlaps, `update` as a serial dependency chain, so on this tier
-    // `IMI`, `AROON` and the `HT_*` trio read under their own `update` while
-    // owning arrays nobody claims are free. Settle a Java row with an A/B.
-    let reuse = subs.unbounded || subs.subs >= 2 || arrays >= 2;
-    if reuse {
-        let _ = writeln!(
-            o,
-            "\n      /** {{@code peek}}'s reusable scratch — one per thread, see {{@code copyFrom}}. */"
-        );
-        let _ = writeln!(
-            o,
-            "      private static final ThreadLocal<{class}> PEEK_SCRATCH = new ThreadLocal<>();"
-        );
-    }
-
     emit_value_class(o, func);
-    emit_update_peek_value_copy(o, func, reuse);
+    emit_update_peek_value_copy(o, func, frame);
 
     let _ = writeln!(o, "   }}");
-    reuse
 }
 
 /// The immutable multi-output value record (batch output order, components
@@ -851,6 +785,21 @@ fn emit_value_class(o: &mut String, func: &FuncDef) {
 }
 
 /// The value expression reading the current outputs off a handle variable.
+/// The frame's outputs are locals — `cur_<out>` is a state field, so localizing
+/// the stores makes it one — which is what `peek` answers with.
+fn fresh_value_expr_local(func: &FuncDef) -> String {
+    if has_value_class(func) {
+        let args: Vec<String> = func
+            .outputs
+            .iter()
+            .map(|out| format!("cur_{}", out.name))
+            .collect();
+        format!("new Value({})", args.join(", "))
+    } else {
+        format!("cur_{}", func.outputs[0].name)
+    }
+}
+
 fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
     if has_value_class(func) {
         let args: Vec<String> = func
@@ -864,8 +813,16 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
     }
 }
 
+/// The one spelling of the `outRange` advance. Saturating: nothing bounds how
+/// many bars a live stream is fed, and past `MAX_INDEX` the count has left the
+/// batch index domain anyway. Every site that moves the count goes through here,
+/// or the saturation guard exists in two places and only one of them gets fixed.
+fn advance_out_range() -> &'static str {
+    "if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;"
+}
+
 /// The per-bar finite-input rejection for `update`/`peek`: one `Double.isFinite`
-/// per scalar bar input, before the handle is touched.
+/// per scalar bar input, before the handle's state is touched.
 ///
 /// The streaming tier's half of the boundary contract (see
 /// `docs/streaming-api-design.md`). Batch does not filter — it computes on
@@ -873,38 +830,51 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
 /// retained: one non-finite bar poisons every recursive accumulator in it for
 /// the rest of its life, long after the feed recovers.
 ///
+/// `advance` is rule U3's other half: a non-finite bar is still a bar, so the
+/// committing entry points count it before throwing — which is what keeps two
+/// handles driven off one feed positionally aligned when one rejects a bar the
+/// other accepts. `peek` passes `false`; a peek that moved the count would be a
+/// peek that wrote the handle.
+///
 /// `IllegalArgumentException` carrying the same `"<NAME> <what>: "` prefix the
 /// open rejections use, so one catch clause covers the whole tier.
-fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
+fn finite_bar_check(func: &FuncDef, indent: &str, what: &str, advance: bool) -> String {
     let bars = streaming::input_array_names(func);
     if bars.is_empty() {
         return String::new();
     }
     let n = base_name(func);
     let conds: Vec<String> = bars.iter().map(|b| format!("!Double.isFinite({b})")).collect();
-    format!(
-        "{indent}if( {} )\n{indent}   throw new TaLibArgumentException(\"{n} {what}: BadParam\", RetCode.BadParam);\n",
-        conds.join(" || ")
-    )
+    let cond = conds.join(" || ");
+    let throw =
+        format!("throw new TaLibArgumentException(\"{n} {what}: BadParam\", RetCode.BadParam);");
+    if advance {
+        format!(
+            "{indent}if( {cond} ) {{\n{indent}   {}\n{indent}   {throw}\n{indent}}}\n",
+            advance_out_range()
+        )
+    } else {
+        format!("{indent}if( {cond} )\n{indent}   {throw}\n")
+    }
 }
 
 
-fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef, reuse: bool) {
+fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     emit_update_method(o, func);
     emit_update_and_fill_method(o, func);
-    emit_peek_method(o, func, reuse);
+    emit_peek_method(o, func, frame);
     emit_value_method(o, func);
     emit_copy_method(o, func);
 }
 
 // --- update --------------------------------------------------------------------
 fn emit_update_method(o: &mut String, func: &FuncDef) {
-    let base = method_base(func);
     let vt = if has_value_class(func) {
         "Value".to_string()
     } else {
         out_java_type(func, &func.outputs[0].name).to_string()
     };
+    let base = method_base(func);
     let (sig_bars, fwd_bars) = bar_params(func);
 
     let _ = writeln!(
@@ -914,22 +884,25 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
          \x20      * Never allocates handle state.\n\
          \x20      * <p>Throws {{@link IllegalArgumentException}} if any bar value is not\n\
          \x20      * finite (NaN or an infinity). That check runs before anything is\n\
-         \x20      * written, so the handle is left exactly as it was —\n\
-         \x20      * the stream stays usable, so skip the bar or re-open on a clean\n\
-         \x20      * history. This is the one place the streaming tier is stricter than\n\
+         \x20      * written, so the state is left exactly as it was: the rejected bar's\n\
+         \x20      * output is the previous value, held, and {{@link #value()}} answers it.\n\
+         \x20      * The stream stays usable, so skip the bar or re-open on a clean\n\
+         \x20      * history. {{@link #outRange()}} does advance: the bar happened and\n\
+         \x20      * occupies a position in the series, so the handle counts it, which is\n\
+         \x20      * what keeps two handles on one feed aligned when only one rejects.\n\
+         \x20      * This is the one place the streaming tier is stricter than\n\
          \x20      * the batch API, which computes on whatever it is given: a handle\n\
          \x20      * retains its state, so a single non-finite bar would poison every\n\
          \x20      * later value it produces.\n\
          \x20      */"
     );
     let _ = writeln!(o, "      public {vt} update( {sig_bars} ) {{");
-    o.push_str(&finite_bar_check(func, "         ", "update"));
+    o.push_str(&finite_bar_check(func, "         ", "update", true));
     let _ = writeln!(o, "         core.{base}StepImpl(this, {fwd_bars});");
-    // After the step and after the finite-bar reject, so a rejected bar leaves
-    // the range where it was. `peek` runs the same step on a scratch copy and so
-    // never reaches this. Saturating: nothing bounds how many bars a live stream
-    // is fed, and past MAX_INDEX it has left the batch index domain anyway.
-    let _ = writeln!(o, "         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;");
+    // After the step, so a bar the step throws out of is not counted. The
+    // finite-bar reject above counts its own bar and is the only rejection that
+    // does; `peek` runs a frame that commits nothing and reaches neither.
+    let _ = writeln!(o, "         {}", advance_out_range());
     if has_value_class(func) {
         let _ = writeln!(o, "         this.cachedValue = {};", fresh_value_expr(func, "this"));
         let _ = writeln!(o, "         return this.cachedValue;");
@@ -973,11 +946,12 @@ fn update_and_fill_doc(func: &FuncDef, count_src: &str) -> String {
          \x20      * {{@code {count_src}}}; the outputs must hold at least that many, and must\n\
          \x20      * not be the same array as an input or as each other.\n\
          {declinable}\
-         \x20      * <p>{{@link #outRange()}} counts what was committed, which is what makes a\n\
+         \x20      * <p>{{@link #outRange()}} counts what this call took in, which is what makes a\n\
          \x20      * rejection readable: a non-finite bar {{@code k}} throws\n\
          \x20      * {{@link IllegalArgumentException}} exactly as {{@code update}} would, with\n\
-         \x20      * bars {{@code 0..k}} committed and written, bar {{@code k}} and everything\n\
-         \x20      * after it not, and the count advanced by {{@code k}}.\n\
+         \x20      * the bars before {{@code k}} committed and written, bar {{@code k}} and\n\
+         \x20      * everything after it not, and the count advanced by {{@code k + 1}} —\n\
+         \x20      * the committed bars plus the rejected one.\n\
          \x20      */"
     );
     o
@@ -1073,8 +1047,14 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
             .iter()
             .map(|b| format!("!Double.isFinite({b}[i])"))
             .collect();
-        let _ = writeln!(o, "{pad}   if( {} )", conds.join(" || "));
+        // Rule U3 per bar: the rejected bar is counted, so `outRange()` ends on
+        // the offending bar. Output slot `i` is deliberately left unwritten, and
+        // `done` is not moved — the `finally` below must publish bar `i-1`, the
+        // last one the step actually committed.
+        let _ = writeln!(o, "{pad}   if( {} ) {{", conds.join(" || "));
+        let _ = writeln!(o, "{pad}      {}", advance_out_range());
         let _ = writeln!(o, "{pad}      {reject}");
+        let _ = writeln!(o, "{pad}   }}");
     }
     let _ = writeln!(o, "{pad}   core.{jbase}StepImpl(this, {});", idx_bars.join(", "));
     for out in &func.outputs {
@@ -1082,7 +1062,7 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
         let guard = if nullable.contains(name) { format!("if( {name} != null ) ") } else { String::new() };
         let _ = writeln!(o, "{pad}   {guard}{name}[i] = this.cur_{name};");
     }
-    let _ = writeln!(o, "{pad}   if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;");
+    let _ = writeln!(o, "{pad}   {}", advance_out_range());
     if cached {
         let _ = writeln!(o, "{pad}   done = i + 1;");
     }
@@ -1100,62 +1080,48 @@ fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
 }
 
 // --- peek ------------------------------------------------------------------------
-fn emit_peek_method(o: &mut String, func: &FuncDef, reuse: bool) {
+fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     let class = stream_class_name(func);
-    let base = method_base(func);
     let vt = if has_value_class(func) {
         "Value".to_string()
     } else {
         out_java_type(func, &func.outputs[0].name).to_string()
     };
-    let (sig_bars, fwd_bars) = bar_params(func);
+    let (sig_bars, _) = bar_params(func);
 
-    let alloc_note = if reuse {
-        "It runs on a scratch handle held per thread and\n\
-         \x20      * reused, so the copy allocates nothing after the first peek of this\n\
-         \x20      * indicator on this thread. That scratch is retained for the life of\n\
-         \x20      * the thread."
+    // Two things allocate here and both are per call: an accumulator the frame
+    // had to clone, and the `Value` a multi-output peek returns. Neither grows
+    // with the period, which is the claim the frame exists to keep.
+    let allocates =
+        frame.is_some_and(|f| f.contains(".clone()")) || func.outputs.len() > 1;
+    let cost = if allocates {
+        "It copies no buffer: the frame runs against this handle, reading its\n\
+         \x20      * buffers and storing what the step would commit into locals, so the cost\n\
+         \x20      * does not grow with the period. It does allocate a small bounded amount\n\
+         \x20      * per call — a size fixed by the indicator, never by the period."
     } else {
-        "It runs on a throwaway copy, which for this\n\
-         \x20      * handle's shape is cheaper than reusing one."
+        "It copies nothing: the frame runs against this handle, reading its\n\
+         \x20      * buffers and storing what the step would commit into locals, so the cost\n\
+         \x20      * does not grow with the period and {@code peek} never allocates."
     };
     let _ = writeln!(
         o,
         "\n      /**\n\
          \x20      * Evaluate a forming bar without committing — bit-identical to what the\n\
-         \x20      * next {{@code update}} with the same bar would return (it is the same\n\
-         \x20      * generated code, run on a copy). Never writes this handle, so peeks may\n\
-         \x20      * run concurrently with each other. {alloc_note}\n\
+         \x20      * next {{@code update}} with the same bar would return — the same\n\
+         \x20      * transition, with every store it would make carried in a local instead.\n\
+         \x20      * Never writes this handle, so peeks may\n\
+         \x20      * run concurrently with each other. {cost}\n\
          \x20      */"
     );
     let _ = writeln!(o, "      public {vt} peek( {sig_bars} ) {{");
-    // Ahead of the scratch copy, not left to the step: a rejected bar must not
-    // pay for a handle copy.
-    o.push_str(&finite_bar_check(func, "         ", "peek"));
-    if reuse {
-        // Per thread, not per handle: `peek` must not write the handle (two
-        // threads may peek the same one), and a static ThreadLocal keeps the
-        // reuse bounded — one scratch per thread per indicator, whatever the
-        // number of live handles. `copyFrom` retargets it, Core included.
-        //
-        // What it retains: one handle copy per (thread, indicator peeked),
-        // living as long as the thread and keeping that handle's Core and
-        // arrays reachable — releasing every stream handle does not free it.
-        // In a container this is the usual static-ThreadLocal shape, where a
-        // pooled thread outliving a deployment pins the value and its
-        // classloader; the streaming page says so.
-        let _ = writeln!(o, "         {class} scratch = PEEK_SCRATCH.get();");
-        let _ = writeln!(o, "         if( scratch == null ) {{");
-        let _ = writeln!(o, "            scratch = new {class}(this);");
-        let _ = writeln!(o, "            PEEK_SCRATCH.set(scratch);");
-        let _ = writeln!(o, "         }} else {{");
-        let _ = writeln!(o, "            scratch.copyFrom(this);");
-        let _ = writeln!(o, "         }}");
-    } else {
-        let _ = writeln!(o, "         {class} scratch = new {class}(this);");
-    }
-    let _ = writeln!(o, "         core.{base}StepImpl(scratch, {fwd_bars});");
-    let _ = writeln!(o, "         return {};", fresh_value_expr(func, "scratch"));
+    // Ahead of the frame, not left to the transition: a rejected bar must not
+    // run any of it.
+    o.push_str(&finite_bar_check(func, "         ", "peek", false));
+    let body = frame.expect("every tier emits a peek frame");
+    let _ = writeln!(o, "         {class} sp = this;");
+    o.push_str(body);
+    let _ = writeln!(o, "         return {};", fresh_value_expr_local(func));
     let _ = writeln!(o, "      }}");
 }
 
@@ -1170,8 +1136,9 @@ fn emit_value_method(o: &mut String, func: &FuncDef) {
     let _ = writeln!(
         o,
         "\n      /**\n\
-         \x20      * The value at the most recently committed bar — the last history bar\n\
-         \x20      * right after open, then whatever the latest {{@code update}} returned.\n\
+         \x20      * The value at the last bar this stream counted — the bar\n\
+         \x20      * {{@link #outRange()}} ends on. The last history bar right after open,\n\
+         \x20      * then whatever the latest accepted {{@code update}} returned.\n\
          \x20      * A pure field read; {{@code peek}} does not change it.\n\
          \x20      */"
     );
@@ -1191,11 +1158,19 @@ fn emit_copy_method(o: &mut String, func: &FuncDef) {
     let _ = writeln!(
         o,
         "\n      /**\n\
-         \x20      * An independent deep copy of this stream: both evolve separately from\n\
-         \x20      * here on (the Java rendering of the Rust handle's {{@code Clone}}).\n\
+         \x20      * An independent fork of this stream: both evolve separately from here\n\
+         \x20      * on. Buffers are copied and sub-streams cloned recursively; the\n\
+         \x20      * {{@link Core}} reference is shared, since a {{@code Core}} is immutable\n\
+         \x20      * for a stream's lifetime.\n\
+         \x20      *\n\
+         \x20      * <p>Not the {{@code Cloneable}} protocol: this calls a copy constructor,\n\
+         \x20      * never {{@code super.clone()}}, so it throws nothing.\n\
+         \x20      *\n\
+         \x20      * @return an independent stream at the same bar\n\
          \x20      */"
     );
-    let _ = writeln!(o, "      public {class} copy() {{");
+    let _ = writeln!(o, "      @Override");
+    let _ = writeln!(o, "      public {class} clone() {{");
     let _ = writeln!(o, "         return new {class}(this);");
     let _ = writeln!(o, "      }}");
 }
@@ -1227,9 +1202,321 @@ fn stream_ctx<'a>(
     }
 }
 
-/// `void <base>StepImpl( <Class> sp, double bar... )` — the one per-bar
-/// transition; update runs it on live state, peek on a deep copy.
+/// The state fields a transition writes, and the transition with every mention
+/// of them moved to a bare local.
+///
+/// A peek frame runs against the live handle, so anything it would store lives
+/// in a local instead. The local keeps the field's OWN name: `stream_base`
+/// strips the `sp.` qualifier before classifying an operand, so `sp.x` and `x`
+/// fuse alike and any other spelling would move an FMA site.
+///
+/// `None` when a written field's bare name would collide with a bar input,
+/// where the local would shadow the parameter rather than fail to compile.
+fn localize_state_writes(
+    func: &FuncDef,
+    transition: &[Statement],
+    extra: &[String],
+    buffers: &[(String, bool)],
+) -> Option<(Vec<String>, Vec<Statement>)> {
+    fn note(e: &Expr, out: &mut BTreeSet<String>) {
+        if let Expr::Var(v) = e {
+            if let Some(bare) = v.strip_prefix("sp.") {
+                out.insert(bare.to_string());
+            }
+        }
+    }
+    fn targets(list: &[Statement], out: &mut BTreeSet<String>) {
+        for st in list {
+            if let Statement::Assign { target, .. } = st {
+                note(target, out);
+                // A fixed-size array field is named through its subscript,
+                // which the `Var` arm never sees.
+                if let Expr::ArrayAccess(n, _) = target {
+                    note(&Expr::Var(n.clone()), out);
+                }
+            }
+            let inner: Vec<&[Statement]> = match st {
+                Statement::While { body, .. }
+                | Statement::DoWhile { body, .. }
+                | Statement::For { body, .. }
+                | Statement::Block { body } => vec![body.as_slice()],
+                Statement::ForC { init, update, body, .. } => vec![
+                    std::slice::from_ref(init.as_ref()),
+                    std::slice::from_ref(update.as_ref()),
+                    body.as_slice(),
+                ],
+                Statement::If { then_body, else_body, .. } => {
+                    vec![then_body.as_slice(), else_body.as_slice()]
+                }
+                Statement::Switch { cases, default, .. } => {
+                    let mut v: Vec<&[Statement]> = cases.iter().map(|(_, b)| b.as_slice()).collect();
+                    v.push(default.as_slice());
+                    v
+                }
+                _ => Vec::new(),
+            };
+            for b in inner {
+                targets(b, out);
+            }
+        }
+    }
+    let mut written: BTreeSet<String> = extra.iter().cloned().collect();
+    for st in transition {
+        streaming::walk_stmt_exprs(st, &mut |top| {
+            streaming::walk_expr(top, &mut |e| match e {
+                Expr::PostIncrement(i)
+                | Expr::PostDecrement(i)
+                | Expr::PreIncrement(i)
+                | Expr::PreDecrement(i) => note(i, &mut written),
+                _ => {}
+            });
+        });
+    }
+    targets(transition, &mut written);
+    for (b, _) in buffers {
+        if let Some(bare) = b.strip_prefix("sp.") {
+            written.remove(bare);
+        }
+    }
+    let taken: BTreeSet<String> = streaming::input_array_names(func).into_iter().collect();
+    if written.iter().any(|w| taken.contains(w)) {
+        return None;
+    }
+    let bare: HashMap<String, String> =
+        written.iter().map(|w| (format!("sp.{w}"), w.clone())).collect();
+    let out = streaming::rewrite_stmts(
+        transition,
+        &|e| match e {
+            Expr::Var(ref v) => bare.get(v).map_or(e, |b| Expr::Var(b.clone())),
+            Expr::ArrayAccess(ref v, ref i) => match bare.get(v) {
+                Some(b) => Expr::ArrayAccess(b.clone(), i.clone()),
+                None => e,
+            },
+            other => other,
+        },
+        &|st| Some(st),
+    );
+    Some((written.into_iter().collect(), out))
+}
+
+/// The dual-mode identity short-circuit as a frame renders it: its write goes
+/// to the output LOCAL, not the handle field, and its valueless exit answers a
+/// value. It sits above the mode predicate, so the outputs it names are
+/// declared by the frame rather than by either arm.
+fn identity_branch_as_frame(func: &FuncDef, model: &StreamModel) -> Option<Vec<Statement>> {
+    let st = streaming::identity_peek_branch(model, &JavaStreamNames)?;
+    let answer = fresh_value_expr_local(func);
+    let bare: HashMap<String, String> = func
+        .outputs
+        .iter()
+        .map(|o| (format!("sp.cur_{}", o.name), format!("cur_{}", o.name)))
+        .collect();
+    Some(streaming::rewrite_stmts(
+        std::slice::from_ref(&st),
+        &|e| match e {
+            Expr::Var(ref v) => bare.get(v).map_or(e, |b| Expr::Var(b.clone())),
+            other => other,
+        },
+        &|s| match s {
+            Statement::Return { value: None } => Some(Statement::Return {
+                value: Some(Expr::Var(answer.clone())),
+            }),
+            other => Some(other),
+        },
+    ))
+}
+
+
+/// The dispatch tier's peek frame: the step's switch with each arm entering the
+/// callee's PUBLIC `peek`. The sub-handle is only read, which is the point —
+/// nothing here commits, so there is no copy to make.
 #[allow(clippy::too_many_arguments)]
+fn build_dispatch_peek_frame(
+    func: &FuncDef,
+    dp: &streaming::DispatchPlan,
+    outputs: &[String],
+    bar_args: &str,
+    ctx: &JavaRenderCtx,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+) -> String {
+    let mut f = String::new();
+    for out in &func.outputs {
+        let jty = out_java_type(func, &out.name);
+        let zero = if jty == "int" { "0" } else { "0.0" };
+        let _ = writeln!(f, "         {jty} cur_{} = {zero};", out.name);
+    }
+    if let Some(idp) = &dp.identity {
+        let cond = params_on_state(func, &idp.condition);
+        let cond = render_predicate(&cond, ctx, registry, helpers);
+        let _ = writeln!(f, "         if( {cond} ) {{");
+        for (out, inp) in &idp.pairs {
+            let _ = writeln!(f, "            cur_{out} = {inp};");
+        }
+        let _ = writeln!(f, "            return {};", fresh_value_expr_local(func));
+        let _ = writeln!(f, "         }}");
+    }
+    let _ = writeln!(f, "         switch( sp.{} )", dp.param);
+    let _ = writeln!(f, "         {{");
+    for arm in dp.arms.iter().filter(|a| a.supported) {
+        let label = super::java::render_java_switch_label(&arm.label, enums);
+        let cls = callee_stream_class(registry, &arm.callee);
+        let _ = writeln!(f, "         case {label}: {{");
+        if arm.out_map.len() == 1 {
+            let streaming::OutSlot::Forward(k) = arm.out_map[0] else {
+                panic!("single-output arm cannot discard its only slot")
+            };
+            let _ = writeln!(
+                f,
+                "            cur_{} = (({cls}) sp.sub).peek({bar_args});",
+                outputs[k]
+            );
+        } else {
+            let _ = writeln!(
+                f,
+                "            {cls}.Value subValue = (({cls}) sp.sub).peek({bar_args});"
+            );
+            for (i, slot) in arm.out_map.iter().enumerate() {
+                if let streaming::OutSlot::Forward(k) = slot {
+                    let _ = writeln!(
+                        f,
+                        "            cur_{} = subValue.{}();",
+                        outputs[*k],
+                        callee_value_field(registry, &arm.callee, i)
+                    );
+                }
+            }
+        }
+        let _ = writeln!(f, "            break;");
+        let _ = writeln!(f, "         }}");
+    }
+    let _ = writeln!(f, "         default:");
+    let _ = writeln!(
+        f,
+        "            throw new IllegalStateException(\"unreachable: open rejects arms without a sub-stream\");"
+    );
+    let _ = writeln!(f, "         }}");
+    f
+}
+
+/// [`peek_frame_arm_named`] for the tiers whose transition uses the ordinary
+/// stream names.
+#[allow(clippy::too_many_arguments)]
+fn peek_frame_arm(
+    func: &FuncDef,
+    model: &StreamModel,
+    fields: &[Field],
+    step_settings: &BTreeSet<String>,
+    stream_fma: &FmaVarSets,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+    indent: usize,
+    predeclared: &BTreeSet<String>,
+) -> Option<String> {
+    peek_frame_arm_named(
+        func, model, &JavaStreamNames, fields, step_settings, stream_fma, enums, registry, helpers,
+        counter, indent, predeclared,
+    )
+}
+
+/// One model's peek frame: the transition rewritten to commit nothing, run
+/// against the live handle at `indent`. `None` where it cannot be built, which
+/// the caller turns into a panic — every tier emits a frame.
+#[allow(clippy::too_many_arguments)]
+fn peek_frame_arm_named(
+    func: &FuncDef,
+    model: &StreamModel,
+    names: &dyn streaming::NameMap,
+    fields: &[Field],
+    step_settings: &BTreeSet<String>,
+    stream_fma: &FmaVarSets,
+    enums: &HashMap<String, EnumDef>,
+    registry: &Registry,
+    helpers: &HelperRegistry,
+    counter: &Cell<usize>,
+    indent: usize,
+    predeclared: &BTreeSet<String>,
+) -> Option<String> {
+    let pad = " ".repeat(indent);
+    let transition = streaming::build_transition(model, names).ok()?;
+    let pt = streaming::peek_transition_widest(model, names, &transition, None).ok()?;
+    // The extrema rebase moves the cursor before the first store, so its
+    // targets localize with the transition's own.
+    let mut rebased: Vec<String> = Vec::new();
+    if let Some(ex) = model.extrema() {
+        rebased.push(model.cursor.clone());
+        rebased.push(ex.trailing.clone());
+        rebased.extend(ex.index_vars.iter().cloned());
+    }
+    let bufs = streaming::transition_buffers(model, names);
+    let (locals, body_ir) = localize_state_writes(func, &pt.body, &rebased, &bufs)?;
+    // The transition's own early exit — the param-degenerate identity
+    // short-circuit — is valueless, because a step returns `void`. Inline in
+    // `peek` it exits a method that answers a value.
+    let answer = fresh_value_expr_local(func);
+    let body_ir = streaming::rewrite_stmts(&body_ir, &|e| e, &|st| match st {
+        Statement::Return { value: None } => Some(Statement::Return {
+            value: Some(Expr::Var(answer.clone())),
+        }),
+        other => Some(other),
+    });
+    let types: HashMap<&str, &str> =
+        fields.iter().map(|(n, t, _)| (n.as_str(), t.as_str())).collect();
+
+    let mut out = String::new();
+    for (name, ty) in &model.temps {
+        let (jty, default) = field_type_and_default(ty);
+        let _ = writeln!(out, "{pad}{jty} {name} = {default};");
+    }
+    for name in &locals {
+        if predeclared.contains(name) {
+            continue;
+        }
+        let jty = types.get(name.as_str()).copied()?;
+        // A Java array field is a reference: taking it plain would write the
+        // handle through it. Only the accumulators `peek_transition_widest`
+        // refused reach here — two to five elements, never a period-sized
+        // buffer, which the frame only ever reads.
+        let init = if jty.ends_with("[]") {
+            format!("sp.{name}.clone()")
+        } else {
+            format!("sp.{name}")
+        };
+        let _ = writeln!(out, "{pad}{jty} {name} = {init};");
+    }
+    for sh in &pt.shadows {
+        let (t, z) = if sh.int_elem { ("int", "0") } else { ("double", "0.0") };
+        let _ = writeln!(out, "{pad}int {} = -1;", sh.slot_var);
+        let _ = writeln!(out, "{pad}{t} {} = {z};", sh.val_var);
+    }
+    for t in &pt.slot_temps {
+        let _ = writeln!(out, "{pad}int {t} = 0;");
+    }
+    if let Some(ex) = model.extrema() {
+        let inner = " ".repeat(indent + 3);
+        let _ = writeln!(out, "{pad}if( {} >= 1073741824 ) {{", model.cursor);
+        let _ = writeln!(out, "{inner}int rebaseShift = {} & ~sp.xMask;", ex.trailing);
+        for v in &rebased {
+            let _ = writeln!(out, "{inner}{v} -= rebaseShift;");
+        }
+        let _ = writeln!(out, "{pad}}}");
+    }
+    for s in step_settings {
+        let _ = writeln!(out, "{pad}int {s}_rangeType = sp.cs_{s}_rangeType;");
+        let _ = writeln!(out, "{pad}int {s}_avgPeriod = sp.cs_{s}_avgPeriod;");
+        let _ = writeln!(out, "{pad}double {s}_factor = sp.cs_{s}_factor;");
+    }
+    let empty = HashSet::new();
+    let ctx = stream_ctx(&empty, counter, stream_fma);
+    for s in &body_ir {
+        out.push_str(&render_statement_ctx(s, indent, &ctx, enums, registry, helpers));
+    }
+    Some(out)
+}
+
 fn emit_step(
     o: &mut String,
     func: &FuncDef,
@@ -2551,7 +2838,48 @@ fn emit_dual_mode(
     let fields_a = state_fields_from(func, ma, &union_scalars, &step_settings);
     let fields_b = state_fields_from(func, mb, &union_scalars, &step_settings);
     let fields = dual_union_fields(func, &fields_a, &fields_b);
-    emit_handle_class(o, func, &fields, &SubMembers::none());
+
+    // The peek frame: the identity short-circuit, then one frame per mode. Each
+    // arm's locals live in its own block, so two modes carrying the same field
+    // name never share one.
+    let dual_frame = {
+        let no_locals = HashSet::new();
+        let ctx = stream_ctx(&no_locals, counter, stream_fma);
+        // The outputs are declared by the frame, above the identity branch that
+        // writes them and above both arms.
+        let outs: BTreeSet<String> =
+            func.outputs.iter().map(|o| format!("cur_{}", o.name)).collect();
+        peek_frame_arm(
+            func, ma, &fields, &step_settings, stream_fma, enums, registry, helpers, counter, 12,
+            &outs,
+        )
+        .zip(peek_frame_arm(
+            func, mb, &fields, &step_settings, stream_fma, enums, registry, helpers, counter, 12,
+            &outs,
+        ))
+        .map(|(a, b)| {
+            let mut f = String::new();
+            for out in &func.outputs {
+                let jty = out_java_type(func, &out.name);
+                let zero = if jty == "int" { "0" } else { "0.0" };
+                let _ = writeln!(f, "         {jty} cur_{} = {zero};", out.name);
+            }
+            if let Some(ident) = identity_branch_as_frame(func, ma) {
+                for st in &ident {
+                    f.push_str(&render_statement_ctx(st, 9, &ctx, enums, registry, helpers));
+                }
+            }
+            let pred = params_on_state(func, &dmp.predicate);
+            let pred = render_predicate(&pred, &ctx, registry, helpers);
+            let _ = writeln!(f, "         if( {pred} ) {{");
+            f.push_str(&a);
+            let _ = writeln!(f, "         }} else {{");
+            f.push_str(&b);
+            let _ = writeln!(f, "         }}");
+            f
+        })
+    };
+    emit_handle_class(o, func, &fields, &SubMembers::none(), dual_frame.as_deref());
 
     // --- step: one function, the mode re-derived from the stored param ------
     emit_step_sig(o, func);
@@ -2721,44 +3049,16 @@ fn emit_dispatch(
     );
     let _ = writeln!(copy_extra, "            }}");
     let _ = writeln!(copy_extra, "         }}");
-    // The same switch in place: the scratch keeps the sub it already holds when
-    // the arm matches. It is only the same arm when the source handle's param
-    // is the same, which is why the tag is read off `this` after the field
-    // copy, exactly as the copy constructor reads it after its own.
-    let mut restore_extra = String::new();
-    let _ = writeln!(restore_extra, "         if( other.sub == null ) {{");
-    let _ = writeln!(restore_extra, "            this.sub = null;");
-    let _ = writeln!(restore_extra, "         }} else {{");
-    let _ = writeln!(restore_extra, "            switch( this.{} )", dp.param);
-    let _ = writeln!(restore_extra, "            {{");
-    for arm in dp.arms.iter().filter(|a| a.supported) {
-        let label = super::java::render_java_switch_label(&arm.label, enums);
-        let cls = callee_stream_class(registry, &arm.callee);
-        let _ = writeln!(restore_extra, "            case {label}:");
-        let _ = writeln!(restore_extra, "               if( this.sub instanceof {cls} ) {{");
-        let _ = writeln!(
-            restore_extra,
-            "                  (({cls}) this.sub).copyFrom(({cls}) other.sub);"
-        );
-        let _ = writeln!(restore_extra, "               }} else {{");
-        let _ = writeln!(
-            restore_extra,
-            "                  this.sub = new {cls}(({cls}) other.sub);"
-        );
-        let _ = writeln!(restore_extra, "               }}");
-        let _ = writeln!(restore_extra, "               break;");
-    }
-    let _ = writeln!(restore_extra, "            default:");
-    let _ = writeln!(
-        restore_extra,
-        "               throw new IllegalStateException(\"unreachable: open rejects arms without a sub-stream\");"
-    );
-    let _ = writeln!(restore_extra, "            }}");
-    let _ = writeln!(restore_extra, "         }}");
     // The dispatch arm is an `MAType` chosen at run time, so what the sub owns
     // is not knowable here.
-    let subs = SubMembers { copy: copy_extra, restore: restore_extra, subs: 1, unbounded: true };
-    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members);
+    let subs = SubMembers { copy: copy_extra };
+    // The peek frame: the same routing, into each callee's PUBLIC peek. Nothing
+    // here commits, so the dispatch tier needs no copy of the handle it
+    // delegates to.
+    let dispatch_frame = build_dispatch_peek_frame(
+        func, dp, &outputs, &bar_args, &ctx, enums, registry, helpers,
+    );
+    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, Some(&dispatch_frame));
 
     // --- step ---------------------------------------------------------------
     emit_step_sig(o, func);
@@ -3048,23 +3348,21 @@ fn emit_period_bank(
     let _ = writeln!(copy_extra, "         for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {{");
     let _ = writeln!(copy_extra, "            this.bank[bankIdx] = new {subty}(other.bank[bankIdx]);");
     let _ = writeln!(copy_extra, "         }}");
-    // Same shape, in place: the bank a scratch already holds is the right
-    // length unless a differently-parameterised handle borrowed it, in which
-    // case it is rebuilt exactly as the copy constructor builds one.
-    let mut restore_extra = String::new();
-    let _ = writeln!(restore_extra, "         if( this.bank != null && this.bank.length == other.bank.length ) {{");
-    let _ = writeln!(restore_extra, "            for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {{");
-    let _ = writeln!(restore_extra, "               this.bank[bankIdx].copyFrom(other.bank[bankIdx]);");
-    let _ = writeln!(restore_extra, "            }}");
-    let _ = writeln!(restore_extra, "         }} else {{");
-    let _ = writeln!(restore_extra, "            this.bank = new {subty}[other.bank.length];");
-    let _ = writeln!(restore_extra, "            for( int bankIdx = 0; bankIdx < other.bank.length; bankIdx++ ) {{");
-    let _ = writeln!(restore_extra, "               this.bank[bankIdx] = new {subty}(other.bank[bankIdx]);");
-    let _ = writeln!(restore_extra, "            }}");
-    let _ = writeln!(restore_extra, "         }}");
-    // A bank is one handle per period in the span: unbounded by construction.
-    let subs = SubMembers { copy: copy_extra, restore: restore_extra, subs: 1, unbounded: true };
-    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members);
+    let subs = SubMembers { copy: copy_extra };
+    // The peek frame: only the SELECTED slot is peeked. The other slots' next
+    // values are not this bar's answer and peeking is non-committing per
+    // handle, so advancing them would be work thrown away — which is why the
+    // step advances all of them and the frame does not.
+    let mut bank_frame = String::new();
+    let _ = writeln!(bank_frame, "         int cp = (int){period};");
+    let _ = writeln!(bank_frame, "         if( cp < sp.{min} ) {{");
+    let _ = writeln!(bank_frame, "            cp = sp.{min};");
+    let _ = writeln!(bank_frame, "         }} else if( cp > sp.{max} ) {{");
+    let _ = writeln!(bank_frame, "            cp = sp.{max};");
+    let _ = writeln!(bank_frame, "         }}");
+    let _ = writeln!(bank_frame, "         int slot = cp - sp.{min};");
+    let _ = writeln!(bank_frame, "         double cur_{out} = sp.bank[slot].peek({price});");
+    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, Some(&bank_frame));
 
     // --- step: advance ALL slots, output the clamped-period slot ------------
     emit_step_sig(o, func);
@@ -3203,8 +3501,8 @@ fn emit_period_bank(
 // sub-handles, mirroring rust_stream's emit_composed with the managed-language
 // simplifications: GC replaces every cleanup ladder and series-free replay,
 // `free()` renders as a no-op so lag-ring seeding reads the still-live
-// intermediate array, and copy-peek deletes peekMode entirely (sub handles
-// deep-copy through their copy constructors).
+// intermediate array, and the peek frame drives each sub-stream's own public
+// peek rather than committing anything.
 // ---------------------------------------------------------------------------
 
 /// Composed producer name map: identical to [`JavaStreamNames`] except the
@@ -3381,21 +3679,26 @@ fn emit_composed_step_decls(
     func: &FuncDef,
     cp: &streaming::ComposedPlan,
     cur_scalars: &[String],
+    indent: usize,
+    frame: bool,
 ) {
-    if let Some(model) = &cp.producer {
+    let pad = " ".repeat(indent);
+    // In a frame the producer's temps are declared by the frame builder, beside
+    // the locals its stores live in.
+    if let (Some(model), false) = (&cp.producer, frame) {
         for (name, ty) in &model.temps {
             let (jty, default) = field_type_and_default(ty);
-            let _ = writeln!(o, "      {jty} {name} = {default};");
+            let _ = writeln!(o, "{pad}{jty} {name} = {default};");
         }
     }
     for (name, ty) in &cp.map_temps {
         let (jty, default) = field_type_and_default(ty);
-        let _ = writeln!(o, "      {jty} {name} = {default};");
+        let _ = writeln!(o, "{pad}{jty} {name} = {default};");
     }
     for name in cur_scalars {
         let ty = out_java_type(func, name);
         let zero = if ty == "int" { "0" } else { "0.0" };
-        let _ = writeln!(o, "      {ty} cur_{name} = {zero};");
+        let _ = writeln!(o, "{pad}{ty} cur_{name} = {zero};");
     }
 }
 
@@ -3403,7 +3706,7 @@ fn emit_composed_step_decls(
 /// the batch-tail pipeline through the owned sub handles, combine maps per
 /// bar, lag-ring pushes, and the `sp.cur_*` output stores. No peek flag: peek
 /// is the universal deep-copy of the whole tree.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn emit_composed_step(
     o: &mut String,
     func: &FuncDef,
@@ -3416,11 +3719,35 @@ fn emit_composed_step(
     enums: &HashMap<String, EnumDef>,
     helpers: &HelperRegistry,
     counter: &Cell<usize>,
-) {
-    emit_step_sig(o, func);
+    fields: &[Field],
+    frame: bool,
+) -> Option<String> {
+    // In a frame the body is the peek method's, three columns deeper.
+    let indent = if frame { 9 } else { 6 };
+    let pad = " ".repeat(indent);
+    let mut sink = String::new();
+    let o: &mut String = if frame { &mut sink } else { o };
+    if !frame {
+        emit_step_sig(o, func);
+    }
     let cur_scalars = composed_cur_scalars(cp, inputs, outputs);
 
-    emit_composed_step_decls(o, func, cp, &cur_scalars);
+    emit_composed_step_decls(o, func, cp, &cur_scalars, indent, frame);
+    // An output the pipeline reaches only through an ALIAS is written by the
+    // tail loop below and by nothing else, so it never enters `cur_scalars`. In
+    // the step that write lands on `sp.cur_<out>`; in a frame the bare name
+    // would resolve to that same FIELD and commit it. Give it a local.
+    let mut aliased: Vec<String> = Vec::new();
+    if frame {
+        for out in outputs {
+            if !cur_scalars.contains(out) {
+                let ty = out_java_type(func, out);
+                let zero = if ty == "int" { "0" } else { "0.0" };
+                let _ = writeln!(o, "{pad}{ty} cur_{out} = {zero};");
+                aliased.push(out.clone());
+            }
+        }
+    }
 
     let empty = HashSet::new();
     let ctx = stream_ctx(&empty, counter, stream_fma);
@@ -3432,26 +3759,40 @@ fn emit_composed_step(
         .collect();
 
     if let Some(model) = &cp.producer {
-        emit_extrema_rebase(o, model, 6);
-        for s in step_settings {
-            let _ = writeln!(o, "      int {s}_rangeType = sp.cs_{s}_rangeType;");
-            let _ = writeln!(o, "      int {s}_avgPeriod = sp.cs_{s}_avgPeriod;");
-            let _ = writeln!(o, "      double {s}_factor = sp.cs_{s}_factor;");
-        }
         let names = JavaComposedNames {
             series: cp.series.clone().expect("producer plan carries a series"),
         };
+        if frame {
+            let declared: BTreeSet<String> = cur_scalars
+                .iter()
+                .chain(aliased.iter())
+                .map(|n| format!("cur_{n}"))
+                .chain(cp.map_temps.iter().map(|(n, _)| n.clone()))
+                .collect();
+            o.push_str(&peek_frame_arm_named(
+                func, model, &names, fields, step_settings, stream_fma, enums, registry, helpers,
+                counter, indent, &declared,
+            )?);
+        } else {
+        emit_extrema_rebase(o, model, indent);
+        for s in step_settings {
+            let _ = writeln!(o, "{pad}int {s}_rangeType = sp.cs_{s}_rangeType;");
+            let _ = writeln!(o, "{pad}int {s}_avgPeriod = sp.cs_{s}_avgPeriod;");
+            let _ = writeln!(o, "{pad}double {s}_factor = sp.cs_{s}_factor;");
+        }
         let transition = streaming::build_transition(model, &names)
             .unwrap_or_else(|e| panic!("streaming transition: {e}"));
         for st in &transition {
-            o.push_str(&render_statement_ctx(st, 6, &ctx, enums, registry, helpers));
+            o.push_str(&render_statement_ctx(st, indent, &ctx, enums, registry, helpers));
+        }
         }
         let series = cp.series.clone().expect("producer plan carries a series");
         cur.insert(series.clone(), format!("cur_{series}"));
     }
 
     // Pipeline: the batch tail, one scalar per bar through the sub handles.
-    let _ = writeln!(o, "      /* Pipeline the new bar through the sub-streams (batch tail order). */");
+    let verb = if frame { "peek" } else { "update" };
+    let _ = writeln!(o, "{pad}/* Pipeline the new bar through the sub-streams (batch tail order). */");
     let params: BTreeSet<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
     for step in &cp.steps {
         match step {
@@ -3466,19 +3807,19 @@ fn emit_composed_step(
                 let arg_str = args.join(", ");
                 if sub.dsts.len() == 1 {
                     let d = &sub.dsts[0];
-                    let _ = writeln!(o, "      cur_{d} = sp.sub{sub_idx}.update({arg_str});");
+                    let _ = writeln!(o, "{pad}cur_{d} = sp.sub{sub_idx}.{verb}({arg_str});");
                 } else {
                     let cls = callee_stream_class(registry, &callee_key);
-                    let _ = writeln!(o, "      {{");
-                    let _ = writeln!(o, "         {cls}.Value subOut{sub_idx} = sp.sub{sub_idx}.update({arg_str});");
+                    let _ = writeln!(o, "{pad}{{");
+                    let _ = writeln!(o, "{pad}   {cls}.Value subOut{sub_idx} = sp.sub{sub_idx}.{verb}({arg_str});");
                     for (k, d) in sub.dsts.iter().enumerate() {
                         let _ = writeln!(
                             o,
-                            "         cur_{d} = subOut{sub_idx}.{}();",
+                            "{pad}   cur_{d} = subOut{sub_idx}.{}();",
                             callee_value_field(registry, &callee_key, k)
                         );
                     }
-                    let _ = writeln!(o, "      }}");
+                    let _ = writeln!(o, "{pad}}}");
                 }
                 for d in &sub.dsts {
                     cur.insert(d.clone(), format!("cur_{d}"));
@@ -3492,27 +3833,41 @@ fn emit_composed_step(
                 for out in streaming::map_output_writes(&cp.tail[*tail_idx], outputs) {
                     cur.entry(out.clone()).or_insert_with(|| format!("cur_{out}"));
                 }
-                let _ = writeln!(o, "      /* Combine map (batch tail, per bar). */");
+                let _ = writeln!(o, "{pad}/* Combine map (batch tail, per bar). */");
                 for st in &transform_map_step(&cp.tail[*tail_idx], &cur, &params, &cp.sub_lag_rings) {
-                    o.push_str(&render_statement_ctx(st, 6, &ctx, enums, registry, helpers));
+                    o.push_str(&render_statement_ctx(st, indent, &ctx, enums, registry, helpers));
                 }
             }
         }
     }
     // Push the new sub-output value into each lag ring AFTER every read of the
     // oldest slot in the combine above (mirrors C, incl. the modulo advance).
-    for ring in &cp.sub_lag_rings {
-        let sn = &ring.series;
-        let _ = writeln!(o, "      sp.lagRing_{sn}[sp.lagRingPos_{sn}] = cur_{sn};");
-        let _ = writeln!(
-            o,
-            "      sp.lagRingPos_{sn} = (sp.lagRingPos_{sn} + 1) % sp.lagRingCap_{sn};"
-        );
+    // A frame drops the push outright: nothing below loads it back.
+    if !frame {
+        for ring in &cp.sub_lag_rings {
+            let sn = &ring.series;
+            let _ = writeln!(o, "{pad}sp.lagRing_{sn}[sp.lagRingPos_{sn}] = cur_{sn};");
+            let _ = writeln!(
+                o,
+                "{pad}sp.lagRingPos_{sn} = (sp.lagRingPos_{sn} + 1) % sp.lagRingCap_{sn};"
+            );
+        }
     }
+    let target = if frame { "" } else { "sp." };
     for out in outputs {
-        let _ = writeln!(o, "      sp.cur_{out} = {};", cur.get(out).expect("analyzer gated output"));
+        let src = cur.get(out).expect("analyzer gated output");
+        // In a frame the pipeline may already have written this very local, and
+        // `x = x;` is CS1717 — an error under the shipped csproj, not a warning.
+        if frame && src == &format!("cur_{out}") {
+            continue;
+        }
+        let _ = writeln!(o, "{pad}{target}cur_{out} = {src};");
+    }
+    if frame {
+        return Some(sink);
     }
     let _ = writeln!(o, "   }}");
+    None
 }
 
 /// The transcribed (region, tail) for the composed open: output arrays renamed
@@ -3845,32 +4200,25 @@ fn emit_composed(
     }
     let mut extra_members = String::new();
     let mut copy_extra = String::new();
-    let mut restore_extra = String::new();
     for (si, sub) in cp.subs.iter().enumerate() {
         let callee_key = sub.callee.to_lowercase();
         let cls = callee_stream_class(registry, &callee_key);
         let _ = writeln!(extra_members, "      {cls} sub{si};");
         let _ = writeln!(copy_extra, "         this.sub{si} = new {cls}(other.sub{si});");
-        // A sub's class is fixed by the plan, so a scratch always has one to
-        // overwrite; the null arm covers a scratch built by the bare
-        // `(Core)` constructor, which no path takes today.
-        let _ = writeln!(restore_extra, "         if( this.sub{si} == null ) {{");
-        let _ = writeln!(restore_extra, "            this.sub{si} = new {cls}(other.sub{si});");
-        let _ = writeln!(restore_extra, "         }} else {{");
-        let _ = writeln!(restore_extra, "            this.sub{si}.copyFrom(other.sub{si});");
-        let _ = writeln!(restore_extra, "         }}");
     }
-    let subs = SubMembers {
-        copy: copy_extra,
-        restore: restore_extra,
-        subs: cp.subs.len(),
-        unbounded: false,
+    let subs = SubMembers { copy: copy_extra };
+    let frame = {
+        let mut sink = String::new();
+        emit_composed_step(
+            &mut sink, func, cp, &step_settings, stream_fma, registry, &inputs, &outputs, enums,
+            helpers, counter, &fields, true,
+        )
     };
-    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members);
+    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, frame.as_deref());
 
     emit_composed_step(
         o, func, cp, &step_settings, stream_fma, registry, &inputs, &outputs, enums, helpers,
-        counter,
+        counter, &fields, false,
     );
     emit_composed_open(
         o, func, cp, &step_settings, stream_fma, &outputs, enums, registry, helpers, counter,

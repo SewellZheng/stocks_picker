@@ -83,6 +83,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_SMI_Lookback")]
     #[inline]
     pub fn SMI_Lookback(&self, mut optInTimePeriod: i32, mut optInFastPeriod: i32, mut optInSlowPeriod: i32, mut optInSignalPeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -473,31 +474,7 @@ impl Core {
     /// below. Extreme readings mark overbought and oversold conditions, and crossings of the signal
     /// line are the usual trade trigger.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// HH = MAX(high, timePeriod);  LL = MIN(low, timePeriod)
-    ///
-    /// num = close - 0.5 * (HH + LL);  den = HH - LL
-    ///
-    /// SMI = 100 * EMA(EMA(num, slowPeriod), fastPeriod) / (0.5 * EMA(EMA(den, slowPeriod), fastPeriod))
-    ///
-    /// Signal = EMA(SMI, signalPeriod)
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * A window whose bars are all flat (every high equal to its low) leaves both the numerator
-    ///   and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention
-    ///   as CCI and IMI. Some implementations divide unguarded and return a non-finite value.
-    /// * Each exponential average is seeded with a simple average of its own first inputs, the same
-    ///   seeding TA-Lib's EMA uses, so the first published values converge toward an
-    ///   unlimited-history result rather than reproducing it exactly.
-    ///   `TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)` discards more of that warm-up.
-    ///   Implementations seeding from a single first sample — Tulip and TradingView among them
-    ///   — differ over the transient and agree once it decays.
-    /// * One output range covers both outputs, so the SMI values consumed by the signal line's own
-    ///   warm-up are not published.
+    /// Formula and more info at [ta-lib.org/functions/smi](https://ta-lib.org/functions/smi).
     ///
     /// # Arguments
     ///
@@ -568,8 +545,7 @@ impl Core {
     /// * William Blau, "Stochastic Momentum", *Technical Analysis of Stocks & Commodities*, v11:1
     ///   (January 1993), pp. 11-18
     /// * William Blau, *Momentum, Direction and Divergence*, Wiley 1995 (ISBN 0471027294)
-    ///
-    /// Further reading: [ta-lib.org/functions/smi](https://ta-lib.org/functions/smi)
+    #[doc(alias = "TA_SMI")]
     #[doc(alias = "stochasticmomentumindex")]
     #[doc(alias = "Blaustochasticmomentum")]
     pub fn SMI(
@@ -640,24 +616,14 @@ impl Core {
 /// over the same series. Open with [`Core::smi_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_SMI_Stream")]
 pub struct SmiStream {
     state: SmiStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl SmiStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `SmiStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -686,37 +652,8 @@ struct SmiStreamState {
     x_inHigh: Vec<f64>,
     x_inLow: Vec<f64>,
     x_inClose: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl SmiStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.optInFastPeriod = src.optInFastPeriod;
-        self.optInSlowPeriod = src.optInSlowPeriod;
-        self.optInSignalPeriod = src.optInSignalPeriod;
-        self.kSlow = src.kSlow;
-        self.kFast = src.kFast;
-        self.kSignal = src.kSignal;
-        self.highest = src.highest;
-        self.lowest = src.lowest;
-        self.emaSlowNum = src.emaSlowNum;
-        self.emaSlowDen = src.emaSlowDen;
-        self.emaFastNum = src.emaFastNum;
-        self.emaFastDen = src.emaFastDen;
-        self.prevSignal = src.prevSignal;
-        self.trailingIdx = src.trailingIdx;
-        self.highestIdx = src.highestIdx;
-        self.lowestIdx = src.lowestIdx;
-        self.i = src.i;
-        self.today = src.today;
-        self.xMask = src.xMask;
-        self.x_inHigh.clone_from(&src.x_inHigh);
-        self.x_inLow.clone_from(&src.x_inLow);
-        self.x_inClose.clone_from(&src.x_inClose);
-    }
+    cur_outSMI: f64,
+    cur_outSMISignal: f64,
 }
 
 #[allow(unused_variables)]
@@ -803,6 +740,8 @@ impl Core {
         (*outSMISignal) = sp.prevSignal;
         sp.trailingIdx = sp.trailingIdx + 1;
         sp.today = sp.today + 1;
+        sp.cur_outSMI = (*outSMI);
+        sp.cur_outSMISignal = (*outSMISignal);
     }
 
     /// The single whole-history transcription behind [`Core::smi_open_internal`]
@@ -1143,6 +1082,8 @@ impl Core {
             lowestIdx: (lowestIdx) as i32,
             i: (i) as i32,
             today: (today) as i32,
+            cur_outSMI: outSMI[(*outNBElement - 1) * outStride],
+            cur_outSMISignal: outSMISignal[(*outNBElement - 1) * outStride],
             xMask: (physX - 1) as i32,
             x_inHigh,
             x_inLow,
@@ -1276,31 +1217,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `SmiStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static SMI_PEEK_SCRATCH: std::cell::Cell<Option<Box<SmiStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl SmiStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_SMI_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outSMI: f64 = 0.0_f64;
@@ -1317,7 +1260,7 @@ impl SmiStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1327,7 +1270,8 @@ impl SmiStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_SMI_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outSMI: &mut [f64], outSMISignal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -1336,6 +1280,9 @@ impl SmiStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::smi_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outSMI[i], &mut outSMISignal[i]);
@@ -1347,37 +1294,154 @@ impl SmiStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_SMI_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        SMI_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outSMI: f64 = 0.0_f64;
-            let mut outSMISignal: f64 = 0.0_f64;
-            Core::smi_step_impl(&mut scratch, inHigh, inLow, inClose, &mut outSMI, &mut outSMISignal);
-            cell.set(Some(scratch));
-            Ok((outSMI, outSMISignal))
-        })
+        let mut outSMI: f64 = 0.0_f64;
+        let mut outSMISignal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outSMI = &mut outSMI;
+            let outSMISignal = &mut outSMISignal;
+            let mut tmp: f64 = 0.0_f64;
+            let mut num: f64 = 0.0_f64;
+            let mut den: f64 = 0.0_f64;
+            let mut halfDen: f64 = 0.0_f64;
+            let mut smiValue: f64 = 0.0_f64;
+            let mut cur_outSMI = sp.cur_outSMI;
+            let mut cur_outSMISignal = sp.cur_outSMISignal;
+            let mut emaFastDen = sp.emaFastDen;
+            let mut emaFastNum = sp.emaFastNum;
+            let mut emaSlowDen = sp.emaSlowDen;
+            let mut emaSlowNum = sp.emaSlowNum;
+            let mut highest = sp.highest;
+            let mut highestIdx = sp.highestIdx;
+            let mut i = sp.i;
+            let mut lowest = sp.lowest;
+            let mut lowestIdx = sp.lowestIdx;
+            let mut prevSignal = sp.prevSignal;
+            let mut today = sp.today;
+            let mut trailingIdx = sp.trailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            let mut pkSlot2: usize = usize::MAX;
+            let mut pkVal2: f64 = 0.0_f64;
+            if today >= 1073741824 {
+                let rebaseShift: i32 = trailingIdx & !sp.xMask;
+                today -= rebaseShift;
+                trailingIdx -= rebaseShift;
+                highestIdx -= rebaseShift;
+                i -= rebaseShift;
+                lowestIdx -= rebaseShift;
+            }
+            pkSlot0 = (today & sp.xMask) as usize;
+            pkVal0 = inHigh;
+            pkSlot1 = (today & sp.xMask) as usize;
+            pkVal1 = inLow;
+            pkSlot2 = (today & sp.xMask) as usize;
+            pkVal2 = inClose;
+            // Set the lowest low
+            tmp = (if ((today & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(today & sp.xMask) as usize] } else { pkVal1 });
+            if lowestIdx < trailingIdx {
+                lowestIdx = trailingIdx;
+                lowest = (if ((lowestIdx & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(lowestIdx & sp.xMask) as usize] } else { pkVal1 });
+                i = lowestIdx;
+                while (({ i += 1; i }) as i32) <= today {
+                    tmp = (if ((i & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(i & sp.xMask) as usize] } else { pkVal1 });
+                    if tmp < lowest {
+                        lowestIdx = i;
+                        lowest = tmp;
+                    }
+                }
+            } else if tmp <= lowest {
+                lowestIdx = today;
+                lowest = tmp;
+            }
+            // Set the highest high
+            tmp = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(today & sp.xMask) as usize] } else { pkVal0 });
+            if highestIdx < trailingIdx {
+                highestIdx = trailingIdx;
+                highest = (if ((highestIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(highestIdx & sp.xMask) as usize] } else { pkVal0 });
+                i = highestIdx;
+                while (({ i += 1; i }) as i32) <= today {
+                    tmp = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(i & sp.xMask) as usize] } else { pkVal0 });
+                    if tmp > highest {
+                        highestIdx = i;
+                        highest = tmp;
+                    }
+                }
+            } else if tmp >= highest {
+                highestIdx = today;
+                highest = tmp;
+            }
+            den = highest - lowest;
+            num = (if ((today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(today & sp.xMask) as usize] } else { pkVal2 }) - (highest + lowest) * 0.5;
+            emaSlowNum = (num - emaSlowNum as f64).mul_add(sp.kSlow, emaSlowNum);
+            emaSlowDen = (den - emaSlowDen as f64).mul_add(sp.kSlow, emaSlowDen);
+            emaFastNum = (emaSlowNum - emaFastNum as f64).mul_add(sp.kFast, emaFastNum);
+            emaFastDen = (emaSlowDen - emaFastDen as f64).mul_add(sp.kFast, emaFastDen);
+            // The denominator is an EMA of an EMA of the high-low range: every term
+            // is non-negative and every weight is positive, so it carries no
+            // cancellation residue and is zero only when every range that reached it
+            // was exactly zero -- 0/0, since a window of H == L bars makes num zero
+            // too, reported as the neutral 0.0 by the CCI (#7) and IMI (#112)
+            // convention. Test it exactly: the range carries the quote unit, so the
+            // fixed TA_IS_ZERO band this used to be zeroed the oscillator for any
+            // instrument quoted below it (issue #253). Issue #107's machine-flat
+            // window is caught by the exact test as well, since the residue an
+            // EMA leaves there is zero, not sub-epsilon.
+            halfDen = 0.5 * emaFastDen;
+            if halfDen > 0.0 {
+                smiValue = 100.0 * emaFastNum / halfDen;
+            } else {
+                smiValue = 0.0;
+            }
+            prevSignal = (smiValue - prevSignal as f64).mul_add(sp.kSignal, prevSignal);
+            (*outSMI) = smiValue;
+            (*outSMISignal) = prevSignal;
+            trailingIdx = trailingIdx + 1;
+            today = today + 1;
+            cur_outSMI = (*outSMI);
+            cur_outSMISignal = (*outSMISignal);
+        }
+        Ok((outSMI, outSMISignal))
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_SMI_Value")]
+    pub fn value(&self) -> (f64, f64) {
+        (self.state.cur_outSMI, self.state.cur_outSMISignal)
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::SMI`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

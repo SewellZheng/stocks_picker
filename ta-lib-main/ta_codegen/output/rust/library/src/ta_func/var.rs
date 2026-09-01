@@ -83,6 +83,7 @@ impl Core {
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`], and real parameters [`Core::REAL_DEFAULT`], to select their
     /// default value.
+    #[doc(alias = "TA_VAR_Lookback")]
     #[inline]
     pub fn VAR_Lookback(&self, mut optInTimePeriod: i32, mut optInNbDev: f64) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -301,17 +302,7 @@ impl Core {
     /// Rolling population variance of a real series over a given period. Measures dispersion of
     /// values around their mean. Higher values indicate greater dispersion; 0 means constant input.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// $\mathrm{VAR} = \frac{1}{n}\sum x_i^2 - \left(\frac{1}{n}\sum x_i\right)^2$, over the last $n$ = optInTimePeriod values (population, divides by $n$).
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * Computes population variance (divides by the period), not the sample variance (n-1) used
-    ///   by some definitions.
-    /// * The deviation-count parameter is accepted but has no effect on the result.
+    /// Formula and more info at [ta-lib.org/functions/var](https://ta-lib.org/functions/var).
     ///
     /// # Arguments
     ///
@@ -363,8 +354,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::STDDEV`]
-    ///
-    /// Further reading: [ta-lib.org/functions/var](https://ta-lib.org/functions/var)
+    #[doc(alias = "TA_VAR")]
     #[doc(alias = "Variance")]
     pub fn VAR(
         &self,
@@ -415,24 +405,14 @@ impl Core {
 /// over the same series. Open with [`Core::var_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_VAR_Stream")]
 pub struct VarStream {
     state: VarStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl VarStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `VarStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -452,28 +432,7 @@ struct VarStreamState {
     i: i32,
     xMask: i32,
     x_inReal: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl VarStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.optInNbDev = src.optInNbDev;
-        self.shift = src.shift;
-        self.periodTotal1 = src.periodTotal1;
-        self.periodTotal2 = src.periodTotal2;
-        self.invPeriod = src.invPeriod;
-        self.trailingIdx = src.trailingIdx;
-        self.nbInitialElementNeeded = src.nbInitialElementNeeded;
-        self.barsSinceReseed = src.barsSinceReseed;
-        self.j = src.j;
-        self.windowStart = src.windowStart;
-        self.i = src.i;
-        self.xMask = src.xMask;
-        self.x_inReal.clone_from(&src.x_inReal);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -604,6 +563,7 @@ impl Core {
         }
         (*outReal) = variance;
         sp.i += 1;
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::var_open_internal`]
@@ -831,6 +791,7 @@ impl Core {
             j: (j) as i32,
             windowStart: (windowStart) as i32,
             i: (i) as i32,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             xMask: (physX - 1) as i32,
             x_inReal,
         };
@@ -941,21 +902,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl VarStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_VAR_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -971,7 +942,7 @@ impl VarStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -981,7 +952,8 @@ impl VarStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_VAR_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -990,6 +962,9 @@ impl VarStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::var_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
@@ -1001,32 +976,184 @@ impl VarStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
-    /// often removed outright by the optimizer, which is why nothing is
-    /// reused here, but that is not a guarantee: budget for a clone of the
-    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_VAR_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inReal)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut meanValue1: f64 = 0.0_f64;
+            let mut variance: f64 = 0.0_f64;
+            let mut barsSinceReseed = sp.barsSinceReseed;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut i = sp.i;
+            let mut j = sp.j;
+            let mut periodTotal1 = sp.periodTotal1;
+            let mut periodTotal2 = sp.periodTotal2;
+            let mut shift = sp.shift;
+            let mut trailingIdx = sp.trailingIdx;
+            let mut windowStart = sp.windowStart;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            if i >= 1073741824 {
+                let rebaseShift: i32 = trailingIdx & !sp.xMask;
+                i -= rebaseShift;
+                trailingIdx -= rebaseShift;
+                j -= rebaseShift;
+                windowStart -= rebaseShift;
+            }
+            pkSlot0 = (i & sp.xMask) as usize;
+            pkVal0 = inReal;
+            // Add the incoming value, measured against the shift.
+            tempReal = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(i & sp.xMask) as usize] } else { pkVal0 }) - shift;
+            periodTotal1 += tempReal;
+            tempReal *= tempReal;
+            periodTotal2 += tempReal;
+            meanValue1 = periodTotal1 * sp.invPeriod;
+            variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+            // Remove the trailing value (prepares the next window).
+            tempReal = (if ((trailingIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(trailingIdx & sp.xMask) as usize] } else { pkVal0 }) - shift;
+            periodTotal1 -= tempReal;
+            tempReal *= tempReal;
+            periodTotal2 -= tempReal;
+            trailingIdx += 1;
+            // Re-anchor the shift and rebuild the running sums with a fresh two-pass
+            // when the shift is stale enough that the subtraction loses digits - i.e.
+            // the variance has shrunk below 1e-6 of the mean squared deviation it is
+            // extracted from (that ratio bounds the cancellation error to ~eps/1e-6 ~
+            // 2e-10, so partial cancellation, not just total collapse, is caught); OR
+            // when the value just removed sat so far from the shift that its squared term
+            // (tempReal) dwarfs the surviving sum (a large outlier passing through the
+            // window buries the small terms below its ulp, and the residual left when it
+            // leaves is cancellation garbage); OR at least every 32 windows so a slow
+            // drift stays bounded regardless of the series length. The strict `<` also
+            // leaves an exactly-constant window (variance 0, scale 0) alone instead of
+            // reseeding it every bar. Guarantees a non-negative output.
+            barsSinceReseed -= 1;
+            if variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 {
+                barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
+                windowStart = i - ((sp.nbInitialElementNeeded) as i32);
+                tempReal = 0.0;
+                // for( j = windowStart; j <= i; j += 1 )
+                j = windowStart;
+                while j <= i {
+                    tempReal += (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(j & sp.xMask) as usize] } else { pkVal0 });
+                    j += 1;
+                }
+                shift = tempReal * sp.invPeriod;
+                periodTotal1 = 0.0;
+                periodTotal2 = 0.0;
+                // for( j = windowStart; j <= i; j += 1 )
+                j = windowStart;
+                while j <= i {
+                    tempReal = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(j & sp.xMask) as usize] } else { pkVal0 }) - shift;
+                    periodTotal1 += tempReal;
+                    tempReal *= tempReal;
+                    periodTotal2 += tempReal;
+                    j += 1;
+                }
+                meanValue1 = periodTotal1 * sp.invPeriod;
+                variance = periodTotal2 * sp.invPeriod - meanValue1 * meanValue1;
+                // Floor the fresh figure at the same ratio the trigger above uses, now
+                // measured against the RE-ANCHORED sums. With the shift AT the window
+                // mean the deviations sum to ~0, so a real window has variance ~
+                // periodTotal2*invPeriod and a ratio of ~1; the ratio drops toward 0
+                // only when every deviation is the same value, i.e. when the spread is
+                // at or under the rounding error of the mean itself. There is then no
+                // spread the anchor could resolve, the surviving digits are noise, and
+                // the honest answer is 0.
+                //
+                // The constant is 1e-12, NOT the 1e-6 the trigger above uses, and the
+                // difference is load-bearing. periodTotal2*invPeriod is not the
+                // variance here: it is variance + e^2, where e is the rounding error of
+                // the reseed's own left-to-right sum for the mean -- exactly the term
+                // the two-pass subtraction then cancels out. So the ratio measures how
+                // badly that sum rounded, not how much signal survives, and matching
+                // the trigger's 1e-6 fired ten orders before cancellation eats any
+                // digits. It zeroed a variance the line above had just computed to nine
+                // correct significant figures: 100011 bars at 31498938283.624615 with
+                // two small outliers at period 99991 gives 1.0219900060103338e-09
+                // (128-bit), and this returned 0 with TA_SUCCESS. At 1e-12 that window
+                // survives and every intended bit-zero still zeroes -- the live ratios
+                // on flat data are 0 or ~1e-16, six orders the other side.
+                //
+                // This is the ONE dead-zone in the var/stddev/bbands family, and it is
+                // relative rather than the `variance < 0.0` it replaced because two
+                // things ride on it:
+                //
+                //  - SIGN. periodTotal2 is a fresh sum of squares, so the right-hand
+                //    side is >= 0 and any negative variance is clamped unconditionally -
+                //    where `< 0.0` needed the three-case argument below to know that a
+                //    negative one ever reaches this line.
+                //  - SCALE. STDDEV and BBANDS square-root this, and each used to zero
+                //    anything under a fixed TA_EPSILON first. That compares a SQUARED
+                //    quantity to 1e-14, which is a cliff at a price level and not a
+                //    noise floor: a $100.00 instrument quoted in 1e-8 ticks has a real
+                //    variance around 1e-16 and came back exactly 0 on every bar (#243).
+                //    Expressed here in the window's own units, the floor lets both of
+                //    them square-root what they are handed unconditionally.
+                //
+                // Clamping HERE and not at the output write is what keeps this off the
+                // per-bar path, and it is sufficient because a negative variance always
+                // reseeds on the same bar - the guard above covers all three cases:
+                // periodTotal2 > 0 makes its first disjunct `negative < positive`;
+                // periodTotal2 < 0 makes the second disjunct's right side negative,
+                // which the squared tempReal always exceeds; periodTotal2 == 0 reduces
+                // the first to `variance < 0`. CHANGING THAT GUARD MEANS RE-CHECKING
+                // THIS - the alternative is an unconditional clamp at the output write,
+                // which needs no such argument but does cost ~3%.
+                if variance < 0.000000000001 * (periodTotal2 * sp.invPeriod) {
+                    variance = 0.0;
+                }
+                // Re-remove the trailing value under the new shift so the carried state
+                // matches the non-reseed path.
+                tempReal = (if ((windowStart & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(windowStart & sp.xMask) as usize] } else { pkVal0 }) - shift;
+                periodTotal1 -= tempReal;
+                tempReal *= tempReal;
+                periodTotal2 -= tempReal;
+            }
+            (*outReal) = variance;
+            i += 1;
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_VAR_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::VAR`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

@@ -597,14 +597,15 @@ public partial class Core
 
       internal MfiStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Mfi</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
-      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
-      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
-      /// subset of this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
+      /// to the count — a non-finite bar is rejected but still counted, because the
+      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
+      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
+      /// this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -628,43 +629,19 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( MfiStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.posSumMF = other.posSumMF;
-         this.negSumMF = other.negSumMF;
-         this.prevValue = other.prevValue;
-         this.nullRun = other.nullRun;
-         this.mflow_Idx = other.mflow_Idx;
-         this.maxIdx_mflow = other.maxIdx_mflow;
-         this.cbSize_mflow = other.cbSize_mflow;
-         if( this.cb_mflow_positive.Length != other.cb_mflow_positive.Length ) {
-            this.cb_mflow_positive = new double[other.cb_mflow_positive.Length];
-         }
-         Array.Copy( other.cb_mflow_positive, this.cb_mflow_positive, other.cb_mflow_positive.Length );
-         if( this.cb_mflow_negative.Length != other.cb_mflow_negative.Length ) {
-            this.cb_mflow_negative = new double[other.cb_mflow_negative.Length];
-         }
-         Array.Copy( other.cb_mflow_negative, this.cb_mflow_negative, other.cb_mflow_negative.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static MfiStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -673,7 +650,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow, double inClose, double inVolume )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MFI", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("MFI", "update", RetCode.BadParam);
+         }
          core.MfiStepImpl(this, inHigh, inLow, inClose, inVolume);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -682,11 +663,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -696,15 +678,53 @@ public partial class Core
       public double Peek( double inHigh, double inLow, double inClose, double inVolume )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MFI", "peek", RetCode.BadParam);
-         MfiStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new MfiStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         MfiStream sp = this;
+         double tempValue1 = 0.0;
+         double tempValue2 = 0.0;
+         double tempValue3 = 0.0;
+         double moneyFlow = 0.0;
+         double posFlow = 0.0;
+         double negFlow = 0.0;
+         double posClamped = 0.0;
+         double cur_outReal = sp.cur_outReal;
+         int mflow_Idx = sp.mflow_Idx;
+         double negSumMF = sp.negSumMF;
+         int nullRun = sp.nullRun;
+         double posSumMF = sp.posSumMF;
+         double prevValue = sp.prevValue;
+         posSumMF -= sp.cb_mflow_positive[mflow_Idx];
+         negSumMF -= sp.cb_mflow_negative[mflow_Idx];
+         tempValue1 = (inHigh + inLow + inClose) / 3.0;
+         tempValue2 = tempValue1 - prevValue;
+         /* Dead-zone scaled to the two typical prices being compared (issue #107).
+          * Captured before prevValue/tempValue1 are repurposed below.
+          */
+         tempValue3 = Math.Abs(tempValue1) + Math.Abs(prevValue);
+         prevValue = tempValue1;
+         tempValue1 *= inVolume;
+         moneyFlow = (Math.Abs(tempValue2) <= 0.00000000000001 * (tempValue3)) ? 0.0 : tempValue1;
+         posFlow = (tempValue2 < 0.0) ? 0.0 : moneyFlow;
+         negFlow = (tempValue2 < 0.0) ? moneyFlow : 0.0;
+         posSumMF += posFlow;
+         negSumMF += negFlow;
+         nullRun = (moneyFlow == 0.0) ? nullRun + 1 : 0;
+         if( nullRun >= sp.optInTimePeriod ) {
+            nullRun = sp.optInTimePeriod;
+            posSumMF = 0.0;
+            negSumMF = 0.0;
          }
-         core.MfiStepImpl(scratch, inHigh, inLow, inClose, inVolume);
-         return scratch.cur_outReal;
+         tempValue1 = posSumMF + negSumMF;
+         posClamped = (posSumMF < 0.0) ? 0.0 : ((posSumMF > tempValue1) ? tempValue1 : posSumMF);
+         if( tempValue1 <= 0.0 ) {
+            cur_outReal = 0.0;
+         } else {
+            cur_outReal = 100.0 * (posClamped / tempValue1);
+         }
+         mflow_Idx = mflow_Idx + 1;
+         if( mflow_Idx > sp.maxIdx_mflow ) {
+            mflow_Idx = 0;
+         }
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -712,11 +732,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
       /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
@@ -729,15 +751,20 @@ public partial class Core
          if( inLow.Length != barCount || inClose.Length != barCount || inVolume.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) || outReal.Overlaps(inClose) || outReal.Overlaps(inVolume) ) throw Core.StreamFailure("MFI", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) || !double.IsFinite(inVolume[i]) ) throw Core.StreamFailure("MFI", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) || !double.IsFinite(inVolume[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("MFI", "updateAndFill", RetCode.BadParam);
+            }
             core.MfiStepImpl(this, inHigh[i], inLow[i], inClose[i], inVolume[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

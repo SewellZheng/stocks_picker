@@ -66,6 +66,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::VWAP`]: the number of leading input values consumed before the
     /// first output value can be produced.
+    #[doc(alias = "TA_VWAP_Lookback")]
     pub fn VWAP_Lookback(&self) -> Result<usize, RetCode> {
         // Cumulative from the first bar of the requested range, so the very
         // first bar already has a complete answer and nothing is consumed
@@ -223,30 +224,7 @@ impl Core {
     /// sluggish the further it runs from its anchor. It stays within the range of the typical
     /// prices it averages, but over a long trending range it can sit far from the current price.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// TP_t = ( High_t + Low_t + Close_t ) / 3; VWAP_t = ( Σ TP · Volume ) / ( Σ Volume ), both sums running from the first bar of the range
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * The sums run from the first bar of the range and are never reset. Charting packages anchor
-    ///   VWAP to a trading session and restart it at each session boundary; no TA-Lib function
-    ///   takes a timestamp or a session boundary, so the anchor is the range the caller asks for
-    ///   — pass one session's bars to get that session's VWAP. This is how AD and OBV, the other
-    ///   cumulative volume functions, are already used across sessions.
-    /// * Volume is expected to be non-negative. A zero-volume bar carries no weight, so one
-    ///   occurring after volume has traded leaves the average exactly where it was. Before *any*
-    ///   volume has traded there are no weights at all and the weighted mean is undefined; those
-    ///   bars carry the previous value forward, which is 0 until the first bar with volume. A
-    ///   successful call never emits NaN or ±Inf. Other implementations differ here:
-    ///   pandas-ta-classic divides through and emits NaN, and trading-signals emits no value for
-    ///   the bar at all.
-    /// * A bar whose price or volume is not a finite number cannot be weighted, so it is left out
-    ///   of the average entirely and repeats the previous value. It is skipped, not absorbed: the
-    ///   running average stays usable and resumes on the next bar that can be weighted, rather than
-    ///   being held at one stale value for the remainder of the range.
+    /// Formula and more info at [ta-lib.org/functions/vwap](https://ta-lib.org/functions/vwap).
     ///
     /// # Arguments
     ///
@@ -319,8 +297,7 @@ impl Core {
     ///   `VWAP = tpv.cumsum() / volume.cumsum()`, and reaches the session reset only by grouping on
     ///   a `DatetimeIndex`. trading-signals `trend/VWAP` implements the cumulative form with no
     ///   anchor at all.
-    ///
-    /// Further reading: [ta-lib.org/functions/vwap](https://ta-lib.org/functions/vwap)
+    #[doc(alias = "TA_VWAP")]
     #[doc(alias = "VolumeWeightedAveragePrice")]
     pub fn VWAP(
         &self,
@@ -382,24 +359,14 @@ impl Core {
 /// over the same series. Open with [`Core::vwap_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_VWAP_Stream")]
 pub struct VwapStream {
     state: VwapStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl VwapStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `VwapStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -408,17 +375,7 @@ struct VwapStreamState {
     sumPV: f64,
     sumV: f64,
     vwap: f64,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl VwapStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.sumPV = src.sumPV;
-        self.sumV = src.sumV;
-        self.vwap = src.vwap;
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -512,6 +469,7 @@ impl Core {
             sp.vwap = sp.sumPV / sp.sumV;
         }
         (*outReal) = sp.vwap;
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::vwap_open_internal`]
@@ -653,6 +611,7 @@ impl Core {
             sumPV,
             sumV,
             vwap,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
         };
         Ok(VwapStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
@@ -778,21 +737,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl VwapStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_VWAP_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64, inVolume: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() || !inVolume.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -808,7 +777,7 @@ impl VwapStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -818,7 +787,8 @@ impl VwapStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_VWAP_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], inVolume: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -827,6 +797,9 @@ impl VwapStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() || !inVolume[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::vwap_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], inVolume[i], &mut outReal[i]);
@@ -838,30 +811,139 @@ impl VwapStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. This handle holds only scalars, so the copy is a
-    /// few machine words and `peek` never allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_VWAP_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64, inVolume: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() || !inVolume.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inHigh, inLow, inClose, inVolume)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut typPrice: f64 = 0.0_f64;
+            let mut volume: f64 = 0.0_f64;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut sumPV = sp.sumPV;
+            let mut sumV = sp.sumV;
+            let mut vwap = sp.vwap;
+            // The typical price is written exactly as in ta_TYPPRICE.c so that the
+            // two agree bit for bit and this stays a true composite of it.
+            typPrice = (inHigh + inLow + inClose) / 3.0;
+            volume = inVolume;
+            // A bar is weighted only if both of its terms are real numbers. That is
+            // the whole condition: a NaN or an infinity in the price or the volume
+            // is the only way a bar cannot be weighted, and every other bar --
+            // including one that traded nothing -- is weighted normally.
+            //
+            // The test gates BOTH adds. Letting the volume in without its matching
+            // price term would leave a weight in the divisor that nothing paid for,
+            // biasing every later value: a NaN close with a good volume would drag
+            // the next value 25% low.
+            //
+            // Skipping the bar is what makes this recoverable. These are CUMULATIVE
+            // sums with no trailing term to subtract anything back out, so a single
+            // non-finite bar allowed in would leave both sums non-finite for the
+            // REST of the call -- the line would repeat one stale value on every
+            // later bar however clean it was, silently, and looking like a plausible
+            // price the whole way. Skipping keeps the state usable, so the average
+            // resumes on the very next bar that can be weighted.
+            //
+            // Testing the two INPUTS, not the product and not the candidate sums, is
+            // a measured choice:
+            //
+            //   - The candidate sums would have to be committed conditionally, which
+            //     puts four cmovs in the loop-carried dependency chain and costs
+            //     +60% on this loop. Both forms below leave the adds unconditional
+            //     inside a predicted branch and measure free.
+            //   - The product alone would also detect every unusable bar, one test
+            //     instead of two, and measures the same. But it would additionally
+            //     drop a WELL-FORMED bar whose price and volume are both finite and
+            //     whose product merely overflows -- silently, and taking that bar's
+            //     volume out of the divisor with it. Testing the inputs leaves that
+            //     case exactly as it was before this guard existed: the overflow
+            //     reaches the sum and the call reports Inf, which is the documented
+            //     `double` overflow class rather than an indicator defect, and is
+            //     louder than a freeze.
+            //
+            // So this changes behaviour for one thing only: a bar whose price or
+            // volume is not a finite number. On finite data the test is always true
+            // and no value the function has ever produced moves. Only the batch path
+            // needs it -- the streaming Update/Peek entry points reject a non-finite
+            // bar with TA_BAD_PARAM before it reaches any accumulator.
+            // The product is kept in its own statement so no compiler may contract it
+            // into an FMA. Contracting here would make the C output disagree with the
+            // Rust, Java and C# backends under the cross-language bitwise gate. Same
+            // reason as in ta_codegen/input/vwma/vwma.c.
+            //
+            // Computed before the guard rather than inside it, and unconditionally,
+            // so it stays a per-bar temporary. Assigned only on the taken arm it
+            // would instead be live across bars, and the streaming tier would carry
+            // it as a fourth state field in every handle -- 8 bytes to hold a value
+            // no later bar reads. The multiply on a skipped bar is discarded.
+            tempReal = typPrice * volume;
+            if (typPrice).is_finite() && (volume).is_finite() {
+                sumPV += tempReal;
+                sumV += volume;
+            }
+            // Bars that traded nothing carry no weight, so a zero-volume bar in
+            // the middle of a series leaves both sums untouched and repeats the
+            // previous value on its own -- no arm needed for that. A bar skipped
+            // by the guard above repeats it for the same reason.
+            //
+            // The arm below is for the one case the ratio cannot express: a
+            // leading run of bars before any volume has traded, where there are
+            // no weights at all and the weighted mean is undefined. The last
+            // value computed is carried forward instead, which is 0.0 until the
+            // first bar with volume. Volume is non-negative, so once the divisor
+            // leaves zero it never returns and this arm cannot fire again.
+            //
+            // A successful call therefore never emits NaN or Inf (issue #112),
+            // which is the divergence from pandas-ta-classic and from
+            // trading-signals: the first emits NaN there, the second no bar at
+            // all. Testing sumV rather than the bar's own volume also keeps a
+            // negative divisor -- which no non-negative volume series can
+            // produce -- out of a price-scale output, as ta_CMF.c does.
+            if sumV > 0.0 {
+                vwap = sumPV / sumV;
+            }
+            (*outReal) = vwap;
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_VWAP_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::VWAP`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

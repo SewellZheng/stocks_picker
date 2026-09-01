@@ -74,6 +74,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_MINMAX_Lookback")]
     #[inline]
     pub fn MINMAX_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -308,12 +309,7 @@ impl Core {
     /// optInTimePeriod bars. An overlap-study companion to MIN and MAX that computes both extrema
     /// in one pass.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// outMin[i] = min(inReal[i-optInTimePeriod+1 .. i])  
-    /// outMax[i] = max(inReal[i-optInTimePeriod+1 .. i])
-    /// ```
+    /// Formula and more info at [ta-lib.org/functions/minmax](https://ta-lib.org/functions/minmax).
     ///
     /// # Arguments
     ///
@@ -365,8 +361,7 @@ impl Core {
     ///
     /// [`Core::MIN`] · [`Core::MAX`] · [`Core::MINMAXINDEX`] · [`Core::MININDEX`] ·
     /// [`Core::MAXINDEX`]
-    ///
-    /// Further reading: [ta-lib.org/functions/minmax](https://ta-lib.org/functions/minmax)
+    #[doc(alias = "TA_MINMAX")]
     #[doc(alias = "HighestLowest")]
     pub fn MINMAX(
         &self,
@@ -422,24 +417,14 @@ impl Core {
 /// over the same series. Open with [`Core::minmax_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MINMAX_Stream")]
 pub struct MinmaxStream {
     state: MinmaxStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl MinmaxStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `MinmaxStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -455,24 +440,8 @@ struct MinmaxStreamState {
     today: i32,
     xMask: i32,
     x_inReal: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl MinmaxStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.highest = src.highest;
-        self.lowest = src.lowest;
-        self.trailingIdx = src.trailingIdx;
-        self.highestIdx = src.highestIdx;
-        self.lowestIdx = src.lowestIdx;
-        self.i = src.i;
-        self.today = src.today;
-        self.xMask = src.xMask;
-        self.x_inReal.clone_from(&src.x_inReal);
-    }
+    cur_outMin: f64,
+    cur_outMax: f64,
 }
 
 #[allow(unused_variables)]
@@ -529,6 +498,8 @@ impl Core {
         (*outMin) = sp.lowest;
         sp.trailingIdx += 1;
         sp.today += 1;
+        sp.cur_outMin = (*outMin);
+        sp.cur_outMax = (*outMax);
     }
 
     /// The single whole-history transcription behind [`Core::minmax_open_internal`]
@@ -680,6 +651,8 @@ impl Core {
             lowestIdx: (lowestIdx) as i32,
             i: (i) as i32,
             today: (today) as i32,
+            cur_outMin: outMin[(*outNBElement - 1) * outStride],
+            cur_outMax: outMax[(*outNBElement - 1) * outStride],
             xMask: (physX - 1) as i32,
             x_inReal,
         };
@@ -802,21 +775,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl MinmaxStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_MINMAX_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<(f64, f64), RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outMin: f64 = 0.0_f64;
@@ -833,7 +816,7 @@ impl MinmaxStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -843,7 +826,8 @@ impl MinmaxStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_MINMAX_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outMin: &mut [f64], outMax: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -852,6 +836,9 @@ impl MinmaxStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::minmax_step_impl(&mut self.state, inReal[i], &mut outMin[i], &mut outMax[i]);
@@ -863,32 +850,113 @@ impl MinmaxStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
-    /// often removed outright by the optimizer, which is why nothing is
-    /// reused here, but that is not a guarantee: budget for a clone of the
-    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_MINMAX_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<(f64, f64), RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inReal)
+        let mut outMin: f64 = 0.0_f64;
+        let mut outMax: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outMin = &mut outMin;
+            let outMax = &mut outMax;
+            let mut tmpHigh: f64 = 0.0_f64;
+            let mut tmpLow: f64 = 0.0_f64;
+            let mut cur_outMax = sp.cur_outMax;
+            let mut cur_outMin = sp.cur_outMin;
+            let mut highest = sp.highest;
+            let mut highestIdx = sp.highestIdx;
+            let mut i = sp.i;
+            let mut lowest = sp.lowest;
+            let mut lowestIdx = sp.lowestIdx;
+            let mut today = sp.today;
+            let mut trailingIdx = sp.trailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            if today >= 1073741824 {
+                let rebaseShift: i32 = trailingIdx & !sp.xMask;
+                today -= rebaseShift;
+                trailingIdx -= rebaseShift;
+                highestIdx -= rebaseShift;
+                i -= rebaseShift;
+                lowestIdx -= rebaseShift;
+            }
+            pkSlot0 = (today & sp.xMask) as usize;
+            pkVal0 = inReal;
+            tmpHigh = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(today & sp.xMask) as usize] } else { pkVal0 });
+            tmpLow = tmpHigh;
+            if highestIdx < trailingIdx {
+                highestIdx = trailingIdx;
+                highest = (if ((highestIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(highestIdx & sp.xMask) as usize] } else { pkVal0 });
+                i = highestIdx;
+                while (({ i += 1; i }) as i32) <= today {
+                    tmpHigh = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(i & sp.xMask) as usize] } else { pkVal0 });
+                    if tmpHigh > highest {
+                        highestIdx = i;
+                        highest = tmpHigh;
+                    }
+                }
+            } else if tmpHigh >= highest {
+                highestIdx = today;
+                highest = tmpHigh;
+            }
+            if lowestIdx < trailingIdx {
+                lowestIdx = trailingIdx;
+                lowest = (if ((lowestIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(lowestIdx & sp.xMask) as usize] } else { pkVal0 });
+                i = lowestIdx;
+                while (({ i += 1; i }) as i32) <= today {
+                    tmpLow = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(i & sp.xMask) as usize] } else { pkVal0 });
+                    if tmpLow < lowest {
+                        lowestIdx = i;
+                        lowest = tmpLow;
+                    }
+                }
+            } else if tmpLow <= lowest {
+                lowestIdx = today;
+                lowest = tmpLow;
+            }
+            (*outMax) = highest;
+            (*outMin) = lowest;
+            trailingIdx += 1;
+            today += 1;
+            cur_outMin = (*outMin);
+            cur_outMax = (*outMax);
+        }
+        Ok((outMin, outMax))
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_MINMAX_Value")]
+    pub fn value(&self) -> (f64, f64) {
+        (self.state.cur_outMin, self.state.cur_outMax)
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::MINMAX`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

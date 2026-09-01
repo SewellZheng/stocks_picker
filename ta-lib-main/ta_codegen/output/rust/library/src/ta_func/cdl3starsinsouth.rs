@@ -66,6 +66,7 @@ use super::*;
 impl Core {
     /// Lookback period for [`Core::CDL3STARSINSOUTH`]: the number of leading input values consumed
     /// before the first output value can be produced.
+    #[doc(alias = "TA_CDL3STARSINSOUTH_Lookback")]
     pub fn CDL3STARSINSOUTH_Lookback(&self) -> Result<usize, RetCode> {
         #[allow(non_snake_case)]
         let BodyLong_rangeType: i32 = self.candle_settings.body_long.range_type as i32;
@@ -465,14 +466,8 @@ impl Core {
     /// range. A hit signals a bullish reversal; per the code comment it is meaningful in a
     /// downtrend, but the function does not verify prior trend.
     ///
-    /// # Notes
-    ///
-    /// * Does not verify the prior downtrend the pattern classically assumes for significance.
-    /// * Thomas Bulkowski's statistical study found this has the best reversal rate of the 103
-    ///   candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9
-    ///   occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks
-    ///   dead last, 103rd of 103.
-    ///   ([thepatternsite.com](https://thepatternsite.com/ThreeStarsSouth.html))
+    /// Formula and more info at
+    /// [ta-lib.org/functions/cdl3starsinsouth](https://ta-lib.org/functions/cdl3starsinsouth).
     ///
     /// # Arguments
     ///
@@ -524,15 +519,17 @@ impl Core {
     ///     &mut out,
     /// )?;
     /// assert!(out_range.count > 0);
+    /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
+    /// // a candlestick pattern reports 0 where it does not fire, and a signed
+    /// // strength -- negative bearish, positive bullish -- where it does
+    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
     /// # See also
     ///
     /// [`Core::CDL3BLACKCROWS`] · [`Core::CDLIDENTICAL3CROWS`] · [`Core::CDL3WHITESOLDIERS`]
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/cdl3starsinsouth](https://ta-lib.org/functions/cdl3starsinsouth)
+    #[doc(alias = "TA_CDL3STARSINSOUTH")]
     #[doc(alias = "ThreeStarsInTheSouth")]
     pub fn CDL3STARSINSOUTH(
         &self,
@@ -594,7 +591,7 @@ impl Core {
 /// over the same series. Open with [`Core::cdl3starsinsouth_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDL3STARSINSOUTH_Stream")]
@@ -608,22 +605,8 @@ pub struct Cdl3starsinsouthStream {
     /// The `ShadowVeryShort` setting this stream was opened with.
     cs_shadow_very_short: CandleSetting,
     state: Cdl3starsinsouthStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl Cdl3starsinsouthStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `Cdl3starsinsouthStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.cs_body_long = src.cs_body_long;
-        self.cs_body_short = src.cs_body_short;
-        self.cs_shadow_long = src.cs_shadow_long;
-        self.cs_shadow_very_short = src.cs_shadow_very_short;
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -656,41 +639,7 @@ struct Cdl3starsinsouthStreamState {
     ringCap_ShadowVeryShortTrailingIdx: usize,
     ringLag_ShadowVeryShortTrailingIdx: usize,
     ring_ShadowVeryShortTrailingIdx_derived: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl Cdl3starsinsouthStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.BodyLongPeriodTotal = src.BodyLongPeriodTotal;
-        self.BodyShortPeriodTotal = src.BodyShortPeriodTotal;
-        self.ShadowLongPeriodTotal = src.ShadowLongPeriodTotal;
-        self.ShadowVeryShortPeriodTotal = src.ShadowVeryShortPeriodTotal;
-        self.lag1_inOpen = src.lag1_inOpen;
-        self.lag2_inOpen = src.lag2_inOpen;
-        self.lag1_inHigh = src.lag1_inHigh;
-        self.lag2_inHigh = src.lag2_inHigh;
-        self.lag1_inLow = src.lag1_inLow;
-        self.lag2_inLow = src.lag2_inLow;
-        self.lag1_inClose = src.lag1_inClose;
-        self.lag2_inClose = src.lag2_inClose;
-        self.ringPos_BodyLongTrailingIdx = src.ringPos_BodyLongTrailingIdx;
-        self.ringCap_BodyLongTrailingIdx = src.ringCap_BodyLongTrailingIdx;
-        self.ringLag_BodyLongTrailingIdx = src.ringLag_BodyLongTrailingIdx;
-        self.ring_BodyLongTrailingIdx_derived.clone_from(&src.ring_BodyLongTrailingIdx_derived);
-        self.ringPos_BodyShortTrailingIdx = src.ringPos_BodyShortTrailingIdx;
-        self.ringCap_BodyShortTrailingIdx = src.ringCap_BodyShortTrailingIdx;
-        self.ring_BodyShortTrailingIdx_derived.clone_from(&src.ring_BodyShortTrailingIdx_derived);
-        self.ringPos_ShadowLongTrailingIdx = src.ringPos_ShadowLongTrailingIdx;
-        self.ringCap_ShadowLongTrailingIdx = src.ringCap_ShadowLongTrailingIdx;
-        self.ringLag_ShadowLongTrailingIdx = src.ringLag_ShadowLongTrailingIdx;
-        self.ring_ShadowLongTrailingIdx_derived.clone_from(&src.ring_ShadowLongTrailingIdx_derived);
-        self.ringPos_ShadowVeryShortTrailingIdx = src.ringPos_ShadowVeryShortTrailingIdx;
-        self.ringCap_ShadowVeryShortTrailingIdx = src.ringCap_ShadowVeryShortTrailingIdx;
-        self.ringLag_ShadowVeryShortTrailingIdx = src.ringLag_ShadowVeryShortTrailingIdx;
-        self.ring_ShadowVeryShortTrailingIdx_derived.clone_from(&src.ring_ShadowVeryShortTrailingIdx_derived);
-    }
+    cur_outInteger: i32,
 }
 
 #[allow(unused_variables)]
@@ -869,6 +818,7 @@ impl Core {
             }
         }
         sp.BodyShortPeriodTotal += _candlerange_6 - sp.ring_BodyShortTrailingIdx_derived[sp.ringPos_BodyShortTrailingIdx];
+        sp.cur_outInteger = (*outInteger);
         sp.lag2_inOpen = sp.lag1_inOpen;
         sp.lag1_inOpen = inOpen;
         sp.lag2_inHigh = sp.lag1_inHigh;
@@ -1330,6 +1280,7 @@ impl Core {
             BodyShortPeriodTotal,
             ShadowLongPeriodTotal,
             ShadowVeryShortPeriodTotal,
+            cur_outInteger: outInteger[(*outNBElement - 1) * outStride],
             lag1_inOpen: inOpen[historyLen - 1],
             lag2_inOpen: inOpen[historyLen - 2],
             lag1_inHigh: inHigh[historyLen - 1],
@@ -1475,31 +1426,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `Cdl3starsinsouthStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDL3STARSINSOUTH_PEEK_SCRATCH: std::cell::Cell<Option<Box<Cdl3starsinsouthStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl Cdl3starsinsouthStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_CDL3STARSINSOUTH_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
@@ -1515,7 +1468,7 @@ impl Cdl3starsinsouthStream {
     /// argument checks instead of `n`. `n` is `inOpen.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1525,7 +1478,8 @@ impl Cdl3starsinsouthStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_CDL3STARSINSOUTH_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
         let barCount = inOpen.len();
@@ -1534,6 +1488,9 @@ impl Cdl3starsinsouthStream {
         }
         for i in 0..barCount {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::cdl3starsinsouth_step_impl(&mut self.state, &self.cs_body_long, &self.cs_body_short, &self.cs_shadow_long, &self.cs_shadow_very_short, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
@@ -1545,36 +1502,273 @@ impl Cdl3starsinsouthStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_CDL3STARSINSOUTH_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        CDL3STARSINSOUTH_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outInteger: i32 = 0_i32;
-            Core::cdl3starsinsouth_step_impl(&mut scratch, &self.cs_body_long, &self.cs_body_short, &self.cs_shadow_long, &self.cs_shadow_very_short, inOpen, inHigh, inLow, inClose, &mut outInteger);
-            cell.set(Some(scratch));
-            Ok(outInteger)
-        })
+        let mut outInteger: i32 = 0_i32;
+        {
+            let sp = &self.state;
+            let outInteger = &mut outInteger;
+            let mut totIdx: usize = 0_usize;
+            let mut BodyLongPeriodTotal = sp.BodyLongPeriodTotal;
+            let mut BodyShortPeriodTotal = sp.BodyShortPeriodTotal;
+            let mut ShadowLongPeriodTotal = sp.ShadowLongPeriodTotal;
+            let mut ShadowVeryShortPeriodTotal = sp.ShadowVeryShortPeriodTotal;
+            let mut cur_outInteger = sp.cur_outInteger;
+            let mut lag1_inClose = sp.lag1_inClose;
+            let mut lag1_inHigh = sp.lag1_inHigh;
+            let mut lag1_inLow = sp.lag1_inLow;
+            let mut lag1_inOpen = sp.lag1_inOpen;
+            let mut lag2_inClose = sp.lag2_inClose;
+            let mut lag2_inHigh = sp.lag2_inHigh;
+            let mut lag2_inLow = sp.lag2_inLow;
+            let mut lag2_inOpen = sp.lag2_inOpen;
+            let mut ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+            let mut ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+            let mut ringPos_ShadowLongTrailingIdx = sp.ringPos_ShadowLongTrailingIdx;
+            let mut ringPos_ShadowVeryShortTrailingIdx = sp.ringPos_ShadowVeryShortTrailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            let mut pkSlot2: usize = usize::MAX;
+            let mut pkVal2: f64 = 0.0_f64;
+            let mut pkSlot3: usize = usize::MAX;
+            let mut pkVal3: f64 = 0.0_f64;
+            #[allow(non_snake_case)]
+            let BodyLong_rangeType: i32 = self.cs_body_long.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyLong_avgPeriod: i32 = self.cs_body_long.avg_period;
+            #[allow(non_snake_case)]
+            let BodyLong_factor: f64 = self.cs_body_long.factor;
+            #[allow(non_snake_case)]
+            let BodyShort_rangeType: i32 = self.cs_body_short.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyShort_avgPeriod: i32 = self.cs_body_short.avg_period;
+            #[allow(non_snake_case)]
+            let BodyShort_factor: f64 = self.cs_body_short.factor;
+            #[allow(non_snake_case)]
+            let ShadowLong_rangeType: i32 = self.cs_shadow_long.range_type as i32;
+            #[allow(non_snake_case)]
+            let ShadowLong_avgPeriod: i32 = self.cs_shadow_long.avg_period;
+            #[allow(non_snake_case)]
+            let ShadowLong_factor: f64 = self.cs_shadow_long.factor;
+            #[allow(non_snake_case)]
+            let ShadowVeryShort_rangeType: i32 = self.cs_shadow_very_short.range_type as i32;
+            #[allow(non_snake_case)]
+            let ShadowVeryShort_avgPeriod: i32 = self.cs_shadow_very_short.avg_period;
+            #[allow(non_snake_case)]
+            let ShadowVeryShort_factor: f64 = self.cs_shadow_very_short.factor;
+            pkSlot0 = ringPos_BodyLongTrailingIdx as usize;
+            let mut _candlerange_21: f64;
+            match BodyLong_rangeType {
+                0 => {
+                    _candlerange_21 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_21 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_21 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_21 = 0.0;
+                }
+            }
+            pkVal0 = _candlerange_21;
+            if sp.ringCap_BodyShortTrailingIdx == 0 {
+                pkSlot1 = 0;
+                let mut _candlerange_22: f64;
+                match BodyShort_rangeType {
+                    0 => {
+                        _candlerange_22 = (inClose - inOpen).abs();
+                    }
+                    1 => {
+                        _candlerange_22 = inHigh - inLow;
+                    }
+                    2 => {
+                        _candlerange_22 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                    }
+                    _ => {
+                        _candlerange_22 = 0.0;
+                    }
+                }
+                pkVal1 = _candlerange_22;
+            }
+            pkSlot2 = ringPos_ShadowLongTrailingIdx as usize;
+            let mut _candlerange_23: f64;
+            match ShadowLong_rangeType {
+                0 => {
+                    _candlerange_23 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_23 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_23 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_23 = 0.0;
+                }
+            }
+            pkVal2 = _candlerange_23;
+            pkSlot3 = ringPos_ShadowVeryShortTrailingIdx as usize;
+            let mut _candlerange_24: f64;
+            match ShadowVeryShort_rangeType {
+                0 => {
+                    _candlerange_24 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_24 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_24 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_24 = 0.0;
+                }
+            }
+            pkVal3 = _candlerange_24;
+            if (((if lag2_inClose >= lag2_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // 1st black
+               (((if lag1_inClose >= lag1_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // 2nd black
+               (((if inClose >= inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // 3rd black
+               (lag2_inClose - lag2_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((lag2_inClose) - (lag2_inOpen)).abs(), 1 => (lag2_inHigh) - (lag2_inLow), 2 => ((lag2_inHigh) - (if (lag2_inClose) >= (lag2_inOpen) { (lag2_inClose) } else { (lag2_inOpen) })) + ((if (lag2_inClose) >= (lag2_inOpen) { (lag2_inOpen) } else { (lag2_inClose) }) - (lag2_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st: long
+               ((if lag2_inClose >= lag2_inOpen { lag2_inOpen } else { lag2_inClose }) - lag2_inLow) > ((ShadowLong_factor) * (if (ShadowLong_avgPeriod) != 0 { (ShadowLongPeriodTotal) / (ShadowLong_avgPeriod as f64) } else { match ShadowLong_rangeType { 0 => ((lag2_inClose) - (lag2_inOpen)).abs(), 1 => (lag2_inHigh) - (lag2_inLow), 2 => ((lag2_inHigh) - (if (lag2_inClose) >= (lag2_inOpen) { (lag2_inClose) } else { (lag2_inOpen) })) + ((if (lag2_inClose) >= (lag2_inOpen) { (lag2_inOpen) } else { (lag2_inClose) }) - (lag2_inLow)), _ => 0.0 } }) / (if (ShadowLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // with long lower shadow
+               (lag1_inClose - lag1_inOpen).abs() < (lag2_inClose - lag2_inOpen).abs() && // 2nd: smaller candle
+               lag1_inOpen > lag2_inClose &&
+               lag1_inOpen <= lag2_inHigh &&                                      // that opens higher but within 1st range
+               lag1_inLow < lag2_inClose &&                                       // and trades lower than 1st close
+               lag1_inLow >= lag2_inLow &&                                        // but not lower than 1st low
+               ((if lag1_inClose >= lag1_inOpen { lag1_inOpen } else { lag1_inClose }) - lag1_inLow) > ((ShadowVeryShort_factor) * (if (ShadowVeryShort_avgPeriod) != 0 { (ShadowVeryShortPeriodTotal[1]) / (ShadowVeryShort_avgPeriod as f64) } else { match ShadowVeryShort_rangeType { 0 => ((lag1_inClose) - (lag1_inOpen)).abs(), 1 => (lag1_inHigh) - (lag1_inLow), 2 => ((lag1_inHigh) - (if (lag1_inClose) >= (lag1_inOpen) { (lag1_inClose) } else { (lag1_inOpen) })) + ((if (lag1_inClose) >= (lag1_inOpen) { (lag1_inOpen) } else { (lag1_inClose) }) - (lag1_inLow)), _ => 0.0 } }) / (if (ShadowVeryShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // and has a lower shadow
+               (inClose - inOpen).abs() < ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // 3rd: small marubozu
+               ((if inClose >= inOpen { inOpen } else { inClose }) - inLow) < ((ShadowVeryShort_factor) * (if (ShadowVeryShort_avgPeriod) != 0 { (ShadowVeryShortPeriodTotal[0]) / (ShadowVeryShort_avgPeriod as f64) } else { match ShadowVeryShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (ShadowVeryShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+               (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) < ((ShadowVeryShort_factor) * (if (ShadowVeryShort_avgPeriod) != 0 { (ShadowVeryShortPeriodTotal[0]) / (ShadowVeryShort_avgPeriod as f64) } else { match ShadowVeryShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (ShadowVeryShort_rangeType) == 2 { 2.0 } else { 1.0 })) &&
+               inLow > lag1_inLow &&
+               inHigh < lag1_inHigh                                               // engulfed by prior candle's range
+            {
+                (*outInteger) = 100;
+            } else {
+                (*outInteger) = 0;
+            }
+            // add the current range and subtract the first range: this is done after the pattern recognition
+            // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+            let mut _candlerange_25: f64;
+            match BodyLong_rangeType {
+                0 => {
+                    _candlerange_25 = (lag2_inClose - lag2_inOpen).abs();
+                }
+                1 => {
+                    _candlerange_25 = lag2_inHigh - lag2_inLow;
+                }
+                2 => {
+                    _candlerange_25 = (lag2_inHigh - (if lag2_inClose >= lag2_inOpen { lag2_inClose } else { lag2_inOpen })) + ((if lag2_inClose >= lag2_inOpen { lag2_inOpen } else { lag2_inClose }) - lag2_inLow);
+                }
+                _ => {
+                    _candlerange_25 = 0.0;
+                }
+            }
+            BodyLongPeriodTotal += _candlerange_25 - (if (((ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 2) % sp.ringCap_BodyLongTrailingIdx) as usize) != pkSlot0 { sp.ring_BodyLongTrailingIdx_derived[((ringPos_BodyLongTrailingIdx + sp.ringCap_BodyLongTrailingIdx - sp.ringLag_BodyLongTrailingIdx - 2) % sp.ringCap_BodyLongTrailingIdx) as usize] } else { pkVal0 });
+            let mut _candlerange_26: f64;
+            match ShadowLong_rangeType {
+                0 => {
+                    _candlerange_26 = (lag2_inClose - lag2_inOpen).abs();
+                }
+                1 => {
+                    _candlerange_26 = lag2_inHigh - lag2_inLow;
+                }
+                2 => {
+                    _candlerange_26 = (lag2_inHigh - (if lag2_inClose >= lag2_inOpen { lag2_inClose } else { lag2_inOpen })) + ((if lag2_inClose >= lag2_inOpen { lag2_inOpen } else { lag2_inClose }) - lag2_inLow);
+                }
+                _ => {
+                    _candlerange_26 = 0.0;
+                }
+            }
+            ShadowLongPeriodTotal += _candlerange_26 - (if (((ringPos_ShadowLongTrailingIdx + sp.ringCap_ShadowLongTrailingIdx - sp.ringLag_ShadowLongTrailingIdx - 2) % sp.ringCap_ShadowLongTrailingIdx) as usize) != pkSlot2 { sp.ring_ShadowLongTrailingIdx_derived[((ringPos_ShadowLongTrailingIdx + sp.ringCap_ShadowLongTrailingIdx - sp.ringLag_ShadowLongTrailingIdx - 2) % sp.ringCap_ShadowLongTrailingIdx) as usize] } else { pkVal2 });
+            // for( totIdx = 1; totIdx >= 0; totIdx -= 1 )
+            totIdx = 1;
+            loop {
+                ShadowVeryShortPeriodTotal[totIdx] = ShadowVeryShortPeriodTotal[totIdx] + ((if ((if ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp.ringCap_ShadowVeryShortTrailingIdx { ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx - sp.ringCap_ShadowVeryShortTrailingIdx } else { ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx }) as usize) != pkSlot3 { sp.ring_ShadowVeryShortTrailingIdx_derived[((if ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp.ringCap_ShadowVeryShortTrailingIdx { ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx - sp.ringCap_ShadowVeryShortTrailingIdx } else { ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - totIdx })) as usize] } else { pkVal3 }) - (if (((ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - sp.ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp.ringCap_ShadowVeryShortTrailingIdx) as usize) != pkSlot3 { sp.ring_ShadowVeryShortTrailingIdx_derived[((ringPos_ShadowVeryShortTrailingIdx + sp.ringCap_ShadowVeryShortTrailingIdx - sp.ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp.ringCap_ShadowVeryShortTrailingIdx) as usize] } else { pkVal3 }));
+                if totIdx == 0 { break; }
+                totIdx -= 1;
+            }
+            let mut _candlerange_27: f64;
+            match BodyShort_rangeType {
+                0 => {
+                    _candlerange_27 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_27 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_27 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_27 = 0.0;
+                }
+            }
+            BodyShortPeriodTotal += _candlerange_27 - (if (ringPos_BodyShortTrailingIdx as usize) != pkSlot1 { sp.ring_BodyShortTrailingIdx_derived[ringPos_BodyShortTrailingIdx] } else { pkVal1 });
+            cur_outInteger = (*outInteger);
+            lag2_inOpen = lag1_inOpen;
+            lag1_inOpen = inOpen;
+            lag2_inHigh = lag1_inHigh;
+            lag1_inHigh = inHigh;
+            lag2_inLow = lag1_inLow;
+            lag1_inLow = inLow;
+            lag2_inClose = lag1_inClose;
+            lag1_inClose = inClose;
+            ringPos_BodyLongTrailingIdx = ringPos_BodyLongTrailingIdx + 1;
+            if ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
+                ringPos_BodyLongTrailingIdx = 0;
+            }
+            ringPos_BodyShortTrailingIdx = ringPos_BodyShortTrailingIdx + 1;
+            if ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx {
+                ringPos_BodyShortTrailingIdx = 0;
+            }
+            ringPos_ShadowLongTrailingIdx = ringPos_ShadowLongTrailingIdx + 1;
+            if ringPos_ShadowLongTrailingIdx >= sp.ringCap_ShadowLongTrailingIdx {
+                ringPos_ShadowLongTrailingIdx = 0;
+            }
+            ringPos_ShadowVeryShortTrailingIdx = ringPos_ShadowVeryShortTrailingIdx + 1;
+            if ringPos_ShadowVeryShortTrailingIdx >= sp.ringCap_ShadowVeryShortTrailingIdx {
+                ringPos_ShadowVeryShortTrailingIdx = 0;
+            }
+        }
+        Ok(outInteger)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_CDL3STARSINSOUTH_Value")]
+    pub fn value(&self) -> i32 {
+        self.state.cur_outInteger
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::CDL3STARSINSOUTH`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

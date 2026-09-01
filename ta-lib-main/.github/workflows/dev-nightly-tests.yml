@@ -493,6 +493,173 @@ jobs:
         shell: bash
         run: cargo test --tests -p ta-lib --manifest-path ta_codegen/output/rust/Cargo.toml
 
+      # Every step above compiles the crate IN the workspace, where each file on
+      # disk is reachable whether or not it would ship. The `.crate` tarball is a
+      # different artifact -- cargo builds its file list from git, filtered by the
+      # manifest's include/exclude and by every .gitignore above it -- and nothing
+      # here had ever built one (#179 E1). So a file could be present, compiled,
+      # linted, documented and tested and still be absent from what crates.io
+      # receives, with a published release that does not build as the first sign.
+      #
+      # The script packages the pair (the library pins an =0.1.2 dispatch that is
+      # not on crates.io yet, so it cannot resolve alone), which makes cargo
+      # verification-BUILD each crate from its own unpacked tarball, and then
+      # checks the tarball contents against `git ls-files` -- derived, so adding a
+      # function needs no edit here, and exact, so losing one fails. Measured
+      # against the four steps above by excluding LICENSE from the manifest: all
+      # four stay green (clippy, rustdoc, 534 doctests, the --tests suites) and
+      # only this step goes red. See scripts/rust_package_check.py.
+      #
+      # No --allow-dirty on purpose: this runs on a fresh checkout, so an
+      # unexpectedly dirty tree is itself something to hear about. No
+      # setup-python either -- the script is stdlib-only and ubuntu-latest ships
+      # python3, so this job stays the self-contained Rust-only one it is.
+      - name: Package the publishable crates and check what ships
+        shell: bash
+        run: python3 scripts/rust_package_check.py
+
+  # The two publishable crates declare `rust-version = "1.86"`, and nothing
+  # else here compiles them at it -- every other Rust step runs on the pinned
+  # toolchain from rust-toolchain.toml (1.97.0), so a post-1.86 API reaching
+  # the generated crate is green everywhere and breaks only for a consumer on
+  # an older toolchain, after publish, in a version that cannot be edited.
+  #
+  # Nightly, not the PR gate: pr-codegen-gate.yml stays fast and lightweight
+  # by design (#298 discussion), and an extra toolchain install of unmeasured
+  # download time does not belong in every contributor's merge-blocking path.
+  # Nightly is also strictly more coverage, not less -- dev takes direct
+  # pushes that `on: pull_request` never sees, so this is the only copy that
+  # ever runs against those, the same reasoning regen-check and clippy above
+  # already rely on.
+  #
+  # The floor is READ from the manifests, not written here: bumping it in
+  # ta_codegen/generator/src/main.rs moves this gate with it, and the two
+  # reads are also the job's non-vacuity guard -- a missing or disagreeing
+  # rust-version fails before any toolchain is installed.
+  #
+  # Rust-only and self-contained, so like clippy above it is deliberately NOT
+  # gated on the C hero 'test' job.
+  msrv:
+    name: Rust MSRV floor
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      - name: Read the declared floor from the two publishable manifests
+        id: floor
+        shell: bash
+        run: |
+          read_msrv() { sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' "$1" | head -n 1; }
+          lib=$(read_msrv ta_codegen/output/rust/library/Cargo.toml)
+          dispatch=$(read_msrv ta_codegen/output/rust/dispatch/Cargo.toml)
+          if [ -z "$lib" ] || [ -z "$dispatch" ]; then
+            echo "::error::A publishable crate declares no rust-version (ta-lib='$lib', ta-lib-dispatch='$dispatch'), so this job has no floor to compile against. Both manifests are generated — restore the literal in ta_codegen/generator/src/main.rs and re-run 'scripts/build.py generate'."
+            exit 1
+          fi
+          if [ "$lib" != "$dispatch" ]; then
+            echo "::error::The publishable crates declare different floors (ta-lib='$lib', ta-lib-dispatch='$dispatch'). ta-lib pins ta-lib-dispatch with '=', so the two ship as a pair and only one floor is meaningful. Both literals live in ta_codegen/generator/src/main.rs."
+            exit 1
+          fi
+          echo "Declared MSRV: $lib"
+          echo "msrv=$lib" >> "$GITHUB_OUTPUT"
+
+      # rustup is preinstalled on ubuntu-latest. `+<version>` overrides
+      # rust-toolchain.toml for this one invocation, so the pin stays the
+      # default for every other step and job.
+      - name: Install the declared floor toolchain
+        shell: bash
+        run: rustup toolchain install "${{ steps.floor.outputs.msrv }}" --profile minimal --no-self-update
+
+      - name: Compile the publishable crates on the declared floor
+        shell: bash
+        run: |
+          if ! cargo "+${{ steps.floor.outputs.msrv }}" check -p ta-lib -p ta-lib-dispatch --all-targets --manifest-path ta_codegen/output/rust/Cargo.toml; then
+            echo "::error::The publishable crates do not compile on their own declared MSRV (${{ steps.floor.outputs.msrv }}). Either the code reached for something newer -- a 'use of unstable library feature' or 'stable since 1.NN' note names it -- in which case fix the generator that emits it, or the floor genuinely has to rise, in which case raise rust-version in ta_codegen/generator/src/main.rs (both crates) and say why in the commit. Reproduce locally: rustup toolchain install ${{ steps.floor.outputs.msrv }} && cargo +${{ steps.floor.outputs.msrv }} check -p ta-lib -p ta-lib-dispatch --all-targets --manifest-path ta_codegen/output/rust/Cargo.toml"
+            exit 1
+          fi
+
+  # Every Rust step in this tree compiles for the runner's own host triple,
+  # x86_64-unknown-linux-gnu, and that is the only machine shape the crate has
+  # ever been compiled in (#179 E3). Two assumptions rustc can see are invisible
+  # from there: a pointer width of 64 -- the crate indexes with `usize` end to
+  # end -- and an x86 ISA. Neither has a symptom here; the first sign is a
+  # compile error in a consumer's build, on a platform nobody in this repo
+  # builds for, in a published version that cannot be edited.
+  #
+  # Measured on this tree, by injecting each defect into the generated crate and
+  # re-running all three legs:
+  #
+  #   injected into library/src/lib.rs                  host   i686   aarch64
+  #   const _: () = assert!(size_of::<usize>() == 8)    green   RED    green
+  #   use core::arch::x86_64::_mm_pause;                green   RED    RED
+  #
+  # So i686 is the leg that does the work: it is the only one of the three that
+  # sees a pointer-width assumption. aarch64 earns its place on a different
+  # argument -- it is a platform consumers actually run on (Apple Silicon,
+  # Graviton), not a defect class i686 misses. No defect was found that aarch64
+  # catches and i686 does not.
+  #
+  # `check`, not `test`: running the crate on either target needs an emulator and
+  # a cross linker, and this job deliberately buys neither. A 32-bit arithmetic
+  # overflow that only appears at run time is therefore NOT covered here -- this
+  # gate is about what the compiler can see.
+  #
+  # Nightly, not the PR gate, for the same reason as msrv above: two rust-std
+  # downloads of unmeasured time do not belong in every contributor's
+  # merge-blocking path. Rust-only and self-contained, so also not gated on the
+  # C hero 'test' job.
+  cross-target:
+    name: Rust cross-target check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout dev Branch
+        uses: actions/checkout@v6
+        with:
+          ref: dev
+
+      # The list is the job's non-vacuity guard. An empty list, or one that named
+      # the host again, would leave every step below green while compiling
+      # nothing the other Rust jobs do not already compile -- so both are a hard
+      # failure here rather than a silently weaker gate.
+      - name: Install the cross targets
+        id: targets
+        shell: bash
+        run: |
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          targets="i686-unknown-linux-gnu aarch64-unknown-linux-gnu"
+          if [ -z "${targets// /}" ]; then
+            echo "::error::No cross targets are listed, so this job would pass without compiling anything the host jobs do not. Restore the list in .github/workflows/dev-nightly-tests.yml or delete the job."
+            exit 1
+          fi
+          for t in $targets; do
+            if [ "$t" = "$host" ]; then
+              echo "::error::Cross target '$t' is the runner's own host triple, so that leg re-checks what every other Rust job here already checks. Name a target that differs from the host, or drop it from the list."
+              exit 1
+            fi
+          done
+          echo "Host: $host"
+          echo "Cross targets: $targets"
+          rustup target add $targets
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+
+      - name: Compile the publishable crates for each cross target
+        shell: bash
+        run: |
+          for t in ${{ steps.targets.outputs.targets }}; do
+            echo "--- $t ---"
+            if ! cargo check -p ta-lib -p ta-lib-dispatch --all-targets --target "$t" --manifest-path ta_codegen/output/rust/Cargo.toml; then
+              echo "::error::The publishable crates do not compile for $t. The crate is pure Rust with no platform-specific code, so this is a portability assumption that reached the generated output -- a pointer width (anything that assumes usize is 64 bits), an x86-only intrinsic, or a type too large for a 32-bit address space. Fix the generator that emits it in ta_codegen/generator/ and re-run 'scripts/build.py generate'; do not edit ta_codegen/output/. Reproduce locally: rustup target add $t && cargo check -p ta-lib -p ta-lib-dispatch --all-targets --target $t --manifest-path ta_codegen/output/rust/Cargo.toml"
+              exit 1
+            fi
+          done
+
   # Bit-exact regression gate vs the last release (v0.6.4): diff every function
   # at period>=2, fail on any real divergence. C-only, gated on 'test'.
   # fetch-depth: 0 so the v0.6.4 tag is available. See ta_regtest/CLAUDE.md.

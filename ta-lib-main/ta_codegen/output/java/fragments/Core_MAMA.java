@@ -951,11 +951,11 @@
     * Open with {@link Core#mamaOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -1019,12 +1019,13 @@
       MamaStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#MAMA} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -1088,103 +1089,6 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( MamaStream other ) {
-         this.core = other.core;
-         this.optInFastLimit = other.optInFastLimit;
-         this.optInSlowLimit = other.optInSlowLimit;
-         this.period = other.period;
-         this.periodWMASum = other.periodWMASum;
-         this.periodWMASub = other.periodWMASub;
-         this.trailingWMAValue = other.trailingWMAValue;
-         this.a = other.a;
-         this.b = other.b;
-         this.hilbertIdx = other.hilbertIdx;
-         if( this.detrender_Odd != null && this.detrender_Odd.length == other.detrender_Odd.length ) {
-            System.arraycopy( other.detrender_Odd, 0, this.detrender_Odd, 0, other.detrender_Odd.length );
-         } else {
-            this.detrender_Odd = other.detrender_Odd.clone();
-         }
-         if( this.detrender_Even != null && this.detrender_Even.length == other.detrender_Even.length ) {
-            System.arraycopy( other.detrender_Even, 0, this.detrender_Even, 0, other.detrender_Even.length );
-         } else {
-            this.detrender_Even = other.detrender_Even.clone();
-         }
-         this.prev_detrender_Odd = other.prev_detrender_Odd;
-         this.prev_detrender_Even = other.prev_detrender_Even;
-         this.prev_detrender_input_Odd = other.prev_detrender_input_Odd;
-         this.prev_detrender_input_Even = other.prev_detrender_input_Even;
-         if( this.Q1_Odd != null && this.Q1_Odd.length == other.Q1_Odd.length ) {
-            System.arraycopy( other.Q1_Odd, 0, this.Q1_Odd, 0, other.Q1_Odd.length );
-         } else {
-            this.Q1_Odd = other.Q1_Odd.clone();
-         }
-         if( this.Q1_Even != null && this.Q1_Even.length == other.Q1_Even.length ) {
-            System.arraycopy( other.Q1_Even, 0, this.Q1_Even, 0, other.Q1_Even.length );
-         } else {
-            this.Q1_Even = other.Q1_Even.clone();
-         }
-         this.prev_Q1_Odd = other.prev_Q1_Odd;
-         this.prev_Q1_Even = other.prev_Q1_Even;
-         this.prev_Q1_input_Odd = other.prev_Q1_input_Odd;
-         this.prev_Q1_input_Even = other.prev_Q1_input_Even;
-         if( this.jI_Odd != null && this.jI_Odd.length == other.jI_Odd.length ) {
-            System.arraycopy( other.jI_Odd, 0, this.jI_Odd, 0, other.jI_Odd.length );
-         } else {
-            this.jI_Odd = other.jI_Odd.clone();
-         }
-         if( this.jI_Even != null && this.jI_Even.length == other.jI_Even.length ) {
-            System.arraycopy( other.jI_Even, 0, this.jI_Even, 0, other.jI_Even.length );
-         } else {
-            this.jI_Even = other.jI_Even.clone();
-         }
-         this.prev_jI_Odd = other.prev_jI_Odd;
-         this.prev_jI_Even = other.prev_jI_Even;
-         this.prev_jI_input_Odd = other.prev_jI_input_Odd;
-         this.prev_jI_input_Even = other.prev_jI_input_Even;
-         if( this.jQ_Odd != null && this.jQ_Odd.length == other.jQ_Odd.length ) {
-            System.arraycopy( other.jQ_Odd, 0, this.jQ_Odd, 0, other.jQ_Odd.length );
-         } else {
-            this.jQ_Odd = other.jQ_Odd.clone();
-         }
-         if( this.jQ_Even != null && this.jQ_Even.length == other.jQ_Even.length ) {
-            System.arraycopy( other.jQ_Even, 0, this.jQ_Even, 0, other.jQ_Even.length );
-         } else {
-            this.jQ_Even = other.jQ_Even.clone();
-         }
-         this.prev_jQ_Odd = other.prev_jQ_Odd;
-         this.prev_jQ_Even = other.prev_jQ_Even;
-         this.prev_jQ_input_Odd = other.prev_jQ_input_Odd;
-         this.prev_jQ_input_Even = other.prev_jQ_input_Even;
-         this.prevQ2 = other.prevQ2;
-         this.prevI2 = other.prevI2;
-         this.Re = other.Re;
-         this.Im = other.Im;
-         this.I1ForOddPrev2 = other.I1ForOddPrev2;
-         this.I1ForOddPrev3 = other.I1ForOddPrev3;
-         this.I1ForEvenPrev2 = other.I1ForEvenPrev2;
-         this.I1ForEvenPrev3 = other.I1ForEvenPrev3;
-         this.rad2Deg = other.rad2Deg;
-         this.mama = other.mama;
-         this.fama = other.fama;
-         this.prevPhase = other.prevPhase;
-         this.streamParity = other.streamParity;
-         this.ringPos_trailingWMAIdx = other.ringPos_trailingWMAIdx;
-         this.ringCap_trailingWMAIdx = other.ringCap_trailingWMAIdx;
-         if( this.ring_trailingWMAIdx_inReal != null && this.ring_trailingWMAIdx_inReal.length == other.ring_trailingWMAIdx_inReal.length ) {
-            System.arraycopy( other.ring_trailingWMAIdx_inReal, 0, this.ring_trailingWMAIdx_inReal, 0, other.ring_trailingWMAIdx_inReal.length );
-         } else {
-            this.ring_trailingWMAIdx_inReal = other.ring_trailingWMAIdx_inReal.clone();
-         }
-         this.cur_outMAMA = other.cur_outMAMA;
-         this.cur_outFAMA = other.cur_outFAMA;
-         this.cachedValue = other.cachedValue;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<MamaStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * One output set, in batch output order. Immutable.
        *
@@ -1203,16 +1107,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public Value update( double inReal ) {
-         if( !Double.isFinite(inReal) )
+         if( !Double.isFinite(inReal) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("MAMA update: BadParam", RetCode.BadParam);
+         }
          core.mamaStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          this.cachedValue = new Value(this.cur_outMAMA, this.cur_outFAMA);
@@ -1228,11 +1138,12 @@
        * <p>{@code outFAMA} may be declined with {@code null}, per call and
        * independently of what the opener was given: the value is still
        * computed — {@link #value()} reports it — and nothing is written out.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inReal[], double outMAMA[], double outFAMA[] ) {
          requireArgument("MAMA updateAndFill", "inReal", inReal);
@@ -1243,8 +1154,10 @@
          int done = 0;
          try {
             for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inReal[i]) )
+               if( !Double.isFinite(inReal[i]) ) {
+                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                   throw new TaLibArgumentException("MAMA updateAndFill: BadParam", RetCode.BadParam);
+               }
                core.mamaStepImpl(this, inReal[i]);
                outMAMA[i] = this.cur_outMAMA;
                if( outFAMA != null ) outFAMA[i] = this.cur_outFAMA;
@@ -1258,30 +1171,244 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period. It does allocate a small bounded amount
+       * per call — a size fixed by the indicator, never by the period.
        */
       public Value peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MAMA peek: BadParam", RetCode.BadParam);
-         MamaStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new MamaStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         MamaStream sp = this;
+         double tempReal = 0.0;
+         double tempReal2 = 0.0;
+         double adjustedPrevPeriod = 0.0;
+         double smoothedValue = 0.0;
+         double hilbertTempReal = 0.0;
+         double detrender = 0.0;
+         double Q1 = 0.0;
+         double jI = 0.0;
+         double jQ = 0.0;
+         double Q2 = 0.0;
+         double I2 = 0.0;
+         double todayValue = 0.0;
+         double I1ForEvenPrev2 = sp.I1ForEvenPrev2;
+         double I1ForEvenPrev3 = sp.I1ForEvenPrev3;
+         double I1ForOddPrev2 = sp.I1ForOddPrev2;
+         double I1ForOddPrev3 = sp.I1ForOddPrev3;
+         double Im = sp.Im;
+         double Re = sp.Re;
+         double cur_outFAMA = sp.cur_outFAMA;
+         double cur_outMAMA = sp.cur_outMAMA;
+         double fama = sp.fama;
+         int hilbertIdx = sp.hilbertIdx;
+         double mama = sp.mama;
+         double period = sp.period;
+         double periodWMASub = sp.periodWMASub;
+         double periodWMASum = sp.periodWMASum;
+         double prevI2 = sp.prevI2;
+         double prevPhase = sp.prevPhase;
+         double prevQ2 = sp.prevQ2;
+         double prev_Q1_Even = sp.prev_Q1_Even;
+         double prev_Q1_Odd = sp.prev_Q1_Odd;
+         double prev_Q1_input_Even = sp.prev_Q1_input_Even;
+         double prev_Q1_input_Odd = sp.prev_Q1_input_Odd;
+         double prev_detrender_Even = sp.prev_detrender_Even;
+         double prev_detrender_Odd = sp.prev_detrender_Odd;
+         double prev_detrender_input_Even = sp.prev_detrender_input_Even;
+         double prev_detrender_input_Odd = sp.prev_detrender_input_Odd;
+         double prev_jI_Even = sp.prev_jI_Even;
+         double prev_jI_Odd = sp.prev_jI_Odd;
+         double prev_jI_input_Even = sp.prev_jI_input_Even;
+         double prev_jI_input_Odd = sp.prev_jI_input_Odd;
+         double prev_jQ_Even = sp.prev_jQ_Even;
+         double prev_jQ_Odd = sp.prev_jQ_Odd;
+         double prev_jQ_input_Even = sp.prev_jQ_input_Even;
+         double prev_jQ_input_Odd = sp.prev_jQ_input_Odd;
+         int ringPos_trailingWMAIdx = sp.ringPos_trailingWMAIdx;
+         int streamParity = sp.streamParity;
+         double trailingWMAValue = sp.trailingWMAValue;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         if( sp.ringCap_trailingWMAIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = inReal;
          }
-         core.mamaStepImpl(scratch, inReal);
-         return new Value(scratch.cur_outMAMA, scratch.cur_outFAMA);
+         adjustedPrevPeriod = Math.fma(0.075, period, 0.54);
+         todayValue = inReal;
+         periodWMASub += todayValue;
+         periodWMASub -= trailingWMAValue;
+         periodWMASum += todayValue * 4.0;
+         trailingWMAValue = (ringPos_trailingWMAIdx != pkSlot0) ? sp.ring_trailingWMAIdx_inReal[ringPos_trailingWMAIdx] : pkVal0;
+         smoothedValue = periodWMASum * 0.1;
+         periodWMASum -= periodWMASub;
+         if( streamParity == 0 ) {
+            /* Do the Hilbert Transforms for even price bar */
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0 - sp.detrender_Even[hilbertIdx];
+            detrender += hilbertTempReal;
+            detrender -= prev_detrender_Even;
+            prev_detrender_Even = sp.b * prev_detrender_input_Even;
+            detrender += prev_detrender_Even;
+            prev_detrender_input_Even = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0 - sp.Q1_Even[hilbertIdx];
+            Q1 += hilbertTempReal;
+            Q1 -= prev_Q1_Even;
+            prev_Q1_Even = sp.b * prev_Q1_input_Even;
+            Q1 += prev_Q1_Even;
+            prev_Q1_input_Even = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * I1ForEvenPrev3;
+            jI = 0 - sp.jI_Even[hilbertIdx];
+            jI += hilbertTempReal;
+            jI -= prev_jI_Even;
+            prev_jI_Even = sp.b * prev_jI_input_Even;
+            jI += prev_jI_Even;
+            prev_jI_input_Even = I1ForEvenPrev3;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0 - sp.jQ_Even[hilbertIdx];
+            jQ += hilbertTempReal;
+            jQ -= prev_jQ_Even;
+            prev_jQ_Even = sp.b * prev_jQ_input_Even;
+            jQ += prev_jQ_Even;
+            prev_jQ_input_Even = Q1;
+            jQ *= adjustedPrevPeriod;
+            if( ++hilbertIdx == 3 ) {
+               hilbertIdx = 0;
+            }
+            Q2 = Math.fma(0.2, Q1 + jI, 0.8 * prevQ2);
+            I2 = Math.fma(0.2, I1ForEvenPrev3 - jQ, 0.8 * prevI2);
+            /* The variable I1 is the detrender delayed for
+             * 3 price bars.
+             *
+             * Save the current detrender value for being
+             * used by the "odd" logic later.
+             */
+            I1ForOddPrev3 = I1ForOddPrev2;
+            I1ForOddPrev2 = detrender;
+            /* Put Alpha in tempReal2 */
+            if( I1ForEvenPrev3 != 0.0 ) {
+               tempReal2 = Math.atan(Q1 / I1ForEvenPrev3) * sp.rad2Deg;
+            } else {
+               tempReal2 = 0.0;
+            }
+         } else {
+            /* Do the Hilbert Transforms for odd price bar */
+            hilbertTempReal = sp.a * smoothedValue;
+            detrender = 0 - sp.detrender_Odd[hilbertIdx];
+            detrender += hilbertTempReal;
+            detrender -= prev_detrender_Odd;
+            prev_detrender_Odd = sp.b * prev_detrender_input_Odd;
+            detrender += prev_detrender_Odd;
+            prev_detrender_input_Odd = smoothedValue;
+            detrender *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * detrender;
+            Q1 = 0 - sp.Q1_Odd[hilbertIdx];
+            Q1 += hilbertTempReal;
+            Q1 -= prev_Q1_Odd;
+            prev_Q1_Odd = sp.b * prev_Q1_input_Odd;
+            Q1 += prev_Q1_Odd;
+            prev_Q1_input_Odd = detrender;
+            Q1 *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * I1ForOddPrev3;
+            jI = 0 - sp.jI_Odd[hilbertIdx];
+            jI += hilbertTempReal;
+            jI -= prev_jI_Odd;
+            prev_jI_Odd = sp.b * prev_jI_input_Odd;
+            jI += prev_jI_Odd;
+            prev_jI_input_Odd = I1ForOddPrev3;
+            jI *= adjustedPrevPeriod;
+            hilbertTempReal = sp.a * Q1;
+            jQ = 0 - sp.jQ_Odd[hilbertIdx];
+            jQ += hilbertTempReal;
+            jQ -= prev_jQ_Odd;
+            prev_jQ_Odd = sp.b * prev_jQ_input_Odd;
+            jQ += prev_jQ_Odd;
+            prev_jQ_input_Odd = Q1;
+            jQ *= adjustedPrevPeriod;
+            Q2 = Math.fma(0.2, Q1 + jI, 0.8 * prevQ2);
+            I2 = Math.fma(0.2, I1ForOddPrev3 - jQ, 0.8 * prevI2);
+            /* The varaiable I1 is the detrender delayed for
+             * 3 price bars.
+             *
+             * Save the current detrender value for being
+             * used by the "odd" logic later.
+             */
+            I1ForEvenPrev3 = I1ForEvenPrev2;
+            I1ForEvenPrev2 = detrender;
+            /* Put Alpha in tempReal2 */
+            if( I1ForOddPrev3 != 0.0 ) {
+               tempReal2 = Math.atan(Q1 / I1ForOddPrev3) * sp.rad2Deg;
+            } else {
+               tempReal2 = 0.0;
+            }
+         }
+         /* Put Delta Phase into tempReal */
+         tempReal = prevPhase - tempReal2;
+         prevPhase = tempReal2;
+         if( tempReal < 1.0 ) {
+            tempReal = 1.0;
+         }
+         /* Put Alpha into tempReal */
+         if( tempReal > 1.0 ) {
+            tempReal = sp.optInFastLimit / tempReal;
+            if( tempReal < sp.optInSlowLimit ) {
+               tempReal = sp.optInSlowLimit;
+            }
+         } else {
+            tempReal = sp.optInFastLimit;
+         }
+         /* Calculate MAMA, FAMA */
+         mama = Math.fma(1 - tempReal, mama, tempReal * todayValue);
+         tempReal *= 0.5;
+         fama = Math.fma(1 - tempReal, fama, tempReal * mama);
+         /* FAMA is nullable (issue #125): its write carries no outIdx advance so
+          * the codegen can NULL-guard it; outMAMA (never NULL) owns the ++.
+          */
+         cur_outFAMA = fama;
+         cur_outMAMA = mama;
+         /* Adjust the period for next price bar */
+         Re = Math.fma(0.8, Re, 0.2 * (Math.fma(I2, prevI2, Q2 * prevQ2)));
+         Im = Math.fma(0.8, Im, 0.2 * (I2 * prevQ2 - Q2 * prevI2));
+         prevQ2 = Q2;
+         prevI2 = I2;
+         tempReal = period;
+         if( Im != 0.0 && Re != 0.0 ) {
+            period = 360.0 / (Math.atan(Im / Re) * sp.rad2Deg);
+         }
+         tempReal2 = 1.5 * tempReal;
+         if( period > tempReal2 ) {
+            period = tempReal2;
+         }
+         tempReal2 = 0.67 * tempReal;
+         if( period < tempReal2 ) {
+            period = tempReal2;
+         }
+         if( period < 6 ) {
+            period = 6;
+         } else if( period > 50 ) {
+            period = 50;
+         }
+         period = Math.fma(0.2, period, 0.8 * tempReal);
+         /* Ooof... let's do the next price bar now! */
+         ringPos_trailingWMAIdx = ringPos_trailingWMAIdx + 1;
+         if( ringPos_trailingWMAIdx >= sp.ringCap_trailingWMAIdx ) {
+            ringPos_trailingWMAIdx = 0;
+         }
+         streamParity = 1 - streamParity;
+         return new Value(cur_outMAMA, cur_outFAMA);
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public Value value() {
@@ -1289,10 +1416,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public MamaStream copy() {
+      @Override
+      public MamaStream clone() {
          return new MamaStream(this);
       }
    }

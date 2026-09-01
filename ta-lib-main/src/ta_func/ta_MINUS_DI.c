@@ -692,10 +692,12 @@ TA_RetCode TA_S_MINUS_DI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MINUS_DI_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_MINUS_DI_Value). */
+   double cur_outReal;
    int optInTimePeriod;
    double prevHigh;
    double prevLow;
@@ -750,6 +752,7 @@ static void TA_MINUS_DI_StepImpl( struct TA_MINUS_DI_Stream *sp, double inHigh, 
          *outReal= (double)0.0;
       }
       sp->prevClose = inClose;
+      sp->cur_outReal = *outReal;
    }
    else
    {
@@ -800,6 +803,7 @@ static void TA_MINUS_DI_StepImpl( struct TA_MINUS_DI_Stream *sp, double inHigh, 
       {
          *outReal= 0.0;
       }
+      sp->cur_outReal = *outReal;
    }
 }
 
@@ -1024,6 +1028,7 @@ static TA_RetCode TA_MINUS_DI_OpenImpl( struct TA_MINUS_DI_Stream **stream, cons
       sp->prevClose = prevClose;
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1326,6 +1331,7 @@ static TA_RetCode TA_MINUS_DI_OpenImpl( struct TA_MINUS_DI_Stream **stream, cons
       sp->prevTR = prevTR;
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -1379,7 +1385,11 @@ TA_RetCode TA_MINUS_DI_OpenAndFillInternal( struct TA_MINUS_DI_Stream **stream, 
 TA_LIB_API TA_RetCode TA_MINUS_DI_Update( TA_MINUS_DI_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_MINUS_DI_StepImpl( stream, inHigh, inLow, inClose, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1388,11 +1398,107 @@ TA_LIB_API TA_RetCode TA_MINUS_DI_Update( TA_MINUS_DI_Stream *stream, double inH
 TA_LIB_API TA_RetCode TA_MINUS_DI_Peek( const TA_MINUS_DI_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
    struct TA_MINUS_DI_Stream scratch;
+   struct TA_MINUS_DI_Stream *sp = &scratch;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_MINUS_DI_StepImpl( &scratch, inHigh, inLow, inClose, outReal );
+   if( sp->optInTimePeriod <= 1 )
+   {
+      double tempReal;
+      double diffP;
+      double diffM;
+
+      tempReal = inHigh;
+      diffP = tempReal - sp->prevHigh;
+      /* Plus Delta */
+      sp->prevHigh = tempReal;
+      tempReal = inLow;
+      diffM = sp->prevLow - tempReal;
+      /* Minus Delta */
+      sp->prevLow = tempReal;
+      if( diffM > 0 && diffP < diffM )
+      {
+         /* Case 2 and 4: +DM=0,-DM=diffM */
+         double _true_range_6;
+         double range_6 = sp->prevHigh - sp->prevLow;
+         double tmp_6 = fabs(sp->prevHigh - sp->prevClose);
+         if( tmp_6 > range_6 )
+         {
+            range_6 = tmp_6;
+         }
+         tmp_6 = fabs(sp->prevLow - sp->prevClose);
+         if( tmp_6 > range_6 )
+         {
+            range_6 = tmp_6;
+         }
+         _true_range_6 = range_6;
+         tempReal = _true_range_6;
+         if( tempReal <= 0.0 )
+         {
+            *outReal= (double)0.0;
+         } else 
+         {
+            *outReal= diffM / tempReal;
+         }
+      } else 
+      {
+         *outReal= (double)0.0;
+      }
+      sp->prevClose = inClose;
+      sp->cur_outReal = *outReal;
+   }
+   else
+   {
+      double tempReal;
+      double diffP;
+      double diffM;
+
+      /* Calculate the prevMinusDM */
+      tempReal = inHigh;
+      diffP = tempReal - sp->prevHigh;
+      /* Plus Delta */
+      sp->prevHigh = tempReal;
+      tempReal = inLow;
+      diffM = sp->prevLow - tempReal;
+      /* Minus Delta */
+      sp->prevLow = tempReal;
+      if( diffM > 0 && diffP < diffM )
+      {
+         /* Case 2 and 4: +DM=0,-DM=diffM */
+         sp->prevMinusDM = sp->prevMinusDM - sp->prevMinusDM / sp->optInTimePeriod + diffM;
+      } else 
+      {
+         /* Case 1,3,5 and 7 */
+         sp->prevMinusDM = sp->prevMinusDM - sp->prevMinusDM / sp->optInTimePeriod;
+      }
+      /* Calculate the prevTR */
+      double _true_range_7;
+      double range_7 = sp->prevHigh - sp->prevLow;
+      double tmp_7 = fabs(sp->prevHigh - sp->prevClose);
+      if( tmp_7 > range_7 )
+      {
+         range_7 = tmp_7;
+      }
+      tmp_7 = fabs(sp->prevLow - sp->prevClose);
+      if( tmp_7 > range_7 )
+      {
+         range_7 = tmp_7;
+      }
+      _true_range_7 = range_7;
+      tempReal = _true_range_7;
+      sp->prevTR = sp->prevTR - sp->prevTR / sp->optInTimePeriod + tempReal;
+      sp->prevClose = inClose;
+      /* Calculate the DI. The value is rounded (see Wilder book). */
+      if( sp->prevTR > 0.0 )
+      {
+         *outReal= (100.0 * (sp->prevMinusDM / sp->prevTR));
+      } else 
+      {
+         *outReal= 0.0;
+      }
+      sp->cur_outReal = *outReal;
+   }
    return TA_SUCCESS;
 }
 
@@ -1405,7 +1511,11 @@ TA_LIB_API TA_RetCode TA_MINUS_DI_UpdateAndFill( TA_MINUS_DI_Stream *stream, con
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_MINUS_DI_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -1415,6 +1525,27 @@ TA_LIB_API TA_RetCode TA_MINUS_DI_UpdateAndFill( TA_MINUS_DI_Stream *stream, con
 TA_LIB_API TA_RetCode TA_MINUS_DI_Close( TA_MINUS_DI_Stream *stream )
 {
    if( stream ) TA_Free( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MINUS_DI_Value( const TA_MINUS_DI_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MINUS_DI_Clone( const TA_MINUS_DI_Stream *stream, TA_MINUS_DI_Stream **clone )
+{
+   struct TA_MINUS_DI_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_MINUS_DI_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   *clone = sp;
    return TA_SUCCESS;
 }
 

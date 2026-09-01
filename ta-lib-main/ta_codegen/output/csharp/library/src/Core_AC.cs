@@ -623,14 +623,15 @@ public partial class Core
 
       internal AcStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Ac</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
-      /// adds one to the count, <c>Peek</c> leaves it alone, and <c>Clone</c>
-      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
-      /// subset of this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
+      /// to the count — a non-finite bar is rejected but still counted, because the
+      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
+      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
+      /// this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -661,59 +662,30 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( AcStream other )
-      {
-         this.core = other.core;
-         this.optInFastPeriod = other.optInFastPeriod;
-         this.optInSlowPeriod = other.optInSlowPeriod;
-         this.optInSignalPeriod = other.optInSignalPeriod;
-         this.sumFast = other.sumFast;
-         this.sumSlow = other.sumSlow;
-         this.sumSignal = other.sumSignal;
-         this.oscBuffer_Idx = other.oscBuffer_Idx;
-         this.maxIdx_oscBuffer = other.maxIdx_oscBuffer;
-         this.ringPos_trailingFastIdx = other.ringPos_trailingFastIdx;
-         this.ringCap_trailingFastIdx = other.ringCap_trailingFastIdx;
-         if( this.ring_trailingFastIdx_derived.Length != other.ring_trailingFastIdx_derived.Length ) {
-            this.ring_trailingFastIdx_derived = new double[other.ring_trailingFastIdx_derived.Length];
-         }
-         Array.Copy( other.ring_trailingFastIdx_derived, this.ring_trailingFastIdx_derived, other.ring_trailingFastIdx_derived.Length );
-         this.ringPos_trailingSlowIdx = other.ringPos_trailingSlowIdx;
-         this.ringCap_trailingSlowIdx = other.ringCap_trailingSlowIdx;
-         if( this.ring_trailingSlowIdx_derived.Length != other.ring_trailingSlowIdx_derived.Length ) {
-            this.ring_trailingSlowIdx_derived = new double[other.ring_trailingSlowIdx_derived.Length];
-         }
-         Array.Copy( other.ring_trailingSlowIdx_derived, this.ring_trailingSlowIdx_derived, other.ring_trailingSlowIdx_derived.Length );
-         this.cbSize_oscBuffer = other.cbSize_oscBuffer;
-         if( this.cb_oscBuffer.Length != other.cb_oscBuffer.Length ) {
-            this.cb_oscBuffer = new double[other.cb_oscBuffer.Length];
-         }
-         Array.Copy( other.cb_oscBuffer, this.cb_oscBuffer, other.cb_oscBuffer.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static AcStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("AC", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("AC", "update", RetCode.BadParam);
+         }
          core.AcStepImpl(this, inHigh, inLow);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -722,11 +694,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -734,15 +707,72 @@ public partial class Core
       public double Peek( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("AC", "peek", RetCode.BadParam);
-         AcStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new AcStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         AcStream sp = this;
+         double medianPrice = 0.0;
+         double osc = 0.0;
+         double tempReal = 0.0;
+         double cur_outReal = sp.cur_outReal;
+         int oscBuffer_Idx = sp.oscBuffer_Idx;
+         int ringPos_trailingFastIdx = sp.ringPos_trailingFastIdx;
+         int ringPos_trailingSlowIdx = sp.ringPos_trailingSlowIdx;
+         double sumFast = sp.sumFast;
+         double sumSignal = sp.sumSignal;
+         double sumSlow = sp.sumSlow;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         int pkSlot2 = -1;
+         double pkVal2 = 0.0;
+         if( sp.ringCap_trailingFastIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = (inHigh + inLow) / 2.0;
          }
-         core.AcStepImpl(scratch, inHigh, inLow);
-         return scratch.cur_outReal;
+         if( sp.ringCap_trailingSlowIdx == 0 ) {
+            pkSlot1 = 0;
+            pkVal1 = (inHigh + inLow) / 2.0;
+         }
+         medianPrice = (inHigh + inLow) / 2.0;
+         sumFast += medianPrice;
+         sumSlow += medianPrice;
+         /* Snapshot the oscillator before either total drops its trailing bar,
+          * mirroring the add-new / snapshot / subtract-old order of TA_SMA.
+          */
+         osc = sumFast / (double)sp.optInFastPeriod - sumSlow / (double)sp.optInSlowPeriod;
+         sumFast -= (ringPos_trailingFastIdx != pkSlot0) ? sp.ring_trailingFastIdx_derived[ringPos_trailingFastIdx] : pkVal0;
+         sumSlow -= (ringPos_trailingSlowIdx != pkSlot1) ? sp.ring_trailingSlowIdx_derived[ringPos_trailingSlowIdx] : pkVal1;
+         /* Today's oscillator enters the signal window at its own slot, and the
+          * bar leaving that window is read only after the ring has advanced onto
+          * it -- writing first is what makes the slot the loop is about to
+          * overwrite the newest value rather than the oldest one.
+          */
+         pkSlot2 = oscBuffer_Idx;
+         pkVal2 = osc;
+         sumSignal += osc;
+         tempReal = osc - sumSignal / (double)sp.optInSignalPeriod;
+         oscBuffer_Idx = oscBuffer_Idx + 1;
+         if( oscBuffer_Idx > sp.maxIdx_oscBuffer ) {
+            oscBuffer_Idx = 0;
+         }
+         sumSignal -= (oscBuffer_Idx != pkSlot2) ? sp.cb_oscBuffer[oscBuffer_Idx] : pkVal2;
+         /* Every input read for this bar is done above, so the store is safe
+          * when the caller aliases outReal over inHigh or inLow. Unlike ao.c
+          * there is slack here -- the signal window puts both trailing indices
+          * at least optInSignalPeriod-1 bars ahead of outIdx, so no reachable
+          * parameter makes them collide -- but the order is kept anyway, so
+          * that admitting a signal period of 1 would not silently reintroduce
+          * the collision ao.c has to guard against.
+          */
+         cur_outReal = tempReal;
+         ringPos_trailingFastIdx = ringPos_trailingFastIdx + 1;
+         if( ringPos_trailingFastIdx >= sp.ringCap_trailingFastIdx ) {
+            ringPos_trailingFastIdx = 0;
+         }
+         ringPos_trailingSlowIdx = ringPos_trailingSlowIdx + 1;
+         if( ringPos_trailingSlowIdx >= sp.ringCap_trailingSlowIdx ) {
+            ringPos_trailingSlowIdx = 0;
+         }
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -750,11 +780,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
       /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
@@ -765,15 +797,20 @@ public partial class Core
          if( inLow.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inHigh) || outReal.Overlaps(inLow) ) throw Core.StreamFailure("AC", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) ) throw Core.StreamFailure("AC", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("AC", "updateAndFill", RetCode.BadParam);
+            }
             core.AcStepImpl(this, inHigh[i], inLow[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

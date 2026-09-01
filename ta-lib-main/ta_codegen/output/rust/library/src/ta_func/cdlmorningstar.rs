@@ -76,6 +76,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Real parameters accept
     /// [`Core::REAL_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_CDLMORNINGSTAR_Lookback")]
     #[inline]
     pub fn CDLMORNINGSTAR_Lookback(&self, mut optInPenetration: f64) -> Result<usize, RetCode> {
         if optInPenetration == Self::REAL_DEFAULT {
@@ -404,15 +405,8 @@ impl Core {
     /// signal. A hit signals a bullish reversal (most meaningful after a downtrend, which the code
     /// does not check).
     ///
-    /// # Notes
-    ///
-    /// * The gap-down is measured between the candles' real bodies, not between their high/low
-    ///   ranges.
-    /// * A prior downtrend is not verified.
-    /// * Bulkowski ranks the Morning Star unusually high — 6th of 103 for reversal rate (78%) and
-    ///   12th of 103 for overall post-breakout performance — one of the few classic candle
-    ///   patterns whose textbook reputation his statistics confirm rather than debunk.
-    ///   ([thepatternsite.com](https://thepatternsite.com/MorningStar.html))
+    /// Formula and more info at
+    /// [ta-lib.org/functions/cdlmorningstar](https://ta-lib.org/functions/cdlmorningstar).
     ///
     /// # Arguments
     ///
@@ -469,6 +463,10 @@ impl Core {
     ///     &mut out,
     /// )?;
     /// assert!(out_range.count > 0);
+    /// assert_eq!(out_range.beg_idx + out_range.count, open.len());
+    /// // a candlestick pattern reports 0 where it does not fire, and a signed
+    /// // strength -- negative bearish, positive bullish -- where it does
+    /// assert!(out[..out_range.count].iter().all(|&v| (-200..=200).contains(&v)));
     /// # Ok::<(), ta_lib::RetCode>(())
     /// ```
     ///
@@ -476,9 +474,7 @@ impl Core {
     ///
     /// [`Core::CDLMORNINGDOJISTAR`] · [`Core::CDLEVENINGSTAR`] · [`Core::CDLABANDONEDBABY`] ·
     /// [`Core::CDLDOJISTAR`]
-    ///
-    /// Further reading:
-    /// [ta-lib.org/functions/cdlmorningstar](https://ta-lib.org/functions/cdlmorningstar)
+    #[doc(alias = "TA_CDLMORNINGSTAR")]
     #[doc(alias = "MorningStar")]
     pub fn CDLMORNINGSTAR(
         &self,
@@ -542,7 +538,7 @@ impl Core {
 /// over the same series. Open with [`Core::cdlmorningstar_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CDLMORNINGSTAR_Stream")]
@@ -552,20 +548,8 @@ pub struct CdlmorningstarStream {
     /// The `BodyShort` setting this stream was opened with.
     cs_body_short: CandleSetting,
     state: CdlmorningstarStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl CdlmorningstarStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `CdlmorningstarStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.cs_body_long = src.cs_body_long;
-        self.cs_body_short = src.cs_body_short;
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -590,33 +574,7 @@ struct CdlmorningstarStreamState {
     ringCap_BodyShortTrailingIdx: usize,
     ringLag_BodyShortTrailingIdx: usize,
     ring_BodyShortTrailingIdx_derived: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl CdlmorningstarStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInPenetration = src.optInPenetration;
-        self.BodyShortPeriodTotal = src.BodyShortPeriodTotal;
-        self.BodyLongPeriodTotal = src.BodyLongPeriodTotal;
-        self.BodyShortPeriodTotal2 = src.BodyShortPeriodTotal2;
-        self.lag1_inOpen = src.lag1_inOpen;
-        self.lag2_inOpen = src.lag2_inOpen;
-        self.lag1_inHigh = src.lag1_inHigh;
-        self.lag2_inHigh = src.lag2_inHigh;
-        self.lag1_inLow = src.lag1_inLow;
-        self.lag2_inLow = src.lag2_inLow;
-        self.lag1_inClose = src.lag1_inClose;
-        self.lag2_inClose = src.lag2_inClose;
-        self.ringPos_BodyLongTrailingIdx = src.ringPos_BodyLongTrailingIdx;
-        self.ringCap_BodyLongTrailingIdx = src.ringCap_BodyLongTrailingIdx;
-        self.ring_BodyLongTrailingIdx_derived.clone_from(&src.ring_BodyLongTrailingIdx_derived);
-        self.ringPos_BodyShortTrailingIdx = src.ringPos_BodyShortTrailingIdx;
-        self.ringCap_BodyShortTrailingIdx = src.ringCap_BodyShortTrailingIdx;
-        self.ringLag_BodyShortTrailingIdx = src.ringLag_BodyShortTrailingIdx;
-        self.ring_BodyShortTrailingIdx_derived.clone_from(&src.ring_BodyShortTrailingIdx_derived);
-    }
+    cur_outInteger: i32,
 }
 
 #[allow(unused_variables)]
@@ -734,6 +692,7 @@ impl Core {
             }
         }
         sp.BodyShortPeriodTotal2 += _candlerange_4 - sp.ring_BodyShortTrailingIdx_derived[((sp.ringPos_BodyShortTrailingIdx + sp.ringCap_BodyShortTrailingIdx - sp.ringLag_BodyShortTrailingIdx + 1) % sp.ringCap_BodyShortTrailingIdx) as usize];
+        sp.cur_outInteger = (*outInteger);
         sp.lag2_inOpen = sp.lag1_inOpen;
         sp.lag1_inOpen = inOpen;
         sp.lag2_inHigh = sp.lag1_inHigh;
@@ -1058,6 +1017,7 @@ impl Core {
             BodyShortPeriodTotal,
             BodyLongPeriodTotal,
             BodyShortPeriodTotal2,
+            cur_outInteger: outInteger[(*outNBElement - 1) * outStride],
             lag1_inOpen: inOpen[historyLen - 1],
             lag2_inOpen: inOpen[historyLen - 2],
             lag1_inHigh: inHigh[historyLen - 1],
@@ -1195,31 +1155,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `CdlmorningstarStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static CDLMORNINGSTAR_PEEK_SCRATCH: std::cell::Cell<Option<Box<CdlmorningstarStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl CdlmorningstarStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_CDLMORNINGSTAR_Update")]
     pub fn update(&mut self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
@@ -1235,7 +1197,7 @@ impl CdlmorningstarStream {
     /// argument checks instead of `n`. `n` is `inOpen.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1245,7 +1207,8 @@ impl CdlmorningstarStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_CDLMORNINGSTAR_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inOpen: &[f64], inHigh: &[f64], inLow: &[f64], inClose: &[f64], outInteger: &mut [i32]) -> Result<(), RetCode> {
         let barCount = inOpen.len();
@@ -1254,6 +1217,9 @@ impl CdlmorningstarStream {
         }
         for i in 0..barCount {
             if !inOpen[i].is_finite() || !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::cdlmorningstar_step_impl(&mut self.state, &self.cs_body_long, &self.cs_body_short, inOpen[i], inHigh[i], inLow[i], inClose[i], &mut outInteger[i]);
@@ -1265,36 +1231,195 @@ impl CdlmorningstarStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_CDLMORNINGSTAR_Peek")]
     pub fn peek(&self, inOpen: f64, inHigh: f64, inLow: f64, inClose: f64) -> Result<i32, RetCode> {
         if !inOpen.is_finite() || !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        CDLMORNINGSTAR_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outInteger: i32 = 0_i32;
-            Core::cdlmorningstar_step_impl(&mut scratch, &self.cs_body_long, &self.cs_body_short, inOpen, inHigh, inLow, inClose, &mut outInteger);
-            cell.set(Some(scratch));
-            Ok(outInteger)
-        })
+        let mut outInteger: i32 = 0_i32;
+        {
+            let sp = &self.state;
+            let outInteger = &mut outInteger;
+            let mut BodyLongPeriodTotal = sp.BodyLongPeriodTotal;
+            let mut BodyShortPeriodTotal = sp.BodyShortPeriodTotal;
+            let mut BodyShortPeriodTotal2 = sp.BodyShortPeriodTotal2;
+            let mut cur_outInteger = sp.cur_outInteger;
+            let mut lag1_inClose = sp.lag1_inClose;
+            let mut lag1_inHigh = sp.lag1_inHigh;
+            let mut lag1_inLow = sp.lag1_inLow;
+            let mut lag1_inOpen = sp.lag1_inOpen;
+            let mut lag2_inClose = sp.lag2_inClose;
+            let mut lag2_inHigh = sp.lag2_inHigh;
+            let mut lag2_inLow = sp.lag2_inLow;
+            let mut lag2_inOpen = sp.lag2_inOpen;
+            let mut ringPos_BodyLongTrailingIdx = sp.ringPos_BodyLongTrailingIdx;
+            let mut ringPos_BodyShortTrailingIdx = sp.ringPos_BodyShortTrailingIdx;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            let mut pkSlot1: usize = usize::MAX;
+            let mut pkVal1: f64 = 0.0_f64;
+            #[allow(non_snake_case)]
+            let BodyLong_rangeType: i32 = self.cs_body_long.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyLong_avgPeriod: i32 = self.cs_body_long.avg_period;
+            #[allow(non_snake_case)]
+            let BodyLong_factor: f64 = self.cs_body_long.factor;
+            #[allow(non_snake_case)]
+            let BodyShort_rangeType: i32 = self.cs_body_short.range_type as i32;
+            #[allow(non_snake_case)]
+            let BodyShort_avgPeriod: i32 = self.cs_body_short.avg_period;
+            #[allow(non_snake_case)]
+            let BodyShort_factor: f64 = self.cs_body_short.factor;
+            if sp.ringCap_BodyLongTrailingIdx == 0 {
+                pkSlot0 = 0;
+                let mut _candlerange_15: f64;
+                match BodyLong_rangeType {
+                    0 => {
+                        _candlerange_15 = (inClose - inOpen).abs();
+                    }
+                    1 => {
+                        _candlerange_15 = inHigh - inLow;
+                    }
+                    2 => {
+                        _candlerange_15 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                    }
+                    _ => {
+                        _candlerange_15 = 0.0;
+                    }
+                }
+                pkVal0 = _candlerange_15;
+            }
+            pkSlot1 = ringPos_BodyShortTrailingIdx as usize;
+            let mut _candlerange_16: f64;
+            match BodyShort_rangeType {
+                0 => {
+                    _candlerange_16 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_16 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_16 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_16 = 0.0;
+                }
+            }
+            pkVal1 = _candlerange_16;
+            if (((if lag2_inClose >= lag2_inOpen { 1 } else { 0 - 1 })) as i32) == 0 - 1 && // black
+               (if inClose >= inOpen { 1 } else { 0 - 1 }) == 1 && // white real body
+               ((if (lag1_inOpen).max(lag1_inClose) < (lag2_inOpen).min(lag2_inClose) { 1 } else { 0 }) != 0) && // gapping down
+               inClose > ((lag2_inClose - lag2_inOpen).abs() as f64).mul_add(sp.optInPenetration, lag2_inClose) && // closing well within 1st rb
+               (lag2_inClose - lag2_inOpen).abs() > ((BodyLong_factor) * (if (BodyLong_avgPeriod) != 0 { (BodyLongPeriodTotal) / (BodyLong_avgPeriod as f64) } else { match BodyLong_rangeType { 0 => ((lag2_inClose) - (lag2_inOpen)).abs(), 1 => (lag2_inHigh) - (lag2_inLow), 2 => ((lag2_inHigh) - (if (lag2_inClose) >= (lag2_inOpen) { (lag2_inClose) } else { (lag2_inOpen) })) + ((if (lag2_inClose) >= (lag2_inOpen) { (lag2_inOpen) } else { (lag2_inClose) }) - (lag2_inLow)), _ => 0.0 } }) / (if (BodyLong_rangeType) == 2 { 2.0 } else { 1.0 })) && // 1st: long
+               (lag1_inClose - lag1_inOpen).abs() <= ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((lag1_inClose) - (lag1_inOpen)).abs(), 1 => (lag1_inHigh) - (lag1_inLow), 2 => ((lag1_inHigh) - (if (lag1_inClose) >= (lag1_inOpen) { (lag1_inClose) } else { (lag1_inOpen) })) + ((if (lag1_inClose) >= (lag1_inOpen) { (lag1_inOpen) } else { (lag1_inClose) }) - (lag1_inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) && // 2nd: short
+               (inClose - inOpen).abs() > ((BodyShort_factor) * (if (BodyShort_avgPeriod) != 0 { (BodyShortPeriodTotal2) / (BodyShort_avgPeriod as f64) } else { match BodyShort_rangeType { 0 => ((inClose) - (inOpen)).abs(), 1 => (inHigh) - (inLow), 2 => ((inHigh) - (if (inClose) >= (inOpen) { (inClose) } else { (inOpen) })) + ((if (inClose) >= (inOpen) { (inOpen) } else { (inClose) }) - (inLow)), _ => 0.0 } }) / (if (BodyShort_rangeType) == 2 { 2.0 } else { 1.0 })) // 3rd: longer than short
+            {
+                (*outInteger) = 100;
+            } else {
+                (*outInteger) = 0;
+            }
+            // add the current range and subtract the first range: this is done after the pattern recognition
+            // when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+            let mut _candlerange_17: f64;
+            match BodyLong_rangeType {
+                0 => {
+                    _candlerange_17 = (lag2_inClose - lag2_inOpen).abs();
+                }
+                1 => {
+                    _candlerange_17 = lag2_inHigh - lag2_inLow;
+                }
+                2 => {
+                    _candlerange_17 = (lag2_inHigh - (if lag2_inClose >= lag2_inOpen { lag2_inClose } else { lag2_inOpen })) + ((if lag2_inClose >= lag2_inOpen { lag2_inOpen } else { lag2_inClose }) - lag2_inLow);
+                }
+                _ => {
+                    _candlerange_17 = 0.0;
+                }
+            }
+            BodyLongPeriodTotal += _candlerange_17 - (if (ringPos_BodyLongTrailingIdx as usize) != pkSlot0 { sp.ring_BodyLongTrailingIdx_derived[ringPos_BodyLongTrailingIdx] } else { pkVal0 });
+            let mut _candlerange_18: f64;
+            match BodyShort_rangeType {
+                0 => {
+                    _candlerange_18 = (lag1_inClose - lag1_inOpen).abs();
+                }
+                1 => {
+                    _candlerange_18 = lag1_inHigh - lag1_inLow;
+                }
+                2 => {
+                    _candlerange_18 = (lag1_inHigh - (if lag1_inClose >= lag1_inOpen { lag1_inClose } else { lag1_inOpen })) + ((if lag1_inClose >= lag1_inOpen { lag1_inOpen } else { lag1_inClose }) - lag1_inLow);
+                }
+                _ => {
+                    _candlerange_18 = 0.0;
+                }
+            }
+            BodyShortPeriodTotal += _candlerange_18 - (if (((ringPos_BodyShortTrailingIdx + sp.ringCap_BodyShortTrailingIdx - sp.ringLag_BodyShortTrailingIdx) % sp.ringCap_BodyShortTrailingIdx) as usize) != pkSlot1 { sp.ring_BodyShortTrailingIdx_derived[((ringPos_BodyShortTrailingIdx + sp.ringCap_BodyShortTrailingIdx - sp.ringLag_BodyShortTrailingIdx) % sp.ringCap_BodyShortTrailingIdx) as usize] } else { pkVal1 });
+            let mut _candlerange_19: f64;
+            match BodyShort_rangeType {
+                0 => {
+                    _candlerange_19 = (inClose - inOpen).abs();
+                }
+                1 => {
+                    _candlerange_19 = inHigh - inLow;
+                }
+                2 => {
+                    _candlerange_19 = (inHigh - (if inClose >= inOpen { inClose } else { inOpen })) + ((if inClose >= inOpen { inOpen } else { inClose }) - inLow);
+                }
+                _ => {
+                    _candlerange_19 = 0.0;
+                }
+            }
+            BodyShortPeriodTotal2 += _candlerange_19 - (if (((ringPos_BodyShortTrailingIdx + sp.ringCap_BodyShortTrailingIdx - sp.ringLag_BodyShortTrailingIdx + 1) % sp.ringCap_BodyShortTrailingIdx) as usize) != pkSlot1 { sp.ring_BodyShortTrailingIdx_derived[((ringPos_BodyShortTrailingIdx + sp.ringCap_BodyShortTrailingIdx - sp.ringLag_BodyShortTrailingIdx + 1) % sp.ringCap_BodyShortTrailingIdx) as usize] } else { pkVal1 });
+            cur_outInteger = (*outInteger);
+            lag2_inOpen = lag1_inOpen;
+            lag1_inOpen = inOpen;
+            lag2_inHigh = lag1_inHigh;
+            lag1_inHigh = inHigh;
+            lag2_inLow = lag1_inLow;
+            lag1_inLow = inLow;
+            lag2_inClose = lag1_inClose;
+            lag1_inClose = inClose;
+            ringPos_BodyLongTrailingIdx = ringPos_BodyLongTrailingIdx + 1;
+            if ringPos_BodyLongTrailingIdx >= sp.ringCap_BodyLongTrailingIdx {
+                ringPos_BodyLongTrailingIdx = 0;
+            }
+            ringPos_BodyShortTrailingIdx = ringPos_BodyShortTrailingIdx + 1;
+            if ringPos_BodyShortTrailingIdx >= sp.ringCap_BodyShortTrailingIdx {
+                ringPos_BodyShortTrailingIdx = 0;
+            }
+        }
+        Ok(outInteger)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_CDLMORNINGSTAR_Value")]
+    pub fn value(&self) -> i32 {
+        self.state.cur_outInteger
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::CDLMORNINGSTAR`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

@@ -89,6 +89,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_CCI_Lookback")]
     #[inline]
     pub fn CCI_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -244,14 +245,7 @@ impl Core {
     /// average, scaled by mean absolute deviation. Momentum oscillator flagging overbought/oversold
     /// extremes. CCI > +100 overbought; CCI \< -100 oversold.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// TP_i = (High_i + Low_i + Close_i)/3
-    /// SMA = (1/N) * sum(TP over N bars)
-    /// meanDev = (1/N) * sum(|TP - SMA| over N bars)
-    /// CCI = (TP_last - SMA) / (0.015 * meanDev)
-    /// ```
+    /// Formula and more info at [ta-lib.org/functions/cci](https://ta-lib.org/functions/cci).
     ///
     /// # Arguments
     ///
@@ -311,8 +305,7 @@ impl Core {
     /// # References
     ///
     /// * Donald Lambert
-    ///
-    /// Further reading: [ta-lib.org/functions/cci](https://ta-lib.org/functions/cci)
+    #[doc(alias = "TA_CCI")]
     #[doc(alias = "CommodityChannelIndex")]
     pub fn CCI(
         &self,
@@ -371,24 +364,14 @@ impl Core {
 /// over the same series. Open with [`Core::cci_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_CCI_Stream")]
 pub struct CciStream {
     state: CciStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl CciStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `CciStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -399,19 +382,7 @@ struct CciStreamState {
     maxIdx_circBuffer: usize,
     cbSize_circBuffer: usize,
     cb_circBuffer: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl CciStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.circBuffer_Idx = src.circBuffer_Idx;
-        self.maxIdx_circBuffer = src.maxIdx_circBuffer;
-        self.cbSize_circBuffer = src.cbSize_circBuffer;
-        self.cb_circBuffer.clone_from(&src.cb_circBuffer);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -469,6 +440,7 @@ impl Core {
         if sp.circBuffer_Idx > sp.maxIdx_circBuffer {
             sp.circBuffer_Idx = 0;
         }
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::cci_open_internal`]
@@ -608,6 +580,7 @@ impl Core {
             optInTimePeriod,
             circBuffer_Idx,
             maxIdx_circBuffer,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             cbSize_circBuffer: cbSize_circBuffer,
             cb_circBuffer: circBuffer,
         };
@@ -729,21 +702,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl CciStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_CCI_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -759,7 +742,7 @@ impl CciStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -769,7 +752,8 @@ impl CciStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_CCI_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -778,6 +762,9 @@ impl CciStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::cci_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
@@ -789,32 +776,104 @@ impl CciStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
-    /// often removed outright by the optimizer, which is why nothing is
-    /// reused here, but that is not a guarantee: budget for a clone of the
-    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_CCI_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inHigh, inLow, inClose)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut tempReal2: f64 = 0.0_f64;
+            let mut tempReal3: f64 = 0.0_f64;
+            let mut theAverage: f64 = 0.0_f64;
+            let mut lastValue: f64 = 0.0_f64;
+            let mut j: usize = 0_usize;
+            let mut circBuffer_Idx = sp.circBuffer_Idx;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            lastValue = (inHigh + inLow + inClose) / 3_f64;
+            pkSlot0 = circBuffer_Idx as usize;
+            pkVal0 = lastValue;
+            // Calculate the average for the whole period.
+            theAverage = 0.0;
+            // for( j = 0; j < ((sp.optInTimePeriod) as usize); j += 1 )
+            j = 0;
+            while j < ((sp.optInTimePeriod) as usize) {
+                theAverage += (if (j as usize) != pkSlot0 { sp.cb_circBuffer[j] } else { pkVal0 });
+                j += 1;
+            }
+            theAverage /= ((sp.optInTimePeriod) as f64);
+            // Do the summation of the ABS(TypePrice-average)
+            // for the whole period, then its mean.
+            tempReal2 = 0.0;
+            // for( j = 0; j < ((sp.optInTimePeriod) as usize); j += 1 )
+            j = 0;
+            while j < ((sp.optInTimePeriod) as usize) {
+                tempReal2 += ((if (j as usize) != pkSlot0 { sp.cb_circBuffer[j] } else { pkVal0 }) - theAverage).abs();
+                j += 1;
+            }
+            tempReal2 /= ((sp.optInTimePeriod) as f64);
+            // And finally, the CCI...
+            tempReal = lastValue - theAverage;
+            // Both tests are relative to the window's own price level (issue #253).
+            // They ask "is this window flat?", and flatness is a property of the
+            // prices relative to each other -- but a deviation carries the quote
+            // unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
+            // every window of an instrument quoted below it and zeroed the whole
+            // output. The band is still wide enough (~90 ulp of the average) to
+            // absorb the sub-epsilon residue an identical-price window leaves in the
+            // average, which is what it was widened for in the first place (#7).
+            tempReal3 = (theAverage).abs();
+            if !(((tempReal).abs() <= 1e-14 * (tempReal3))) && !(((tempReal2).abs() <= 1e-14 * (tempReal3))) {
+                (*outReal) = tempReal / (0.015 * tempReal2);
+            } else {
+                (*outReal) = 0.0;
+            }
+            // Move forward the circular buffer indexes.
+            circBuffer_Idx = circBuffer_Idx + 1;
+            if circBuffer_Idx > sp.maxIdx_circBuffer {
+                circBuffer_Idx = 0;
+            }
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_CCI_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::CCI`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

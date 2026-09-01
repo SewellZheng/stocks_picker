@@ -677,15 +677,15 @@ public partial class Core
 
       internal CorrelStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Correl</c> reports over the same bars: the opener sets
-      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
-      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
-      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
-      /// last value, a subset of this range, because the caller chose not to take
-      /// the fill.</para>
+      /// it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds
+      /// one to the count — a non-finite bar is rejected but still counted, because
+      /// the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries
+      /// it verbatim. A plain <c>Open</c> hands back only the last value, a subset
+      /// of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -718,59 +718,30 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( CorrelStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.sumXY = other.sumXY;
-         this.sumX = other.sumX;
-         this.sumY = other.sumY;
-         this.sumX2 = other.sumX2;
-         this.sumY2 = other.sumY2;
-         this.shiftX = other.shiftX;
-         this.shiftY = other.shiftY;
-         this.leavingX = other.leavingX;
-         this.leavingY = other.leavingY;
-         this.invPeriod = other.invPeriod;
-         this.lookbackTotal = other.lookbackTotal;
-         this.trailingIdx = other.trailingIdx;
-         this.barsSinceReseed = other.barsSinceReseed;
-         this.j = other.j;
-         this.today = other.today;
-         this.xMask = other.xMask;
-         if( this.x_inReal0.Length != other.x_inReal0.Length ) {
-            this.x_inReal0 = new double[other.x_inReal0.Length];
-         }
-         Array.Copy( other.x_inReal0, this.x_inReal0, other.x_inReal0.Length );
-         if( this.x_inReal1.Length != other.x_inReal1.Length ) {
-            this.x_inReal1 = new double[other.x_inReal1.Length];
-         }
-         Array.Copy( other.x_inReal1, this.x_inReal1, other.x_inReal1.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static CorrelStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inReal0">This bar's value for <c>inReal0</c>.</param>
       /// <param name="inReal1">This bar's value for <c>inReal1</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal0, double inReal1 )
       {
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("CORREL", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("CORREL", "update", RetCode.BadParam);
+         }
          core.CorrelStepImpl(this, inReal0, inReal1);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -779,11 +750,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inReal0">This bar's value for <c>inReal0</c>.</param>
       /// <param name="inReal1">This bar's value for <c>inReal1</c>.</param>
@@ -791,15 +763,192 @@ public partial class Core
       public double Peek( double inReal0, double inReal1 )
       {
          if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("CORREL", "peek", RetCode.BadParam);
-         CorrelStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new CorrelStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         CorrelStream sp = this;
+         double x = 0.0;
+         double y = 0.0;
+         double trailingX = 0.0;
+         double trailingY = 0.0;
+         double ssX = 0.0;
+         double ssY = 0.0;
+         double spXY = 0.0;
+         double tempReal = 0.0;
+         int windowStart = 0;
+         int barsSinceReseed = sp.barsSinceReseed;
+         double cur_outReal = sp.cur_outReal;
+         int j = sp.j;
+         double leavingX = sp.leavingX;
+         double leavingY = sp.leavingY;
+         double shiftX = sp.shiftX;
+         double shiftY = sp.shiftY;
+         double sumX = sp.sumX;
+         double sumX2 = sp.sumX2;
+         double sumXY = sp.sumXY;
+         double sumY = sp.sumY;
+         double sumY2 = sp.sumY2;
+         int today = sp.today;
+         int trailingIdx = sp.trailingIdx;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         if( today >= 1073741824 ) {
+            int rebaseShift = trailingIdx & ~sp.xMask;
+            today -= rebaseShift;
+            trailingIdx -= rebaseShift;
+            j -= rebaseShift;
          }
-         core.CorrelStepImpl(scratch, inReal0, inReal1);
-         return scratch.cur_outReal;
+         pkSlot0 = today & sp.xMask;
+         pkVal0 = inReal0;
+         pkSlot1 = today & sp.xMask;
+         pkVal1 = inReal1;
+         /* Add the incoming value, measured against the shift. */
+         x = (((today & sp.xMask) != pkSlot0) ? sp.x_inReal0[today & sp.xMask] : pkVal0) - shiftX;
+         sumX += x;
+         sumX2 += x * x;
+         y = (((today & sp.xMask) != pkSlot1) ? sp.x_inReal1[today & sp.xMask] : pkVal1) - shiftY;
+         sumXY += x * y;
+         sumY += y;
+         sumY2 += y * y;
+         ssX = sumX2 - sumX * sumX * sp.invPeriod;
+         ssY = sumY2 - sumY * sumY * sp.invPeriod;
+         spXY = sumXY - sumX * sumY * sp.invPeriod;
+         /* Re-anchor and rebuild with a fresh two-pass when the shift has gone
+          * stale. Same three triggers as TA_VAR: either sum of squares has shrunk
+          * below 1e-6 of the squared deviations it is extracted from; OR the value
+          * the PREVIOUS bar removed sat so far from the shift that its squared term
+          * dwarfs what remains (a large outlier transiting the window buries the
+          * small terms below its ulp, and the residue it leaves is cancellation
+          * garbage); OR at least every 32 windows, so a slow drift stays bounded
+          * however long the series runs.
+          *
+          * One bar late is correct, not a compromise. leavingX/leavingY are set by
+          * the removal at the BOTTOM of the loop, so the bar on which the outlier
+          * actually leaves still computes its own output from sums that legitimately
+          * contain it. The trigger then fires on the NEXT bar -- the first one whose
+          * sums carry the residue -- and the reseed below recomputes that bar's
+          * output before it is written. No bar is ever emitted from the residue.
+          *
+          * The triggers watch ssX and ssY only, never spXY. A vanishing spXY is a
+          * legitimate answer - two uncorrelated series - not a loss of digits, and
+          * reseeding on it would rebuild the window on every bar of ordinary data.
+          * This is where the analogy with TA_VAR stops: variance has one extracted
+          * quantity and all of it is signal.
+          *
+          * Reading the window here is safe when outReal aliases an input: the
+          * outputs written so far occupy [0, outIdx-1] while windowStart is
+          * startIdx-lookbackTotal+outIdx, which is >= outIdx.
+          */
+         barsSinceReseed -= 1;
+         if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || leavingX > 1000000.0 * sumX2 || leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 ) {
+            barsSinceReseed = 32 * sp.optInTimePeriod;
+            windowStart = today - sp.lookbackTotal;
+            /* Both means in one pass over the window: the rebuild below is the
+             * only O(period) work on this function's hot path, so it is walked
+             * twice, not three times.
+             */
+            tempReal = 0.0;
+            shiftY = 0.0;
+            for( j = windowStart; j <= today; j += 1 ) {
+               tempReal += ((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0;
+               shiftY += ((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1;
+            }
+            shiftX = tempReal * sp.invPeriod;
+            shiftY = shiftY * sp.invPeriod;
+            sumY2 = 0.0;
+            sumX2 = sumY2;
+            sumY = sumX2;
+            sumX = sumY;
+            sumXY = sumX;
+            for( j = windowStart; j <= today; j += 1 ) {
+               x = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal0[j & sp.xMask] : pkVal0) - shiftX;
+               sumX += x;
+               sumX2 += x * x;
+               y = (((j & sp.xMask) != pkSlot1) ? sp.x_inReal1[j & sp.xMask] : pkVal1) - shiftY;
+               sumXY += x * y;
+               sumY += y;
+               sumY2 += y * y;
+            }
+            ssX = sumX2 - sumX * sumX * sp.invPeriod;
+            ssY = sumY2 - sumY * sumY * sp.invPeriod;
+            spXY = sumXY - sumX * sumY * sp.invPeriod;
+            /* A sum of squares is non-negative by definition, but this one is
+             * extracted as a difference, so its SIGN is not guaranteed on a window
+             * sitting inside a flat stretch. Enforce the invariant HERE and not at
+             * the divide: a negative ssX always reseeds on the same bar (it makes
+             * the first trigger's `negative < non-negative` true whenever sumX2 is
+             * positive, and sumX2 == 0 reduces that trigger to `ssX < 0`), so the
+             * divide below can rely on both being >= 0 and needs no sign test of
+             * its own. CHANGING THE TRIGGERS MEANS RE-CHECKING THIS.
+             */
+            if( ssX < 0.0 ) {
+               ssX = 0.0;
+            }
+            if( ssY < 0.0 ) {
+               ssY = 0.0;
+            }
+         }
+         /* Save the trailing values before writing the output, since the input
+          * and output might be the same array.
+          */
+         trailingX = (((trailingIdx & sp.xMask) != pkSlot0) ? sp.x_inReal0[trailingIdx & sp.xMask] : pkVal0) - shiftX;
+         trailingY = (((trailingIdx & sp.xMask) != pkSlot1) ? sp.x_inReal1[trailingIdx & sp.xMask] : pkVal1) - shiftY;
+         trailingIdx += 1;
+         /* Output the new coefficient.
+          *
+          * Each sum of squares is tested against its OWN scale, not the pair
+          * against a fixed band. The product ssX*ssY carries the fourth power of
+          * the window's spread, so an absolute threshold on it rejects a perfectly
+          * well-defined correlation as soon as the data is small - and, worse,
+          * lets a pair of NEGATIVE sums through, their signs cancelling into a
+          * plausible-looking result of the wrong sign. Testing each factor
+          * separately is what forecloses both.
+          *
+          * The literal is TA_EPSILON. This is deliberately NOT TA_IS_ZERO_SCALED,
+          * whose fabs() would admit a LARGE NEGATIVE ssX -- exactly the operand
+          * that must never reach the square root. A plain `>` rejects it, and it
+          * is also the cheaper test: the two fabs() cost ~7% of this function's
+          * runtime, and buy a wrong answer.
+          *
+          * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
+          * established both are positive, so the product needs no protection from
+          * a negative operand, and the second square root is worth ~25% of the
+          * runtime.
+          *
+          * The product CAN overflow to +Inf, and the one-root form is chosen with
+          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
+          * arrays are not range-checked, so ssX and ssY are bounded only by the
+          * double range and their product exceeds it once |x| passes ~1e154. The
+          * two-root form would not overflow there -- but the form this replaces
+          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
+          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
+          * correlation. Trading a quarter of the runtime for a case that already
+          * behaved this way, on inputs 117 orders past any price, is not a trade
+          * worth making. Revisit only if input range-checking is ever added.
+          */
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+            tempReal = spXY / Math.Sqrt(ssX * ssY);
+            /* A correlation coefficient cannot leave [-1,1]; rounding in the
+             * three sums can still put it a few ulp outside.
+             */
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            } else if( tempReal < 0 - 1.0 ) {
+               tempReal = 0 - 1.0;
+            }
+            cur_outReal = tempReal;
+         } else {
+            cur_outReal = 0.0;
+         }
+         /* Remove the trailing values (prepares the next window). */
+         leavingX = trailingX * trailingX;
+         leavingY = trailingY * trailingY;
+         sumX -= trailingX;
+         sumX2 -= leavingX;
+         sumXY -= trailingX * trailingY;
+         sumY -= trailingY;
+         sumY2 -= leavingY;
+         today += 1;
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -807,11 +956,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inReal0">Closed bars for <c>inReal0</c>, oldest first.</param>
       /// <param name="inReal1">Closed bars for <c>inReal1</c>, oldest first.</param>
@@ -822,15 +973,20 @@ public partial class Core
          if( inReal1.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inReal0) || outReal.Overlaps(inReal1) ) throw Core.StreamFailure("CORREL", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inReal0[i]) || !double.IsFinite(inReal1[i]) ) throw Core.StreamFailure("CORREL", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inReal0[i]) || !double.IsFinite(inReal1[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("CORREL", "updateAndFill", RetCode.BadParam);
+            }
             core.CorrelStepImpl(this, inReal0[i], inReal1[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

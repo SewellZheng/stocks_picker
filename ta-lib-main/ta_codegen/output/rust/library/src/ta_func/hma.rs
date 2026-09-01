@@ -80,6 +80,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_HMA_Lookback")]
     #[inline]
     pub fn HMA_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -473,26 +474,7 @@ impl Core {
     /// [`STOCH`](https://ta-lib.org/functions/stoch),
     /// [`MACDEXT`](https://ta-lib.org/functions/macdext), ...).
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// HMA(n) = WMA( 2 * WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
-    ///
-    /// All three averages are the standard linearly-weighted moving average (TA-Lib's WMA). Every output is a closed-form weighted sum of the input window: there is no seeding, no recursion, hence no unstable period.
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * The two derived periods `n/2` and `sqrt(n)` are **truncated** to integers, exactly as in
-    ///   Alan Hull's own statement of the formula (`Integer()`); Tulip Indicators and pandas-ta do
-    ///   the same. Some other published descriptions round to nearest instead, which changes both
-    ///   the values and, for the square root, the lookback — a visibly different line, not a
-    ///   tolerance-level difference. TA-Lib follows the author.
-    /// * The default period of 20 is Alan Hull's own default. It is also a period on which the
-    ///   truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47
-    ///   truncates and rounds to 4), so at the default a charting platform using the other
-    ///   convention still lands on TA-Lib's values.
-    /// * A period of 1 performs no smoothing: the output is a copy of the input.
+    /// Formula and more info at [ta-lib.org/functions/hma](https://ta-lib.org/functions/hma).
     ///
     /// # Arguments
     ///
@@ -548,8 +530,7 @@ impl Core {
     /// * Alan Hull, *How to reduce lag in a moving average* — the original definition, including
     ///   the `Integer()` truncation of both derived periods:
     ///   [alanhull.com/hull-moving-average](https://alanhull.com/hull-moving-average)
-    ///
-    /// Further reading: [ta-lib.org/functions/hma](https://ta-lib.org/functions/hma)
+    #[doc(alias = "TA_HMA")]
     #[doc(alias = "HullMovingAverage")]
     pub fn HMA(
         &self,
@@ -598,24 +579,14 @@ impl Core {
 /// over the same series. Open with [`Core::hma_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_HMA_Stream")]
 pub struct HmaStream {
     state: HmaStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl HmaStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `HmaStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -658,51 +629,7 @@ struct HmaStreamState {
     win_jHalf_inReal: Vec<f64>,
     cbSize_dRing: usize,
     cb_dRing: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl HmaStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.dividerFull = src.dividerFull;
-        self.periodSubFull = src.periodSubFull;
-        self.periodSumFull = src.periodSumFull;
-        self.trailingFull = src.trailingFull;
-        self.lookbackFull = src.lookbackFull;
-        self.barsSinceReseedFull = src.barsSinceReseedFull;
-        self.halfPeriod = src.halfPeriod;
-        self.sqrtPeriod = src.sqrtPeriod;
-        self.ringSize = src.ringSize;
-        self.dividerHalf = src.dividerHalf;
-        self.dividerSqrt = src.dividerSqrt;
-        self.periodSubHalf = src.periodSubHalf;
-        self.periodSumHalf = src.periodSumHalf;
-        self.trailingHalf = src.trailingHalf;
-        self.periodSubSqrt = src.periodSubSqrt;
-        self.periodSumSqrt = src.periodSumSqrt;
-        self.trailingSqrt = src.trailingSqrt;
-        self.lookbackHalf = src.lookbackHalf;
-        self.barsSinceReseedHalf = src.barsSinceReseedHalf;
-        self.barsSinceReseedSqrt = src.barsSinceReseedSqrt;
-        self.dRing_Idx = src.dRing_Idx;
-        self.maxIdx_dRing = src.maxIdx_dRing;
-        self.ringPos_trailingIdxFull = src.ringPos_trailingIdxFull;
-        self.ringCap_trailingIdxFull = src.ringCap_trailingIdxFull;
-        self.ring_trailingIdxFull_inReal.clone_from(&src.ring_trailingIdxFull_inReal);
-        self.winPos_jFull = src.winPos_jFull;
-        self.winCap_jFull = src.winCap_jFull;
-        self.win_jFull_inReal.clone_from(&src.win_jFull_inReal);
-        self.ringPos_trailingIdxHalf = src.ringPos_trailingIdxHalf;
-        self.ringCap_trailingIdxHalf = src.ringCap_trailingIdxHalf;
-        self.ring_trailingIdxHalf_inReal.clone_from(&src.ring_trailingIdxHalf_inReal);
-        self.winPos_jHalf = src.winPos_jHalf;
-        self.winCap_jHalf = src.winCap_jHalf;
-        self.win_jHalf_inReal.clone_from(&src.win_jHalf_inReal);
-        self.cbSize_dRing = src.cbSize_dRing;
-        self.cb_dRing.clone_from(&src.cb_dRing);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -714,6 +641,7 @@ impl Core {
     fn hma_step_impl(sp: &mut HmaStreamState, inReal: f64, outReal: &mut f64) {
         if sp.optInTimePeriod == 1 {
             (*outReal) = inReal;
+            sp.cur_outReal = (*outReal);
             return;
         }
         if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
@@ -751,6 +679,7 @@ impl Core {
             fullOut = sp.periodSumFull / sp.dividerFull;
             sp.periodSumFull -= sp.periodSubFull;
             (*outReal) = 2.0 * tempReal - fullOut;
+            sp.cur_outReal = (*outReal);
             sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
             sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
             if sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull {
@@ -866,6 +795,7 @@ impl Core {
             }
             (*outReal) = sp.periodSumSqrt / sp.dividerSqrt;
             sp.periodSumSqrt -= sp.periodSubSqrt;
+            sp.cur_outReal = (*outReal);
             sp.ring_trailingIdxFull_inReal[sp.ringPos_trailingIdxFull] = inReal;
             sp.ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull + 1;
             if sp.ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull {
@@ -920,6 +850,7 @@ impl Core {
                 return Err(RetCode::InsufficientHistory);
             }
             let state = HmaStreamState {
+                cur_outReal: inReal[historyLen - 1],
                 optInTimePeriod: optInTimePeriod,
                 dividerFull: 0.0_f64,
                 periodSubFull: 0.0_f64,
@@ -1146,6 +1077,7 @@ impl Core {
                 barsSinceReseedSqrt,
                 dRing_Idx,
                 maxIdx_dRing,
+                cur_outReal: outReal[(*outNBElement - 1) * outStride],
                 ringPos_trailingIdxFull: 0_usize,
                 ringCap_trailingIdxFull: cap_trailingIdxFull as usize,
                 ring_trailingIdxFull_inReal,
@@ -1500,6 +1432,7 @@ impl Core {
                 barsSinceReseedSqrt,
                 dRing_Idx,
                 maxIdx_dRing,
+                cur_outReal: outReal[(*outNBElement - 1) * outStride],
                 ringPos_trailingIdxFull: 0_usize,
                 ringCap_trailingIdxFull: cap_trailingIdxFull as usize,
                 ring_trailingIdxFull_inReal,
@@ -1621,31 +1554,33 @@ impl Core {
 
 }
 
-thread_local! {
-    /// `peek`'s reusable scratch state (see `HmaStreamState::restore_from`).
-    /// Taken for the duration of the step and put back after, so a
-    /// panicking step costs the scratch, never leaves it borrowed.
-    static HMA_PEEK_SCRATCH: std::cell::Cell<Option<Box<HmaStreamState>>> =
-        const { std::cell::Cell::new(None) };
-}
-
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl HmaStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_HMA_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1661,7 +1596,7 @@ impl HmaStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1671,7 +1606,8 @@ impl HmaStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_HMA_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -1680,6 +1616,9 @@ impl HmaStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::hma_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
@@ -1691,36 +1630,264 @@ impl HmaStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy it runs on is held per thread and reused,
-    /// so only the first peek of this function on a thread allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_HMA_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        HMA_PEEK_SCRATCH.with(|cell| {
-            let mut scratch = cell.take().unwrap_or_else(|| Box::new(self.state.clone()));
-            scratch.restore_from(&self.state);
-            let mut outReal: f64 = 0.0_f64;
-            Core::hma_step_impl(&mut scratch, inReal, &mut outReal);
-            cell.set(Some(scratch));
-            Ok(outReal)
-        })
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            if sp.optInTimePeriod == 1 {
+                (*outReal) = inReal;
+                return Ok((*outReal));
+            }
+            if sp.optInTimePeriod == 2 || sp.optInTimePeriod == 3 {
+                let mut tempReal: f64 = 0.0_f64;
+                let mut fullOut: f64 = 0.0_f64;
+                let mut jFull: usize = 0_usize;
+                let mut rw: usize = 0_usize;
+                let mut tempReal2: f64 = 0.0_f64;
+                let mut barsSinceReseedFull = sp.barsSinceReseedFull;
+                let mut cur_outReal = sp.cur_outReal;
+                let mut periodSubFull = sp.periodSubFull;
+                let mut periodSumFull = sp.periodSumFull;
+                let mut ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull;
+                let mut trailingFull = sp.trailingFull;
+                let mut winPos_jFull = sp.winPos_jFull;
+                let mut pkSlot0: usize = usize::MAX;
+                let mut pkVal0: f64 = 0.0_f64;
+                let mut pkSlot1: usize = usize::MAX;
+                let mut pkVal1: f64 = 0.0_f64;
+                if sp.ringCap_trailingIdxFull == 0 {
+                    pkSlot0 = 0;
+                    pkVal0 = inReal;
+                }
+                pkSlot1 = winPos_jFull as usize;
+                pkVal1 = inReal;
+                tempReal = inReal;
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * ((sp.optInTimePeriod) as f64);
+                barsSinceReseedFull -= 1;
+                if barsSinceReseedFull <= 0 {
+                    barsSinceReseedFull = (8 * sp.optInTimePeriod) as usize;
+                    periodSubFull = 0.0;
+                    periodSumFull = 0.0;
+                    rw = 1;
+                    // for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 )
+                    jFull = sp.lookbackFull;
+                    loop {
+                        tempReal2 = (if ((if winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull { winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull } else { winPos_jFull + sp.winCap_jFull - jFull }) as usize) != pkSlot1 { sp.win_jFull_inReal[((if winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull { winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull } else { winPos_jFull + sp.winCap_jFull - jFull })) as usize] } else { pkVal1 });
+                        periodSubFull += tempReal2;
+                        periodSumFull += tempReal2 * ((rw) as f64);
+                        rw += 1;
+                        if jFull == 0 { break; }
+                        jFull -= 1;
+                    }
+                }
+                trailingFull = (if (ringPos_trailingIdxFull as usize) != pkSlot0 { sp.ring_trailingIdxFull_inReal[ringPos_trailingIdxFull] } else { pkVal0 });
+                fullOut = periodSumFull / sp.dividerFull;
+                periodSumFull -= periodSubFull;
+                (*outReal) = 2.0 * tempReal - fullOut;
+                cur_outReal = (*outReal);
+                ringPos_trailingIdxFull = ringPos_trailingIdxFull + 1;
+                if ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull {
+                    ringPos_trailingIdxFull = 0;
+                }
+                winPos_jFull = winPos_jFull + 1;
+                if winPos_jFull >= sp.winCap_jFull {
+                    winPos_jFull = 0;
+                }
+            } else {
+                let mut tempReal: f64 = 0.0_f64;
+                let mut fullOut: f64 = 0.0_f64;
+                let mut halfOut: f64 = 0.0_f64;
+                let mut diffReal: f64 = 0.0_f64;
+                let mut jFull: usize = 0_usize;
+                let mut jHalf: usize = 0_usize;
+                let mut q: usize = 0_usize;
+                let mut rw: usize = 0_usize;
+                let mut ringWalk: usize = 0_usize;
+                let mut tempReal2: f64 = 0.0_f64;
+                let mut barsSinceReseedFull = sp.barsSinceReseedFull;
+                let mut barsSinceReseedHalf = sp.barsSinceReseedHalf;
+                let mut barsSinceReseedSqrt = sp.barsSinceReseedSqrt;
+                let mut cur_outReal = sp.cur_outReal;
+                let mut dRing_Idx = sp.dRing_Idx;
+                let mut periodSubFull = sp.periodSubFull;
+                let mut periodSubHalf = sp.periodSubHalf;
+                let mut periodSubSqrt = sp.periodSubSqrt;
+                let mut periodSumFull = sp.periodSumFull;
+                let mut periodSumHalf = sp.periodSumHalf;
+                let mut periodSumSqrt = sp.periodSumSqrt;
+                let mut ringPos_trailingIdxFull = sp.ringPos_trailingIdxFull;
+                let mut ringPos_trailingIdxHalf = sp.ringPos_trailingIdxHalf;
+                let mut trailingFull = sp.trailingFull;
+                let mut trailingHalf = sp.trailingHalf;
+                let mut trailingSqrt = sp.trailingSqrt;
+                let mut winPos_jFull = sp.winPos_jFull;
+                let mut winPos_jHalf = sp.winPos_jHalf;
+                let mut pkSlot0: usize = usize::MAX;
+                let mut pkVal0: f64 = 0.0_f64;
+                let mut pkSlot1: usize = usize::MAX;
+                let mut pkVal1: f64 = 0.0_f64;
+                let mut pkSlot2: usize = usize::MAX;
+                let mut pkVal2: f64 = 0.0_f64;
+                let mut pkSlot3: usize = usize::MAX;
+                let mut pkVal3: f64 = 0.0_f64;
+                if sp.ringCap_trailingIdxFull == 0 {
+                    pkSlot0 = 0;
+                    pkVal0 = inReal;
+                }
+                if sp.ringCap_trailingIdxHalf == 0 {
+                    pkSlot1 = 0;
+                    pkVal1 = inReal;
+                }
+                pkSlot2 = winPos_jFull as usize;
+                pkVal2 = inReal;
+                pkSlot3 = winPos_jHalf as usize;
+                pkVal3 = inReal;
+                tempReal = inReal;
+                periodSubFull += tempReal;
+                periodSubFull -= trailingFull;
+                periodSumFull += tempReal * ((sp.optInTimePeriod) as f64);
+                barsSinceReseedFull -= 1;
+                if barsSinceReseedFull <= 0 {
+                    barsSinceReseedFull = (8 * sp.optInTimePeriod) as usize;
+                    periodSubFull = 0.0;
+                    periodSumFull = 0.0;
+                    rw = 1;
+                    // for( jFull = sp.lookbackFull; jFull >= 0; jFull -= 1 )
+                    jFull = sp.lookbackFull;
+                    loop {
+                        tempReal2 = (if ((if winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull { winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull } else { winPos_jFull + sp.winCap_jFull - jFull }) as usize) != pkSlot2 { sp.win_jFull_inReal[((if winPos_jFull + sp.winCap_jFull - jFull >= sp.winCap_jFull { winPos_jFull + sp.winCap_jFull - jFull - sp.winCap_jFull } else { winPos_jFull + sp.winCap_jFull - jFull })) as usize] } else { pkVal2 });
+                        periodSubFull += tempReal2;
+                        periodSumFull += tempReal2 * ((rw) as f64);
+                        rw += 1;
+                        if jFull == 0 { break; }
+                        jFull -= 1;
+                    }
+                }
+                trailingFull = (if (ringPos_trailingIdxFull as usize) != pkSlot0 { sp.ring_trailingIdxFull_inReal[ringPos_trailingIdxFull] } else { pkVal0 });
+                fullOut = periodSumFull / sp.dividerFull;
+                periodSumFull -= periodSubFull;
+                periodSubHalf += tempReal;
+                periodSubHalf -= trailingHalf;
+                periodSumHalf += tempReal * ((sp.halfPeriod) as f64);
+                barsSinceReseedHalf -= 1;
+                if barsSinceReseedHalf <= 0 {
+                    barsSinceReseedHalf = 8 * sp.halfPeriod;
+                    periodSubHalf = 0.0;
+                    periodSumHalf = 0.0;
+                    rw = 1;
+                    // for( jHalf = sp.lookbackHalf; jHalf >= 0; jHalf -= 1 )
+                    jHalf = sp.lookbackHalf;
+                    loop {
+                        tempReal2 = (if ((if winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf { winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf } else { winPos_jHalf + sp.winCap_jHalf - jHalf }) as usize) != pkSlot3 { sp.win_jHalf_inReal[((if winPos_jHalf + sp.winCap_jHalf - jHalf >= sp.winCap_jHalf { winPos_jHalf + sp.winCap_jHalf - jHalf - sp.winCap_jHalf } else { winPos_jHalf + sp.winCap_jHalf - jHalf })) as usize] } else { pkVal3 });
+                        periodSubHalf += tempReal2;
+                        periodSumHalf += tempReal2 * ((rw) as f64);
+                        rw += 1;
+                        if jHalf == 0 { break; }
+                        jHalf -= 1;
+                    }
+                }
+                trailingHalf = (if (ringPos_trailingIdxHalf as usize) != pkSlot1 { sp.ring_trailingIdxHalf_inReal[ringPos_trailingIdxHalf] } else { pkVal1 });
+                halfOut = periodSumHalf / sp.dividerHalf;
+                periodSumHalf -= periodSubHalf;
+                diffReal = 2.0 * halfOut - fullOut;
+                periodSubSqrt += diffReal;
+                periodSubSqrt -= trailingSqrt;
+                periodSumSqrt += diffReal * ((sp.sqrtPeriod) as f64);
+                // The outer WMA consumes a DERIVED series that is never
+                // materialised, so its rescan walks the de-lag ring: dRing_Idx is
+                // the oldest slot (the one about to expire) and diffReal is the
+                // newest value, which together are the whole window. Oldest first,
+                // weight counting up from 1 -- the priming order above.
+                barsSinceReseedSqrt -= 1;
+                if barsSinceReseedSqrt <= 0 {
+                    barsSinceReseedSqrt = 8 * sp.sqrtPeriod;
+                    periodSubSqrt = 0.0;
+                    periodSumSqrt = 0.0;
+                    rw = 1;
+                    ringWalk = dRing_Idx;
+                    // for( q = 0; q < sp.ringSize; q += 1 )
+                    q = 0;
+                    while q < sp.ringSize {
+                        tempReal2 = sp.cb_dRing[ringWalk];
+                        periodSubSqrt += tempReal2;
+                        periodSumSqrt += tempReal2 * ((rw) as f64);
+                        rw += 1;
+                        ringWalk += 1;
+                        if ringWalk >= sp.ringSize {
+                            ringWalk = 0;
+                        }
+                        q += 1;
+                    }
+                    periodSubSqrt += diffReal;
+                    periodSumSqrt += diffReal * ((sp.sqrtPeriod) as f64);
+                }
+                trailingSqrt = sp.cb_dRing[dRing_Idx];
+                dRing_Idx = dRing_Idx + 1;
+                if dRing_Idx > sp.maxIdx_dRing {
+                    dRing_Idx = 0;
+                }
+                (*outReal) = periodSumSqrt / sp.dividerSqrt;
+                periodSumSqrt -= periodSubSqrt;
+                cur_outReal = (*outReal);
+                ringPos_trailingIdxFull = ringPos_trailingIdxFull + 1;
+                if ringPos_trailingIdxFull >= sp.ringCap_trailingIdxFull {
+                    ringPos_trailingIdxFull = 0;
+                }
+                ringPos_trailingIdxHalf = ringPos_trailingIdxHalf + 1;
+                if ringPos_trailingIdxHalf >= sp.ringCap_trailingIdxHalf {
+                    ringPos_trailingIdxHalf = 0;
+                }
+                winPos_jFull = winPos_jFull + 1;
+                if winPos_jFull >= sp.winCap_jFull {
+                    winPos_jFull = 0;
+                }
+                winPos_jHalf = winPos_jHalf + 1;
+                if winPos_jHalf >= sp.winCap_jHalf {
+                    winPos_jHalf = 0;
+                }
+            }
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_HMA_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::HMA`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

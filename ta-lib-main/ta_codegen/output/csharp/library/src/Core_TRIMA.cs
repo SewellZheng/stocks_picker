@@ -669,15 +669,15 @@ public partial class Core
 
       internal TrimaStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Trima</c> reports over the same bars: the opener sets
-      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
-      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
-      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
-      /// last value, a subset of this range, because the caller chose not to take
-      /// the fill.</para>
+      /// it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds
+      /// one to the count — a non-finite bar is rejected but still counted, because
+      /// the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries
+      /// it verbatim. A plain <c>Open</c> hands back only the last value, a subset
+      /// of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -703,51 +703,29 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( TrimaStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.numerator = other.numerator;
-         this.numeratorSub = other.numeratorSub;
-         this.numeratorAdd = other.numeratorAdd;
-         this.factor = other.factor;
-         this.tempReal = other.tempReal;
-         this.ringPos_middleIdx = other.ringPos_middleIdx;
-         this.ringCap_middleIdx = other.ringCap_middleIdx;
-         if( this.ring_middleIdx_inReal.Length != other.ring_middleIdx_inReal.Length ) {
-            this.ring_middleIdx_inReal = new double[other.ring_middleIdx_inReal.Length];
-         }
-         Array.Copy( other.ring_middleIdx_inReal, this.ring_middleIdx_inReal, other.ring_middleIdx_inReal.Length );
-         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
-         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
-         if( this.ring_trailingIdx_inReal.Length != other.ring_trailingIdx_inReal.Length ) {
-            this.ring_trailingIdx_inReal = new double[other.ring_trailingIdx_inReal.Length];
-         }
-         Array.Copy( other.ring_trailingIdx_inReal, this.ring_trailingIdx_inReal, other.ring_trailingIdx_inReal.Length );
-         this.cur_outReal = other.cur_outReal;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static TrimaStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("TRIMA", "update", RetCode.BadParam);
+         if( !double.IsFinite(inReal) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("TRIMA", "update", RetCode.BadParam);
+         }
          core.TrimaStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -756,26 +734,106 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>What <see cref="Update"/> would return for this bar.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("TRIMA", "peek", RetCode.BadParam);
-         TrimaStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new TrimaStream(this);
-            peekScratch = scratch;
+         TrimaStream sp = this;
+         double cur_outReal = 0.0;
+         if( sp.optInTimePeriod % 2 == 1 ) {
+            double numerator = sp.numerator;
+            double numeratorAdd = sp.numeratorAdd;
+            double numeratorSub = sp.numeratorSub;
+            int ringPos_middleIdx = sp.ringPos_middleIdx;
+            int ringPos_trailingIdx = sp.ringPos_trailingIdx;
+            double tempReal = sp.tempReal;
+            int pkSlot0 = -1;
+            double pkVal0 = 0.0;
+            int pkSlot1 = -1;
+            double pkVal1 = 0.0;
+            if( sp.ringCap_middleIdx == 0 ) {
+               pkSlot0 = 0;
+               pkVal0 = inReal;
+            }
+            if( sp.ringCap_trailingIdx == 0 ) {
+               pkSlot1 = 0;
+               pkVal1 = inReal;
+            }
+            /* Step (1) */
+            numerator -= numeratorSub;
+            numeratorSub -= tempReal;
+            tempReal = (ringPos_middleIdx != pkSlot0) ? sp.ring_middleIdx_inReal[ringPos_middleIdx] : pkVal0;
+            numeratorSub += tempReal;
+            /* Step (2) */
+            numerator += numeratorAdd;
+            numeratorAdd -= tempReal;
+            tempReal = inReal;
+            numeratorAdd += tempReal;
+            /* Step (3) */
+            numerator += tempReal;
+            /* Step (4) */
+            tempReal = (ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inReal[ringPos_trailingIdx] : pkVal1;
+            cur_outReal = numerator * sp.factor;
+            ringPos_middleIdx = ringPos_middleIdx + 1;
+            if( ringPos_middleIdx >= sp.ringCap_middleIdx ) {
+               ringPos_middleIdx = 0;
+            }
+            ringPos_trailingIdx = ringPos_trailingIdx + 1;
+            if( ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+               ringPos_trailingIdx = 0;
+            }
          } else {
-            scratch.CopyFrom(this);
+            double numerator = sp.numerator;
+            double numeratorAdd = sp.numeratorAdd;
+            double numeratorSub = sp.numeratorSub;
+            int ringPos_middleIdx = sp.ringPos_middleIdx;
+            int ringPos_trailingIdx = sp.ringPos_trailingIdx;
+            double tempReal = sp.tempReal;
+            int pkSlot0 = -1;
+            double pkVal0 = 0.0;
+            int pkSlot1 = -1;
+            double pkVal1 = 0.0;
+            if( sp.ringCap_middleIdx == 0 ) {
+               pkSlot0 = 0;
+               pkVal0 = inReal;
+            }
+            if( sp.ringCap_trailingIdx == 0 ) {
+               pkSlot1 = 0;
+               pkVal1 = inReal;
+            }
+            /* Step (1) */
+            numerator -= numeratorSub;
+            numeratorSub -= tempReal;
+            tempReal = (ringPos_middleIdx != pkSlot0) ? sp.ring_middleIdx_inReal[ringPos_middleIdx] : pkVal0;
+            numeratorSub += tempReal;
+            /* Step (2) */
+            numeratorAdd -= tempReal;
+            numerator += numeratorAdd;
+            tempReal = inReal;
+            numeratorAdd += tempReal;
+            /* Step (3) */
+            numerator += tempReal;
+            /* Step (4) */
+            tempReal = (ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inReal[ringPos_trailingIdx] : pkVal1;
+            cur_outReal = numerator * sp.factor;
+            ringPos_middleIdx = ringPos_middleIdx + 1;
+            if( ringPos_middleIdx >= sp.ringCap_middleIdx ) {
+               ringPos_middleIdx = 0;
+            }
+            ringPos_trailingIdx = ringPos_trailingIdx + 1;
+            if( ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+               ringPos_trailingIdx = 0;
+            }
          }
-         core.TrimaStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         return cur_outReal;
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -783,11 +841,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
       /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
@@ -797,15 +857,20 @@ public partial class Core
          if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("TRIMA", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inReal[i]) ) throw Core.StreamFailure("TRIMA", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inReal[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("TRIMA", "updateAndFill", RetCode.BadParam);
+            }
             core.TrimaStepImpl(this, inReal[i]);
             outReal[i] = cur_outReal;
             if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

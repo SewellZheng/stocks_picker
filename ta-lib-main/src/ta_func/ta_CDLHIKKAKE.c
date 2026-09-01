@@ -297,10 +297,12 @@ TA_RetCode TA_S_CDLHIKKAKE( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CDLHIKKAKE_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_CDLHIKKAKE_Value). */
+   int cur_outInteger;
    int patternResult;
    int cd;
    double savedHigh;
@@ -336,6 +338,7 @@ static void TA_CDLHIKKAKE_StepImpl( struct TA_CDLHIKKAKE_Stream *sp, double inOp
    {
       sp->cd -= 1;
    }
+   sp->cur_outInteger = *outInteger;
    sp->lag2_inHigh = sp->lag1_inHigh;
    sp->lag1_inHigh = inHigh;
    sp->lag2_inLow = sp->lag1_inLow;
@@ -479,6 +482,7 @@ static TA_RetCode TA_CDLHIKKAKE_OpenImpl( struct TA_CDLHIKKAKE_Stream **stream, 
       sp->lag2_inLow = inLow[historyLen - 2];
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -529,7 +533,11 @@ TA_RetCode TA_CDLHIKKAKE_OpenAndFillInternal( struct TA_CDLHIKKAKE_Stream **stre
 TA_LIB_API TA_RetCode TA_CDLHIKKAKE_Update( TA_CDLHIKKAKE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_CDLHIKKAKE_StepImpl( stream, inOpen, inHigh, inLow, inClose, outInteger );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -538,11 +546,38 @@ TA_LIB_API TA_RetCode TA_CDLHIKKAKE_Update( TA_CDLHIKKAKE_Stream *stream, double
 TA_LIB_API TA_RetCode TA_CDLHIKKAKE_Peek( const TA_CDLHIKKAKE_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    struct TA_CDLHIKKAKE_Stream scratch;
+   struct TA_CDLHIKKAKE_Stream *sp = &scratch;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   TA_CDLHIKKAKE_StepImpl( &scratch, inOpen, inHigh, inLow, inClose, outInteger );
+   if( sp->lag1_inHigh < sp->lag2_inHigh &&
+       sp->lag1_inLow > sp->lag2_inLow &&   /* 1st + 2nd: lower high and higher low */
+       (inHigh < sp->lag1_inHigh && inLow < sp->lag1_inLow || inHigh > sp->lag1_inHigh && inLow > sp->lag1_inLow) ) /* (bull) 3rd: lower high and lower low (bear) 3rd: higher high and higher low */
+   {
+      sp->patternResult = 100 * ((inHigh < sp->lag1_inHigh) ? 1 : 0 - 1);
+      sp->savedHigh = sp->lag1_inHigh;
+      sp->savedLow = sp->lag1_inLow;
+      sp->cd = 4;
+      *outInteger= sp->patternResult;
+   } else if( sp->cd > 0 &&
+       (sp->patternResult > 0 && inClose > sp->savedHigh || sp->patternResult < 0 && inClose < sp->savedLow) ) /* search for confirmation if hikkake was no more than 3 bars ago close higher than the high of 2nd close lower than the low of 2nd */
+   {
+      *outInteger= sp->patternResult + 100 * ((sp->patternResult > 0) ? 1 : 0 - 1);
+      sp->cd = 0;
+   } else 
+   {
+      *outInteger= 0;
+   }
+   if( sp->cd > 0 )
+   {
+      sp->cd -= 1;
+   }
+   sp->cur_outInteger = *outInteger;
+   sp->lag2_inHigh = sp->lag1_inHigh;
+   sp->lag1_inHigh = inHigh;
+   sp->lag2_inLow = sp->lag1_inLow;
+   sp->lag1_inLow = inLow;
    return TA_SUCCESS;
 }
 
@@ -555,7 +590,11 @@ TA_LIB_API TA_RetCode TA_CDLHIKKAKE_UpdateAndFill( TA_CDLHIKKAKE_Stream *stream,
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inOpen[i] ) || !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inOpen[i] ) || !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_CDLHIKKAKE_StepImpl( stream, inOpen[i], inHigh[i], inLow[i], inClose[i], &outInteger[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -565,6 +604,27 @@ TA_LIB_API TA_RetCode TA_CDLHIKKAKE_UpdateAndFill( TA_CDLHIKKAKE_Stream *stream,
 TA_LIB_API TA_RetCode TA_CDLHIKKAKE_Close( TA_CDLHIKKAKE_Stream *stream )
 {
    if( stream ) TA_Free( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CDLHIKKAKE_Value( const TA_CDLHIKKAKE_Stream *stream, int *outInteger )
+{
+   if( !stream || !outInteger ) return TA_BAD_PARAM;
+   *outInteger = stream->cur_outInteger;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CDLHIKKAKE_Clone( const TA_CDLHIKKAKE_Stream *stream, TA_CDLHIKKAKE_Stream **clone )
+{
+   struct TA_CDLHIKKAKE_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_CDLHIKKAKE_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   *clone = sp;
    return TA_SUCCESS;
 }
 

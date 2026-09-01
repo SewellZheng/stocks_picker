@@ -504,11 +504,11 @@
     * Open with {@link Core#maOpen}; there is no close — the handle is
     * ordinary heap state, unreferenced handles are simply garbage-collected.
     * <p>Concurrency: a handle is single-writer — {@code update}, {@code peek},
-    * {@code value} and {@code copy} must not race with an {@code update} on
+    * {@code value} and {@code clone} must not race with an {@code update} on
     * the same handle. With no concurrent {@code update}, {@code peek}/
-    * {@code value}/{@code copy} never write the handle and may be called
-    * concurrently after safe publication. Independent handles (including
-    * {@code copy()} results) are fully independent.
+    * {@code value}/{@code clone} never write the stream and may be called
+    * concurrently after safe publication. Independent streams (a
+    * {@code clone()} result included) are fully independent.
     * <p>Not serializable by design: to checkpoint, retain the history and
     * re-open — the result is bit-identical by contract.
     */
@@ -525,12 +525,13 @@
       MaStream( Core core ) { this.core = core; }
 
       /**
-       * The bars this stream has produced a value for, in the input series'
+       * The bars this stream has an output for, in the input series'
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#MA} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * accepted {@code update} adds one to the count, {@code peek} leaves
-       * it alone, and {@code copy()} carries it verbatim. A plain
+       * {@code update} adds one to the count — a bar rejected for being
+       * non-finite included, because it still happened — {@code peek} leaves
+       * it alone, and {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
@@ -584,112 +585,27 @@
          this.outRangeCount = other.outRangeCount;
       }
 
-      void copyFrom( MaStream other ) {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.optInMAType = other.optInMAType;
-         this.cur_outReal = other.cur_outReal;
-         if( other.sub == null ) {
-            this.sub = null;
-         } else {
-            switch( this.optInMAType )
-            {
-            case SMA:
-               if( this.sub instanceof SmaStream ) {
-                  ((SmaStream) this.sub).copyFrom((SmaStream) other.sub);
-               } else {
-                  this.sub = new SmaStream((SmaStream) other.sub);
-               }
-               break;
-            case EMA:
-               if( this.sub instanceof EmaStream ) {
-                  ((EmaStream) this.sub).copyFrom((EmaStream) other.sub);
-               } else {
-                  this.sub = new EmaStream((EmaStream) other.sub);
-               }
-               break;
-            case WMA:
-               if( this.sub instanceof WmaStream ) {
-                  ((WmaStream) this.sub).copyFrom((WmaStream) other.sub);
-               } else {
-                  this.sub = new WmaStream((WmaStream) other.sub);
-               }
-               break;
-            case DEMA:
-               if( this.sub instanceof DemaStream ) {
-                  ((DemaStream) this.sub).copyFrom((DemaStream) other.sub);
-               } else {
-                  this.sub = new DemaStream((DemaStream) other.sub);
-               }
-               break;
-            case TEMA:
-               if( this.sub instanceof TemaStream ) {
-                  ((TemaStream) this.sub).copyFrom((TemaStream) other.sub);
-               } else {
-                  this.sub = new TemaStream((TemaStream) other.sub);
-               }
-               break;
-            case TRIMA:
-               if( this.sub instanceof TrimaStream ) {
-                  ((TrimaStream) this.sub).copyFrom((TrimaStream) other.sub);
-               } else {
-                  this.sub = new TrimaStream((TrimaStream) other.sub);
-               }
-               break;
-            case KAMA:
-               if( this.sub instanceof KamaStream ) {
-                  ((KamaStream) this.sub).copyFrom((KamaStream) other.sub);
-               } else {
-                  this.sub = new KamaStream((KamaStream) other.sub);
-               }
-               break;
-            case MAMA:
-               if( this.sub instanceof MamaStream ) {
-                  ((MamaStream) this.sub).copyFrom((MamaStream) other.sub);
-               } else {
-                  this.sub = new MamaStream((MamaStream) other.sub);
-               }
-               break;
-            case T3:
-               if( this.sub instanceof T3Stream ) {
-                  ((T3Stream) this.sub).copyFrom((T3Stream) other.sub);
-               } else {
-                  this.sub = new T3Stream((T3Stream) other.sub);
-               }
-               break;
-            case HMA:
-               if( this.sub instanceof HmaStream ) {
-                  ((HmaStream) this.sub).copyFrom((HmaStream) other.sub);
-               } else {
-                  this.sub = new HmaStream((HmaStream) other.sub);
-               }
-               break;
-            default:
-               throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
-            }
-         }
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /** {@code peek}'s reusable scratch — one per thread, see {@code copyFrom}. */
-      private static final ThreadLocal<MaStream> PEEK_SCRATCH = new ThreadLocal<>();
-
       /**
        * Commit one closed bar, returning the new current value.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the handle is left exactly as it was —
-       * the stream stays usable, so skip the bar or re-open on a clean
-       * history. This is the one place the streaming tier is stricter than
+       * written, so the state is left exactly as it was: the rejected bar's
+       * output is the previous value, held, and {@link #value()} answers it.
+       * The stream stays usable, so skip the bar or re-open on a clean
+       * history. {@link #outRange()} does advance: the bar happened and
+       * occupies a position in the series, so the handle counts it, which is
+       * what keeps two handles on one feed aligned when only one rejects.
+       * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) )
+         if( !Double.isFinite(inReal) ) {
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("MA update: BadParam", RetCode.BadParam);
+         }
          core.maStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
@@ -701,11 +617,12 @@
        * set of argument checks instead of {@code n}. {@code n} is
        * {@code inReal.length}; the outputs must hold at least that many, and must
        * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what was committed, which is what makes a
+       * <p>{@link #outRange()} counts what this call took in, which is what makes a
        * rejection readable: a non-finite bar {@code k} throws
        * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * bars {@code 0..k} committed and written, bar {@code k} and everything
-       * after it not, and the count advanced by {@code k}.
+       * the bars before {@code k} committed and written, bar {@code k} and
+       * everything after it not, and the count advanced by {@code k + 1} —
+       * the committed bars plus the rejected one.
        */
       public void updateAndFill( double inReal[], double outReal[] ) {
          requireArgument("MA updateAndFill", "inReal", inReal);
@@ -714,8 +631,10 @@
          if( outReal.length < barCount || (Object)outReal == (Object)inReal )
             throw new TaLibArgumentException("MA updateAndFill: BadParam", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) )
+            if( !Double.isFinite(inReal[i]) ) {
+               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
                throw new TaLibArgumentException("MA updateAndFill: BadParam", RetCode.BadParam);
+            }
             core.maStepImpl(this, inReal[i]);
             outReal[i] = this.cur_outReal;
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
@@ -724,30 +643,75 @@
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return (it is the same
-       * generated code, run on a copy). Never writes this handle, so peeks may
-       * run concurrently with each other. It runs on a scratch handle held per thread and
-       * reused, so the copy allocates nothing after the first peek of this
-       * indicator on this thread. That scratch is retained for the life of
-       * the thread.
+       * next {@code update} with the same bar would return — the same
+       * transition, with every store it would make carried in a local instead.
+       * Never writes this handle, so peeks may
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
+       * buffers and storing what the step would commit into locals, so the cost
+       * does not grow with the period and {@code peek} never allocates.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MA peek: BadParam", RetCode.BadParam);
-         MaStream scratch = PEEK_SCRATCH.get();
-         if( scratch == null ) {
-            scratch = new MaStream(this);
-            PEEK_SCRATCH.set(scratch);
-         } else {
-            scratch.copyFrom(this);
+         MaStream sp = this;
+         double cur_outReal = 0.0;
+         if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
+            cur_outReal = inReal;
+            return cur_outReal;
          }
-         core.maStepImpl(scratch, inReal);
-         return scratch.cur_outReal;
+         switch( sp.optInMAType )
+         {
+         case SMA: {
+            cur_outReal = ((SmaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case EMA: {
+            cur_outReal = ((EmaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case WMA: {
+            cur_outReal = ((WmaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case DEMA: {
+            cur_outReal = ((DemaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case TEMA: {
+            cur_outReal = ((TemaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case TRIMA: {
+            cur_outReal = ((TrimaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case KAMA: {
+            cur_outReal = ((KamaStream) sp.sub).peek(inReal);
+            break;
+         }
+         case MAMA: {
+            MamaStream.Value subValue = ((MamaStream) sp.sub).peek(inReal);
+            cur_outReal = subValue.mama();
+            break;
+         }
+         case T3: {
+            cur_outReal = ((T3Stream) sp.sub).peek(inReal);
+            break;
+         }
+         case HMA: {
+            cur_outReal = ((HmaStream) sp.sub).peek(inReal);
+            break;
+         }
+         default:
+            throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
+         }
+         return cur_outReal;
       }
 
       /**
-       * The value at the most recently committed bar — the last history bar
-       * right after open, then whatever the latest {@code update} returned.
+       * The value at the last bar this stream counted — the bar
+       * {@link #outRange()} ends on. The last history bar right after open,
+       * then whatever the latest accepted {@code update} returned.
        * A pure field read; {@code peek} does not change it.
        */
       public double value() {
@@ -755,10 +719,18 @@
       }
 
       /**
-       * An independent deep copy of this stream: both evolve separately from
-       * here on (the Java rendering of the Rust handle's {@code Clone}).
+       * An independent fork of this stream: both evolve separately from here
+       * on. Buffers are copied and sub-streams cloned recursively; the
+       * {@link Core} reference is shared, since a {@code Core} is immutable
+       * for a stream's lifetime.
+       *
+       * <p>Not the {@code Cloneable} protocol: this calls a copy constructor,
+       * never {@code super.clone()}, so it throws nothing.
+       *
+       * @return an independent stream at the same bar
        */
-      public MaStream copy() {
+      @Override
+      public MaStream clone() {
          return new MaStream(this);
       }
    }

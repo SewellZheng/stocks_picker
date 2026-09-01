@@ -244,10 +244,12 @@ TA_RetCode TA_S_MININDEX( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MININDEX_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_MININDEX_Value). */
+   int cur_outInteger;
    int optInTimePeriod;
    double lowest;
    int trailingIdx;
@@ -258,7 +260,6 @@ struct TA_MININDEX_Stream {
    int xPhys;
    int xMask;
    double *x_inReal;
-   double *xMirror_inReal;
 };
 
 /* Private function, not in public API. */
@@ -266,7 +267,6 @@ static void TA_MININDEX_ReleaseImpl( struct TA_MININDEX_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inReal ) TA_Free( sp->x_inReal );
-   if( sp->xMirror_inReal ) TA_Free( sp->xMirror_inReal );
    TA_Free( sp );
 }
 
@@ -308,6 +308,7 @@ static void TA_MININDEX_StepImpl( struct TA_MININDEX_Stream *sp, double inReal, 
    *outInteger= sp->lowestIdx;
    sp->trailingIdx += 1;
    sp->today += 1;
+   sp->cur_outInteger = *outInteger;
 }
 
 static TA_RetCode TA_MININDEX_OpenImpl( struct TA_MININDEX_Stream **stream, const double inReal[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, int outInteger[], int outStride )
@@ -425,8 +426,6 @@ static TA_RetCode TA_MININDEX_OpenImpl( struct TA_MININDEX_Stream **stream, cons
       sp->xMask = sp->xPhys - 1;
       sp->x_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inReal ) { TA_MININDEX_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inReal = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inReal ) { TA_MININDEX_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -435,6 +434,7 @@ static TA_RetCode TA_MININDEX_OpenImpl( struct TA_MININDEX_Stream **stream, cons
       }
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -485,7 +485,11 @@ TA_RetCode TA_MININDEX_OpenAndFillInternal( struct TA_MININDEX_Stream **stream, 
 TA_LIB_API TA_RetCode TA_MININDEX_Update( TA_MININDEX_Stream *stream, double inReal, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inReal ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_MININDEX_StepImpl( stream, inReal, outInteger );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -494,13 +498,49 @@ TA_LIB_API TA_RetCode TA_MININDEX_Update( TA_MININDEX_Stream *stream, double inR
 TA_LIB_API TA_RetCode TA_MININDEX_Peek( const TA_MININDEX_Stream *stream, double inReal, int *outInteger )
 {
    struct TA_MININDEX_Stream scratch;
+   struct TA_MININDEX_Stream *sp = &scratch;
+   double tmp;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.x_inReal = stream->xMirror_inReal;
-   memcpy( scratch.x_inReal, stream->x_inReal, sizeof(double) * (size_t)stream->xPhys );
-   TA_MININDEX_StepImpl( &scratch, inReal, outInteger );
+   if( sp->today >= 1073741824 )
+   {
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
+      sp->today -= rebaseShift;
+      sp->trailingIdx -= rebaseShift;
+      sp->i -= rebaseShift;
+      sp->lowestIdx -= rebaseShift;
+   }
+   pkSlot0 = sp->today & sp->xMask;
+   pkVal0 = inReal;
+   tmp = ((sp->today & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->today & sp->xMask] : pkVal0;
+   if( sp->lowestIdx < sp->trailingIdx )
+   {
+      sp->lowestIdx = sp->trailingIdx;
+      sp->lowest = ((sp->lowestIdx & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->lowestIdx & sp->xMask] : pkVal0;
+      sp->i = sp->lowestIdx;
+      TA_UNROLL(4)
+      while( ++sp->i <= sp->today )
+      {
+         tmp = ((sp->i & sp->xMask) != pkSlot0) ? sp->x_inReal[sp->i & sp->xMask] : pkVal0;
+         if( tmp < sp->lowest )
+         {
+            sp->lowestIdx = sp->i;
+            sp->lowest = tmp;
+         }
+      }
+   } else if( tmp <= sp->lowest )
+   {
+      sp->lowestIdx = sp->today;
+      sp->lowest = tmp;
+   }
+   *outInteger= sp->lowestIdx;
+   sp->trailingIdx += 1;
+   sp->today += 1;
+   sp->cur_outInteger = *outInteger;
    return TA_SUCCESS;
 }
 
@@ -513,7 +553,11 @@ TA_LIB_API TA_RetCode TA_MININDEX_UpdateAndFill( TA_MININDEX_Stream *stream, con
    if( (const void *)outInteger == (const void *)inReal ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inReal[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inReal[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_MININDEX_StepImpl( stream, inReal[i], &outInteger[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -523,6 +567,33 @@ TA_LIB_API TA_RetCode TA_MININDEX_UpdateAndFill( TA_MININDEX_Stream *stream, con
 TA_LIB_API TA_RetCode TA_MININDEX_Close( TA_MININDEX_Stream *stream )
 {
    TA_MININDEX_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MININDEX_Value( const TA_MININDEX_Stream *stream, int *outInteger )
+{
+   if( !stream || !outInteger ) return TA_BAD_PARAM;
+   *outInteger = stream->cur_outInteger;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MININDEX_Clone( const TA_MININDEX_Stream *stream, TA_MININDEX_Stream **clone )
+{
+   struct TA_MININDEX_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_MININDEX_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->x_inReal = NULL;
+   if( stream->x_inReal )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inReal = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inReal ) { TA_MININDEX_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inReal, stream->x_inReal, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

@@ -543,15 +543,15 @@ public partial class Core
 
       internal AccbandsStream( Core core ) { this.core = core; }
 
-      /// <summary>The bars this stream has produced a value for, in the input series'
-      /// coordinates: <c>[BegIdx, BegIdx + Count)</c>.</summary>
+      /// <summary>The bars this stream has an output for, in the input series' coordinates:
+      /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Accbands</c> reports over the same bars: the opener
-      /// sets it to <c>(lookback, historyLen - lookback)</c>, every accepted
-      /// <c>Update</c> adds one to the count, <c>Peek</c> leaves it alone, and
-      /// <c>Clone</c> carries it verbatim. A plain <c>Open</c> hands back only the
-      /// last value, a subset of this range, because the caller chose not to take
-      /// the fill.</para>
+      /// sets it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c>
+      /// adds one to the count — a non-finite bar is rejected but still counted,
+      /// because the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c>
+      /// carries it verbatim. A plain <c>Open</c> hands back only the last value, a
+      /// subset of this range, because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -577,47 +577,19 @@ public partial class Core
          this.outRangeCount = other.outRangeCount;
       }
 
-      internal void CopyFrom( AccbandsStream other )
-      {
-         this.core = other.core;
-         this.optInTimePeriod = other.optInTimePeriod;
-         this.periodTotalUpper = other.periodTotalUpper;
-         this.periodTotalMiddle = other.periodTotalMiddle;
-         this.periodTotalLower = other.periodTotalLower;
-         this.ringPos_trailingIdx = other.ringPos_trailingIdx;
-         this.ringCap_trailingIdx = other.ringCap_trailingIdx;
-         if( this.ring_trailingIdx_inHigh.Length != other.ring_trailingIdx_inHigh.Length ) {
-            this.ring_trailingIdx_inHigh = new double[other.ring_trailingIdx_inHigh.Length];
-         }
-         Array.Copy( other.ring_trailingIdx_inHigh, this.ring_trailingIdx_inHigh, other.ring_trailingIdx_inHigh.Length );
-         if( this.ring_trailingIdx_inLow.Length != other.ring_trailingIdx_inLow.Length ) {
-            this.ring_trailingIdx_inLow = new double[other.ring_trailingIdx_inLow.Length];
-         }
-         Array.Copy( other.ring_trailingIdx_inLow, this.ring_trailingIdx_inLow, other.ring_trailingIdx_inLow.Length );
-         if( this.ring_trailingIdx_inClose.Length != other.ring_trailingIdx_inClose.Length ) {
-            this.ring_trailingIdx_inClose = new double[other.ring_trailingIdx_inClose.Length];
-         }
-         Array.Copy( other.ring_trailingIdx_inClose, this.ring_trailingIdx_inClose, other.ring_trailingIdx_inClose.Length );
-         this.cur_outRealUpperBand = other.cur_outRealUpperBand;
-         this.cur_outRealMiddleBand = other.cur_outRealMiddleBand;
-         this.cur_outRealLowerBand = other.cur_outRealLowerBand;
-         this.outRangeBegIdx = other.outRangeBegIdx;
-         this.outRangeCount = other.outRangeCount;
-      }
-
-      /* Peek's reusable scratch — one per thread, see CopyFrom. */
-      [ThreadStatic] private static AccbandsStream? peekScratch;
-
       /// <summary>Commit one closed bar, returning the new current value.</summary>
       /// <remarks>
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so the handle is left exactly as it was and the stream stays usable: skip
-      /// the bar, or re-open on a clean history. This is the one place the
-      /// streaming tier is stricter than the batch API, which computes on whatever
-      /// it is given: a handle retains its state, so a single non-finite bar would
-      /// poison every later value it produces.</para>
+      /// so no state moves, <see cref="Value"/> still answers the previous value,
+      /// and the stream stays usable — just carry on with the next bar.
+      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
+      /// which keeps two handles fed the same series positionally aligned when only
+      /// one of them rejects a bar. This is the one place the streaming tier is
+      /// stricter than the batch API, which computes on whatever it is given: a
+      /// handle retains its state, so a single non-finite bar would poison every
+      /// later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -625,7 +597,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public AccbandsValue Update( double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ACCBANDS", "update", RetCode.BadParam);
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) )
+         {
+            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+            throw Core.StreamFailure("ACCBANDS", "update", RetCode.BadParam);
+         }
          core.AccbandsStepImpl(this, inHigh, inLow, inClose);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new AccbandsValue(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
@@ -634,11 +610,12 @@ public partial class Core
       /// <summary>Evaluate a forming bar without committing it.</summary>
       /// <remarks>
       /// <para>Bit-identical to what the next <see cref="Update"/> with the same bar
-      /// would return — it is the same generated code, run on a copy. Never writes
-      /// this handle, so peeks may run concurrently with each other.</para>
-      /// <para>It runs on a scratch handle held per thread and reused, so it allocates
-      /// nothing after this thread's first peek of this indicator. That scratch is
-      /// retained for the life of the thread.</para>
+      /// would return — the same transition, with every store it would make carried
+      /// in a local instead. Never writes this handle, so peeks may run
+      /// concurrently with each other.</para>
+      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
+      /// and holding what the step would commit in locals. The cost does not grow
+      /// with the period, and <c>Peek</c> never allocates.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -647,15 +624,67 @@ public partial class Core
       public AccbandsValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ACCBANDS", "peek", RetCode.BadParam);
-         AccbandsStream? scratch = peekScratch;
-         if( scratch is null ) {
-            scratch = new AccbandsStream(this);
-            peekScratch = scratch;
-         } else {
-            scratch.CopyFrom(this);
+         AccbandsStream sp = this;
+         double tempUpper = 0.0;
+         double tempMiddle = 0.0;
+         double tempLower = 0.0;
+         double tempReal = 0.0;
+         double cur_outRealLowerBand = sp.cur_outRealLowerBand;
+         double cur_outRealMiddleBand = sp.cur_outRealMiddleBand;
+         double cur_outRealUpperBand = sp.cur_outRealUpperBand;
+         double periodTotalLower = sp.periodTotalLower;
+         double periodTotalMiddle = sp.periodTotalMiddle;
+         double periodTotalUpper = sp.periodTotalUpper;
+         int ringPos_trailingIdx = sp.ringPos_trailingIdx;
+         int pkSlot0 = -1;
+         double pkVal0 = 0.0;
+         int pkSlot1 = -1;
+         double pkVal1 = 0.0;
+         int pkSlot2 = -1;
+         double pkVal2 = 0.0;
+         if( sp.ringCap_trailingIdx == 0 ) {
+            pkSlot0 = 0;
+            pkVal0 = inHigh;
+            pkSlot1 = 0;
+            pkVal1 = inLow;
+            pkSlot2 = 0;
+            pkVal2 = inClose;
          }
-         core.AccbandsStepImpl(scratch, inHigh, inLow, inClose);
-         return new AccbandsValue(scratch.cur_outRealUpperBand, scratch.cur_outRealMiddleBand, scratch.cur_outRealLowerBand);
+         /* Add the incoming bar to each running sum. */
+         tempReal = inHigh + inLow;
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs(inHigh) + Math.Abs(inLow))) ) {
+            tempReal = 4 * (inHigh - inLow) / tempReal;
+            periodTotalUpper += inHigh * (1 + tempReal);
+            periodTotalLower += inLow * (1 - tempReal);
+         } else {
+            periodTotalUpper += inHigh;
+            periodTotalLower += inLow;
+         }
+         periodTotalMiddle += inClose;
+         /* Record the current window sums. */
+         tempUpper = periodTotalUpper;
+         tempMiddle = periodTotalMiddle;
+         tempLower = periodTotalLower;
+         /* Remove the trailing bar from each running sum. */
+         tempReal = ((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) + ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1);
+         if( !(Math.Abs(tempReal) <= 0.00000000000001 * (Math.Abs((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) + Math.Abs((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1))) ) {
+            tempReal = 4 * (((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) - ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1)) / tempReal;
+            periodTotalUpper -= ((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) * (1 + tempReal);
+            periodTotalLower -= ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1) * (1 - tempReal);
+         } else {
+            periodTotalUpper -= (ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0;
+            periodTotalLower -= (ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1;
+         }
+         periodTotalMiddle -= (ringPos_trailingIdx != pkSlot2) ? sp.ring_trailingIdx_inClose[ringPos_trailingIdx] : pkVal2;
+         /* Write the three bands. */
+         cur_outRealUpperBand = tempUpper / (double)sp.optInTimePeriod;
+         cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
+         cur_outRealLowerBand = tempLower / (double)sp.optInTimePeriod;
+         ringPos_trailingIdx = ringPos_trailingIdx + 1;
+         if( ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
+            ringPos_trailingIdx = 0;
+         }
+         return new AccbandsValue(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
       }
 
       /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
@@ -663,11 +692,13 @@ public partial class Core
       /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
       /// argument checks instead of <c>n</c>. The outputs must hold at least
       /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what was committed, which is what makes a
-      /// rejection readable: a non-finite bar <c>k</c> throws
+      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
+      /// a rejection readable: a non-finite bar <c>k</c> throws
       /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with bars <c>0..k</c> committed and written, bar <c>k</c> and
-      /// everything after it not, and the count advanced by <c>k</c>.</para>
+      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
+      /// and everything after it not written, and the count advanced by <c>k +
+      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
+      /// is the one that failed.</para>
       /// </remarks>
       /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
       /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
@@ -681,7 +712,11 @@ public partial class Core
          if( inLow.Length != barCount || inClose.Length != barCount || outRealUpperBand.Length < barCount || outRealMiddleBand.Length < barCount || outRealLowerBand.Length < barCount || outRealUpperBand.Overlaps(inHigh) || outRealUpperBand.Overlaps(inLow) || outRealUpperBand.Overlaps(inClose) || outRealMiddleBand.Overlaps(inHigh) || outRealMiddleBand.Overlaps(inLow) || outRealMiddleBand.Overlaps(inClose) || outRealLowerBand.Overlaps(inHigh) || outRealLowerBand.Overlaps(inLow) || outRealLowerBand.Overlaps(inClose) || outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) throw Core.StreamFailure("ACCBANDS", "updateAndFill", RetCode.BadParam);
          for( int i = 0; i < barCount; i++ )
          {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) ) throw Core.StreamFailure("ACCBANDS", "updateAndFill", RetCode.BadParam);
+            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) )
+            {
+               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+               throw Core.StreamFailure("ACCBANDS", "updateAndFill", RetCode.BadParam);
+            }
             core.AccbandsStepImpl(this, inHigh[i], inLow[i], inClose[i]);
             outRealUpperBand[i] = cur_outRealUpperBand;
             outRealMiddleBand[i] = cur_outRealMiddleBand;
@@ -690,8 +725,9 @@ public partial class Core
          }
       }
 
-      /// <summary>The value at the most recently committed bar — the last history bar right
-      /// after open, then whatever the latest <see cref="Update"/> returned.</summary>
+      /// <summary>The value at the last bar this stream counted — the bar
+      /// <see cref="OutRange"/> ends on. The last history bar right after open,
+      /// then whatever the latest accepted <see cref="Update"/> returned.</summary>
       /// <remarks>
       /// <para><see cref="Peek"/> does not change it.</para>
       /// </remarks>

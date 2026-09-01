@@ -485,10 +485,10 @@ pub struct SeriesFree {
 /// A recognized composed body (STOCH/STOCHF class): a steady producer loop
 /// materializing an intermediate series, then a tail of whole-range
 /// sub-calls over materialized series + tail-aligning copies + guards/frees.
-/// Composition goes through the callees' PUBLIC stream handles; peek uses a
-/// `peekMode` flag in the scratch state copy so the ONE step body calls
-/// sub-Peek instead of sub-Update (heap sub-handles cannot be cloned by a
-/// struct copy).
+/// Composition goes through the callees' PUBLIC stream handles. A peek frame
+/// calls sub-`Peek` where the update frame calls sub-`Update`: the sub-handles
+/// are heap pointers a struct copy shares rather than clones, so routing is the
+/// only thing that keeps a peek off them.
 #[derive(Debug)]
 pub struct ComposedPlan<'a> {
     pub func: &'a FuncDef,
@@ -5953,6 +5953,17 @@ fn transition_state_names(model: &StreamModel) -> BTreeSet<String> {
 /// the arm bodies.
 #[must_use]
 pub fn identity_step_branch(model: &StreamModel, names: &dyn NameMap) -> Option<Statement> {
+    identity_branch(model, names, true)
+}
+
+/// The identity short-circuit for a PEEK frame: the same arm without the value
+/// retain. Peek commits nothing, so it must not write `cur_` — C would write a
+/// discarded scratch and Rust would not compile, and both are the same rule.
+pub fn identity_peek_branch(model: &StreamModel, names: &dyn NameMap) -> Option<Statement> {
+    identity_branch(model, names, false)
+}
+
+fn identity_branch(model: &StreamModel, names: &dyn NameMap, retain: bool) -> Option<Statement> {
     let idp = model.identity.as_ref()?;
     let state_names = transition_state_names(model);
     let condition = rewrite_expr(&idp.condition, &|e| match e {
@@ -5968,6 +5979,20 @@ pub fn identity_step_branch(model: &StreamModel, names: &dyn NameMap) -> Option<
             compound: false,
         })
         .collect();
+    // Retain here too: this arm returns before the transition's own tail, and a
+    // handle that skipped the retain would disagree with one opened directly at
+    // the same bar — which is exactly what the state-equivalence gate compares.
+    for (out, _) in &idp.pairs {
+        let target = Expr::Var(names.state(&format!("cur_{out}")));
+        let value = names.output(out);
+        if retain && target != value {
+            then_body.push(Statement::Assign {
+                target,
+                value,
+                compound: false,
+            });
+        }
+    }
     then_body.push(Statement::Return { value: None });
     Some(Statement::If {
         condition,
@@ -6048,6 +6073,64 @@ pub fn build_transition(model: &StreamModel, names: &dyn NameMap) -> Result<Vec<
         out.push(Statement::Assign {
             target: Expr::Var(names.state(&format!("lastOut_{name}"))),
             value: names.output(name),
+            compound: false,
+        });
+    }
+    // Retain this bar's output(s) for the value accessor. Emitted only where
+    // the body did not already write the field: Java and C# map an output
+    // straight onto `cur_<name>`, so for them source and target are the same
+    // expression and the store would be `x = x`. C and Rust write through an
+    // out-pointer, so they pay one store per output per bar — which is what
+    // buys a handle that can be asked its current value after a fork.
+    for name in &model.outputs {
+        // `model.outputs` carries the producer's intermediates too (STOCH's
+        // `tempBuffer` feeds a sub-stream and is never handed to a caller).
+        // Only a real output of the function has a `cur_` field to retain into.
+        if !model.func.outputs.iter().any(|o| &o.name == name) {
+            continue;
+        }
+        let target = Expr::Var(names.state(&format!("cur_{name}")));
+        let sink = names.output(name);
+        if target == sink {
+            continue;
+        }
+        // Normally read the sink back — it is a local the body just wrote, so
+        // the copy is free. A DECLINABLE output (MAMA's FAMA, the corpus's
+        // only one) cannot be: its sink may be NULL, and the retained value has
+        // to be right whether or not the caller wanted it. Those take the value
+        // the body assigned instead, which `assert_nullable_stores_are_guardable`
+        // guarantees is a single un-cursored store, so there is exactly one
+        // expression to take.
+        let declinable = model
+            .func
+            .outputs
+            .iter()
+            .any(|o| &o.name == name && o.is_nullable());
+        let value = if declinable {
+            let mut assigned: Option<Expr> = None;
+            for st in &out {
+                if let Statement::Assign { target: t, value: v, compound: false } = st {
+                    if *t == sink {
+                        assigned = Some(v.clone());
+                    }
+                }
+            }
+            // Name a carried variable the way the rest of the transition names
+            // it. A bare `Var` here would be a fresh reference to a state field
+            // and the localizer would promote it, rewriting the body's own
+            // store for no reason.
+            let state_names = transition_state_names(model);
+            match assigned {
+                Some(Expr::Var(v)) if state_names.contains(&v) => Expr::Var(names.state(&v)),
+                Some(other) => other,
+                None => sink,
+            }
+        } else {
+            sink
+        };
+        out.push(Statement::Assign {
+            target,
+            value,
             compound: false,
         });
     }
@@ -7213,8 +7296,798 @@ pub fn rewrite_expr(e: &Expr, f: &dyn Fn(Expr) -> Expr) -> Expr {
 // Tests
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The peek transition: the same transition, committing nothing
+// ---------------------------------------------------------------------------
+
+/// One store into a handle buffer that `peek` must not perform, carried in two
+/// locals instead: the slot it targeted and the value it would have written.
+/// Reads that can land on that slot select the local, so the buffer is only
+/// ever read — which is what lets `peek` run the transition against the live
+/// handle with no copy of it and no mirror to copy into.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeekShadow {
+    /// The buffer, as the backend's [`NameMap`] spells it.
+    pub buf: String,
+    /// Local holding the targeted slot. The backend seeds it with an index no
+    /// read can produce, so a store that did not run never matches a read.
+    pub slot_var: String,
+    /// Local holding the value the store would have written.
+    pub val_var: String,
+    /// Elements are integers (a CIRCBUF class field), not doubles.
+    pub int_elem: bool,
+}
+
+/// A transition rewritten to commit nothing, with the locals it needs.
+#[derive(Debug, Clone, Default)]
+pub struct PeekTransition {
+    pub body: Vec<Statement>,
+    pub shadows: Vec<PeekShadow>,
+    /// Slot temporaries hoisted out of index expressions that cannot be
+    /// evaluated twice.
+    pub slot_temps: Vec<String>,
+}
+
+/// The handle's HEAP buffers a transition can index, with `true` for integer
+/// elements. Fixed-size array state fields are not here — see
+/// [`transition_buffers_with_state_arrays`]. Composed lag rings are absent by
+/// design: the composed tier emits its own push as text and drops it in peek
+/// mode.
+#[must_use]
+pub fn transition_buffers(model: &StreamModel, names: &dyn NameMap) -> Vec<(String, bool)> {
+    let mut out: Vec<(String, bool)> = Vec::new();
+    for ring in model.rings() {
+        for arr in &ring.arrays {
+            out.push((names.ring_buf(&ring.var, arr), false));
+        }
+    }
+    for win in model.windows() {
+        for arr in &win.arrays {
+            out.push((names.win_buf(&win.var, arr), false));
+        }
+    }
+    for circ in model.circs() {
+        for (storage, ty) in circ_storages(circ) {
+            out.push((names.circ_buf(&storage), matches!(ty, VarType::Integer)));
+        }
+    }
+    if let Some(ex) = model.extrema() {
+        for arr in &ex.arrays {
+            out.push((names.extrema_buf(arr), false));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// [`transition_buffers`] plus the fixed-size REAL array state fields, so a
+/// peek frame can drop a dead store into one instead of cloning the field.
+///
+/// Offer it from every backend or from none: shadowing rewrites a store's
+/// target, which `canonicalize_accumulator_add` matches by string equality, so
+/// one backend shadowing where another does not can move an FMA site — a ~1 ULP
+/// cross-language divergence nothing points at.
+///
+/// Integer arrays are excluded deliberately: none exist in the corpus, so an
+/// integer shadow would be ungated.
+#[must_use]
+pub fn transition_buffers_with_state_arrays(
+    model: &StreamModel,
+    names: &dyn NameMap,
+) -> Vec<(String, bool)> {
+    let mut out = transition_buffers(model, names);
+    for (name, ty) in &model.state {
+        if matches!(ty, VarType::RealArray(_)) {
+            out.push((names.state(name), false));
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// [`peek_transition`] against the widest buffer set that accepts it. The retry
+/// is all-or-nothing: one refusing accumulator takes the whole function back to
+/// [`transition_buffers`].
+///
+/// # Errors
+/// Only when [`transition_buffers`] itself is refused; see [`peek_transition`].
+pub fn peek_transition_widest(
+    model: &StreamModel,
+    names: &dyn NameMap,
+    transition: &[Statement],
+    slot_cast: Option<VarType>,
+) -> Result<PeekTransition, String> {
+    let wide = transition_buffers_with_state_arrays(model, names);
+    if let Ok(pt) = peek_transition(transition, &wide, slot_cast.clone()) {
+        return Ok(pt);
+    }
+    peek_transition(transition, &transition_buffers(model, names), slot_cast)
+}
+
+/// The statement lists nested inside `s`, and whether entering them crosses a
+/// loop back edge.
+fn nested_bodies(s: &Statement) -> (Vec<&[Statement]>, bool) {
+    match s {
+        Statement::While { body, .. } | Statement::DoWhile { body, .. } | Statement::For { body, .. } => {
+            (vec![body.as_slice()], true)
+        }
+        Statement::ForC { init, update, body, .. } => (
+            vec![
+                std::slice::from_ref(init.as_ref()),
+                std::slice::from_ref(update.as_ref()),
+                body.as_slice(),
+            ],
+            true,
+        ),
+        Statement::If { then_body, else_body, .. } => {
+            (vec![then_body.as_slice(), else_body.as_slice()], false)
+        }
+        Statement::Block { body } => (vec![body.as_slice()], false),
+        Statement::Switch { cases, default, .. } => {
+            let mut v: Vec<&[Statement]> = cases.iter().map(|(_, b)| b.as_slice()).collect();
+            v.push(default.as_slice());
+            (v, false)
+        }
+        _ => (Vec::new(), false),
+    }
+}
+
+/// True when evaluating `e` twice would differ from evaluating it once.
+fn has_side_effect(e: &Expr) -> bool {
+    let mut found = false;
+    walk_expr(e, &mut |x| {
+        if matches!(
+            x,
+            Expr::PostIncrement(_) | Expr::PostDecrement(_) | Expr::PreIncrement(_) | Expr::PreDecrement(_)
+        ) {
+            found = true;
+        }
+    });
+    found
+}
+
+/// Number of stores whose target is an element of `buf`.
+fn count_buffer_stores(stmts: &[Statement], buf: &str) -> usize {
+    let mut n = 0;
+    for s in stmts {
+        if let Statement::Assign { target: Expr::ArrayAccess(name, _), .. } = s {
+            if name == buf {
+                n += 1;
+            }
+        }
+        for body in nested_bodies(s).0 {
+            n += count_buffer_stores(body, buf);
+        }
+    }
+    n
+}
+
+/// Whether any element of `buf` is LOADED (a store's own target is not a load).
+fn buffer_is_read(stmts: &[Statement], buf: &str) -> bool {
+    let mut total = 0;
+    for s in stmts {
+        walk_stmt_exprs(s, &mut |top| {
+            walk_expr(top, &mut |x| {
+                if let Expr::ArrayAccess(name, _) = x {
+                    if name == buf {
+                        total += 1;
+                    }
+                }
+            });
+        });
+    }
+    total > count_buffer_stores(stmts, buf)
+}
+
+/// Rewrite `transition` so it computes the same values without storing into
+/// any handle buffer — see [`PeekShadow`].
+///
+/// Correctness does not rest on the analysis: every store becomes a shadow and
+/// every read a store could reach becomes a select, and a shadow whose store
+/// did not run holds a slot no read matches. The analysis only decides which
+/// reads may skip the select, which is a speed question, not a correctness one.
+///
+/// # Errors
+/// A buffer named outside an index expression, a compound store into one, or a
+/// store inside a loop — each would make one shadow per store unsound, and each
+/// is absent from the corpus, so the point of the check is that a new one fails
+/// generation instead of peeking against a buffer it also wrote.
+///
+/// `slot_cast` types the slot the select compares: C indexes with plain ints and
+/// passes `None`, Rust indexes with `usize` and passes `VarType::Index`, so the
+/// comparison and the store agree with the subscript rather than with whatever
+/// the raw index expression happens to be.
+pub fn peek_transition(
+    transition: &[Statement],
+    buffers: &[(String, bool)],
+    slot_cast: Option<VarType>,
+) -> Result<PeekTransition, String> {
+    let bufs: BTreeMap<String, bool> = buffers.iter().map(|(n, i)| (n.clone(), *i)).collect();
+    validate_peekable(transition, &bufs, 0)?;
+    let shadowed: BTreeSet<String> = buffers
+        .iter()
+        .map(|(n, _)| n.clone())
+        .filter(|n| buffer_is_read(transition, n))
+        .collect();
+    let mut rw = PeekRewrite {
+        bufs: &bufs,
+        shadowed: &shadowed,
+        slot_cast,
+        armed: BTreeMap::new(),
+        pending: Vec::new(),
+        cond_depth: 0,
+        out: PeekTransition::default(),
+    };
+    let body = rw.stmts(transition);
+    let mut out = rw.out;
+    out.body = body;
+    prune_dead_shadows(&mut out);
+    Ok(out)
+}
+
+/// Drop the shadows nothing selects — the tail ring push is one in every
+/// function, since it exists for the NEXT bar and peek has none. Left in, each
+/// would be a store to a local no one reads, which is both wasted and a
+/// `-Wunused-but-set-variable` in C.
+fn prune_dead_shadows(out: &mut PeekTransition) {
+    let mut uses: BTreeMap<String, usize> = BTreeMap::new();
+    for st in &out.body {
+        walk_stmt_exprs(st, &mut |top| {
+            walk_expr(top, &mut |e| {
+                if let Expr::Var(v) = e {
+                    *uses.entry(v.clone()).or_default() += 1;
+                }
+            });
+        });
+    }
+    // One use is the shadow's own store target, so one use is no use.
+    let dead: BTreeSet<String> = out
+        .shadows
+        .iter()
+        .filter(|sh| uses.get(&sh.slot_var).copied().unwrap_or(0) <= 1)
+        .flat_map(|sh| [sh.slot_var.clone(), sh.val_var.clone()])
+        .collect();
+    if dead.is_empty() {
+        return;
+    }
+    out.shadows
+        .retain(|sh| !dead.contains(&sh.slot_var));
+    out.body = drop_assignments_to(&out.body, &dead);
+    // Renumber so the surviving locals read `pkSlot0`, `pkSlot1`, ... rather
+    // than carrying the gaps the pruning left.
+    let rename: BTreeMap<String, String> = out
+        .shadows
+        .iter()
+        .enumerate()
+        .flat_map(|(k, sh)| {
+            [
+                (sh.slot_var.clone(), format!("pkSlot{k}")),
+                (sh.val_var.clone(), format!("pkVal{k}")),
+            ]
+        })
+        .collect();
+    for (k, sh) in out.shadows.iter_mut().enumerate() {
+        sh.slot_var = format!("pkSlot{k}");
+        sh.val_var = format!("pkVal{k}");
+    }
+    out.body = rewrite_stmts(
+        &out.body,
+        &|e| match e {
+            Expr::Var(ref v) => rename.get(v).map_or(e, |n| Expr::Var(n.clone())),
+            other => other,
+        },
+        &|s| Some(s),
+    );
+}
+
+/// Every statement except an assignment whose target is one of `names`, with
+/// the blocks that empties dropped with it.
+fn drop_assignments_to(stmts: &[Statement], names: &BTreeSet<String>) -> Vec<Statement> {
+    let mut out = Vec::with_capacity(stmts.len());
+    for s in stmts {
+        if let Statement::Assign { target: Expr::Var(v), .. } = s {
+            if names.contains(v) {
+                continue;
+            }
+        }
+        let kept = match s {
+            Statement::Block { body } => Statement::Block { body: drop_assignments_to(body, names) },
+            Statement::If { condition, then_body, else_body, cond_comments } => Statement::If {
+                condition: condition.clone(),
+                then_body: drop_assignments_to(then_body, names),
+                else_body: drop_assignments_to(else_body, names),
+                cond_comments: cond_comments.clone(),
+            },
+            Statement::While { condition, body } => Statement::While {
+                condition: condition.clone(),
+                body: drop_assignments_to(body, names),
+            },
+            Statement::DoWhile { condition, body } => Statement::DoWhile {
+                condition: condition.clone(),
+                body: drop_assignments_to(body, names),
+            },
+            Statement::For { var, count, body } => Statement::For {
+                var: var.clone(),
+                count: count.clone(),
+                body: drop_assignments_to(body, names),
+            },
+            Statement::ForC { init, condition, update, body } => Statement::ForC {
+                init: init.clone(),
+                condition: condition.clone(),
+                update: update.clone(),
+                body: drop_assignments_to(body, names),
+            },
+            Statement::Switch { expr, cases, default } => Statement::Switch {
+                expr: expr.clone(),
+                cases: cases
+                    .iter()
+                    .map(|(l, b)| (l.clone(), drop_assignments_to(b, names)))
+                    .collect(),
+                default: drop_assignments_to(default, names),
+            },
+            other => other.clone(),
+        };
+        if matches!(&kept, Statement::Block { body } if body.is_empty()) {
+            continue;
+        }
+        out.push(kept);
+    }
+    out
+}
+
+fn validate_peekable(
+    stmts: &[Statement],
+    bufs: &BTreeMap<String, bool>,
+    loop_depth: usize,
+) -> Result<(), String> {
+    for s in stmts {
+        if let Statement::Assign { target: Expr::ArrayAccess(n, idx), value, compound } = s {
+            if bufs.contains_key(n) {
+                if *compound {
+                    return Err(format!("peek: compound store into buffer `{n}`"));
+                }
+                if loop_depth > 0 {
+                    return Err(format!("peek: store into buffer `{n}` inside a loop"));
+                }
+                // A store is either carried in a shadow or, when nothing loads
+                // it back, dropped — and dropping it drops whatever it moved.
+                if has_side_effect(idx) || has_side_effect(value) {
+                    return Err(format!(
+                        "peek: store into buffer `{n}` moves a counter, which a dropped                          store would lose"
+                    ));
+                }
+            }
+        }
+        let mut escaped: Option<String> = None;
+        walk_stmt_exprs(s, &mut |top| {
+            walk_expr(top, &mut |x| {
+                let named = match x {
+                    // The buffer itself, not one of its elements.
+                    Expr::Var(v) | Expr::PointerDeref(v) => Some(v),
+                    // `&buf[i]` hands an element out; `buf[i]++` writes one.
+                    // Both name the buffer through an ArrayAccess, which the
+                    // rewrite treats as a load.
+                    Expr::AddressOf(i)
+                    | Expr::PostIncrement(i)
+                    | Expr::PostDecrement(i)
+                    | Expr::PreIncrement(i)
+                    | Expr::PreDecrement(i) => match i.as_ref() {
+                        Expr::ArrayAccess(v, _) => Some(v),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                if let Some(v) = named {
+                    if bufs.contains_key(v) {
+                        escaped = Some(v.clone());
+                    }
+                }
+            });
+        });
+        if let Some(n) = escaped {
+            return Err(format!("peek: buffer `{n}` escapes or is written outside a plain store"));
+        }
+        let (inner, crosses_loop) = nested_bodies(s);
+        let d = if crosses_loop { loop_depth + 1 } else { loop_depth };
+        for b in inner {
+            validate_peekable(b, bufs, d)?;
+        }
+    }
+    Ok(())
+}
+
+struct PeekRewrite<'a> {
+    bufs: &'a BTreeMap<String, bool>,
+    shadowed: &'a BTreeSet<String>,
+    slot_cast: Option<VarType>,
+    /// Buffer -> indices into `out.shadows` whose store may have run.
+    armed: BTreeMap<String, Vec<usize>>,
+    /// Slot loads hoisted out of the statement being rewritten.
+    pending: Vec<Statement>,
+    /// How many conditional operands deep the expression walk is. A hoist
+    /// evaluates its index where the statement begins, so it is sound only at
+    /// depth 0 — inside a ternary arm it would run an index the original
+    /// skipped, and the one index that needs hoisting moves a counter.
+    cond_depth: usize,
+    out: PeekTransition,
+}
+
+impl PeekRewrite<'_> {
+    fn stmts(&mut self, list: &[Statement]) -> Vec<Statement> {
+        let mut out = Vec::with_capacity(list.len());
+        for s in list {
+            let outer = std::mem::take(&mut self.pending);
+            let rewritten = self.stmt(s);
+            let hoisted = std::mem::replace(&mut self.pending, outer);
+            if matches!(&rewritten, Statement::Block { body } if body.is_empty()) {
+                debug_assert!(hoisted.is_empty(), "a dropped store hoists nothing");
+                continue;
+            }
+            if hoisted.is_empty() {
+                out.push(rewritten);
+            } else {
+                let mut body = hoisted;
+                body.push(rewritten);
+                out.push(Statement::Block { body });
+            }
+        }
+        out
+    }
+
+    /// Rewrite arms from the same entry state and union what they arm, so one
+    /// arm's store never arms a read on the other.
+    fn arms(&mut self, arms: Vec<&[Statement]>) -> Vec<Vec<Statement>> {
+        let entry = self.armed.clone();
+        let mut merged: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut out = Vec::with_capacity(arms.len());
+        for arm in arms {
+            self.armed.clone_from(&entry);
+            out.push(self.stmts(arm));
+            for (k, v) in std::mem::take(&mut self.armed) {
+                let e = merged.entry(k).or_default();
+                for i in v {
+                    if !e.contains(&i) {
+                        e.push(i);
+                    }
+                }
+            }
+        }
+        for v in merged.values_mut() {
+            v.sort_unstable();
+        }
+        self.armed = merged;
+        out
+    }
+
+    fn stmt(&mut self, s: &Statement) -> Statement {
+        match s {
+            Statement::Assign { target: Expr::ArrayAccess(buf, idx), value, compound }
+                if self.bufs.contains_key(buf) =>
+            {
+                debug_assert!(!*compound, "validated away");
+                let idx = self.expr(idx);
+                let value = self.expr(value);
+                if !self.shadowed.contains(buf) {
+                    // Nothing loads this buffer: the store is the whole of what
+                    // the bar was kept for, and peek keeps nothing.
+                    return Statement::Block { body: Vec::new() };
+                }
+                let k = self.out.shadows.len();
+                let sh = PeekShadow {
+                    buf: buf.clone(),
+                    slot_var: format!("pkSlot{k}"),
+                    val_var: format!("pkVal{k}"),
+                    int_elem: self.bufs[buf],
+                };
+                let stmts = vec![
+                    Statement::Assign {
+                        target: Expr::Var(sh.slot_var.clone()),
+                        value: self.as_slot(idx),
+                        compound: false,
+                    },
+                    Statement::Assign {
+                        target: Expr::Var(sh.val_var.clone()),
+                        value,
+                        compound: false,
+                    },
+                ];
+                self.out.shadows.push(sh);
+                self.armed.entry(buf.clone()).or_default().push(k);
+                Statement::Block { body: stmts }
+            }
+            Statement::Assign { target, value, compound } => Statement::Assign {
+                target: self.expr(target),
+                value: self.expr(value),
+                compound: *compound,
+            },
+            Statement::VarDecl { var_type, name, init } => Statement::VarDecl {
+                var_type: var_type.clone(),
+                name: name.clone(),
+                init: init.as_ref().map(|e| self.expr(e)),
+            },
+            Statement::Return { value } => Statement::Return {
+                value: value.as_ref().map(|e| self.expr(e)),
+            },
+            Statement::Expr(e) => Statement::Expr(self.expr(e)),
+            Statement::While { condition, body } => Statement::While {
+                condition: self.conditional_expr(condition),
+                body: self.stmts(body),
+            },
+            Statement::DoWhile { condition, body } => Statement::DoWhile {
+                condition: self.conditional_expr(condition),
+                body: self.stmts(body),
+            },
+            Statement::For { var, count, body } => Statement::For {
+                var: var.clone(),
+                count: self.expr(count),
+                body: self.stmts(body),
+            },
+            Statement::ForC { init, condition, update, body } => {
+                let init = Box::new(self.stmt(init));
+                let condition = self.conditional_expr(condition);
+                self.cond_depth += 1;
+                let update = Box::new(self.stmt(update));
+                self.cond_depth -= 1;
+                Statement::ForC { init, condition, update, body: self.stmts(body) }
+            }
+            Statement::If { condition, then_body, else_body, cond_comments } => {
+                let condition = self.expr(condition);
+                let mut arms = self.arms(vec![then_body, else_body]);
+                let else_body = arms.pop().unwrap_or_default();
+                let then_body = arms.pop().unwrap_or_default();
+                Statement::If { condition, then_body, else_body, cond_comments: cond_comments.clone() }
+            }
+            Statement::Switch { expr, cases, default } => {
+                let expr = self.expr(expr);
+                let mut lists: Vec<&[Statement]> = cases.iter().map(|(_, b)| b.as_slice()).collect();
+                lists.push(default.as_slice());
+                let mut arms = self.arms(lists);
+                let default = arms.pop().unwrap_or_default();
+                let cases = cases
+                    .iter()
+                    .map(|(l, _)| l.clone())
+                    .zip(arms)
+                    .collect();
+                Statement::Switch { expr, cases, default }
+            }
+            Statement::Block { body } => Statement::Block { body: self.stmts(body) },
+            other => other.clone(),
+        }
+    }
+
+    /// An index as the SLOT type — what the subscript would coerce it to.
+    fn as_slot(&self, e: Expr) -> Expr {
+        match &self.slot_cast {
+            Some(t) => Expr::Cast(t.clone(), Box::new(e)),
+            None => e,
+        }
+    }
+
+    /// An expression a loop re-evaluates. A hoist lands where the STATEMENT
+    /// begins, so it would run a counter-moving index once for a whole loop
+    /// that ran it per iteration — the same unsoundness a ternary arm has.
+    fn conditional_expr(&mut self, e: &Expr) -> Expr {
+        self.cond_depth += 1;
+        let out = self.expr(e);
+        self.cond_depth -= 1;
+        out
+    }
+
+    /// Replace every load a store could reach with a select on that store's
+    /// shadow. The array access stays the `then` arm so the operand keeps the
+    /// type every classifier gives it today — an FMA site decided on the
+    /// original expression is decided the same way here.
+    fn expr(&mut self, e: &Expr) -> Expr {
+        match e {
+            Expr::ArrayAccess(name, idx) => {
+                let idx = self.expr(idx);
+                let armed = self.armed.get(name).cloned().unwrap_or_default();
+                if armed.is_empty() {
+                    return Expr::ArrayAccess(name.clone(), Box::new(idx));
+                }
+                let idx = if has_side_effect(&idx) {
+                    // The select names the index twice, so a load that moves a
+                    // counter has to move it once, before the comparison.
+                    assert_eq!(
+                        self.cond_depth, 0,
+                        "peek: a load of `{name}` moves a counter from inside a \
+                         conditional operand, where hoisting it would run an index \
+                         the original skipped"
+                    );
+                    let t = format!("pkIdx{}", self.out.slot_temps.len());
+                    self.out.slot_temps.push(t.clone());
+                    let slot = self.as_slot(idx);
+                    self.pending.push(Statement::Assign {
+                        target: Expr::Var(t.clone()),
+                        value: slot,
+                        compound: false,
+                    });
+                    Expr::Var(t)
+                } else {
+                    idx
+                };
+                let mut out = Expr::ArrayAccess(name.clone(), Box::new(idx.clone()));
+                for k in armed {
+                    let sh = &self.out.shadows[k];
+                    out = Expr::Ternary(
+                        Box::new(Expr::BinOp(
+                            Box::new(self.as_slot(idx.clone())),
+                            BinOp::NotEq,
+                            Box::new(Expr::Var(sh.slot_var.clone())),
+                        )),
+                        Box::new(out),
+                        Box::new(Expr::Var(sh.val_var.clone())),
+                    );
+                }
+                out
+            }
+            Expr::BinOp(l, op, r) => {
+                let l = self.expr(l);
+                let short_circuit = matches!(op, BinOp::And | BinOp::Or);
+                if short_circuit {
+                    self.cond_depth += 1;
+                }
+                let r = self.expr(r);
+                if short_circuit {
+                    self.cond_depth -= 1;
+                }
+                Expr::BinOp(Box::new(l), op.clone(), Box::new(r))
+            }
+            Expr::Cast(t, i) => Expr::Cast(t.clone(), Box::new(self.expr(i))),
+            Expr::Not(i) => Expr::Not(Box::new(self.expr(i))),
+            Expr::BitwiseNot(i) => Expr::BitwiseNot(Box::new(self.expr(i))),
+            Expr::AddressOf(i) => Expr::AddressOf(Box::new(self.expr(i))),
+            Expr::PostIncrement(i) => Expr::PostIncrement(Box::new(self.expr(i))),
+            Expr::PostDecrement(i) => Expr::PostDecrement(Box::new(self.expr(i))),
+            Expr::PreIncrement(i) => Expr::PreIncrement(Box::new(self.expr(i))),
+            Expr::PreDecrement(i) => Expr::PreDecrement(Box::new(self.expr(i))),
+            Expr::FuncCall(n, args) => {
+                Expr::FuncCall(n.clone(), args.iter().map(|a| self.expr(a)).collect())
+            }
+            Expr::Ternary(c, t, f) => {
+                let c = self.expr(c);
+                self.cond_depth += 1;
+                let t = self.expr(t);
+                let f = self.expr(f);
+                self.cond_depth -= 1;
+                Expr::Ternary(Box::new(c), Box::new(t), Box::new(f))
+            }
+            Expr::Literal(_) | Expr::IntLiteral(_) | Expr::Var(_) | Expr::PointerDeref(_) => e.clone(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+
+    // ---- peek_transition -------------------------------------------------
+
+    fn buf_store(buf: &str, idx: Expr, value: Expr) -> Statement {
+        Statement::Assign {
+            target: Expr::ArrayAccess(buf.into(), Box::new(idx)),
+            value,
+            compound: false,
+        }
+    }
+
+    fn pk(stmts: &[Statement]) -> PeekTransition {
+        peek_transition(stmts, &[("buf".to_string(), false)], None).expect("peekable")
+    }
+
+    /// The tail ring push: kept for the NEXT bar, and peek has none.
+    #[test]
+    fn a_store_no_load_can_reach_is_deleted_not_shadowed() {
+        let out = pk(&[
+            Statement::Assign {
+                target: Expr::Var("acc".into()),
+                value: Expr::ArrayAccess("buf".into(), Box::new(Expr::Var("pos".into()))),
+                compound: true,
+            },
+            buf_store("buf", Expr::Var("pos".into()), Expr::Var("bar".into())),
+        ]);
+        assert!(out.shadows.is_empty(), "no shadow: {:?}", out.shadows);
+        assert_eq!(out.body.len(), 1, "the store is gone: {:?}", out.body);
+        assert!(
+            matches!(&out.body[0], Statement::Assign { value: Expr::ArrayAccess(..), .. }),
+            "the load ahead of it is untouched: {:?}", out.body[0]
+        );
+    }
+
+    /// The `cap == 0` guard: its store IS loaded back this bar, so it becomes a
+    /// shadow and the load becomes a select — with the array in the THEN arm,
+    /// which is what keeps the operand's FMA classification identical.
+    #[test]
+    fn a_store_a_load_can_reach_becomes_a_shadow_and_a_select() {
+        let out = pk(&[
+            buf_store("buf", Expr::IntLiteral(0), Expr::Var("bar".into())),
+            Statement::Assign {
+                target: Expr::Var("acc".into()),
+                value: Expr::ArrayAccess("buf".into(), Box::new(Expr::Var("pos".into()))),
+                compound: false,
+            },
+        ]);
+        assert_eq!(out.shadows.len(), 1);
+        assert_eq!(out.shadows[0].slot_var, "pkSlot0");
+        let Statement::Assign { value: Expr::Ternary(cond, then, els), .. } = &out.body[1] else {
+            panic!("the load is a select: {:?}", out.body[1])
+        };
+        assert!(
+            matches!(then.as_ref(), Expr::ArrayAccess(n, _) if n == "buf"),
+            "the array stays in the THEN arm: {then:?}"
+        );
+        assert_eq!(els.as_ref(), &Expr::Var("pkVal0".into()));
+        assert!(
+            matches!(cond.as_ref(), Expr::BinOp(_, BinOp::NotEq, r) if **r == Expr::Var("pkSlot0".into())),
+            "compared against the slot the store targeted: {cond:?}"
+        );
+    }
+
+    /// TRIMA's two arms share one ring. A store in one arm must not arm a load
+    /// in the other, or the load would select a value its own path never wrote.
+    #[test]
+    fn one_arms_store_does_not_arm_the_other_arms_load() {
+        let load = Statement::Assign {
+            target: Expr::Var("acc".into()),
+            value: Expr::ArrayAccess("buf".into(), Box::new(Expr::Var("pos".into()))),
+            compound: false,
+        };
+        let out = pk(&[Statement::If {
+            condition: Expr::Var("odd".into()),
+            then_body: vec![buf_store("buf", Expr::Var("pos".into()), Expr::Var("bar".into()))],
+            else_body: vec![load],
+            cond_comments: vec![],
+        }]);
+        let Statement::If { else_body, .. } = &out.body[0] else { panic!("kept the branch") };
+        assert!(
+            matches!(&else_body[0], Statement::Assign { value: Expr::ArrayAccess(..), .. }),
+            "the else arm's load is a bare load: {:?}", else_body[0]
+        );
+    }
+
+    /// The three shapes one shadow per store cannot model. None is in the
+    /// corpus; the point is that a new one stops generation instead of peeking
+    /// against a buffer it also wrote.
+    #[test]
+    fn the_shapes_a_single_shadow_cannot_model_are_refused() {
+        let store = buf_store("buf", Expr::Var("pos".into()), Expr::Var("bar".into()));
+        let in_loop = Statement::While {
+            condition: Expr::Var("go".into()),
+            body: vec![store.clone()],
+        };
+        let compound = Statement::Assign {
+            target: Expr::ArrayAccess("buf".into(), Box::new(Expr::Var("pos".into()))),
+            value: Expr::Var("bar".into()),
+            compound: true,
+        };
+        let bare = Statement::Expr(Expr::FuncCall("memset".into(), vec![Expr::Var("buf".into())]));
+        let moving_store = buf_store(
+            "buf",
+            Expr::PostIncrement(Box::new(Expr::Var("pos".into()))),
+            Expr::Var("bar".into()),
+        );
+        let escaping = Statement::Assign {
+            target: Expr::Var("p".into()),
+            value: Expr::AddressOf(Box::new(Expr::ArrayAccess(
+                "buf".into(),
+                Box::new(Expr::IntLiteral(0)),
+            ))),
+            compound: false,
+        };
+        for (stmt, want) in [
+            (in_loop, "inside a loop"),
+            (compound, "compound store"),
+            (bare, "escapes or is written"),
+            (moving_store, "moves a counter"),
+            (escaping, "escapes or is written"),
+        ] {
+            let err = peek_transition(&[stmt], &[("buf".to_string(), false)], None)
+                .expect_err("must refuse");
+            assert!(err.contains(want), "expected `{want}`, got `{err}`");
+        }
+    }
     use super::*;
     use crate::ir::{Input, Output};
 
@@ -7657,8 +8530,15 @@ mod tests {
         let f = func_with_body(t1_body());
         let m = analyze(&f).unwrap();
         let t = build_transition(&m, &TestNames).unwrap();
-        // Only the output write survives: *out_outReal = inReal * 2.0
-        assert_eq!(t.len(), 1);
+        // The output write, then the value retain that rides every transition.
+        assert_eq!(t.len(), 2);
+        match &t[1] {
+            Statement::Assign { target, value, .. } => {
+                assert!(matches!(target, Expr::Var(v) if v == "sp->cur_outReal"));
+                assert!(matches!(value, Expr::PointerDeref(p) if p == "out_outReal"));
+            }
+            other => panic!("unexpected retain stmt: {other:?}"),
+        }
         match &t[0] {
             Statement::Assign { target, value, .. } => {
                 assert!(matches!(target, Expr::PointerDeref(p) if p == "out_outReal"));
@@ -7693,16 +8573,16 @@ mod tests {
         ]);
         let m = analyze(&f).unwrap();
         let t = build_transition(&m, &TestNames).unwrap();
-        // output write + lag2=lag1 + lag1=bar
-        assert_eq!(t.len(), 3);
-        match &t[1] {
+        // output write + value retain + lag2=lag1 + lag1=bar
+        assert_eq!(t.len(), 4);
+        match &t[2] {
             Statement::Assign { target, value, .. } => {
                 assert!(matches!(target, Expr::Var(v) if v == "sp->lag2_inReal"));
                 assert!(matches!(value, Expr::Var(v) if v == "sp->lag1_inReal"));
             }
             other => panic!("unexpected stmt: {other:?}"),
         }
-        match &t[2] {
+        match &t[3] {
             Statement::Assign { target, value, .. } => {
                 assert!(matches!(target, Expr::Var(v) if v == "sp->lag1_inReal"));
                 assert!(matches!(value, Expr::Var(v) if v == "inReal"));
@@ -7742,7 +8622,7 @@ mod tests {
         assert_eq!(m.state, vec![("ad".into(), VarType::Real)]);
         // Transition must drop today/outIdx/nbBar bookkeeping.
         let t = build_transition(&m, &TestNames).unwrap();
-        assert_eq!(t.len(), 2); // ad update + output write
+        assert_eq!(t.len(), 3); // ad update + output write + value retain
     }
 
     // -- #229 rescan-window fold: the fail-closed conditions -----------------

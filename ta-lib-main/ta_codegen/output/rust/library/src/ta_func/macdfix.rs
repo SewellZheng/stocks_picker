@@ -79,6 +79,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_MACDFIX_Lookback")]
     #[inline]
     pub fn MACDFIX_Lookback(&self, mut optInSignalPeriod: i32) -> Result<usize, RetCode> {
         if ((optInSignalPeriod) as i32) == (i32::MIN) {
@@ -331,19 +332,8 @@ impl Core {
     /// smoothing factors 0.15 and 0.075), exposing only the signal period. Signal-line crossovers
     /// and histogram sign flag momentum shifts.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// MACD = EMA_12 - EMA_26   (fixed k: 0.15 for 12, 0.075 for 26)
-    /// Signal = EMA(MACD, signalPeriod),  k = 2/(signalPeriod+1)
-    /// Hist = MACD - Signal
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and
-    ///   the histogram is zero. Before 0.6.5 this parameter value produced misaligned output
-    ///   (issues #48/#59).
+    /// Formula and more info at
+    /// [ta-lib.org/functions/macdfix](https://ta-lib.org/functions/macdfix).
     ///
     /// # Arguments
     ///
@@ -399,8 +389,7 @@ impl Core {
     /// # See also
     ///
     /// [`Core::MACD`] · [`Core::MACDEXT`] · [`Core::EMA`] · [`Core::APO`]
-    ///
-    /// Further reading: [ta-lib.org/functions/macdfix](https://ta-lib.org/functions/macdfix)
+    #[doc(alias = "TA_MACDFIX")]
     #[doc(alias = "MovingAverageConvergenceDivergenceFix")]
     pub fn MACDFIX(
         &self,
@@ -459,24 +448,14 @@ impl Core {
 /// over the same series. Open with [`Core::macdfix_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_MACDFIX_Stream")]
 pub struct MacdfixStream {
     state: MacdfixStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl MacdfixStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `MacdfixStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -489,21 +468,9 @@ struct MacdfixStreamState {
     slowK: f64,
     fastK: f64,
     signalK: f64,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl MacdfixStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInSignalPeriod = src.optInSignalPeriod;
-        self.prevFast = src.prevFast;
-        self.prevSlow = src.prevSlow;
-        self.prevSignal = src.prevSignal;
-        self.slowK = src.slowK;
-        self.fastK = src.fastK;
-        self.signalK = src.signalK;
-    }
+    cur_outMACD: f64,
+    cur_outMACDSignal: f64,
+    cur_outMACDHist: f64,
 }
 
 #[allow(unused_variables)]
@@ -527,6 +494,9 @@ impl Core {
         (*outMACD) = macdValue;
         (*outMACDSignal) = sp.prevSignal;
         (*outMACDHist) = macdValue - sp.prevSignal;
+        sp.cur_outMACD = (*outMACD);
+        sp.cur_outMACDSignal = (*outMACDSignal);
+        sp.cur_outMACDHist = (*outMACDHist);
     }
 
     /// The single whole-history transcription behind [`Core::macdfix_open_internal`]
@@ -728,6 +698,9 @@ impl Core {
             slowK,
             fastK,
             signalK,
+            cur_outMACD: outMACD[(*outNBElement - 1) * outStride],
+            cur_outMACDSignal: outMACDSignal[(*outNBElement - 1) * outStride],
+            cur_outMACDHist: outMACDHist[(*outNBElement - 1) * outStride],
         };
         Ok(MacdfixStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
@@ -863,21 +836,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl MacdfixStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_MACDFIX_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outMACD: f64 = 0.0_f64;
@@ -895,7 +878,7 @@ impl MacdfixStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -905,7 +888,8 @@ impl MacdfixStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_MACDFIX_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outMACD: &mut [f64], outMACDSignal: &mut [f64], outMACDHist: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -914,6 +898,9 @@ impl MacdfixStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::macdfix_step_impl(&mut self.state, inReal[i], &mut outMACD[i], &mut outMACDSignal[i], &mut outMACDHist[i]);
@@ -925,30 +912,77 @@ impl MacdfixStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. This handle holds only scalars, so the copy is a
-    /// few machine words and `peek` never allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_MACDFIX_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<(f64, f64, f64), RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inReal)
+        let mut outMACD: f64 = 0.0_f64;
+        let mut outMACDSignal: f64 = 0.0_f64;
+        let mut outMACDHist: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outMACD = &mut outMACD;
+            let outMACDSignal = &mut outMACDSignal;
+            let outMACDHist = &mut outMACDHist;
+            let mut macdValue: f64 = 0.0_f64;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut cur_outMACD = sp.cur_outMACD;
+            let mut cur_outMACDHist = sp.cur_outMACDHist;
+            let mut cur_outMACDSignal = sp.cur_outMACDSignal;
+            let mut prevFast = sp.prevFast;
+            let mut prevSignal = sp.prevSignal;
+            let mut prevSlow = sp.prevSlow;
+            tempReal = inReal;
+            prevFast = (tempReal - prevFast as f64).mul_add(sp.fastK, prevFast);
+            prevSlow = (tempReal - prevSlow as f64).mul_add(sp.slowK, prevSlow);
+            macdValue = prevFast - prevSlow;
+            if sp.optInSignalPeriod == 1 {
+                prevSignal = macdValue;
+            } else {
+                prevSignal = (macdValue - prevSignal as f64).mul_add(sp.signalK, prevSignal);
+            }
+            (*outMACD) = macdValue;
+            (*outMACDSignal) = prevSignal;
+            (*outMACDHist) = macdValue - prevSignal;
+            cur_outMACD = (*outMACD);
+            cur_outMACDSignal = (*outMACDSignal);
+            cur_outMACDHist = (*outMACDHist);
+        }
+        Ok((outMACD, outMACDSignal, outMACDHist))
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_MACDFIX_Value")]
+    pub fn value(&self) -> (f64, f64, f64) {
+        (self.state.cur_outMACD, self.state.cur_outMACDSignal, self.state.cur_outMACDHist)
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::MACDFIX`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

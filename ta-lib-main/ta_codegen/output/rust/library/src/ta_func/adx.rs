@@ -86,6 +86,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_ADX_Lookback")]
     #[inline]
     pub fn ADX_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -486,15 +487,7 @@ impl Core {
     /// regardless of direction. Higher values indicate a stronger trend (a common convention treats
     /// \>25 as trending); says nothing about direction.
     ///
-    /// # Formula
-    ///
-    /// ```text
-    /// +DI = 100*(+DM_p/TR_p), -DI = 100*(-DM_p/TR_p); DX = 100*|(-DI)-(+DI)| / ((-DI)+(+DI)); first ADX = mean of the first `period` DX; then ADX = (prevADX*(period-1) + DX)/period. +DM_p/-DM_p/TR_p use Wilder smoothing: X = X - X/period + today's one-bar value.
-    /// ```
-    ///
-    /// # Notes
-    ///
-    /// * Wilder's original integer rounding is not applied.
+    /// Formula and more info at [ta-lib.org/functions/adx](https://ta-lib.org/functions/adx).
     ///
     /// # Arguments
     ///
@@ -556,8 +549,7 @@ impl Core {
     ///
     /// * J. Welles Wilder, *New Concepts in Technical Trading Systems*, Trend Research (ISBN
     ///   0894590278)
-    ///
-    /// Further reading: [ta-lib.org/functions/adx](https://ta-lib.org/functions/adx)
+    #[doc(alias = "TA_ADX")]
     #[doc(alias = "AverageDirectionalMovementIndex")]
     #[doc(alias = "AverageDirectionalIndex")]
     pub fn ADX(
@@ -617,24 +609,14 @@ impl Core {
 /// over the same series. Open with [`Core::adx_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_ADX_Stream")]
 pub struct AdxStream {
     state: AdxStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl AdxStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `AdxStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -648,22 +630,7 @@ struct AdxStreamState {
     prevPlusDM: f64,
     prevTR: f64,
     prevADX: f64,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl AdxStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.prevHigh = src.prevHigh;
-        self.prevLow = src.prevLow;
-        self.prevClose = src.prevClose;
-        self.prevMinusDM = src.prevMinusDM;
-        self.prevPlusDM = src.prevPlusDM;
-        self.prevTR = src.prevTR;
-        self.prevADX = src.prevADX;
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -724,6 +691,7 @@ impl Core {
         }
         // Output the ADX
         (*outReal) = sp.prevADX;
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::adx_open_internal`]
@@ -1116,6 +1084,7 @@ impl Core {
             prevPlusDM,
             prevTR,
             prevADX,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
         };
         Ok(AdxStream { state, out: OutRange { beg_idx: *outBegIdx, count: *outNBElement } })
     }
@@ -1235,21 +1204,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl AdxStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_ADX_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -1265,7 +1244,7 @@ impl AdxStream {
     /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -1275,7 +1254,8 @@ impl AdxStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_ADX_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inHigh.len();
@@ -1284,6 +1264,9 @@ impl AdxStream {
         }
         for i in 0..barCount {
             if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::adx_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
@@ -1295,30 +1278,110 @@ impl AdxStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. This handle holds only scalars, so the copy is a
-    /// few machine words and `peek` never allocates.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_ADX_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inHigh, inLow, inClose)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut tempReal: f64 = 0.0_f64;
+            let mut diffP: f64 = 0.0_f64;
+            let mut diffM: f64 = 0.0_f64;
+            let mut minusDI: f64 = 0.0_f64;
+            let mut plusDI: f64 = 0.0_f64;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut prevADX = sp.prevADX;
+            let mut prevClose = sp.prevClose;
+            let mut prevHigh = sp.prevHigh;
+            let mut prevLow = sp.prevLow;
+            let mut prevMinusDM = sp.prevMinusDM;
+            let mut prevPlusDM = sp.prevPlusDM;
+            let mut prevTR = sp.prevTR;
+            // Calculate the prevMinusDM and prevPlusDM
+            tempReal = inHigh;
+            diffP = tempReal - prevHigh;
+            // Plus Delta
+            prevHigh = tempReal;
+            tempReal = inLow;
+            diffM = prevLow - tempReal;
+            // Minus Delta
+            prevLow = tempReal;
+            prevMinusDM -= prevMinusDM / ((sp.optInTimePeriod) as f64);
+            prevPlusDM -= prevPlusDM / ((sp.optInTimePeriod) as f64);
+            if diffM > 0_f64 && diffP < diffM {
+                // Case 2 and 4: +DM=0,-DM=diffM
+                prevMinusDM += diffM;
+            } else if diffP > 0_f64 && diffP > diffM {
+                // Case 1 and 3: +DM=diffP,-DM=0
+                prevPlusDM += diffP;
+            }
+            // Calculate the prevTR
+            let mut _true_range_5: f64;
+            let mut range_5: f64 = prevHigh - prevLow;
+            let mut tmp_5: f64 = (prevHigh - prevClose).abs();
+            if tmp_5 > range_5 {
+                range_5 = tmp_5;
+            }
+            tmp_5 = (prevLow - prevClose).abs();
+            if tmp_5 > range_5 {
+                range_5 = tmp_5;
+            }
+            _true_range_5 = range_5;
+            tempReal = _true_range_5;
+            prevTR = prevTR - prevTR / ((sp.optInTimePeriod) as f64) + tempReal;
+            prevClose = inClose;
+            if prevTR > 0.0 {
+                // Calculate the DX. The value is rounded (see Wilder book).
+                minusDI = (100.0 * (prevMinusDM / prevTR));
+                plusDI = (100.0 * (prevPlusDM / prevTR));
+                tempReal = minusDI + plusDI;
+                if !((tempReal).abs() < 1e-14) {
+                    tempReal = (100.0 * ((minusDI - plusDI).abs() / tempReal));
+                    // Calculate the ADX
+                    prevADX = ((prevADX * (((sp.optInTimePeriod - 1)) as f64) + tempReal) / ((sp.optInTimePeriod) as f64));
+                }
+            }
+            // Output the ADX
+            (*outReal) = prevADX;
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_ADX_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::ADX`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

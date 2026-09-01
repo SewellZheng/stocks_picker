@@ -6,7 +6,7 @@
 //! - Logic vs guarded validation checks
 //! - Indicator-specific feature tests (unstable period, enums, etc.)
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use ta_codegen_lib::backends;
 use ta_codegen_lib::helper_registry::HelperRegistry;
@@ -2305,7 +2305,7 @@ fn c_for_loop_multi_init_comma_separated() {
     let registry = make_registry();
     let helpers = HelperRegistry::empty();
     let inline_counter = std::cell::Cell::new(0);
-    let rendered = backends::c::render_statement(&stmt, 0, false, &enums, &registry, &helpers, &inline_counter, &[]);
+    let rendered = backends::c::render_statement(&stmt, 0, false, &enums, &registry, &helpers, &inline_counter, &[], false);
 
     // Should produce: for( j = 0, i = startIdx; ... ; i = i + 1, j = j + 1 )
     // NOT: for( j = 0;\ni = startIdx; ... )
@@ -4895,6 +4895,57 @@ fn rust_public_entry_documents_exactly_its_parameters() {
 }
 
 #[test]
+fn every_integer_output_carries_an_example_claim() {
+    // The generated example checks a real output for finiteness. An integer output
+    // has nothing analogous, so 65 of them -- 61 candlestick patterns, HT_TRENDMODE
+    // and the three index functions -- asserted nothing about their values at all
+    // (#179 E8, deferred from #136). The domain is per-function data and lives in
+    // `rust_doc::integer_domain_claim`; nothing in the metadata carries it, since
+    // all 66 integer outputs declare the same `line` flag. This is the gate that a
+    // function arriving with an integer output states its domain instead of
+    // silently rejoining that set.
+    let registry = make_registry();
+    let helpers = make_helpers();
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
+    let mut checked = 0usize;
+    for entry in std::fs::read_dir(&base).expect("input dir") {
+        let entry = entry.expect("dir entry");
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let dir = entry.path();
+        if !dir.join(format!("{name}.c")).is_file() || !dir.join(format!("{name}.yaml")).is_file() {
+            continue;
+        }
+        let (func, enums) = load_indicator(&name);
+        let ints = func
+            .outputs
+            .iter()
+            .filter(|o| o.param_type == ir::ParamType::Integer)
+            .count();
+        if ints == 0 {
+            continue;
+        }
+        let out = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+        // One claim per integer output. Both shapes -- the `all(..)` domain test and
+        // the index loop -- read the written values as `<var>[..out_range.count]`,
+        // and nothing else in the example does.
+        let claims = out.matches("[..out_range.count]").count();
+        assert!(
+            claims >= ints,
+            "{name}: {ints} integer output(s) but {claims} example claim(s) -- add the \
+             output's domain to rust_doc::integer_domain_claim"
+        );
+        checked += 1;
+    }
+    assert_eq!(
+        checked, 65,
+        "expected the 65 integer-output functions, swept {checked}"
+    );
+}
+
+#[test]
 fn rust_cross_indicator_vec_input_gets_ref() {
     // Indicators that allocate a local buffer (Vec) and pass it to a cross-indicator
     // call should render the Vec as `&name` in input position. (MACD was the original
@@ -6211,7 +6262,7 @@ fn render_c_stmt(stmt: &ir::Statement) -> String {
     let helpers = HelperRegistry::empty();
     let inline_counter = std::cell::Cell::new(0);
     backends::c::render_statement(
-        stmt, 3, false, &enums, &registry, &helpers, &inline_counter, &[],
+        stmt, 3, false, &enums, &registry, &helpers, &inline_counter, &[], false,
     )
 }
 
@@ -9511,9 +9562,9 @@ fn c_stream_every_tier_leads_with_the_range_head() {
 ///
 /// Both directions per backend, and on every call site the backend has, so a
 /// half-applied rename (a definition the callers no longer name, or a Peek left
-/// on the old word) fails rather than passing on the half that moved. Rust has
-/// one call site where the others have two: its `peek` clones the handle and
-/// runs `update` on the copy, so the transition is named once.
+/// on the old word) fails rather than passing on the half that moved. C names
+/// two call sites (`Update` and `UpdateAndFill`); Rust and Java name one each,
+/// because their `peek` runs a frame inline rather than the step on a copy.
 #[test]
 fn the_transition_tier_is_step_impl_in_every_backend() {
     // SMA's own `stream` flag, not one forced on here: a test that sets the flag
@@ -9535,7 +9586,7 @@ fn the_transition_tier_is_step_impl_in_every_backend() {
             "c",
             &c,
             "static void TA_SMA_StepImpl( struct TA_SMA_Stream *sp,",
-            &["TA_SMA_StepImpl( stream,", "TA_SMA_StepImpl( &scratch,"],
+            &["TA_SMA_StepImpl( stream,", "TA_SMA_StepImpl( stream, inReal[i]"],
             "StepInternal",
         ),
         (
@@ -9552,14 +9603,15 @@ fn the_transition_tier_is_step_impl_in_every_backend() {
             "java",
             &java,
             "void smaStepImpl( SmaStream sp,",
-            &["core.smaStepImpl(this,", "core.smaStepImpl(scratch,"],
+            &["core.smaStepImpl(this,"],
             "StreamStep",
         ),
         (
             "csharp",
             &csharp,
             "internal void SmaStepImpl( SmaStream sp,",
-            &["core.SmaStepImpl(this,", "core.SmaStepImpl(scratch,"],
+            // Only `Update`'s. `Peek` runs a frame inline and calls no step.
+            &["core.SmaStepImpl(this,"],
             "StreamStep",
         ),
     ];
@@ -9652,39 +9704,45 @@ fn identity_anchor_clamps_before_it_rechecks_in_every_backend() {
 
 /// The #241 range leg's per-site ratchet, pinned across all four servers at once.
 ///
-/// The driver ORs the `range_sites` mask across the run and requires every bit
-/// below the `range_sites_n` the server declares. Two drifts fail OPEN and are
-/// what this catches:
+/// Each server declares the SET of range-compare sites it has as
+/// `range_sites_all`; the driver ORs what actually fired across the run and
+/// requires exactly that set. Two drifts fail OPEN and are what this catches:
 ///
-///   * a site added without bumping the count — the mask then carries a bit the
-///     ratchet never demands, so the new site can die unnoticed;
+///   * a site emitted but left out of the declared set — the fired mask then
+///     carries a bit the ratchet never demands, so the new site can die
+///     unnoticed;
 ///   * a site that reuses an existing bit — its death is masked by the other.
 ///
-/// Neither is visible at run time: both leave a full mask. So the check is on
-/// the emitted text — the set of bits a server actually ORs in must be exactly
-/// `{1, 2, .., 2^(n-1)}` for the `n` it declares. C, Java and C# reach the
-/// anchored `_OpenInternal` seam and declare 4; Rust's server is a separate
-/// crate and cannot, so it declares 3 and says so.
+/// Neither is visible at run time: both leave a mask that satisfies the driver.
+/// So the check is on the emitted text — the set of bits a server actually ORs
+/// in must be exactly the set it declares.
+///
+/// The sets differ, which is why the declaration is a mask and not a count (see
+/// `SvRangeSite`): C, Java and C# reach the anchored `_OpenInternal` seam and
+/// Rust's server, a separate crate, cannot. All four can fork a live stream
+/// since C gained `TA_<N>_Clone` (#287), so Rust is the one server whose set is
+/// a strict subset — and a count still could not say WHICH four it has.
 #[test]
-fn sv_range_sites_mask_matches_the_declared_count() {
+fn sv_range_sites_mask_matches_the_declared_set() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ta_codegen/input");
     let enums = parser::enums::load_enums(&base.join("enums.yaml"));
     let funcs: Vec<ir::FuncDef> = discover_indicators().iter().map(|n| load_indicator(n).0).collect();
 
+    // Fill = 1, Prefix = 2, UpdateFill = 4, Anchored = 8, Copy = 16.
     let servers = [
-        ("c", ta_codegen_lib::server_gen::generate_c_server(&funcs, &enums), 4usize),
-        ("java", ta_codegen_lib::server_gen::generate_java_server(&funcs, &enums), 4),
-        ("csharp", ta_codegen_lib::server_gen::generate_csharp_server(&funcs, &enums), 4),
-        ("rust", ta_codegen_lib::server_gen::generate_rust_server(&funcs, &enums), 3),
+        ("c", ta_codegen_lib::server_gen::generate_c_server(&funcs, &enums), 1 | 2 | 4 | 8 | 16u32),
+        ("java", ta_codegen_lib::server_gen::generate_java_server(&funcs, &enums), 1 | 2 | 4 | 8 | 16),
+        ("csharp", ta_codegen_lib::server_gen::generate_csharp_server(&funcs, &enums), 1 | 2 | 4 | 8 | 16),
+        ("rust", ta_codegen_lib::server_gen::generate_rust_server(&funcs, &enums), 1 | 2 | 4 | 16),
     ];
 
-    for (lang, src, want_n) in servers {
+    for (lang, src, want_all) in servers {
         // What the server tells the driver about itself.
-        let decl = format!("\\\"range_sites_n\\\":{want_n}");
-        let decl_plain = format!("\"range_sites_n\":{want_n}");
+        let decl = format!("\\\"range_sites_all\\\":{want_all}");
+        let decl_plain = format!("\"range_sites_all\":{want_all}");
         assert!(
             src.contains(&decl) || src.contains(&decl_plain),
-            "{lang}: server does not declare range_sites_n = {want_n}"
+            "{lang}: server does not declare range_sites_all = {want_all}"
         );
 
         // What it actually ORs in. Collect every `rangeSites |= N` / `range_sites |= N`.
@@ -9699,11 +9757,12 @@ fn sv_range_sites_mask_matches_the_declared_count() {
                 from = at;
             }
         }
-        let want: std::collections::BTreeSet<u32> = (0..want_n as u32).map(|b| 1u32 << b).collect();
+        let want: std::collections::BTreeSet<u32> =
+            (0..32u32).map(|b| 1u32 << b).filter(|b| want_all & b != 0).collect();
         assert_eq!(
             bits, want,
-            "{lang}: the site bits the server sets do not match the {want_n} sites it declares. \
-             A bit above the count is a site the ratchet never demands; a missing bit is a site \
+            "{lang}: the site bits the server sets do not match the set it declares. \
+             A bit outside the set is a site the ratchet never demands; a missing bit is a site \
              whose death nothing would see."
         );
     }
@@ -9843,9 +9902,19 @@ fn test_c_mama_two_outputs_and_params() {
     // MAMA line always written; FAMA (nullable) write is NULL-guarded so the
     // step never dereferences a NULL FAMA pointer (the gate itself is stripped).
     assert!(step.contains("*outMAMA= mama;"), "MAMA line written unconditionally");
+    // The GUARD is the invariant, not the right-hand side's spelling: FAMA is
+    // carried as a local since the value accessor reads it back (#287), and a
+    // future carry could move it again without weakening anything here.
     assert!(
-        step.contains("if( outFAMA != NULL )") && step.contains("*outFAMA= sp->fama;"),
+        step.contains("if( outFAMA != NULL )")
+            && (step.contains("*outFAMA= fama;") || step.contains("*outFAMA= sp->fama;")),
         "FAMA is nullable (#125): its write is NULL-guarded"
+    );
+    // The retained copy must NOT be guarded — a declined FAMA is still computed,
+    // and `TA_MAMA_Value` has to report it (that is what the accessor is for).
+    assert!(
+        step.contains("sp->cur_outFAMA = fama;") || step.contains("sp->cur_outFAMA = sp->fama;"),
+        "the value retain reads the body's own variable, never the declinable sink"
     );
     assert!(step.contains("sp->optInFastLimit") && step.contains("sp->optInSlowLimit"), "params drive the adaptive alpha");
     assert!(!step.contains("startIdx") && !step.contains("% 2"), "no cursor leak in the step");
@@ -9923,7 +9992,9 @@ fn test_c_trima_dual_mode_rings_stream_section() {
         "step branches on the stored parity"
     );
     assert!(c.contains("TA_TRIMA_ReleaseImpl"), "ReleaseImpl frees the rings");
-    assert!(c.contains("ringMirror_middleIdx_inReal"), "Peek ring mirror");
+    // Both modes' rings are shared, so the peek frame carries ONE shadow pair
+    // per ring across the two arms rather than a per-arm copy of the buffer.
+    assert!(!c.contains("Mirror"), "the peek frame replaced the per-handle ring mirror");
 }
 
 /// The body of `TA_<NAME>_StepImpl`, brace-balanced. Ring slots are also
@@ -10115,10 +10186,10 @@ fn test_c_midprice_stream_uses_the_declared_alternate() {
 }
 
 /// Pin the generated STOCH composed stream section: producer extrema state +
-/// peekMode + typed sub handles; Open opens each sub-stream on the
-/// materialized series BEFORE the batch call that consumes it (in-place
-/// smoothing overwrites the raw %K right there — order is the contract);
-/// the step pipelines through sub Update/Peek on the peekMode flag.
+/// typed sub handles; Open opens each sub-stream on the materialized series
+/// BEFORE the batch call that consumes it (in-place smoothing overwrites the
+/// raw %K right there — order is the contract); the update frame pipelines
+/// through sub-Update and the peek frame through sub-Peek.
 #[test]
 fn test_c_stoch_composed_stream_section() {
     let (mut func, enums) = load_indicator("stoch");
@@ -10128,8 +10199,9 @@ fn test_c_stoch_composed_stream_section() {
     let c = backends::c::generate(&func, &enums, &registry, &helpers);
     let stream = &c[c.find("/**** Streaming API *****/").expect("stream section")..];
 
-    // Handle: producer extrema + peek flag + typed subs.
-    assert!(stream.contains("int peekMode;"));
+    // Handle: producer extrema + typed subs (no routing flag: the frames are
+    // separate functions, so `update` tests nothing per sub-call).
+    assert!(!stream.contains("peekMode"));
     assert!(stream.contains("TA_MA_Stream *sub0;"));
     assert!(stream.contains("TA_MA_Stream *sub1;"));
 
@@ -10164,16 +10236,15 @@ fn test_c_stoch_composed_stream_section() {
     assert!(stream.contains("&dummyBegIdx,&dummyNBElement"));
     assert!(!stream.contains(",outBegIdx,"), "raw out-meta arg leaked");
 
-    // Step: ONE body; sub calls dispatch on the scratch copy's peekMode.
-    assert!(stream.contains("if( sp->peekMode )"));
+    // Two bodies: the update frame drives sub-Update, the peek frame sub-Peek.
     assert!(stream.contains("TA_MA_Peek( (const TA_MA_Stream *)sp->sub0, cur_tempBuffer, &cur_tempBuffer );"));
     assert!(stream.contains("TA_MA_Update( sp->sub0, cur_tempBuffer, &cur_tempBuffer );"));
     assert!(stream.contains("TA_MA_Update( sp->sub1, cur_tempBuffer, &cur_outSlowD );"));
     assert!(stream.contains("*outSlowK = cur_tempBuffer;"), "memmove tail-align");
     assert!(stream.contains("*outSlowD = cur_outSlowD;"));
 
-    // Peek sets the flag on the scratch copy; Close closes subs then frees.
-    assert!(stream.contains("scratch.peekMode = 1;"));
+    // Peek runs the peek frame on the scratch copy; Close closes subs then frees.
+    assert!(stream.contains("TA_MA_Peek( (const TA_MA_Stream *)sp->sub1,"));
     assert!(stream.contains("TA_MA_Close( stream->sub0 );"));
     assert!(stream.contains("TA_STOCH_ReleaseImpl( stream );"));
 }
@@ -10197,7 +10268,6 @@ fn test_c_adxr_open_frees_withheld_buffer_on_oom_paths() {
         "if( dummyNBElement < 1 ) { free( adx );",
         "if( !sp ) { free( adx );",
         "if( !sp->lagRing_adx ) { TA_Free( sp ); free( adx );",
-        "if( !sp->lagRingMirror_adx ) { TA_Free( sp->lagRing_adx ); TA_Free( sp ); free( adx );",
     ] {
         assert!(
             open.contains(guard),
@@ -10207,7 +10277,6 @@ fn test_c_adxr_open_frees_withheld_buffer_on_oom_paths() {
     // Close releases the ring buffers (the other half of leak-freedom).
     let close = &c[c.find("TA_RetCode TA_ADXR_Close").expect("ADXR Close")..];
     assert!(close.contains("TA_Free( stream->lagRing_adx );"));
-    assert!(close.contains("TA_Free( stream->lagRingMirror_adx );"));
 }
 
 /// A composed Open must emit ONE null-check block per allocated intermediate,
@@ -13265,69 +13334,256 @@ fn a_stream_step_reads_candle_settings_from_its_parameters() {
     );
 }
 
-/// `peek`'s reusable scratch is a bare `<N>StreamState`, stepped directly.
+
+/// A store `validate_peekable` refuses: a compound one, which renders as a
+/// store reading its own target. A refusal drops the whole function back to the
+/// narrow set, so one such store justifies every copy in it. The other two
+/// refusals (a store in a loop, a counter-moving index) have no instance here;
+/// one would surface as an offender below rather than be waved through.
+fn csharp_refused_accumulator_store(body: &str, fields: &BTreeSet<String>) -> bool {
+    body.lines().any(|l| {
+        l.split_once('=').is_some_and(|(lhs, rhs)| {
+            // `!rhs.starts_with('=')`: `X[i] == X[j]` splits the same way a store
+            // does, and comparing two slots is not a store into either.
+            lhs.trim_end().ends_with(']')
+                && !rhs.starts_with('=')
+                && fields.iter().any(|f| {
+                    let sub = format!("{f}[");
+                    lhs.contains(&sub) && rhs.contains(&sub)
+                })
+        })
+    })
+}
+
+/// The handle's fixed-size accumulator fields: an array the BATCH body declares
+/// with a literal size. Off the emitted code, never a name list.
+fn csharp_accumulator_fields(section: &str, batch: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for line in section.lines() {
+        let Some(d) = line.trim().strip_prefix("internal ") else { continue };
+        let Some((ty, rest)) = d.split_once(' ') else { continue };
+        // A field carries its initializer (`internal double[] x = [];`).
+        let name = rest.trim_end_matches(';').split(" =").next().unwrap_or(rest);
+        if !ty.ends_with("[]") || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            continue;
+        }
+        let decl = format!("{ty} {name} = new {}[", ty.trim_end_matches("[]"));
+        if batch.match_indices(&decl).any(|(i, _)| {
+            batch[i + decl.len()..].split_once(']').is_some_and(|(n, _)| n.parse::<u32>().is_ok())
+        }) {
+            out.insert(name.to_string());
+        }
+    }
+    out
+}
+
+/// No C# `Peek` copies the handle: every one runs a frame against `this`, and
+/// what it allocates never grows with the period.
 ///
-/// #201 put `update` on a scratch *handle* here to keep the transition down to
-/// one call site. That copied, every peek, the two things a peek cannot use:
-/// the settings, which no step writes, and the `out` range, which only a
-/// committed bar moves. It also re-ran the bar's `is_finite` check.
+/// Structural for the same reason the C, Rust and Java sweeps are — a `Peek`
+/// that copied and then wrote the copy would still answer correctly, so no
+/// value gate can see the difference. What it costs is the flat-in-period cost
+/// the frame is for.
 ///
-/// Two rows, each the other's control:
-///
-/// * `BBANDS` — in the reuse tier. Pins all four halves: the scratch is a bare
-///   state, the step runs on it with the settings still read off the live
-///   handle, `update` is not re-entered, and the bar is checked once.
-/// * `SMA` — outside it. Must keep the pre-#201 throwaway clone verbatim, so a
-///   generator that rewrites every peek reddens here rather than passing on
-///   BBANDS alone.
+/// The one allocation a frame is allowed is a fixed-size accumulator: a C#
+/// array field is a reference, so a localized one must be cloned or the frame
+/// would write the handle through it. "Fixed-size" is read off the emitted code
+/// rather than asserted from a name list — the batch body declares exactly
+/// these with a literal dimension (`new double[3]`), and a period-sized buffer
+/// never is.
 #[test]
-fn a_reused_peek_scratch_is_a_bare_state_stepped_directly() {
+fn no_csharp_peek_copies_the_handle() {
+    /// The handle's own fields, read off the emitted class declarations.
+    fn handle_fields(s: &str) -> BTreeSet<String> {
+        s.lines()
+            .filter_map(|l| l.trim().strip_prefix("internal "))
+            .filter_map(|d| d.split_once(' '))
+            .map(|(_, rest)| rest.trim_end_matches(';').split(" =").next().unwrap_or(rest))
+            .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_'))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The name `line` assigns to, with any subscript stripped — `None` when it
+    /// is not a plain assignment.
+    fn assign_target(line: &str) -> Option<&str> {
+        let (lhs, _) = line.split_once('=')?;
+        let lhs = lhs.trim();
+        if lhs.ends_with(['=', '!', '<', '>', '+', '-', '*', '/']) {
+            return None; // ==, !=, <=, +=, ...
+        }
+        // The declared name is the LAST token; strip its subscript there, not
+        // over the whole left side — `double[] x = ...` carries a `[` in the
+        // TYPE, and cutting at it would name the type instead of the variable.
+        let last = lhs.rsplit(' ').next()?;
+        let last = last.split_once('[').map_or(last, |(h, _)| h);
+        (!last.is_empty() && last.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
+            .then_some(last)
+    }
+
     let registry = make_registry();
     let helpers = HelperRegistry::empty();
+    let (mut swept, mut frames, mut clones, mut writes) = (0usize, 0usize, 0usize, 0usize);
+    let mut fully_shadowed: BTreeSet<String> = BTreeSet::new();
+    let mut offenders: Vec<String> = Vec::new();
 
-    let (func, enums) = load_indicator("bbands");
-    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        if !func.streaming || !backends::csharp_stream::emits_stream(&func, &registry) {
+            continue;
+        }
+        let batch = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        let s = backends::csharp_stream::generate(&func, &enums, &registry, &helpers);
+        let mut at = 0usize;
+        while let Some(k) = s[at..].find("\n      public ") {
+            let start = at + k + 1;
+            at = start + 1;
+            let Some(nl) = s[start..].find('\n') else { break };
+            if !s[start..start + nl].contains(" Peek( ") {
+                continue;
+            }
+            let end = s[start..].find("\n      }").map_or(s.len(), |e| start + e);
+            let peek = &s[start..end];
+            let mut copying: BTreeSet<String> = BTreeSet::new();
+            swept += 1;
+            if peek.contains("Stream sp = this;") {
+                frames += 1;
+            }
+            let fields = handle_fields(&s);
+            let mut locals: BTreeSet<&str> = BTreeSet::new();
+            for line in peek.lines() {
+                let l = line.trim();
+                if l.starts_with("//") || l.starts_with("/*") || l.starts_with('*') {
+                    continue;
+                }
+                // A frame writes locals. A bare `cur_x = ...` whose name the
+                // frame never DECLARED resolves to the handle field of that
+                // name and commits it — which is what a composed output reached
+                // only through an alias used to do, invisibly to every value
+                // gate but C#'s `valueNeUpdate` leg.
+                if let Some(t) = assign_target(l) {
+                    let declared = l
+                        .split_once('=')
+                        .is_some_and(|(lhs, _)| lhs.trim().split(' ').count() > 1);
+                    if declared {
+                        locals.insert(t);
+                    } else if t.starts_with("sp.") || (fields.contains(t) && !locals.contains(t)) {
+                        offenders.push(format!("{name}: writes the handle: {l}"));
+                    } else {
+                        writes += 1;
+                    }
+                }
+                if l.contains("CopyFrom") || l.contains("peekScratch") {
+                    offenders.push(format!("{name}: {l}"));
+                    continue;
+                }
+                if !l.contains("new ") || l.starts_with("throw new") || l.starts_with("return new")
+                {
+                    continue;
+                }
+                // `<T>[] <f> = new <T>[sp.<f>.Length];` — allowed only where the
+                // batch body sizes `<f>` with a literal.
+                let ok = l
+                    .split_once("= new ")
+                    .and_then(|(_, rhs)| rhs.split_once("[sp."))
+                    .and_then(|(elem, tail)| tail.split_once(".Length];").map(|(f, _)| (elem, f)))
+                    .filter(|(elem, f)| {
+                        let decl = format!("{elem}[] {f} = new {elem}[");
+                        batch.match_indices(&decl).any(|(i, _)| {
+                            batch[i + decl.len()..]
+                                .split_once(']')
+                                .is_some_and(|(n, _)| n.parse::<u32>().is_ok())
+                        })
+                    })
+                    .map(|(_, f)| f);
+                match ok {
+                    Some(f) => {
+                        clones += 1;
+                        copying.insert(f.to_string());
+                    }
+                    None => offenders.push(format!("{name}: {l}")),
+                }
+            }
+            // A frame that copies with nothing refused was never offered the
+            // wide set, and allocates per Peek for nothing.
+            let accs = csharp_accumulator_fields(&s, &batch);
+            if !copying.is_empty() && !csharp_refused_accumulator_store(peek, &accs) {
+                offenders.push(format!(
+                    "{name}: copies {copying:?} but no accumulator store is refusable"
+                ));
+            }
+            // The other half of the split. The frame must TOUCH an accumulator:
+            // a field it never names is evidence either way.
+            if copying.is_empty() && accs.iter().any(|f| peek.contains(&format!("{f}["))) {
+                fully_shadowed.insert(name.clone());
+            }
+        }
+    }
+
+    assert!(swept > 170, "only {swept} Peek(s) swept");
+    assert_eq!(frames, swept, "{frames} of {swept} Peek(s) run a frame");
+    // Both sides of the split are floored, because the corpus has both and a
+    // sweep that stopped finding either would read green while measuring one.
+    assert!(clones >= 1, "no accumulator copy seen — the exemption is untested");
     assert!(
-        rust.contains(
-            "static BBANDS_PEEK_SCRATCH: std::cell::Cell<Option<Box<BbandsStreamState>>>"
-        ),
-        "the reused scratch holds a bare state, not a whole handle"
+        fully_shadowed.len() >= 7,
+        "only {} handle(s) hold an accumulator the frame copies nothing of — the widened \
+         buffer set is no longer reaching them and Peek allocates again",
+        fully_shadowed.len()
     );
-    let peek = {
-        let at = rust.find("    pub fn peek(&self").expect("bbands has a peek");
-        &rust[at..at + rust[at..].find("\n    }").expect("peek end")]
-    };
-    assert!(
-        peek.contains("Core::bbands_step_impl(&mut scratch,"),
-        "peek runs the step on the scratch directly\n{peek}"
-    );
-    assert!(
-        !peek.contains("scratch.update("),
-        "peek must not re-enter `update`, which re-checks the bar\n{peek}"
-    );
-    assert!(
-        !peek.contains("out.count"),
-        "peek commits nothing, so it does no range bookkeeping\n{peek}"
-    );
+    assert!(writes >= 500, "only {writes} local writes seen — the store sweep found nothing");
+    assert!(offenders.is_empty(), "a Peek copies:\n{}", offenders.join("\n"));
+}
+
+/// The crate front page's category index (#179 D6) must list every indicator in
+/// the corpus exactly once, under the group its own definition names.
+///
+/// Rustdoc gates the *links* — a `[`X`](Core::X)` naming a method that does not
+/// exist is `rustdoc::broken_intra_doc_links`, and the nightly runs rustdoc with
+/// `-D warnings`. Nothing gates an *omission*: a filter that quietly drops a
+/// function leaves a page that still builds clean and simply never mentions it.
+/// That is the failure this test exists for, so it counts rather than samples.
+#[test]
+fn rust_category_index_lists_every_function_once() {
+    let funcs: Vec<ir::FuncDef> = discover_indicators()
+        .iter()
+        .map(|name| load_indicator(name).0)
+        .collect();
+    assert!(funcs.len() >= 176, "only {} indicators in the corpus", funcs.len());
+
+    let index = backends::rust_doc::category_index(&funcs);
+
+    // One bullet per function, spelled as the link rustdoc will resolve.
+    for f in &funcs {
+        let line = format!("//! * [`{0}`](Core::{0})", f.name);
+        assert_eq!(
+            index.matches(&line).count(),
+            1,
+            "{} must appear exactly once in the category index",
+            f.name
+        );
+    }
     assert_eq!(
-        peek.matches("is_finite").count(),
-        1,
-        "the bar is checked once, not twice\n{peek}"
+        index.matches("//! * [`").count(),
+        funcs.len(),
+        "the index must carry no entry beyond the corpus"
     );
 
-    // The control: outside the reuse tier the throwaway clone is unchanged.
-    let (func, enums) = load_indicator("sma");
-    let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
-    assert!(
-        !rust.contains("SMA_PEEK_SCRATCH"),
-        "SMA is outside the reuse tier and must have no scratch"
-    );
-    let peek = {
-        let at = rust.find("    pub fn peek(&self").expect("sma has a peek");
-        &rust[at..at + rust[at..].find("\n    }").expect("peek end")]
-    };
-    assert!(
-        peek.contains("let mut scratch = self.clone();") && peek.contains("scratch.update("),
-        "the throwaway tier keeps the pre-#201 clone verbatim\n{peek}"
-    );
+    // Each heading's count is the number of bullets that follow it, so a reader
+    // can trust "Pattern Recognition (61)" without counting the list.
+    let mut heading_total = 0;
+    for section in index.split("//! ## ").skip(1) {
+        let (heading, body) = section.split_once('\n').expect("a heading ends its line");
+        let (group, count) = heading.rsplit_once(" (").expect("a heading carries its count");
+        let count: usize = count.trim_end_matches(')').parse().expect("a decimal count");
+        let bullets = body.matches("//! * [`").count();
+        assert_eq!(count, bullets, "{group} says {count} but lists {bullets}");
+        assert_eq!(
+            bullets,
+            funcs.iter().filter(|f| f.group == group).count(),
+            "{group} must list every function filed under it"
+        );
+        heading_total += bullets;
+    }
+    assert_eq!(heading_total, funcs.len(), "every function must land under a heading");
 }

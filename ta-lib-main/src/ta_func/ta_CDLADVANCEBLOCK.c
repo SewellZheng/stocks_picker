@@ -431,10 +431,12 @@ TA_RetCode TA_S_CDLADVANCEBLOCK( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CDLADVANCEBLOCK_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_CDLADVANCEBLOCK_Value). */
+   int cur_outInteger;
    double ShadowShortPeriodTotal[3];
    double ShadowLongPeriodTotal[2];
    double NearPeriodTotal[3];
@@ -452,27 +454,22 @@ struct TA_CDLADVANCEBLOCK_Stream {
    int ringCap_BodyLongTrailingIdx;
    int ringLag_BodyLongTrailingIdx;
    double *ring_BodyLongTrailingIdx_derived;
-   double *ringMirror_BodyLongTrailingIdx_derived;
    int ringPos_FarTrailingIdx;
    int ringCap_FarTrailingIdx;
    int ringLag_FarTrailingIdx;
    double *ring_FarTrailingIdx_derived;
-   double *ringMirror_FarTrailingIdx_derived;
    int ringPos_NearTrailingIdx;
    int ringCap_NearTrailingIdx;
    int ringLag_NearTrailingIdx;
    double *ring_NearTrailingIdx_derived;
-   double *ringMirror_NearTrailingIdx_derived;
    int ringPos_ShadowLongTrailingIdx;
    int ringCap_ShadowLongTrailingIdx;
    int ringLag_ShadowLongTrailingIdx;
    double *ring_ShadowLongTrailingIdx_derived;
-   double *ringMirror_ShadowLongTrailingIdx_derived;
    int ringPos_ShadowShortTrailingIdx;
    int ringCap_ShadowShortTrailingIdx;
    int ringLag_ShadowShortTrailingIdx;
    double *ring_ShadowShortTrailingIdx_derived;
-   double *ringMirror_ShadowShortTrailingIdx_derived;
 };
 
 /* Private function, not in public API. */
@@ -480,15 +477,10 @@ static void TA_CDLADVANCEBLOCK_ReleaseImpl( struct TA_CDLADVANCEBLOCK_Stream *sp
 {
    if( !sp ) return;
    if( sp->ring_BodyLongTrailingIdx_derived ) TA_Free( sp->ring_BodyLongTrailingIdx_derived );
-   if( sp->ringMirror_BodyLongTrailingIdx_derived ) TA_Free( sp->ringMirror_BodyLongTrailingIdx_derived );
    if( sp->ring_FarTrailingIdx_derived ) TA_Free( sp->ring_FarTrailingIdx_derived );
-   if( sp->ringMirror_FarTrailingIdx_derived ) TA_Free( sp->ringMirror_FarTrailingIdx_derived );
    if( sp->ring_NearTrailingIdx_derived ) TA_Free( sp->ring_NearTrailingIdx_derived );
-   if( sp->ringMirror_NearTrailingIdx_derived ) TA_Free( sp->ringMirror_NearTrailingIdx_derived );
    if( sp->ring_ShadowLongTrailingIdx_derived ) TA_Free( sp->ring_ShadowLongTrailingIdx_derived );
-   if( sp->ringMirror_ShadowLongTrailingIdx_derived ) TA_Free( sp->ringMirror_ShadowLongTrailingIdx_derived );
    if( sp->ring_ShadowShortTrailingIdx_derived ) TA_Free( sp->ring_ShadowShortTrailingIdx_derived );
-   if( sp->ringMirror_ShadowShortTrailingIdx_derived ) TA_Free( sp->ringMirror_ShadowShortTrailingIdx_derived );
    TA_Free( sp );
 }
 
@@ -537,6 +529,7 @@ static void TA_CDLADVANCEBLOCK_StepImpl( struct TA_CDLADVANCEBLOCK_Stream *sp, d
       sp->NearPeriodTotal[totIdx] = sp->NearPeriodTotal[totIdx] + (sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx >= sp->ringCap_NearTrailingIdx) ? sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx - sp->ringCap_NearTrailingIdx : sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx] - sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - totIdx) % sp->ringCap_NearTrailingIdx]);
    }
    sp->BodyLongPeriodTotal += TA_STREAM_CANDLERANGE(BodyLong,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) - sp->ring_BodyLongTrailingIdx_derived[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 2) % sp->ringCap_BodyLongTrailingIdx];
+   sp->cur_outInteger = *outInteger;
    sp->lag2_inOpen = sp->lag1_inOpen;
    sp->lag1_inOpen = inOpen;
    sp->lag2_inHigh = sp->lag1_inHigh;
@@ -765,8 +758,6 @@ static TA_RetCode TA_CDLADVANCEBLOCK_OpenImpl( struct TA_CDLADVANCEBLOCK_Stream 
       { size_t allocN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
         sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_BodyLongTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_BodyLongTrailingIdx; fillJ < historyLen; fillJ++ )
              sp->ring_BodyLongTrailingIdx_derived[fillJ % sp->ringCap_BodyLongTrailingIdx] = TA_STREAM_CANDLERANGE(BodyLong,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
@@ -779,8 +770,6 @@ static TA_RetCode TA_CDLADVANCEBLOCK_OpenImpl( struct TA_CDLADVANCEBLOCK_Stream 
       { size_t allocN = (size_t)(sp->ringCap_FarTrailingIdx > 0 ? sp->ringCap_FarTrailingIdx : 1);
         sp->ring_FarTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_FarTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_FarTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_FarTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_FarTrailingIdx; fillJ < historyLen; fillJ++ )
              sp->ring_FarTrailingIdx_derived[fillJ % sp->ringCap_FarTrailingIdx] = TA_STREAM_CANDLERANGE(Far,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
@@ -793,8 +782,6 @@ static TA_RetCode TA_CDLADVANCEBLOCK_OpenImpl( struct TA_CDLADVANCEBLOCK_Stream 
       { size_t allocN = (size_t)(sp->ringCap_NearTrailingIdx > 0 ? sp->ringCap_NearTrailingIdx : 1);
         sp->ring_NearTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_NearTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_NearTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_NearTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_NearTrailingIdx; fillJ < historyLen; fillJ++ )
              sp->ring_NearTrailingIdx_derived[fillJ % sp->ringCap_NearTrailingIdx] = TA_STREAM_CANDLERANGE(Near,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
@@ -807,8 +794,6 @@ static TA_RetCode TA_CDLADVANCEBLOCK_OpenImpl( struct TA_CDLADVANCEBLOCK_Stream 
       { size_t allocN = (size_t)(sp->ringCap_ShadowLongTrailingIdx > 0 ? sp->ringCap_ShadowLongTrailingIdx : 1);
         sp->ring_ShadowLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_ShadowLongTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_ShadowLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_ShadowLongTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_ShadowLongTrailingIdx; fillJ < historyLen; fillJ++ )
              sp->ring_ShadowLongTrailingIdx_derived[fillJ % sp->ringCap_ShadowLongTrailingIdx] = TA_STREAM_CANDLERANGE(ShadowLong,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
@@ -821,8 +806,6 @@ static TA_RetCode TA_CDLADVANCEBLOCK_OpenImpl( struct TA_CDLADVANCEBLOCK_Stream 
       { size_t allocN = (size_t)(sp->ringCap_ShadowShortTrailingIdx > 0 ? sp->ringCap_ShadowShortTrailingIdx : 1);
         sp->ring_ShadowShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
         if( !sp->ring_ShadowShortTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-        sp->ringMirror_ShadowShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * allocN );
-        if( !sp->ringMirror_ShadowShortTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
         { int fillJ;
           for( fillJ = historyLen - sp->ringCap_ShadowShortTrailingIdx; fillJ < historyLen; fillJ++ )
              sp->ring_ShadowShortTrailingIdx_derived[fillJ % sp->ringCap_ShadowShortTrailingIdx] = TA_STREAM_CANDLERANGE(ShadowShort,inOpen[fillJ],inHigh[fillJ],inLow[fillJ],inClose[fillJ]);
@@ -839,6 +822,7 @@ static TA_RetCode TA_CDLADVANCEBLOCK_OpenImpl( struct TA_CDLADVANCEBLOCK_Stream 
       sp->lag2_inClose = inClose[historyLen - 2];
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outInteger = outInteger[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -889,7 +873,11 @@ TA_RetCode TA_CDLADVANCEBLOCK_OpenAndFillInternal( struct TA_CDLADVANCEBLOCK_Str
 TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Update( TA_CDLADVANCEBLOCK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_CDLADVANCEBLOCK_StepImpl( stream, inOpen, inHigh, inLow, inClose, outInteger );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -898,21 +886,101 @@ TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Update( TA_CDLADVANCEBLOCK_Stream *stre
 TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Peek( const TA_CDLADVANCEBLOCK_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    struct TA_CDLADVANCEBLOCK_Stream scratch;
+   struct TA_CDLADVANCEBLOCK_Stream *sp = &scratch;
+   int totIdx;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
+   int pkSlot1 = -1;
+   double pkVal1 = 0.0;
+   int pkSlot2 = -1;
+   double pkVal2 = 0.0;
+   int pkSlot3 = -1;
+   double pkVal3 = 0.0;
+   int pkSlot4 = -1;
+   double pkVal4 = 0.0;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.ring_BodyLongTrailingIdx_derived = stream->ringMirror_BodyLongTrailingIdx_derived;
-   memcpy( scratch.ring_BodyLongTrailingIdx_derived, stream->ring_BodyLongTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_BodyLongTrailingIdx > 0 ? stream->ringCap_BodyLongTrailingIdx : 1) );
-   scratch.ring_FarTrailingIdx_derived = stream->ringMirror_FarTrailingIdx_derived;
-   memcpy( scratch.ring_FarTrailingIdx_derived, stream->ring_FarTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_FarTrailingIdx > 0 ? stream->ringCap_FarTrailingIdx : 1) );
-   scratch.ring_NearTrailingIdx_derived = stream->ringMirror_NearTrailingIdx_derived;
-   memcpy( scratch.ring_NearTrailingIdx_derived, stream->ring_NearTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_NearTrailingIdx > 0 ? stream->ringCap_NearTrailingIdx : 1) );
-   scratch.ring_ShadowLongTrailingIdx_derived = stream->ringMirror_ShadowLongTrailingIdx_derived;
-   memcpy( scratch.ring_ShadowLongTrailingIdx_derived, stream->ring_ShadowLongTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_ShadowLongTrailingIdx > 0 ? stream->ringCap_ShadowLongTrailingIdx : 1) );
-   scratch.ring_ShadowShortTrailingIdx_derived = stream->ringMirror_ShadowShortTrailingIdx_derived;
-   memcpy( scratch.ring_ShadowShortTrailingIdx_derived, stream->ring_ShadowShortTrailingIdx_derived, sizeof(double) * (size_t)(stream->ringCap_ShadowShortTrailingIdx > 0 ? stream->ringCap_ShadowShortTrailingIdx : 1) );
-   TA_CDLADVANCEBLOCK_StepImpl( &scratch, inOpen, inHigh, inLow, inClose, outInteger );
+   pkSlot0 = sp->ringPos_BodyLongTrailingIdx;
+   pkVal0 = TA_STREAM_CANDLERANGE(BodyLong,inOpen,inHigh,inLow,inClose);
+   pkSlot1 = sp->ringPos_FarTrailingIdx;
+   pkVal1 = TA_STREAM_CANDLERANGE(Far,inOpen,inHigh,inLow,inClose);
+   pkSlot2 = sp->ringPos_NearTrailingIdx;
+   pkVal2 = TA_STREAM_CANDLERANGE(Near,inOpen,inHigh,inLow,inClose);
+   pkSlot3 = sp->ringPos_ShadowLongTrailingIdx;
+   pkVal3 = TA_STREAM_CANDLERANGE(ShadowLong,inOpen,inHigh,inLow,inClose);
+   pkSlot4 = sp->ringPos_ShadowShortTrailingIdx;
+   pkVal4 = TA_STREAM_CANDLERANGE(ShadowShort,inOpen,inHigh,inLow,inClose);
+   if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 1 && /* 1st white */
+       ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && /* 2nd white */
+       ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                   /* 3rd white */
+       inClose > sp->lag1_inClose &&
+       sp->lag1_inClose > sp->lag2_inClose &&                      /* consecutive higher closes */
+       sp->lag1_inOpen > sp->lag2_inOpen &&                        /* 2nd opens within/near 1st real body */
+       sp->lag1_inOpen <= sp->lag2_inClose + TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) &&
+       inOpen > sp->lag1_inOpen &&                                 /* 3rd opens within/near 2nd real body */
+       inOpen <= sp->lag1_inClose + TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) &&
+       fabs(sp->lag2_inClose - sp->lag2_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* 1st: long real body */
+       (sp->lag2_inHigh - ((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inClose : sp->lag2_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) &&
+       (fabs(sp->lag1_inClose - sp->lag1_inOpen) < fabs(sp->lag2_inClose - sp->lag2_inOpen) - TA_STREAM_CANDLEAVERAGE(Far,sp->FarPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && fabs(inClose - inOpen) < fabs(sp->lag1_inClose - sp->lag1_inOpen) + TA_STREAM_CANDLEAVERAGE(Near,sp->NearPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) || fabs(inClose - inOpen) < fabs(sp->lag1_inClose - sp->lag1_inOpen) - TA_STREAM_CANDLEAVERAGE(Far,sp->FarPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) || fabs(inClose - inOpen) < fabs(sp->lag1_inClose - sp->lag1_inOpen) && fabs(sp->lag1_inClose - sp->lag1_inOpen) < fabs(sp->lag2_inClose - sp->lag2_inOpen) && ((inHigh - ((inClose >= inOpen) ? inClose : inOpen)) > TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) || (sp->lag1_inHigh - ((sp->lag1_inClose >= sp->lag1_inOpen) ? sp->lag1_inClose : sp->lag1_inOpen)) > TA_STREAM_CANDLEAVERAGE(ShadowShort,sp->ShadowShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose)) || fabs(inClose - inOpen) < fabs(sp->lag1_inClose - sp->lag1_inOpen) && (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) > TA_STREAM_CANDLEAVERAGE(ShadowLong,sp->ShadowLongPeriodTotal[0],inOpen,inHigh,inLow,inClose)) ) /* 1st: short upper shadow ( 2 far smaller than 1 && 3 not longer than 2 ) advance blocked with the 2nd, 3rd must not carry on the advance 3 far smaller than 2 advance blocked with the 3rd ( 3 smaller than 2 && 2 smaller than 1 && (3 or 2 not short upper shadow) ) advance blocked with progressively smaller real bodies and some upper shadows ( 3 smaller than 2 && 3 long upper shadow ) advance blocked with 3rd candle's long upper shadow and smaller body */
+   {
+      *outInteger= 0 - 100;
+   } else 
+   {
+      *outInteger= 0;
+   }
+   /* add the current range and subtract the first range: this is done after the pattern recognition
+    * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
+    */
+   for( totIdx = 2; totIdx >= 0; totIdx -= 1 )
+   {
+      sp->ShadowShortPeriodTotal[totIdx] = sp->ShadowShortPeriodTotal[totIdx] + (((((sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - totIdx >= sp->ringCap_ShadowShortTrailingIdx) ? sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - totIdx - sp->ringCap_ShadowShortTrailingIdx : sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - totIdx) != pkSlot4) ? sp->ring_ShadowShortTrailingIdx_derived[(sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - totIdx >= sp->ringCap_ShadowShortTrailingIdx) ? sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - totIdx - sp->ringCap_ShadowShortTrailingIdx : sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - totIdx] : pkVal4) - (((sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - sp->ringLag_ShadowShortTrailingIdx - totIdx) % sp->ringCap_ShadowShortTrailingIdx != pkSlot4) ? sp->ring_ShadowShortTrailingIdx_derived[(sp->ringPos_ShadowShortTrailingIdx + sp->ringCap_ShadowShortTrailingIdx - sp->ringLag_ShadowShortTrailingIdx - totIdx) % sp->ringCap_ShadowShortTrailingIdx] : pkVal4));
+   }
+   for( totIdx = 1; totIdx >= 0; totIdx -= 1 )
+   {
+      sp->ShadowLongPeriodTotal[totIdx] = sp->ShadowLongPeriodTotal[totIdx] + (((((sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - totIdx >= sp->ringCap_ShadowLongTrailingIdx) ? sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - totIdx - sp->ringCap_ShadowLongTrailingIdx : sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - totIdx) != pkSlot3) ? sp->ring_ShadowLongTrailingIdx_derived[(sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - totIdx >= sp->ringCap_ShadowLongTrailingIdx) ? sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - totIdx - sp->ringCap_ShadowLongTrailingIdx : sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - totIdx] : pkVal3) - (((sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - sp->ringLag_ShadowLongTrailingIdx - totIdx) % sp->ringCap_ShadowLongTrailingIdx != pkSlot3) ? sp->ring_ShadowLongTrailingIdx_derived[(sp->ringPos_ShadowLongTrailingIdx + sp->ringCap_ShadowLongTrailingIdx - sp->ringLag_ShadowLongTrailingIdx - totIdx) % sp->ringCap_ShadowLongTrailingIdx] : pkVal3));
+   }
+   for( totIdx = 2; totIdx >= 1; totIdx -= 1 )
+   {
+      sp->FarPeriodTotal[totIdx] = sp->FarPeriodTotal[totIdx] + (((((sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx >= sp->ringCap_FarTrailingIdx) ? sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx - sp->ringCap_FarTrailingIdx : sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx) != pkSlot1) ? sp->ring_FarTrailingIdx_derived[(sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx >= sp->ringCap_FarTrailingIdx) ? sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx - sp->ringCap_FarTrailingIdx : sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx] : pkVal1) - (((sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - sp->ringLag_FarTrailingIdx - totIdx) % sp->ringCap_FarTrailingIdx != pkSlot1) ? sp->ring_FarTrailingIdx_derived[(sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - sp->ringLag_FarTrailingIdx - totIdx) % sp->ringCap_FarTrailingIdx] : pkVal1));
+      sp->NearPeriodTotal[totIdx] = sp->NearPeriodTotal[totIdx] + (((((sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx >= sp->ringCap_NearTrailingIdx) ? sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx - sp->ringCap_NearTrailingIdx : sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx) != pkSlot2) ? sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx >= sp->ringCap_NearTrailingIdx) ? sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx - sp->ringCap_NearTrailingIdx : sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx] : pkVal2) - (((sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - totIdx) % sp->ringCap_NearTrailingIdx != pkSlot2) ? sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - totIdx) % sp->ringCap_NearTrailingIdx] : pkVal2));
+   }
+   sp->BodyLongPeriodTotal += TA_STREAM_CANDLERANGE(BodyLong,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) - (((sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 2) % sp->ringCap_BodyLongTrailingIdx != pkSlot0) ? sp->ring_BodyLongTrailingIdx_derived[(sp->ringPos_BodyLongTrailingIdx + sp->ringCap_BodyLongTrailingIdx - sp->ringLag_BodyLongTrailingIdx - 2) % sp->ringCap_BodyLongTrailingIdx] : pkVal0);
+   sp->cur_outInteger = *outInteger;
+   sp->lag2_inOpen = sp->lag1_inOpen;
+   sp->lag1_inOpen = inOpen;
+   sp->lag2_inHigh = sp->lag1_inHigh;
+   sp->lag1_inHigh = inHigh;
+   sp->lag2_inLow = sp->lag1_inLow;
+   sp->lag1_inLow = inLow;
+   sp->lag2_inClose = sp->lag1_inClose;
+   sp->lag1_inClose = inClose;
+   sp->ringPos_BodyLongTrailingIdx = sp->ringPos_BodyLongTrailingIdx + 1;
+   if( sp->ringPos_BodyLongTrailingIdx >= sp->ringCap_BodyLongTrailingIdx )
+   {
+      sp->ringPos_BodyLongTrailingIdx = 0;
+   }
+   sp->ringPos_FarTrailingIdx = sp->ringPos_FarTrailingIdx + 1;
+   if( sp->ringPos_FarTrailingIdx >= sp->ringCap_FarTrailingIdx )
+   {
+      sp->ringPos_FarTrailingIdx = 0;
+   }
+   sp->ringPos_NearTrailingIdx = sp->ringPos_NearTrailingIdx + 1;
+   if( sp->ringPos_NearTrailingIdx >= sp->ringCap_NearTrailingIdx )
+   {
+      sp->ringPos_NearTrailingIdx = 0;
+   }
+   sp->ringPos_ShadowLongTrailingIdx = sp->ringPos_ShadowLongTrailingIdx + 1;
+   if( sp->ringPos_ShadowLongTrailingIdx >= sp->ringCap_ShadowLongTrailingIdx )
+   {
+      sp->ringPos_ShadowLongTrailingIdx = 0;
+   }
+   sp->ringPos_ShadowShortTrailingIdx = sp->ringPos_ShadowShortTrailingIdx + 1;
+   if( sp->ringPos_ShadowShortTrailingIdx >= sp->ringCap_ShadowShortTrailingIdx )
+   {
+      sp->ringPos_ShadowShortTrailingIdx = 0;
+   }
    return TA_SUCCESS;
 }
 
@@ -925,7 +993,11 @@ TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_UpdateAndFill( TA_CDLADVANCEBLOCK_Strea
    if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inOpen[i] ) || !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inOpen[i] ) || !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_CDLADVANCEBLOCK_StepImpl( stream, inOpen[i], inHigh[i], inLow[i], inClose[i], &outInteger[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -935,6 +1007,57 @@ TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_UpdateAndFill( TA_CDLADVANCEBLOCK_Strea
 TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Close( TA_CDLADVANCEBLOCK_Stream *stream )
 {
    TA_CDLADVANCEBLOCK_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Value( const TA_CDLADVANCEBLOCK_Stream *stream, int *outInteger )
+{
+   if( !stream || !outInteger ) return TA_BAD_PARAM;
+   *outInteger = stream->cur_outInteger;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CDLADVANCEBLOCK_Clone( const TA_CDLADVANCEBLOCK_Stream *stream, TA_CDLADVANCEBLOCK_Stream **clone )
+{
+   struct TA_CDLADVANCEBLOCK_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_CDLADVANCEBLOCK_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->ring_BodyLongTrailingIdx_derived = NULL;
+   sp->ring_FarTrailingIdx_derived = NULL;
+   sp->ring_NearTrailingIdx_derived = NULL;
+   sp->ring_ShadowLongTrailingIdx_derived = NULL;
+   sp->ring_ShadowShortTrailingIdx_derived = NULL;
+   if( stream->ring_BodyLongTrailingIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_BodyLongTrailingIdx > 0 ? sp->ringCap_BodyLongTrailingIdx : 1);
+     sp->ring_BodyLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_BodyLongTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_BodyLongTrailingIdx_derived, stream->ring_BodyLongTrailingIdx_derived, sizeof(double) * copyN ); }
+   if( stream->ring_FarTrailingIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_FarTrailingIdx > 0 ? sp->ringCap_FarTrailingIdx : 1);
+     sp->ring_FarTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_FarTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_FarTrailingIdx_derived, stream->ring_FarTrailingIdx_derived, sizeof(double) * copyN ); }
+   if( stream->ring_NearTrailingIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_NearTrailingIdx > 0 ? sp->ringCap_NearTrailingIdx : 1);
+     sp->ring_NearTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_NearTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_NearTrailingIdx_derived, stream->ring_NearTrailingIdx_derived, sizeof(double) * copyN ); }
+   if( stream->ring_ShadowLongTrailingIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_ShadowLongTrailingIdx > 0 ? sp->ringCap_ShadowLongTrailingIdx : 1);
+     sp->ring_ShadowLongTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_ShadowLongTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_ShadowLongTrailingIdx_derived, stream->ring_ShadowLongTrailingIdx_derived, sizeof(double) * copyN ); }
+   if( stream->ring_ShadowShortTrailingIdx_derived )
+   { size_t copyN = (size_t)(sp->ringCap_ShadowShortTrailingIdx > 0 ? sp->ringCap_ShadowShortTrailingIdx : 1);
+     sp->ring_ShadowShortTrailingIdx_derived = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->ring_ShadowShortTrailingIdx_derived ) { TA_CDLADVANCEBLOCK_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->ring_ShadowShortTrailingIdx_derived, stream->ring_ShadowShortTrailingIdx_derived, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 

@@ -82,6 +82,7 @@ impl Core {
     ///
     /// [`RetCode::BadParam`] when a parameter is out of range. Integer parameters accept
     /// [`Core::INTEGER_DEFAULT`] to select their default value.
+    #[doc(alias = "TA_LINEARREG_Lookback")]
     #[inline]
     pub fn LINEARREG_Lookback(&self, mut optInTimePeriod: i32) -> Result<usize, RetCode> {
         if ((optInTimePeriod) as i32) == (i32::MIN) {
@@ -329,6 +330,9 @@ impl Core {
     /// Least-squares straight-line fit over the last optInTimePeriod bars, reported as the fitted
     /// line value at the window endpoint (b + m*(period-1)).
     ///
+    /// Formula and more info at
+    /// [ta-lib.org/functions/linearreg](https://ta-lib.org/functions/linearreg).
+    ///
     /// # Arguments
     ///
     /// * `startIdx` — Start index of the requested calculation range.
@@ -378,8 +382,7 @@ impl Core {
     ///
     /// [`Core::LINEARREG_SLOPE`] · [`Core::LINEARREG_ANGLE`] · [`Core::LINEARREG_INTERCEPT`] ·
     /// [`Core::TSF`]
-    ///
-    /// Further reading: [ta-lib.org/functions/linearreg](https://ta-lib.org/functions/linearreg)
+    #[doc(alias = "TA_LINEARREG")]
     #[doc(alias = "LinearRegression")]
     #[doc(alias = "LeastSquares")]
     #[doc(alias = "BestFitLine")]
@@ -430,24 +433,14 @@ impl Core {
 /// over the same series. Open with [`Core::linearreg_open`]; dropping the handle
 /// closes the stream. Cloning it forks an independent stream.
 ///
-/// [`Self::out_range`] reports the bars it has produced a value for.
+/// [`Self::out_range`] reports the bars this handle has an output for.
 #[must_use = "a stream does nothing unless updated; dropping it closes the stream"]
 #[derive(Debug, Clone)]
 #[doc(alias = "TA_LINEARREG_Stream")]
 pub struct LinearregStream {
     state: LinearregStreamState,
-    /// The bars this handle has produced a value for — see [`Self::out_range`].
+    /// The bars this handle has an output for — see [`Self::out_range`].
     out: OutRange,
-}
-
-#[allow(dead_code)]
-impl LinearregStream {
-    /// Overwrite from `src`, reusing this handle's buffers instead of
-    /// allocating new ones. See `LinearregStreamState::restore_from`.
-    pub(crate) fn restore_from(&mut self, src: &Self) {
-        self.state.restore_from(&src.state);
-        self.out = src.out;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -467,28 +460,7 @@ struct LinearregStreamState {
     today: i32,
     xMask: i32,
     x_inReal: Vec<f64>,
-}
-
-#[allow(non_snake_case, dead_code)]
-impl LinearregStreamState {
-    /// Overwrite every field from `src`, reusing this value's buffers
-    /// instead of allocating new ones — `peek`'s scratch restore.
-    fn restore_from(&mut self, src: &Self) {
-        self.optInTimePeriod = src.optInTimePeriod;
-        self.lookbackTotal = src.lookbackTotal;
-        self.trailingIdx = src.trailingIdx;
-        self.SumX = src.SumX;
-        self.SumXY = src.SumXY;
-        self.SumY = src.SumY;
-        self.Divisor = src.Divisor;
-        self.barsSinceReseed = src.barsSinceReseed;
-        self.trailingValue = src.trailingValue;
-        self.sumAbs = src.sumAbs;
-        self.j = src.j;
-        self.today = src.today;
-        self.xMask = src.xMask;
-        self.x_inReal.clone_from(&src.x_inReal);
-    }
+    cur_outReal: f64,
 }
 
 #[allow(unused_variables)]
@@ -598,6 +570,7 @@ impl Core {
         sp.trailingIdx += 1;
         (*outReal) = (m as f64).mul_add((sp.optInTimePeriod - 1) as f64, b);
         sp.today += 1;
+        sp.cur_outReal = (*outReal);
     }
 
     /// The single whole-history transcription behind [`Core::linearreg_open_internal`]
@@ -829,6 +802,7 @@ impl Core {
             sumAbs,
             j: (j) as i32,
             today: (today) as i32,
+            cur_outReal: outReal[(*outNBElement - 1) * outStride],
             xMask: (physX - 1) as i32,
             x_inReal,
         };
@@ -939,21 +913,31 @@ impl Core {
 
 #[allow(non_snake_case)]
 #[allow(unused_variables)]
+#[allow(unused_mut)]
+#[allow(unused_assignments)]
+#[allow(unused_parens)]
 impl LinearregStream {
     /// Commit one closed bar. Never allocates.
     ///
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite (NaN or ±Inf).
-    /// That check runs before anything is written, so the handle is left
-    /// exactly as it was and the stream stays usable:
-    /// skip the bar, or close and re-open on a clean history. This is the
-    /// one place the streaming tier is stricter than the batch API, which
-    /// computes on whatever it is given — a handle retains its state, so a
-    /// single non-finite bar would poison every later value it produces.
+    /// That check runs before anything is written, so the handle's state is
+    /// left exactly as it was and the stream stays usable: skip the bar, or
+    /// close and re-open on a clean history. This is the one place the
+    /// streaming tier is stricter than the batch API, which computes on
+    /// whatever it is given — a handle retains its state, so a single
+    /// non-finite bar would poison every later value it produces.
+    ///
+    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
+    /// so two handles fed the same series stay positionally aligned even when
+    /// one rejects a bar the other accepts.
     #[doc(alias = "TA_LINEARREG_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
+            if self.out.count < Core::MAX_INDEX {
+                self.out.count += 1;
+            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -969,7 +953,7 @@ impl LinearregStream {
     /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
     /// hold at least that many. Never allocates.
     ///
-    /// [`Self::out_range`] counts what was committed, which is what makes the
+    /// [`Self::out_range`] counts what this call took in, which is what makes the
     /// rejection below readable: there is no second out-parameter for it.
     ///
     /// # Errors
@@ -979,7 +963,8 @@ impl LinearregStream {
     /// is not finite. A non-finite bar `k` is rejected exactly as `update`
     /// rejects it: bars `0..k` stay committed and their values written, bar `k`
     /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k`.
+    /// `k + 1` — the committed bars, plus the rejected one, which is counted
+    /// but never written.
     #[doc(alias = "TA_LINEARREG_UpdateAndFill")]
     pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
         let barCount = inReal.len();
@@ -988,6 +973,9 @@ impl LinearregStream {
         }
         for i in 0..barCount {
             if !inReal[i].is_finite() {
+                if self.out.count < Core::MAX_INDEX {
+                    self.out.count += 1;
+                }
                 return Err(RetCode::BadParam);
             }
             Core::linearreg_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
@@ -999,32 +987,163 @@ impl LinearregStream {
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
-    /// next `update` with the same bar would return (it is the same code, run
-    /// on a scratch copy of the state). Never writes the handle, so peeks may
-    /// run concurrently with each other. The copy is a throwaway. Its buffer clone is
-    /// often removed outright by the optimizer, which is why nothing is
-    /// reused here, but that is not a guarantee: budget for a clone of the
-    /// buffers it does own and prefer `update` on a `clone()` in a hot loop.
+    /// next `update` with the same bar would return: the same transition,
+    /// rewritten so every store it would make lives in a local instead. It
+    /// allocates nothing and copies no buffer, so its cost does not grow with
+    /// the period, and it writes no part of the handle — peeks may run
+    /// concurrently with each other.
     ///
     /// # Errors
     ///
-    /// [`RetCode::BadParam`] if any bar value is not finite, exactly as
-    /// `update` rejects it.
+    /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
+    /// `update` applies — but a rejected peek changes nothing at all, where a
+    /// rejected `update` still counts the bar in [`Self::out_range`].
     #[doc(alias = "TA_LINEARREG_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
-        let mut scratch = self.clone();
-        scratch.update(inReal)
+        let mut outReal: f64 = 0.0_f64;
+        {
+            let sp = &self.state;
+            let outReal = &mut outReal;
+            let mut m: f64 = 0.0_f64;
+            let mut b: f64 = 0.0_f64;
+            let mut windowStart: usize = 0_usize;
+            let mut tempValue1: f64 = 0.0_f64;
+            let mut tempValue2: f64 = 0.0_f64;
+            let mut weightedTrailing: f64 = 0.0_f64;
+            let mut SumXY = sp.SumXY;
+            let mut SumY = sp.SumY;
+            let mut barsSinceReseed = sp.barsSinceReseed;
+            let mut cur_outReal = sp.cur_outReal;
+            let mut j = sp.j;
+            let mut sumAbs = sp.sumAbs;
+            let mut today = sp.today;
+            let mut trailingIdx = sp.trailingIdx;
+            let mut trailingValue = sp.trailingValue;
+            let mut pkSlot0: usize = usize::MAX;
+            let mut pkVal0: f64 = 0.0_f64;
+            if today >= 1073741824 {
+                let rebaseShift: i32 = trailingIdx & !sp.xMask;
+                today -= rebaseShift;
+                trailingIdx -= rebaseShift;
+                j -= rebaseShift;
+            }
+            pkSlot0 = (today & sp.xMask) as usize;
+            pkVal0 = inReal;
+            weightedTrailing = (sp.optInTimePeriod as f64) * trailingValue;
+            SumXY = SumXY + SumY - weightedTrailing;
+            SumY = SumY - trailingValue + (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(today & sp.xMask) as usize] } else { pkVal0 });
+            sumAbs = sumAbs - (trailingValue).abs() + ((if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(today & sp.xMask) as usize] } else { pkVal0 })).abs();
+            // Re-anchor: rebuild both sums from the window itself. #103 left them as
+            // running totals that are never rebuilt, so each bar's rounding joins a
+            // residue no later bar can subtract -- unbounded in the length of the
+            // call, and scaled by the largest value the sums have EVER held rather
+            // than by what the window holds now. Two triggers, and they cover
+            // different failures (issue #254):
+            //
+            //   - every 32*period bars, so a slow drift stays bounded however long
+            //     the series runs. Same interval as TA_VAR / TA_CORREL / TA_BETA.
+            //
+            //   - when the value the window just dropped carries more weight than
+            //     everything left in it. That is the one the interval cannot cover:
+            //     one large print inflates the residue for up to 32*period bars
+            //     after it is gone (measured 31x at period 5), and this rebuilds on
+            //     the bar it leaves instead.
+            //
+            // The threshold compares two DEGREE-1 quantities, which is why it is 100
+            // and not TA_CORREL's 1e6 -- that guard weighs a squared deviation
+            // against a sum of squares. On ordinary prices the ratio is ~1 and this
+            // never fires; it is a compare, not work. The constant is 100 rather than
+            // 10 because at 10 a zero-mean oscillator rebuilds on 8.8% of bars for no
+            // measured accuracy gain.
+            //
+            // THE DENOMINATOR IS sumAbs, NOT SumY, AND THAT IS THE WHOLE POINT.
+            // SumY is a CANCELLING sum: on a zero-mean window it collapses toward 0
+            // while the departing value does not, so |weightedTrailing|/|SumY| is
+            // unbounded and the rebuild fires on EVERY bar -- an alternating +/-1
+            // series measured 10.9x slower at period 30, which is precisely the
+            // O(n*period) cost #103 removed. Same shape of error as #242's absolute
+            // guard on a quartic quantity: a ratio test is ill-posed when its
+            // denominator can cancel. sumAbs is a sum of magnitudes, so it is 0 only
+            // when every value in the window is 0 -- and then the numerator is 0 too
+            // and the test is false. There is no window it can misjudge.
+            //
+            // It is also the RIGHT quantity on the merits, not just the safe one: a
+            // fresh rebuild's own error is ~eps*sum|y|, so comparing the departing
+            // term against sum|y| asks exactly "would rebuilding beat what we are
+            // carrying?".
+            //
+            // Carrying it is free in practice. Measured on the shipped libta-lib.a it
+            // costs nothing against the |SumY| form on a price series (1.541 vs 1.605
+            // ns/bar at period 14) because the update is INDEPENDENT of the serial
+            // SumXY -> SumY dependency chain and fills slots that were idle. The
+            // rejected alternative -- keeping |SumY| and rate-limiting the trigger to
+            // once per `period` bars -- bounded the cliff at 1.2x rather than removing
+            // it, and silently dropped any print departing within `period` bars of a
+            // rebuild (~3% of them).
+            //
+            // The scan walks the window oldest-first with the weight counting DOWN,
+            // which is the priming scan's order and weighting -- so a reseeded bar is
+            // bit-identical to the same bar computed by a call that started there.
+            // That identity is the whole point: it is what the range-stability
+            // contract measures.
+            //
+            // Reading the window is safe when outReal aliases inReal (#130): the
+            // outputs written so far occupy [0, outIdx-1], and windowStart is
+            // today-lookbackTotal, which is >= outIdx because startIdx was clamped
+            // to at least lookbackTotal.
+            barsSinceReseed -= 1;
+            if barsSinceReseed <= 0 || (weightedTrailing).abs() > 100.0 * sumAbs {
+                barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
+                windowStart = (today - ((sp.lookbackTotal) as i32)) as usize;
+                SumY = 0.0;
+                SumXY = 0.0;
+                sumAbs = 0.0;
+                tempValue2 = sp.lookbackTotal as f64;
+                // for( j = (windowStart) as i32; j <= today; j += 1 )
+                j = (windowStart) as i32;
+                while j <= today {
+                    tempValue1 = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(j & sp.xMask) as usize] } else { pkVal0 });
+                    SumY += tempValue1;
+                    SumXY += tempValue2 * tempValue1;
+                    sumAbs += (tempValue1).abs();
+                    tempValue2 -= 1.0;
+                    j += 1;
+                }
+            }
+            m = (((sp.optInTimePeriod) as f64) * SumXY - sp.SumX * SumY) / sp.Divisor;
+            b = (SumY - m * sp.SumX) / (sp.optInTimePeriod as f64);
+            trailingValue = (if ((trailingIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(trailingIdx & sp.xMask) as usize] } else { pkVal0 });
+            trailingIdx += 1;
+            (*outReal) = (m as f64).mul_add((sp.optInTimePeriod - 1) as f64, b);
+            today += 1;
+            cur_outReal = (*outReal);
+        }
+        Ok(outReal)
     }
 
-    /// The bars this stream has produced a value for, in the input series'
+    /// The value(s) at the last bar the stream counted — the bar
+    /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
+    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// alone by `peek`.
+    ///
+    /// A clone carries them verbatim, so a forked handle can be asked its
+    /// current value without committing a bar to find out.
+    #[must_use]
+    #[doc(alias = "TA_LINEARREG_Value")]
+    pub fn value(&self) -> f64 {
+        self.state.cur_outReal
+    }
+
+    /// The bars this stream has an output for, in the input series'
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::LINEARREG`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds one
-    /// to the count, `peek` leaves it alone, and a clone carries it verbatim.
+    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
+    /// count — a bar rejected for being non-finite included, because it still
+    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
     /// A plain `Open` hands back only the last value, a subset of this range,
     /// because the caller chose not to take the fill.
     #[doc(alias = "TA_StreamOutRange")]

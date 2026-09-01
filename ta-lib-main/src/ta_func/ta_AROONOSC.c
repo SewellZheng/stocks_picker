@@ -331,10 +331,12 @@ TA_RetCode TA_S_AROONOSC( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_AROONOSC_Stream {
-   /* The bars this handle has a value for (see TA_StreamOutRange).
+   /* The bars this handle has an output for (see TA_StreamOutRange).
     * Kept first, and in this order, in every stream struct. */
    int outRangeBegIdx;
    int outRangeCount;
+   /* The value(s) at the last bar the stream counted (see TA_AROONOSC_Value). */
+   double cur_outReal;
    int optInTimePeriod;
    double lowest;
    double highest;
@@ -348,9 +350,7 @@ struct TA_AROONOSC_Stream {
    int xPhys;
    int xMask;
    double *x_inHigh;
-   double *xMirror_inHigh;
    double *x_inLow;
-   double *xMirror_inLow;
 };
 
 /* Private function, not in public API. */
@@ -358,9 +358,7 @@ static void TA_AROONOSC_ReleaseImpl( struct TA_AROONOSC_Stream *sp )
 {
    if( !sp ) return;
    if( sp->x_inHigh ) TA_Free( sp->x_inHigh );
-   if( sp->xMirror_inHigh ) TA_Free( sp->xMirror_inHigh );
    if( sp->x_inLow ) TA_Free( sp->x_inLow );
-   if( sp->xMirror_inLow ) TA_Free( sp->xMirror_inLow );
    TA_Free( sp );
 }
 
@@ -440,6 +438,7 @@ static void TA_AROONOSC_StepImpl( struct TA_AROONOSC_Stream *sp, double inHigh, 
    *outReal= aroon;
    sp->trailingIdx += 1;
    sp->today += 1;
+   sp->cur_outReal = *outReal;
 }
 
 static TA_RetCode TA_AROONOSC_OpenImpl( struct TA_AROONOSC_Stream **stream, const double inHigh[], const double inLow[], int startIdx, int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[], int outStride )
@@ -609,12 +608,8 @@ static TA_RetCode TA_AROONOSC_OpenImpl( struct TA_AROONOSC_Stream **stream, cons
       sp->xMask = sp->xPhys - 1;
       sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inHigh ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inHigh = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inHigh ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       sp->x_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
       if( !sp->x_inLow ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
-      sp->xMirror_inLow = (double *)TA_Malloc( sizeof(double) * (size_t)sp->xPhys );
-      if( !sp->xMirror_inLow ) { TA_AROONOSC_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       { int fillJ;
         for( fillJ = historyLen - sp->xCap; fillJ < historyLen; fillJ++ )
         {
@@ -624,6 +619,7 @@ static TA_RetCode TA_AROONOSC_OpenImpl( struct TA_AROONOSC_Stream **stream, cons
       }
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
+      sp->cur_outReal = outReal[(*outNBElement - 1) * outStride];
       *stream = sp;
       return TA_SUCCESS;
    }
@@ -674,7 +670,11 @@ TA_RetCode TA_AROONOSC_OpenAndFillInternal( struct TA_AROONOSC_Stream **stream, 
 TA_LIB_API TA_RetCode TA_AROONOSC_Update( TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) )
+   {
+      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+      return TA_BAD_PARAM;
+   }
    TA_AROONOSC_StepImpl( stream, inHigh, inLow, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -683,15 +683,90 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Update( TA_AROONOSC_Stream *stream, double inH
 TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    struct TA_AROONOSC_Stream scratch;
+   struct TA_AROONOSC_Stream *sp = &scratch;
+   double tmp;
+   double aroon;
+   int pkSlot0 = -1;
+   double pkVal0 = 0.0;
+   int pkSlot1 = -1;
+   double pkVal1 = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   scratch.x_inHigh = stream->xMirror_inHigh;
-   memcpy( scratch.x_inHigh, stream->x_inHigh, sizeof(double) * (size_t)stream->xPhys );
-   scratch.x_inLow = stream->xMirror_inLow;
-   memcpy( scratch.x_inLow, stream->x_inLow, sizeof(double) * (size_t)stream->xPhys );
-   TA_AROONOSC_StepImpl( &scratch, inHigh, inLow, outReal );
+   if( sp->today >= 1073741824 )
+   {
+      int rebaseShift = sp->trailingIdx & ~sp->xMask;
+      sp->today -= rebaseShift;
+      sp->trailingIdx -= rebaseShift;
+      sp->highestIdx -= rebaseShift;
+      sp->i -= rebaseShift;
+      sp->lowestIdx -= rebaseShift;
+   }
+   pkSlot0 = sp->today & sp->xMask;
+   pkVal0 = inHigh;
+   pkSlot1 = sp->today & sp->xMask;
+   pkVal1 = inLow;
+   /* Keep track of the lowestIdx */
+   tmp = ((sp->today & sp->xMask) != pkSlot1) ? sp->x_inLow[sp->today & sp->xMask] : pkVal1;
+   if( sp->lowestIdx < sp->trailingIdx )
+   {
+      sp->lowestIdx = sp->trailingIdx;
+      sp->lowest = ((sp->lowestIdx & sp->xMask) != pkSlot1) ? sp->x_inLow[sp->lowestIdx & sp->xMask] : pkVal1;
+      sp->i = sp->lowestIdx;
+      TA_UNROLL(4)
+      while( ++sp->i <= sp->today )
+      {
+         tmp = ((sp->i & sp->xMask) != pkSlot1) ? sp->x_inLow[sp->i & sp->xMask] : pkVal1;
+         if( tmp <= sp->lowest )
+         {
+            sp->lowestIdx = sp->i;
+            sp->lowest = tmp;
+         }
+      }
+   } else if( tmp <= sp->lowest )
+   {
+      sp->lowestIdx = sp->today;
+      sp->lowest = tmp;
+   }
+   /* Keep track of the highestIdx */
+   tmp = ((sp->today & sp->xMask) != pkSlot0) ? sp->x_inHigh[sp->today & sp->xMask] : pkVal0;
+   if( sp->highestIdx < sp->trailingIdx )
+   {
+      sp->highestIdx = sp->trailingIdx;
+      sp->highest = ((sp->highestIdx & sp->xMask) != pkSlot0) ? sp->x_inHigh[sp->highestIdx & sp->xMask] : pkVal0;
+      sp->i = sp->highestIdx;
+      TA_UNROLL(4)
+      while( ++sp->i <= sp->today )
+      {
+         tmp = ((sp->i & sp->xMask) != pkSlot0) ? sp->x_inHigh[sp->i & sp->xMask] : pkVal0;
+         if( tmp >= sp->highest )
+         {
+            sp->highestIdx = sp->i;
+            sp->highest = tmp;
+         }
+      }
+   } else if( tmp >= sp->highest )
+   {
+      sp->highestIdx = sp->today;
+      sp->highest = tmp;
+   }
+   /* The oscillator is the following:
+    *  AroonUp   = factor*(optInTimePeriod-(today-highestIdx));
+    *  AroonDown = factor*(optInTimePeriod-(today-lowestIdx));
+    *  AroonOsc  = AroonUp-AroonDown;
+    *
+    * An arithmetic simplification give us:
+    *  Aroon = factor*(highestIdx-lowestIdx)
+    */
+   aroon = sp->factor * (sp->highestIdx - sp->lowestIdx);
+   /* Note: Do not forget that input and output buffer can be the same,
+    *       so writing to the output is the last thing being done here.
+    */
+   *outReal= aroon;
+   sp->trailingIdx += 1;
+   sp->today += 1;
+   sp->cur_outReal = *outReal;
    return TA_SUCCESS;
 }
 
@@ -704,7 +779,11 @@ TA_LIB_API TA_RetCode TA_AROONOSC_UpdateAndFill( TA_AROONOSC_Stream *stream, con
    if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
    for( i = 0; i < barCount; i++ )
    {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) ) return TA_BAD_PARAM;
+      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) )
+      {
+         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+         return TA_BAD_PARAM;
+      }
       TA_AROONOSC_StepImpl( stream, inHigh[i], inLow[i], &outReal[i] );
       if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    }
@@ -714,6 +793,39 @@ TA_LIB_API TA_RetCode TA_AROONOSC_UpdateAndFill( TA_AROONOSC_Stream *stream, con
 TA_LIB_API TA_RetCode TA_AROONOSC_Close( TA_AROONOSC_Stream *stream )
 {
    TA_AROONOSC_ReleaseImpl( stream );
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AROONOSC_Value( const TA_AROONOSC_Stream *stream, double *outReal )
+{
+   if( !stream || !outReal ) return TA_BAD_PARAM;
+   *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_AROONOSC_Clone( const TA_AROONOSC_Stream *stream, TA_AROONOSC_Stream **clone )
+{
+   struct TA_AROONOSC_Stream *sp;
+
+   if( !clone ) return TA_BAD_PARAM;
+   *clone = NULL;
+   if( !stream ) return TA_BAD_PARAM;
+   sp = (struct TA_AROONOSC_Stream *)TA_Malloc( sizeof(*sp) );
+   if( !sp ) return TA_ALLOC_ERR;
+   *sp = *stream;
+   sp->x_inHigh = NULL;
+   sp->x_inLow = NULL;
+   if( stream->x_inHigh )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inHigh = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inHigh ) { TA_AROONOSC_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inHigh, stream->x_inHigh, sizeof(double) * copyN ); }
+   if( stream->x_inLow )
+   { size_t copyN = (size_t)(sp->xPhys);
+     sp->x_inLow = (double *)TA_Malloc( sizeof(double) * copyN );
+     if( !sp->x_inLow ) { TA_AROONOSC_Close( sp ); return TA_ALLOC_ERR; }
+     memcpy( sp->x_inLow, stream->x_inLow, sizeof(double) * copyN ); }
+   *clone = sp;
    return TA_SUCCESS;
 }
 
