@@ -58,18 +58,10 @@
 
 TA_LIB_API int TA_CDL3WHITESOLDIERS_Lookback( void )
 {
-   int BodyShort_rangeType = TA_Globals->candleSettings[TA_BodyShort].rangeType;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
-   double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
-   int Far_rangeType = TA_Globals->candleSettings[TA_Far].rangeType;
    int Far_avgPeriod = TA_Globals->candleSettings[TA_Far].avgPeriod;
-   double Far_factor = TA_Globals->candleSettings[TA_Far].factor;
-   int Near_rangeType = TA_Globals->candleSettings[TA_Near].rangeType;
    int Near_avgPeriod = TA_Globals->candleSettings[TA_Near].avgPeriod;
-   double Near_factor = TA_Globals->candleSettings[TA_Near].factor;
-   int ShadowVeryShort_rangeType = TA_Globals->candleSettings[TA_ShadowVeryShort].rangeType;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
-   double ShadowVeryShort_factor = TA_Globals->candleSettings[TA_ShadowVeryShort].factor;
    return max(max(ShadowVeryShort_avgPeriod,BodyShort_avgPeriod),max(Far_avgPeriod,Near_avgPeriod)) + 2;
 }
 
@@ -95,18 +87,10 @@ TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS( int    startIdx,
    int FarTrailingIdx;
    int BodyShortTrailingIdx;
    int lookbackTotal;
-   int BodyShort_rangeType = TA_Globals->candleSettings[TA_BodyShort].rangeType;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
-   double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
-   int Far_rangeType = TA_Globals->candleSettings[TA_Far].rangeType;
    int Far_avgPeriod = TA_Globals->candleSettings[TA_Far].avgPeriod;
-   double Far_factor = TA_Globals->candleSettings[TA_Far].factor;
-   int Near_rangeType = TA_Globals->candleSettings[TA_Near].rangeType;
    int Near_avgPeriod = TA_Globals->candleSettings[TA_Near].avgPeriod;
-   double Near_factor = TA_Globals->candleSettings[TA_Near].factor;
-   int ShadowVeryShort_rangeType = TA_Globals->candleSettings[TA_ShadowVeryShort].rangeType;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
-   double ShadowVeryShort_factor = TA_Globals->candleSettings[TA_ShadowVeryShort].factor;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -273,18 +257,10 @@ TA_RetCode TA_S_CDL3WHITESOLDIERS( int    startIdx,
    int FarTrailingIdx;
    int BodyShortTrailingIdx;
    int lookbackTotal;
-   int BodyShort_rangeType = TA_Globals->candleSettings[TA_BodyShort].rangeType;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
-   double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
-   int Far_rangeType = TA_Globals->candleSettings[TA_Far].rangeType;
    int Far_avgPeriod = TA_Globals->candleSettings[TA_Far].avgPeriod;
-   double Far_factor = TA_Globals->candleSettings[TA_Far].factor;
-   int Near_rangeType = TA_Globals->candleSettings[TA_Near].rangeType;
    int Near_avgPeriod = TA_Globals->candleSettings[TA_Near].avgPeriod;
-   double Near_factor = TA_Globals->candleSettings[TA_Near].factor;
-   int ShadowVeryShort_rangeType = TA_Globals->candleSettings[TA_ShadowVeryShort].rangeType;
    int ShadowVeryShort_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryShort].avgPeriod;
-   double ShadowVeryShort_factor = TA_Globals->candleSettings[TA_ShadowVeryShort].factor;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -810,30 +786,10 @@ TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS_Peek( const TA_CDL3WHITESOLDIERS_Stre
 {
    struct TA_CDL3WHITESOLDIERS_Stream scratch;
    struct TA_CDL3WHITESOLDIERS_Stream *sp = &scratch;
-   int totIdx;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
-   int pkSlot1 = -1;
-   double pkVal1 = 0.0;
-   int pkSlot2 = -1;
-   double pkVal2 = 0.0;
-   int pkSlot3 = -1;
-   double pkVal3 = 0.0;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   if( sp->ringCap_BodyShortTrailingIdx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = TA_STREAM_CANDLERANGE(BodyShort,inOpen,inHigh,inLow,inClose);
-   }
-   pkSlot1 = sp->ringPos_FarTrailingIdx;
-   pkVal1 = TA_STREAM_CANDLERANGE(Far,inOpen,inHigh,inLow,inClose);
-   pkSlot2 = sp->ringPos_NearTrailingIdx;
-   pkVal2 = TA_STREAM_CANDLERANGE(Near,inOpen,inHigh,inLow,inClose);
-   pkSlot3 = sp->ringPos_ShadowVeryShortTrailingIdx;
-   pkVal3 = TA_STREAM_CANDLERANGE(ShadowVeryShort,inOpen,inHigh,inLow,inClose);
    if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 1 && /* 1st white */
        (sp->lag2_inHigh - ((sp->lag2_inClose >= sp->lag2_inOpen) ? sp->lag2_inClose : sp->lag2_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[2],sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) &&
        ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && /* very short upper shadow 2nd white */
@@ -854,48 +810,6 @@ TA_LIB_API TA_RetCode TA_CDL3WHITESOLDIERS_Peek( const TA_CDL3WHITESOLDIERS_Stre
    } else 
    {
       *outInteger= 0;
-   }
-   /* add the current range and subtract the first range: this is done after the pattern recognition
-    * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-    */
-   for( totIdx = 2; totIdx >= 0; totIdx -= 1 )
-   {
-      sp->ShadowVeryShortPeriodTotal[totIdx] = sp->ShadowVeryShortPeriodTotal[totIdx] + (((((sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp->ringCap_ShadowVeryShortTrailingIdx) ? sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx - sp->ringCap_ShadowVeryShortTrailingIdx : sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx) != pkSlot3) ? sp->ring_ShadowVeryShortTrailingIdx_derived[(sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx >= sp->ringCap_ShadowVeryShortTrailingIdx) ? sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx - sp->ringCap_ShadowVeryShortTrailingIdx : sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - totIdx] : pkVal3) - (((sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - sp->ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp->ringCap_ShadowVeryShortTrailingIdx != pkSlot3) ? sp->ring_ShadowVeryShortTrailingIdx_derived[(sp->ringPos_ShadowVeryShortTrailingIdx + sp->ringCap_ShadowVeryShortTrailingIdx - sp->ringLag_ShadowVeryShortTrailingIdx - totIdx) % sp->ringCap_ShadowVeryShortTrailingIdx] : pkVal3));
-   }
-   for( totIdx = 2; totIdx >= 1; totIdx -= 1 )
-   {
-      sp->FarPeriodTotal[totIdx] = sp->FarPeriodTotal[totIdx] + (((((sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx >= sp->ringCap_FarTrailingIdx) ? sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx - sp->ringCap_FarTrailingIdx : sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx) != pkSlot1) ? sp->ring_FarTrailingIdx_derived[(sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx >= sp->ringCap_FarTrailingIdx) ? sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx - sp->ringCap_FarTrailingIdx : sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - totIdx] : pkVal1) - (((sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - sp->ringLag_FarTrailingIdx - totIdx) % sp->ringCap_FarTrailingIdx != pkSlot1) ? sp->ring_FarTrailingIdx_derived[(sp->ringPos_FarTrailingIdx + sp->ringCap_FarTrailingIdx - sp->ringLag_FarTrailingIdx - totIdx) % sp->ringCap_FarTrailingIdx] : pkVal1));
-      sp->NearPeriodTotal[totIdx] = sp->NearPeriodTotal[totIdx] + (((((sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx >= sp->ringCap_NearTrailingIdx) ? sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx - sp->ringCap_NearTrailingIdx : sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx) != pkSlot2) ? sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx >= sp->ringCap_NearTrailingIdx) ? sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx - sp->ringCap_NearTrailingIdx : sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - totIdx] : pkVal2) - (((sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - totIdx) % sp->ringCap_NearTrailingIdx != pkSlot2) ? sp->ring_NearTrailingIdx_derived[(sp->ringPos_NearTrailingIdx + sp->ringCap_NearTrailingIdx - sp->ringLag_NearTrailingIdx - totIdx) % sp->ringCap_NearTrailingIdx] : pkVal2));
-   }
-   sp->BodyShortPeriodTotal += TA_STREAM_CANDLERANGE(BodyShort,inOpen,inHigh,inLow,inClose) - ((sp->ringPos_BodyShortTrailingIdx != pkSlot0) ? sp->ring_BodyShortTrailingIdx_derived[sp->ringPos_BodyShortTrailingIdx] : pkVal0);
-   sp->cur_outInteger = *outInteger;
-   sp->lag2_inOpen = sp->lag1_inOpen;
-   sp->lag1_inOpen = inOpen;
-   sp->lag2_inHigh = sp->lag1_inHigh;
-   sp->lag1_inHigh = inHigh;
-   sp->lag2_inLow = sp->lag1_inLow;
-   sp->lag1_inLow = inLow;
-   sp->lag2_inClose = sp->lag1_inClose;
-   sp->lag1_inClose = inClose;
-   sp->ringPos_BodyShortTrailingIdx = sp->ringPos_BodyShortTrailingIdx + 1;
-   if( sp->ringPos_BodyShortTrailingIdx >= sp->ringCap_BodyShortTrailingIdx )
-   {
-      sp->ringPos_BodyShortTrailingIdx = 0;
-   }
-   sp->ringPos_FarTrailingIdx = sp->ringPos_FarTrailingIdx + 1;
-   if( sp->ringPos_FarTrailingIdx >= sp->ringCap_FarTrailingIdx )
-   {
-      sp->ringPos_FarTrailingIdx = 0;
-   }
-   sp->ringPos_NearTrailingIdx = sp->ringPos_NearTrailingIdx + 1;
-   if( sp->ringPos_NearTrailingIdx >= sp->ringCap_NearTrailingIdx )
-   {
-      sp->ringPos_NearTrailingIdx = 0;
-   }
-   sp->ringPos_ShadowVeryShortTrailingIdx = sp->ringPos_ShadowVeryShortTrailingIdx + 1;
-   if( sp->ringPos_ShadowVeryShortTrailingIdx >= sp->ringCap_ShadowVeryShortTrailingIdx )
-   {
-      sp->ringPos_ShadowVeryShortTrailingIdx = 0;
    }
    return TA_SUCCESS;
 }

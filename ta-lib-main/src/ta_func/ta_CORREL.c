@@ -1130,8 +1130,6 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
    struct TA_CORREL_Stream *sp = &scratch;
    double x;
    double y;
-   double trailingX;
-   double trailingY;
    double ssX;
    double ssY;
    double spXY;
@@ -1257,11 +1255,6 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
          ssY = 0.0;
       }
    }
-   /* Save the trailing values before writing the output, since the input
-    * and output might be the same array.
-    */
-   trailingX = (((sp->trailingIdx & sp->xMask) != pkSlot0) ? sp->x_inReal0[sp->trailingIdx & sp->xMask] : pkVal0) - sp->shiftX;
-   trailingY = (((sp->trailingIdx & sp->xMask) != pkSlot1) ? sp->x_inReal1[sp->trailingIdx & sp->xMask] : pkVal1) - sp->shiftY;
    sp->trailingIdx += 1;
    /* Output the new coefficient.
     *
@@ -1313,16 +1306,6 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
    {
       *outReal= 0.0;
    }
-   /* Remove the trailing values (prepares the next window). */
-   sp->leavingX = trailingX * trailingX;
-   sp->leavingY = trailingY * trailingY;
-   sumX -= trailingX;
-   sumX2 -= sp->leavingX;
-   sumXY -= trailingX * trailingY;
-   sumY -= trailingY;
-   sumY2 -= sp->leavingY;
-   sp->today += 1;
-   sp->cur_outReal = *outReal;
    sp->sumXY = sumXY;
    sp->sumX = sumX;
    sp->sumY = sumY;

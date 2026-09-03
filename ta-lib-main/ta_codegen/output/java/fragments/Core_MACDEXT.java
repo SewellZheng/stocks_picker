@@ -597,7 +597,6 @@
       double cur_outMACD;
       double cur_outMACDSignal;
       double cur_outMACDHist;
-      Value cachedValue;
       MaStream sub0;
       MaStream sub1;
       MaStream sub2;
@@ -630,7 +629,6 @@
          this.cur_outMACD = other.cur_outMACD;
          this.cur_outMACDSignal = other.cur_outMACDSignal;
          this.cur_outMACDHist = other.cur_outMACDHist;
-         this.cachedValue = other.cachedValue;
          this.sub0 = new MaStream(other.sub0);
          this.sub1 = new MaStream(other.sub1);
          this.sub2 = new MaStream(other.sub2);
@@ -639,26 +637,12 @@
       }
 
       /**
-       * One output set, in batch output order. Immutable.
-       *
-       * <p>{@code equals} compares every component bitwise, so {@code NaN}
-       * equals {@code NaN} and {@code 0.0} does not equal {@code -0.0}.
-       * {@code hashCode} is consistent with it but its exact value is
-       * unspecified — do not persist it or compare it across JVM versions.
-       *
-       * @param macd MACD line: fast MA minus slow MA.
-       * @param macdSignal Signal line: MA of the MACD line.
-       * @param macdHist Histogram: MACD minus signal.
-       */
-      public record Value(double macd, double macdSignal, double macdHist) { }
-
-      /**
-       * Commit one closed bar, returning the new current value.
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
+       * output is the previous value, held, and {@link #value(MacdextOut)} answers it.
        * The stream stays usable, so skip the bar or re-open on a clean
        * history. {@link #outRange()} does advance: the bar happened and
        * occupies a position in the series, so the handle counts it, which is
@@ -668,15 +652,17 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
-      public Value update( double inReal ) {
+      public void update( double inReal, MacdextOut out ) {
+         requireArgument("MACDEXT update", "out", out);
          if( !Double.isFinite(inReal) ) {
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("MACDEXT update: BadParam", RetCode.BadParam);
          }
          core.macdextStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         this.cachedValue = new Value(this.cur_outMACD, this.cur_outMACDSignal, this.cur_outMACDHist);
-         return this.cachedValue;
+         out.macd = this.cur_outMACD;
+         out.macdSignal = this.cur_outMACDSignal;
+         out.macdHist = this.cur_outMACDHist;
       }
 
       /**
@@ -700,36 +686,30 @@
          final int barCount = inReal.length;
          if( outMACD.length < barCount || outMACDSignal.length < barCount || outMACDHist.length < barCount || (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist )
             throw new TaLibArgumentException("MACDEXT updateAndFill: BadParam", RetCode.BadParam);
-         int done = 0;
-         try {
-            for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inReal[i]) ) {
-                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-                  throw new TaLibArgumentException("MACDEXT updateAndFill: BadParam", RetCode.BadParam);
-               }
-               core.macdextStepImpl(this, inReal[i]);
-               outMACD[i] = this.cur_outMACD;
-               outMACDSignal[i] = this.cur_outMACDSignal;
-               outMACDHist[i] = this.cur_outMACDHist;
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) ) {
                if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               done = i + 1;
+               throw new TaLibArgumentException("MACDEXT updateAndFill: BadParam", RetCode.BadParam);
             }
-         } finally {
-            if( done > 0 ) this.cachedValue = new Value(this.cur_outMACD, this.cur_outMACDSignal, this.cur_outMACDHist);
+            core.macdextStepImpl(this, inReal[i]);
+            outMACD[i] = this.cur_outMACD;
+            outMACDSignal[i] = this.cur_outMACDSignal;
+            outMACDHist[i] = this.cur_outMACDHist;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          }
       }
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return — the same
+       * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
        * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * does not grow with the period and {@code peek} never allocates.
        */
-      public Value peek( double inReal ) {
+      public void peek( double inReal, MacdextOut out ) {
+         requireArgument("MACDEXT peek", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MACDEXT peek: BadParam", RetCode.BadParam);
          MacdextStream sp = this;
@@ -747,17 +727,22 @@
          /* Combine map (batch tail, per bar). */
          cur_outMACDHist = cur_fastMABuffer - cur_outMACDSignal;
          cur_outMACD = cur_fastMABuffer;
-         return new Value(cur_outMACD, cur_outMACDSignal, cur_outMACDHist);
+         out.macd = cur_outMACD;
+         out.macdSignal = cur_outMACDSignal;
+         out.macdHist = cur_outMACDHist;
       }
 
       /**
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
-       * then whatever the latest accepted {@code update} returned.
-       * A pure field read; {@code peek} does not change it.
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
        */
-      public Value value() {
-         return this.cachedValue;
+      public void value( MacdextOut out ) {
+         requireArgument("MACDEXT value", "out", out);
+         out.macd = this.cur_outMACD;
+         out.macdSignal = this.cur_outMACDSignal;
+         out.macdHist = this.cur_outMACDHist;
       }
 
       /**
@@ -775,6 +760,30 @@
       public MacdextStream clone() {
          return new MacdextStream(this);
       }
+   }
+
+   /**
+    * The outputs of one MACDEXT bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class MacdextOut {
+      /** MACD line: fast MA minus slow MA. */
+      public double macd;
+      /** Signal line: MA of the MACD line. */
+      public double macdSignal;
+      /** Histogram: MACD minus signal. */
+      public double macdHist;
    }
    void macdextStepImpl( MacdextStream sp, double inReal )
    {
@@ -950,7 +959,6 @@
       sp.cur_outMACD = sc_outMACD[outNBElement.value - 1];
       sp.cur_outMACDSignal = sc_outMACDSignal[outNBElement.value - 1];
       sp.cur_outMACDHist = sc_outMACDHist[outNBElement.value - 1];
-      sp.cachedValue = new MacdextStream.Value(sp.cur_outMACD, sp.cur_outMACDSignal, sp.cur_outMACDHist);
       return RetCode.Success;
    }
    /* macdextOpenAndFill anchored at startIdx — the composed-open fusion seam. */

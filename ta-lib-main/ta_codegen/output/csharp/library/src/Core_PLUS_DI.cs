@@ -116,7 +116,6 @@ public partial class Core
       double prevPlusDM = 0;
       double prevTR = 0;
       double tempReal = 0;
-      double tempReal2 = 0;
       double diffP = 0;
       double diffM = 0;
       int i = 0;
@@ -453,7 +452,6 @@ public partial class Core
       double prevPlusDM = 0;
       double prevTR = 0;
       double tempReal = 0;
-      double tempReal2 = 0;
       double diffP = 0;
       double diffM = 0;
       int i = 0;
@@ -894,7 +892,6 @@ public partial class Core
             double tempReal = 0.0;
             double diffP = 0.0;
             double diffM = 0.0;
-            double prevClose = sp.prevClose;
             double prevHigh = sp.prevHigh;
             double prevLow = sp.prevLow;
             tempReal = inHigh;
@@ -909,11 +906,11 @@ public partial class Core
                /* Case 1 and 3: +DM=diffP,-DM=0 */
                double _true_range_0 = 0;
                double range_0 = prevHigh - prevLow;
-               double tmp_0 = Math.Abs(prevHigh - prevClose);
+               double tmp_0 = Math.Abs(prevHigh - sp.prevClose);
                if( tmp_0 > range_0 ) {
                   range_0 = tmp_0;
                }
-               tmp_0 = Math.Abs(prevLow - prevClose);
+               tmp_0 = Math.Abs(prevLow - sp.prevClose);
                if( tmp_0 > range_0 ) {
                   range_0 = tmp_0;
                }
@@ -927,7 +924,6 @@ public partial class Core
             } else {
                cur_outReal = (double)0.0;
             }
-            prevClose = inClose;
          } else {
             double tempReal = 0.0;
             double diffP = 0.0;
@@ -1140,7 +1136,6 @@ public partial class Core
          double prevPlusDM = 0;
          double prevTR = 0;
          double tempReal = 0;
-         double tempReal2 = 0;
          double diffP = 0;
          double diffM = 0;
          int i = 0;
@@ -1321,7 +1316,6 @@ public partial class Core
          double prevPlusDM = 0;
          double prevTR = 0;
          double tempReal = 0;
-         double tempReal2 = 0;
          double diffP = 0;
          double diffM = 0;
          int i = 0;

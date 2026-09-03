@@ -1667,7 +1667,7 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
 
       /* Capture the live batch state into the handle. */
       sp = (struct TA_HT_SINE_Stream *)TA_Malloc( sizeof(*sp) );
-      if( !sp ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); return TA_ALLOC_ERR; }
+      if( !sp ) { if( smoothPrice != &local_smoothPrice[0] ) { TA_Free( smoothPrice ); } return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
       sp->period = period;
       sp->periodWMASum = periodWMASum;
@@ -1725,11 +1725,11 @@ static TA_RetCode TA_HT_SINE_OpenImpl( struct TA_HT_SINE_Stream **stream, const 
       }
       sp->ringPos_trailingWMAIdx = 0;
       sp->cbSize_smoothPrice = maxIdx_smoothPrice + 1;
-      if( sp->cbSize_smoothPrice < 1 || sp->cbSize_smoothPrice > historyLen + 1 ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(331); }
+      if( sp->cbSize_smoothPrice < 1 || sp->cbSize_smoothPrice > historyLen + 1 ) { if( smoothPrice != &local_smoothPrice[0] ) { TA_Free( smoothPrice ); } TA_HT_SINE_ReleaseImpl( sp ); return TA_INTERNAL_ERROR(331); }
       sp->cb_smoothPrice = (double *)TA_Malloc( sizeof(double) * (size_t)sp->cbSize_smoothPrice );
-      if( !sp->cb_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
+      if( !sp->cb_smoothPrice ) { if( smoothPrice != &local_smoothPrice[0] ) { TA_Free( smoothPrice ); } TA_HT_SINE_ReleaseImpl( sp ); return TA_ALLOC_ERR; }
       memcpy( sp->cb_smoothPrice, smoothPrice, sizeof(double) * (size_t)sp->cbSize_smoothPrice );
-      if( smoothPrice != &local_smoothPrice[0] ) TA_Free( smoothPrice ); 
+      if( smoothPrice != &local_smoothPrice[0] ) { TA_Free( smoothPrice ); } 
       sp->outRangeBegIdx = *outBegIdx;
       sp->outRangeCount = *outNBElement;
       sp->cur_outSine = outSine[(*outNBElement - 1) * outStride];
@@ -2020,20 +2020,6 @@ TA_LIB_API TA_RetCode TA_HT_SINE_Peek( const TA_HT_SINE_Stream *stream, double i
    }
    *outSine= sin(DCPhase * sp->deg2Rad);
    *outLeadSine= sin((DCPhase + 45) * sp->deg2Rad);
-   /* Ooof... let's do the next price bar now! */
-   sp->smoothPrice_Idx = sp->smoothPrice_Idx + 1;
-   if( sp->smoothPrice_Idx > sp->maxIdx_smoothPrice )
-   {
-      sp->smoothPrice_Idx = 0;
-   }
-   sp->cur_outSine = *outSine;
-   sp->cur_outLeadSine = *outLeadSine;
-   sp->ringPos_trailingWMAIdx = sp->ringPos_trailingWMAIdx + 1;
-   if( sp->ringPos_trailingWMAIdx >= sp->ringCap_trailingWMAIdx )
-   {
-      sp->ringPos_trailingWMAIdx = 0;
-   }
-   sp->streamParity = 1 - sp->streamParity;
    sp->DCPhase = DCPhase;
    return TA_SUCCESS;
 }

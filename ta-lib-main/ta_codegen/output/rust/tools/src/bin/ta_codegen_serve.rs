@@ -12920,6 +12920,130 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
+        "TA_KC" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inClose: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+            let optInATRPeriod = params["optInATRPeriod"].as_i64().unwrap_or(10) as i32;
+            let optInNbDev = params["optInNbDev"].as_f64().unwrap_or(2.0) as f64;
+            // The output buffers are sized to the count the call actually PRODUCES --
+            // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
+            // never below one. Not to the width of the requested range: that is the bound the
+            // managed backends check and the Rust asserts state, and at the range width it was
+            // slack by exactly the lookback, so no call could ever approach it.
+            // The pad is there because a bound is a MINIMUM, never an equality. A caller
+            // re-using a pre-allocated buffer passes a larger one, and that is not an error --
+            // the reported OutRange is what says which part was written. So the harness sends
+            // both: the startIdx axis sends no pad (the bound is reachable) while the
+            // full-range value comparison sends one (slack is legal). Sizing every call one way
+            // would silently drop the other property.
+            // FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call
+            // (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and
+            // for a range shorter than the lookback, where the output bound switches off and
+            // the spec says any length will do, including none. It does not: two EMPTY output
+            // buffers are rejected as aliased by C# (an explicit IsEmpty clause) and by Rust
+            // (the empty Vec the server hands each output shares one dangling as_ptr()), and
+            // accepted by C and Java -- a four-way divergence on a call the specification says
+            // all four accept. Sizing to zero here would reach it on every multi-output
+            // function, which is a semantic question, not a harness one. Recorded as
+            // error-handling-spec, open item 11.
+            // The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no
+            // sizes and cannot make the check, so an exact buffer would test nothing there.
+            let _lb = core.KC_Lookback(optInTimePeriod, optInATRPeriod, optInNbDev).unwrap_or(usize::MAX);
+            let _cs = if startIdx > _lb { startIdx } else { _lb };
+            let out_size = (if _cs > endIdx { 1 } else { endIdx - _cs + 1 }) + params["out_pad"].as_u64().unwrap_or(0) as usize;
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBuf1: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBuf2: Vec<f64> = vec![0.0f64; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            let _out = core.KC(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inClose,
+                optInTimePeriod,
+                optInATRPeriod,
+                optInNbDev,
+                &mut outBuf0, &mut outBuf1, &mut outBuf2,
+            );
+            rc = match _out {
+                Ok(r) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success }
+                Err(e) => { outBegIdx = 0; outNBElement = 0; e }
+            };
+            } else {
+            if bench_mode == 1 {
+                rc = match core.kc_open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, optInATRPeriod, optInNbDev, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.kc_open_and_fill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, optInATRPeriod, optInNbDev, &mut outBuf0, &mut outBuf1, &mut outBuf2) { Ok((_h, r)) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success } Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf1[..outNBElement]);
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf2[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let lookback: i64 = core.KC_Lookback(optInTimePeriod, optInATRPeriod, optInNbDev).map_or(-1, |v| v as i64);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_len\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, out_size, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push_str(",\"outReal1\":"); resp.push_str(&json_f64_array(&outBuf1[..outNBElement]));
+            resp.push_str(",\"outReal2\":"); resp.push_str(&json_f64_array(&outBuf2[..outNBElement]));
+            resp.push('}');
+            resp
+        }
         "TA_LINEARREG" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
@@ -18606,6 +18730,125 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
             resp.push('}');
             resp
         }
+        "TA_SUPERTREND" => {
+            let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
+            let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
+            let use_preloaded = params["use_preloaded"].as_i64().unwrap_or(0);
+            let bench_iters = std::cmp::max(1, params["iters"].as_i64().unwrap_or(1)) as u64;
+            let bench_mode = params["bench_mode"].as_i64().unwrap_or(0);
+            let gen_present = params["gen_present"].as_i64().unwrap_or(0);
+            let gen_shape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+            let gen_seed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+            let gen_n = params["gen_n"].as_i64().unwrap_or(0) as usize;
+            let full_output = params["full_output"].as_i64().unwrap_or(0);
+            let want_hash = params["want_hash"].as_i64().unwrap_or(0);
+            let mut _json_inHigh: Vec<f64> = Vec::new();
+            let mut _json_inLow: Vec<f64> = Vec::new();
+            let mut _json_inClose: Vec<f64> = Vec::new();
+            let inHigh: &[f64];
+            let inLow: &[f64];
+            let inClose: &[f64];
+            if gen_present != 0 {
+                let mut _fz_o = vec![0.0f64; gen_n];
+                let mut _fz_h = vec![0.0f64; gen_n];
+                let mut _fz_l = vec![0.0f64; gen_n];
+                let mut _fz_c = vec![0.0f64; gen_n];
+                let mut _fz_v = vec![0.0f64; gen_n];
+                let mut _fz_oi = vec![0.0f64; gen_n];
+                fuzz_gen(gen_shape, gen_seed, gen_n as i32, &mut _fz_o, &mut _fz_h, &mut _fz_l, &mut _fz_c, &mut _fz_v, &mut _fz_oi);
+                _json_inHigh = _fz_h.clone();
+                inHigh = &_json_inHigh;
+                _json_inLow = _fz_l.clone();
+                inLow = &_json_inLow;
+                _json_inClose = _fz_c.clone();
+                inClose = &_json_inClose;
+            } else if use_preloaded != 0 && ref_data.n > 0 {
+                inHigh = &ref_data.high[..ref_data.n];
+                inLow = &ref_data.low[..ref_data.n];
+                inClose = &ref_data.close[..ref_data.n];
+            } else {
+                _json_inHigh = parse_f64_array(&params["inHigh"]);
+                inHigh = &_json_inHigh;
+                _json_inLow = parse_f64_array(&params["inLow"]);
+                inLow = &_json_inLow;
+                _json_inClose = parse_f64_array(&params["inClose"]);
+                inClose = &_json_inClose;
+            }
+            let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+            let optInMultiplier = params["optInMultiplier"].as_f64().unwrap_or(3.0) as f64;
+            // The output buffers are sized to the count the call actually PRODUCES --
+            // endIdx - max(startIdx, lookback) + 1 -- plus `out_pad` from the request, and
+            // never below one. Not to the width of the requested range: that is the bound the
+            // managed backends check and the Rust asserts state, and at the range width it was
+            // slack by exactly the lookback, so no call could ever approach it.
+            // The pad is there because a bound is a MINIMUM, never an equality. A caller
+            // re-using a pre-allocated buffer passes a larger one, and that is not an error --
+            // the reported OutRange is what says which part was written. So the harness sends
+            // both: the startIdx axis sends no pad (the bound is reachable) while the
+            // full-range value comparison sends one (slack is legal). Sizing every call one way
+            // would silently drop the other property.
+            // FLOORED AT ONE, deliberately. Zero is what the formula gives for a rejected call
+            // (the lookback is -1, or usize::MAX in Rust, for an out-of-range parameter) and
+            // for a range shorter than the lookback, where the output bound switches off and
+            // the spec says any length will do, including none. It does not: two EMPTY output
+            // buffers are rejected as aliased by C# (an explicit IsEmpty clause) and by Rust
+            // (the empty Vec the server hands each output shares one dangling as_ptr()), and
+            // accepted by C and Java -- a four-way divergence on a call the specification says
+            // all four accept. Sizing to zero here would reach it on every multi-output
+            // function, which is a semantic question, not a harness one. Recorded as
+            // error-handling-spec, open item 11.
+            // The C server keeps its MAX_ARRAY_SIZE statics: C is handed bare pointers, has no
+            // sizes and cannot make the check, so an exact buffer would test nothing there.
+            let _lb = core.SUPERTREND_Lookback(optInTimePeriod, optInMultiplier).unwrap_or(usize::MAX);
+            let _cs = if startIdx > _lb { startIdx } else { _lb };
+            let out_size = (if _cs > endIdx { 1 } else { endIdx - _cs + 1 }) + params["out_pad"].as_u64().unwrap_or(0) as usize;
+            let mut outBuf0: Vec<f64> = vec![0.0f64; out_size];
+            let mut outIntBuf0: Vec<i32> = vec![0i32; out_size];
+            let mut outBegIdx: usize = 0;
+            let mut outNBElement: usize = 0;
+            let mut rc = RetCode::Success;
+            let mut start_time = Instant::now();
+            for _bi in 0..=bench_iters {
+                if _bi == 1 { start_time = Instant::now(); }
+            if bench_mode == 0 {
+            let _out = core.SUPERTREND(
+                startIdx, endIdx,
+                &inHigh,
+                &inLow,
+                &inClose,
+                optInTimePeriod,
+                optInMultiplier,
+                &mut outBuf0, &mut outIntBuf0,
+            );
+            rc = match _out {
+                Ok(r) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success }
+                Err(e) => { outBegIdx = 0; outNBElement = 0; e }
+            };
+            } else {
+            if bench_mode == 1 {
+                rc = match core.supertrend_open(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, optInMultiplier, ) { Ok(_h) => RetCode::Success, Err(e) => e };
+            } else {
+                rc = match core.supertrend_open_and_fill(&inHigh[..=endIdx], &inLow[..=endIdx], &inClose[..=endIdx], optInTimePeriod, optInMultiplier, &mut outBuf0, &mut outIntBuf0) { Ok((_h, r)) => { outBegIdx = r.beg_idx; outNBElement = r.count; RetCode::Success } Err(e) => e };
+            }
+            }
+            }
+            let elapsed_ns = start_time.elapsed().as_nanos() as u64 / bench_iters as u64;
+            if (gen_present != 0 || want_hash != 0) && full_output == 0 {
+                let mut _oh = fuzz_hash_init();
+                if matches!(rc, RetCode::Success) && outNBElement > 0 {
+                    _oh = fuzz_hash_bytes_f64(_oh, &outBuf0[..outNBElement]);
+                    _oh = fuzz_hash_bytes_i32(_oh, &outIntBuf0[..outNBElement]);
+                }
+                _oh = fuzz_hash_fin(_oh);
+                return format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_hash\":\"{:016x}\"}}", retcode_to_int(rc), outBegIdx, outNBElement, _oh);
+            }
+            let lookback: i64 = core.SUPERTREND_Lookback(optInTimePeriod, optInMultiplier).map_or(-1, |v| v as i64);
+            let mut resp = format!("{{\"retCode\":{},\"outBegIdx\":{},\"outNBElement\":{},\"out_len\":{},\"lookback\":{},\"timing_ns\":{}", retcode_to_int(rc), outBegIdx, outNBElement, out_size, lookback, elapsed_ns);
+            resp.push_str(",\"outReal\":"); resp.push_str(&json_f64_array(&outBuf0[..outNBElement]));
+            resp.push_str(",\"outInteger\":"); resp.push_str(&json_i32_array(&outIntBuf0[..outNBElement]));
+            resp.push('}');
+            resp
+        }
         "TA_T3" => {
             let startIdx = params["startIdx"].as_u64().unwrap_or(0) as usize;
             let endIdx = params["endIdx"].as_u64().unwrap_or(0) as usize;
@@ -20504,6 +20747,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_HT_TRENDMODE",
                 "TA_IMI",
                 "TA_KAMA",
+                "TA_KC",
                 "TA_LINEARREG",
                 "TA_LINEARREG_ANGLE",
                 "TA_LINEARREG_INTERCEPT",
@@ -20558,6 +20802,7 @@ fn dispatch(core: &mut Core, ref_data: &mut RefData, method: &str, params: &Valu
                 "TA_STOCHRSI",
                 "TA_SUB",
                 "TA_SUM",
+                "TA_SUPERTREND",
                 "TA_T3",
                 "TA_TAN",
                 "TA_TANH",
@@ -21055,6 +21300,8 @@ fn sv_ac(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -21112,15 +21359,16 @@ fn sv_ac(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -21185,7 +21433,7 @@ fn sv_ac(core: &Core, params: &Value) -> String {
             if c2.ac_open(&fz_h[..lb], &fz_l[..lb], optInFastPeriod, optInSlowPeriod, optInSignalPeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_accbands(core: &Core, params: &Value) -> String {
@@ -21216,6 +21464,8 @@ fn sv_accbands(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -21281,21 +21531,22 @@ fn sv_accbands(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.2, b2[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                            if rp.2.to_bits() != pk.2.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                        if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -21374,7 +21625,7 @@ fn sv_accbands(core: &Core, params: &Value) -> String {
             if c2.accbands_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_acos(core: &Core, params: &Value) -> String {
@@ -21402,6 +21653,8 @@ fn sv_acos(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -21459,15 +21712,16 @@ fn sv_acos(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -21532,7 +21786,7 @@ fn sv_acos(core: &Core, params: &Value) -> String {
             if c2.acos_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ad(core: &Core, params: &Value) -> String {
@@ -21560,6 +21814,8 @@ fn sv_ad(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -21617,15 +21873,16 @@ fn sv_ad(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -21690,7 +21947,7 @@ fn sv_ad(core: &Core, params: &Value) -> String {
             if c2.ad_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_add(core: &Core, params: &Value) -> String {
@@ -21718,6 +21975,8 @@ fn sv_add(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -21775,15 +22034,16 @@ fn sv_add(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -21848,7 +22108,7 @@ fn sv_add(core: &Core, params: &Value) -> String {
             if c2.add_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_adosc(core: &Core, params: &Value) -> String {
@@ -21878,6 +22138,8 @@ fn sv_adosc(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -21936,15 +22198,16 @@ fn sv_adosc(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22009,7 +22272,7 @@ fn sv_adosc(core: &Core, params: &Value) -> String {
             if c2.adosc_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], &fz_v[..lb], optInFastPeriod, optInSlowPeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_adx(core: &Core, params: &Value) -> String {
@@ -22038,6 +22301,8 @@ fn sv_adx(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -22096,15 +22361,16 @@ fn sv_adx(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22169,7 +22435,7 @@ fn sv_adx(core: &Core, params: &Value) -> String {
             if c2.adx_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_adxr(core: &Core, params: &Value) -> String {
@@ -22198,6 +22464,8 @@ fn sv_adxr(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -22256,15 +22524,16 @@ fn sv_adxr(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22329,7 +22598,7 @@ fn sv_adxr(core: &Core, params: &Value) -> String {
             if c2.adxr_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ao(core: &Core, params: &Value) -> String {
@@ -22359,6 +22628,8 @@ fn sv_ao(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -22416,15 +22687,16 @@ fn sv_ao(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22489,7 +22761,7 @@ fn sv_ao(core: &Core, params: &Value) -> String {
             if c2.ao_open(&fz_h[..lb], &fz_l[..lb], optInFastPeriod, optInSlowPeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_apo(core: &Core, params: &Value) -> String {
@@ -22524,6 +22796,8 @@ fn sv_apo(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -22585,15 +22859,16 @@ fn sv_apo(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22658,7 +22933,7 @@ fn sv_apo(core: &Core, params: &Value) -> String {
             if c2.apo_open(&fz_c[..lb], optInFastPeriod, optInSlowPeriod, optInMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_aroon(core: &Core, params: &Value) -> String {
@@ -22688,6 +22963,8 @@ fn sv_aroon(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -22749,18 +23026,19 @@ fn sv_aroon(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22832,7 +23110,7 @@ fn sv_aroon(core: &Core, params: &Value) -> String {
             if c2.aroon_open(&fz_h[..lb], &fz_l[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_aroonosc(core: &Core, params: &Value) -> String {
@@ -22861,6 +23139,8 @@ fn sv_aroonosc(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -22918,15 +23198,16 @@ fn sv_aroonosc(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -22991,7 +23272,7 @@ fn sv_aroonosc(core: &Core, params: &Value) -> String {
             if c2.aroonosc_open(&fz_h[..lb], &fz_l[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_asin(core: &Core, params: &Value) -> String {
@@ -23019,6 +23300,8 @@ fn sv_asin(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -23076,15 +23359,16 @@ fn sv_asin(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -23149,7 +23433,7 @@ fn sv_asin(core: &Core, params: &Value) -> String {
             if c2.asin_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_atan(core: &Core, params: &Value) -> String {
@@ -23177,6 +23461,8 @@ fn sv_atan(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -23234,15 +23520,16 @@ fn sv_atan(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -23307,7 +23594,7 @@ fn sv_atan(core: &Core, params: &Value) -> String {
             if c2.atan_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_atr(core: &Core, params: &Value) -> String {
@@ -23336,6 +23623,8 @@ fn sv_atr(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -23394,15 +23683,16 @@ fn sv_atr(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -23467,7 +23757,7 @@ fn sv_atr(core: &Core, params: &Value) -> String {
             if c2.atr_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_avgdev(core: &Core, params: &Value) -> String {
@@ -23496,6 +23786,8 @@ fn sv_avgdev(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -23553,15 +23845,16 @@ fn sv_avgdev(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -23626,7 +23919,7 @@ fn sv_avgdev(core: &Core, params: &Value) -> String {
             if c2.avgdev_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_avgprice(core: &Core, params: &Value) -> String {
@@ -23654,6 +23947,8 @@ fn sv_avgprice(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -23711,15 +24006,16 @@ fn sv_avgprice(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -23784,7 +24080,7 @@ fn sv_avgprice(core: &Core, params: &Value) -> String {
             if c2.avgprice_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_bbands(core: &Core, params: &Value) -> String {
@@ -23822,6 +24118,8 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -23891,21 +24189,22 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.2, b2[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                            if rp.2.to_bits() != pk.2.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                        if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -23984,7 +24283,7 @@ fn sv_bbands(core: &Core, params: &Value) -> String {
             if c2.bbands_open(&fz_c[..lb], optInTimePeriod, optInNbDevUp, optInNbDevDn, optInMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_beta(core: &Core, params: &Value) -> String {
@@ -24013,6 +24312,8 @@ fn sv_beta(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -24070,15 +24371,16 @@ fn sv_beta(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -24143,7 +24445,7 @@ fn sv_beta(core: &Core, params: &Value) -> String {
             if c2.beta_open(&fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_bop(core: &Core, params: &Value) -> String {
@@ -24171,6 +24473,8 @@ fn sv_bop(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -24228,15 +24532,16 @@ fn sv_bop(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -24301,7 +24606,7 @@ fn sv_bop(core: &Core, params: &Value) -> String {
             if c2.bop_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cci(core: &Core, params: &Value) -> String {
@@ -24330,6 +24635,8 @@ fn sv_cci(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -24387,15 +24694,16 @@ fn sv_cci(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -24460,7 +24768,7 @@ fn sv_cci(core: &Core, params: &Value) -> String {
             if c2.cci_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl2crows(core: &Core, params: &Value) -> String {
@@ -24489,6 +24797,8 @@ fn sv_cdl2crows(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -24519,7 +24829,7 @@ fn sv_cdl2crows(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl2crows_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -24549,15 +24859,16 @@ fn sv_cdl2crows(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -24622,7 +24933,7 @@ fn sv_cdl2crows(core: &Core, params: &Value) -> String {
             if c2.cdl2crows_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
@@ -24651,6 +24962,8 @@ fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -24681,7 +24994,7 @@ fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl3blackcrows_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -24711,15 +25024,16 @@ fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -24784,7 +25098,7 @@ fn sv_cdl3blackcrows(core: &Core, params: &Value) -> String {
             if c2.cdl3blackcrows_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl3inside(core: &Core, params: &Value) -> String {
@@ -24813,6 +25127,8 @@ fn sv_cdl3inside(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -24843,7 +25159,7 @@ fn sv_cdl3inside(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl3inside_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -24873,15 +25189,16 @@ fn sv_cdl3inside(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -24946,7 +25263,7 @@ fn sv_cdl3inside(core: &Core, params: &Value) -> String {
             if c2.cdl3inside_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
@@ -24975,6 +25292,8 @@ fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25005,7 +25324,7 @@ fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl3linestrike_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -25035,15 +25354,16 @@ fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -25108,7 +25428,7 @@ fn sv_cdl3linestrike(core: &Core, params: &Value) -> String {
             if c2.cdl3linestrike_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl3outside(core: &Core, params: &Value) -> String {
@@ -25137,6 +25457,8 @@ fn sv_cdl3outside(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25167,7 +25489,7 @@ fn sv_cdl3outside(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl3outside_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -25197,15 +25519,16 @@ fn sv_cdl3outside(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -25270,7 +25593,7 @@ fn sv_cdl3outside(core: &Core, params: &Value) -> String {
             if c2.cdl3outside_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
@@ -25299,6 +25622,8 @@ fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25329,7 +25654,7 @@ fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl3starsinsouth_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -25359,15 +25684,16 @@ fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -25432,7 +25758,7 @@ fn sv_cdl3starsinsouth(core: &Core, params: &Value) -> String {
             if c2.cdl3starsinsouth_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
@@ -25461,6 +25787,8 @@ fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25491,7 +25819,7 @@ fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdl3whitesoldiers_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -25521,15 +25849,16 @@ fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -25594,7 +25923,7 @@ fn sv_cdl3whitesoldiers(core: &Core, params: &Value) -> String {
             if c2.cdl3whitesoldiers_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
@@ -25624,6 +25953,8 @@ fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25654,7 +25985,7 @@ fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlabandonedbaby_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -25684,15 +26015,16 @@ fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -25757,7 +26089,7 @@ fn sv_cdlabandonedbaby(core: &Core, params: &Value) -> String {
             if c2.cdlabandonedbaby_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
@@ -25786,6 +26118,8 @@ fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25816,7 +26150,7 @@ fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdladvanceblock_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -25846,15 +26180,16 @@ fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -25919,7 +26254,7 @@ fn sv_cdladvanceblock(core: &Core, params: &Value) -> String {
             if c2.cdladvanceblock_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
@@ -25948,6 +26283,8 @@ fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -25978,7 +26315,7 @@ fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlbelthold_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26008,15 +26345,16 @@ fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -26081,7 +26419,7 @@ fn sv_cdlbelthold(core: &Core, params: &Value) -> String {
             if c2.cdlbelthold_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
@@ -26110,6 +26448,8 @@ fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -26140,7 +26480,7 @@ fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlbreakaway_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26170,15 +26510,16 @@ fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -26243,7 +26584,7 @@ fn sv_cdlbreakaway(core: &Core, params: &Value) -> String {
             if c2.cdlbreakaway_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
@@ -26272,6 +26613,8 @@ fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -26302,7 +26645,7 @@ fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlclosingmarubozu_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26332,15 +26675,16 @@ fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -26405,7 +26749,7 @@ fn sv_cdlclosingmarubozu(core: &Core, params: &Value) -> String {
             if c2.cdlclosingmarubozu_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
@@ -26434,6 +26778,8 @@ fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -26464,7 +26810,7 @@ fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlconcealbabyswall_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26494,15 +26840,16 @@ fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -26567,7 +26914,7 @@ fn sv_cdlconcealbabyswall(core: &Core, params: &Value) -> String {
             if c2.cdlconcealbabyswall_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
@@ -26596,6 +26943,8 @@ fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -26626,7 +26975,7 @@ fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlcounterattack_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26656,15 +27005,16 @@ fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -26729,7 +27079,7 @@ fn sv_cdlcounterattack(core: &Core, params: &Value) -> String {
             if c2.cdlcounterattack_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
@@ -26759,6 +27109,8 @@ fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -26789,7 +27141,7 @@ fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdldarkcloudcover_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26819,15 +27171,16 @@ fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -26892,7 +27245,7 @@ fn sv_cdldarkcloudcover(core: &Core, params: &Value) -> String {
             if c2.cdldarkcloudcover_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdldoji(core: &Core, params: &Value) -> String {
@@ -26921,6 +27274,8 @@ fn sv_cdldoji(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -26951,7 +27306,7 @@ fn sv_cdldoji(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdldoji_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -26981,15 +27336,16 @@ fn sv_cdldoji(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -27054,7 +27410,7 @@ fn sv_cdldoji(core: &Core, params: &Value) -> String {
             if c2.cdldoji_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdldojistar(core: &Core, params: &Value) -> String {
@@ -27083,6 +27439,8 @@ fn sv_cdldojistar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -27113,7 +27471,7 @@ fn sv_cdldojistar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdldojistar_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -27143,15 +27501,16 @@ fn sv_cdldojistar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -27216,7 +27575,7 @@ fn sv_cdldojistar(core: &Core, params: &Value) -> String {
             if c2.cdldojistar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
@@ -27245,6 +27604,8 @@ fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -27275,7 +27636,7 @@ fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdldragonflydoji_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -27305,15 +27666,16 @@ fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -27378,7 +27740,7 @@ fn sv_cdldragonflydoji(core: &Core, params: &Value) -> String {
             if c2.cdldragonflydoji_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
@@ -27407,6 +27769,8 @@ fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -27437,7 +27801,7 @@ fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlengulfing_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -27467,15 +27831,16 @@ fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -27540,7 +27905,7 @@ fn sv_cdlengulfing(core: &Core, params: &Value) -> String {
             if c2.cdlengulfing_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
@@ -27570,6 +27935,8 @@ fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -27600,7 +27967,7 @@ fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdleveningdojistar_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -27630,15 +27997,16 @@ fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -27703,7 +28071,7 @@ fn sv_cdleveningdojistar(core: &Core, params: &Value) -> String {
             if c2.cdleveningdojistar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
@@ -27733,6 +28101,8 @@ fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -27763,7 +28133,7 @@ fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdleveningstar_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -27793,15 +28163,16 @@ fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -27866,7 +28237,7 @@ fn sv_cdleveningstar(core: &Core, params: &Value) -> String {
             if c2.cdleveningstar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
@@ -27895,6 +28266,8 @@ fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -27925,7 +28298,7 @@ fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlgapsidesidewhite_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -27955,15 +28328,16 @@ fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -28028,7 +28402,7 @@ fn sv_cdlgapsidesidewhite(core: &Core, params: &Value) -> String {
             if c2.cdlgapsidesidewhite_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
@@ -28057,6 +28431,8 @@ fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -28087,7 +28463,7 @@ fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlgravestonedoji_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -28117,15 +28493,16 @@ fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -28190,7 +28567,7 @@ fn sv_cdlgravestonedoji(core: &Core, params: &Value) -> String {
             if c2.cdlgravestonedoji_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlhammer(core: &Core, params: &Value) -> String {
@@ -28219,6 +28596,8 @@ fn sv_cdlhammer(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -28249,7 +28628,7 @@ fn sv_cdlhammer(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlhammer_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -28279,15 +28658,16 @@ fn sv_cdlhammer(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -28352,7 +28732,7 @@ fn sv_cdlhammer(core: &Core, params: &Value) -> String {
             if c2.cdlhammer_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
@@ -28381,6 +28761,8 @@ fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -28411,7 +28793,7 @@ fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlhangingman_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -28441,15 +28823,16 @@ fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -28514,7 +28897,7 @@ fn sv_cdlhangingman(core: &Core, params: &Value) -> String {
             if c2.cdlhangingman_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlharami(core: &Core, params: &Value) -> String {
@@ -28543,6 +28926,8 @@ fn sv_cdlharami(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -28573,7 +28958,7 @@ fn sv_cdlharami(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlharami_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -28603,15 +28988,16 @@ fn sv_cdlharami(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -28676,7 +29062,7 @@ fn sv_cdlharami(core: &Core, params: &Value) -> String {
             if c2.cdlharami_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
@@ -28705,6 +29091,8 @@ fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -28735,7 +29123,7 @@ fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlharamicross_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -28765,15 +29153,16 @@ fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -28838,7 +29227,7 @@ fn sv_cdlharamicross(core: &Core, params: &Value) -> String {
             if c2.cdlharamicross_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
@@ -28867,6 +29256,8 @@ fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -28897,7 +29288,7 @@ fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlhighwave_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -28927,15 +29318,16 @@ fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29000,7 +29392,7 @@ fn sv_cdlhighwave(core: &Core, params: &Value) -> String {
             if c2.cdlhighwave_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
@@ -29029,6 +29421,8 @@ fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -29059,7 +29453,7 @@ fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlhikkake_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -29089,15 +29483,16 @@ fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29162,7 +29557,7 @@ fn sv_cdlhikkake(core: &Core, params: &Value) -> String {
             if c2.cdlhikkake_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
@@ -29191,6 +29586,8 @@ fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -29221,7 +29618,7 @@ fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlhikkakemod_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -29251,15 +29648,16 @@ fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29324,7 +29722,7 @@ fn sv_cdlhikkakemod(core: &Core, params: &Value) -> String {
             if c2.cdlhikkakemod_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
@@ -29353,6 +29751,8 @@ fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -29383,7 +29783,7 @@ fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlhomingpigeon_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -29413,15 +29813,16 @@ fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29486,7 +29887,7 @@ fn sv_cdlhomingpigeon(core: &Core, params: &Value) -> String {
             if c2.cdlhomingpigeon_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
@@ -29515,6 +29916,8 @@ fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -29545,7 +29948,7 @@ fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlidentical3crows_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -29575,15 +29978,16 @@ fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29648,7 +30052,7 @@ fn sv_cdlidentical3crows(core: &Core, params: &Value) -> String {
             if c2.cdlidentical3crows_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlinneck(core: &Core, params: &Value) -> String {
@@ -29677,6 +30081,8 @@ fn sv_cdlinneck(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -29707,7 +30113,7 @@ fn sv_cdlinneck(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlinneck_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -29737,15 +30143,16 @@ fn sv_cdlinneck(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29810,7 +30217,7 @@ fn sv_cdlinneck(core: &Core, params: &Value) -> String {
             if c2.cdlinneck_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
@@ -29839,6 +30246,8 @@ fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -29869,7 +30278,7 @@ fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlinvertedhammer_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -29899,15 +30308,16 @@ fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -29972,7 +30382,7 @@ fn sv_cdlinvertedhammer(core: &Core, params: &Value) -> String {
             if c2.cdlinvertedhammer_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlkicking(core: &Core, params: &Value) -> String {
@@ -30001,6 +30411,8 @@ fn sv_cdlkicking(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -30031,7 +30443,7 @@ fn sv_cdlkicking(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlkicking_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -30061,15 +30473,16 @@ fn sv_cdlkicking(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -30134,7 +30547,7 @@ fn sv_cdlkicking(core: &Core, params: &Value) -> String {
             if c2.cdlkicking_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
@@ -30163,6 +30576,8 @@ fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -30193,7 +30608,7 @@ fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlkickingbylength_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -30223,15 +30638,16 @@ fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -30296,7 +30712,7 @@ fn sv_cdlkickingbylength(core: &Core, params: &Value) -> String {
             if c2.cdlkickingbylength_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
@@ -30325,6 +30741,8 @@ fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -30355,7 +30773,7 @@ fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlladderbottom_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -30385,15 +30803,16 @@ fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -30458,7 +30877,7 @@ fn sv_cdlladderbottom(core: &Core, params: &Value) -> String {
             if c2.cdlladderbottom_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
@@ -30487,6 +30906,8 @@ fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -30517,7 +30938,7 @@ fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdllongleggeddoji_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -30547,15 +30968,16 @@ fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -30620,7 +31042,7 @@ fn sv_cdllongleggeddoji(core: &Core, params: &Value) -> String {
             if c2.cdllongleggeddoji_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdllongline(core: &Core, params: &Value) -> String {
@@ -30649,6 +31071,8 @@ fn sv_cdllongline(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -30679,7 +31103,7 @@ fn sv_cdllongline(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdllongline_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -30709,15 +31133,16 @@ fn sv_cdllongline(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -30782,7 +31207,7 @@ fn sv_cdllongline(core: &Core, params: &Value) -> String {
             if c2.cdllongline_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
@@ -30811,6 +31236,8 @@ fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -30841,7 +31268,7 @@ fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlmarubozu_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -30871,15 +31298,16 @@ fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -30944,7 +31372,7 @@ fn sv_cdlmarubozu(core: &Core, params: &Value) -> String {
             if c2.cdlmarubozu_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
@@ -30973,6 +31401,8 @@ fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31003,7 +31433,7 @@ fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlmatchinglow_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -31033,15 +31463,16 @@ fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -31106,7 +31537,7 @@ fn sv_cdlmatchinglow(core: &Core, params: &Value) -> String {
             if c2.cdlmatchinglow_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlmathold(core: &Core, params: &Value) -> String {
@@ -31136,6 +31567,8 @@ fn sv_cdlmathold(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31166,7 +31599,7 @@ fn sv_cdlmathold(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlmathold_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -31196,15 +31629,16 @@ fn sv_cdlmathold(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -31269,7 +31703,7 @@ fn sv_cdlmathold(core: &Core, params: &Value) -> String {
             if c2.cdlmathold_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
@@ -31299,6 +31733,8 @@ fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31329,7 +31765,7 @@ fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlmorningdojistar_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -31359,15 +31795,16 @@ fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -31432,7 +31869,7 @@ fn sv_cdlmorningdojistar(core: &Core, params: &Value) -> String {
             if c2.cdlmorningdojistar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
@@ -31462,6 +31899,8 @@ fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31492,7 +31931,7 @@ fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlmorningstar_open(&fz_o, &fz_h, &fz_l, &fz_c, optInPenetration).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -31522,15 +31961,16 @@ fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -31595,7 +32035,7 @@ fn sv_cdlmorningstar(core: &Core, params: &Value) -> String {
             if c2.cdlmorningstar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInPenetration).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlonneck(core: &Core, params: &Value) -> String {
@@ -31624,6 +32064,8 @@ fn sv_cdlonneck(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31654,7 +32096,7 @@ fn sv_cdlonneck(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlonneck_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -31684,15 +32126,16 @@ fn sv_cdlonneck(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -31757,7 +32200,7 @@ fn sv_cdlonneck(core: &Core, params: &Value) -> String {
             if c2.cdlonneck_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
@@ -31786,6 +32229,8 @@ fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31816,7 +32261,7 @@ fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlpiercing_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -31846,15 +32291,16 @@ fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -31919,7 +32365,7 @@ fn sv_cdlpiercing(core: &Core, params: &Value) -> String {
             if c2.cdlpiercing_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
@@ -31948,6 +32394,8 @@ fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -31978,7 +32426,7 @@ fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlrickshawman_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32008,15 +32456,16 @@ fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -32081,7 +32530,7 @@ fn sv_cdlrickshawman(core: &Core, params: &Value) -> String {
             if c2.cdlrickshawman_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
@@ -32110,6 +32559,8 @@ fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -32140,7 +32591,7 @@ fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlrisefall3methods_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32170,15 +32621,16 @@ fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -32243,7 +32695,7 @@ fn sv_cdlrisefall3methods(core: &Core, params: &Value) -> String {
             if c2.cdlrisefall3methods_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
@@ -32272,6 +32724,8 @@ fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -32302,7 +32756,7 @@ fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlseparatinglines_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32332,15 +32786,16 @@ fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -32405,7 +32860,7 @@ fn sv_cdlseparatinglines(core: &Core, params: &Value) -> String {
             if c2.cdlseparatinglines_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
@@ -32434,6 +32889,8 @@ fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -32464,7 +32921,7 @@ fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlshootingstar_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32494,15 +32951,16 @@ fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -32567,7 +33025,7 @@ fn sv_cdlshootingstar(core: &Core, params: &Value) -> String {
             if c2.cdlshootingstar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlshortline(core: &Core, params: &Value) -> String {
@@ -32596,6 +33054,8 @@ fn sv_cdlshortline(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -32626,7 +33086,7 @@ fn sv_cdlshortline(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlshortline_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32656,15 +33116,16 @@ fn sv_cdlshortline(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -32729,7 +33190,7 @@ fn sv_cdlshortline(core: &Core, params: &Value) -> String {
             if c2.cdlshortline_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
@@ -32758,6 +33219,8 @@ fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -32788,7 +33251,7 @@ fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlspinningtop_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32818,15 +33281,16 @@ fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -32891,7 +33355,7 @@ fn sv_cdlspinningtop(core: &Core, params: &Value) -> String {
             if c2.cdlspinningtop_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
@@ -32920,6 +33384,8 @@ fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -32950,7 +33416,7 @@ fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlstalledpattern_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -32980,15 +33446,16 @@ fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -33053,7 +33520,7 @@ fn sv_cdlstalledpattern(core: &Core, params: &Value) -> String {
             if c2.cdlstalledpattern_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
@@ -33082,6 +33549,8 @@ fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -33112,7 +33581,7 @@ fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlsticksandwich_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -33142,15 +33611,16 @@ fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -33215,7 +33685,7 @@ fn sv_cdlsticksandwich(core: &Core, params: &Value) -> String {
             if c2.cdlsticksandwich_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdltakuri(core: &Core, params: &Value) -> String {
@@ -33244,6 +33714,8 @@ fn sv_cdltakuri(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -33274,7 +33746,7 @@ fn sv_cdltakuri(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdltakuri_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -33304,15 +33776,16 @@ fn sv_cdltakuri(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -33377,7 +33850,7 @@ fn sv_cdltakuri(core: &Core, params: &Value) -> String {
             if c2.cdltakuri_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
@@ -33406,6 +33879,8 @@ fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -33436,7 +33911,7 @@ fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdltasukigap_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -33466,15 +33941,16 @@ fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -33539,7 +34015,7 @@ fn sv_cdltasukigap(core: &Core, params: &Value) -> String {
             if c2.cdltasukigap_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
@@ -33568,6 +34044,8 @@ fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -33598,7 +34076,7 @@ fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlthrusting_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -33628,15 +34106,16 @@ fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -33701,7 +34180,7 @@ fn sv_cdlthrusting(core: &Core, params: &Value) -> String {
             if c2.cdlthrusting_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdltristar(core: &Core, params: &Value) -> String {
@@ -33730,6 +34209,8 @@ fn sv_cdltristar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -33760,7 +34241,7 @@ fn sv_cdltristar(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdltristar_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -33790,15 +34271,16 @@ fn sv_cdltristar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -33863,7 +34345,7 @@ fn sv_cdltristar(core: &Core, params: &Value) -> String {
             if c2.cdltristar_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
@@ -33892,6 +34374,8 @@ fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -33922,7 +34406,7 @@ fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlunique3river_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -33952,15 +34436,16 @@ fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34025,7 +34510,7 @@ fn sv_cdlunique3river(core: &Core, params: &Value) -> String {
             if c2.cdlunique3river_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
@@ -34054,6 +34539,8 @@ fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -34084,7 +34571,7 @@ fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlupsidegap2crows_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -34114,15 +34601,16 @@ fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34187,7 +34675,7 @@ fn sv_cdlupsidegap2crows(core: &Core, params: &Value) -> String {
             if c2.cdlupsidegap2crows_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
@@ -34216,6 +34704,8 @@ fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -34246,7 +34736,7 @@ fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
             let open_rejects = c2.cdlxsidegap3methods_open(&fz_o, &fz_h, &fz_l, &fz_c).is_err();
             if !open_rejects { all_ok = false; }
             if rd + 1 < rounds { continue; }
-            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), zsign);
+            return format!("{{\"retCode\":{},\"legs\":{},\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}}}", retcode_to_int(rc), legs, nb, i32::from(open_rejects), i32::from(all_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign);
         }
         fill_checked = 1;
         {
@@ -34276,15 +34766,16 @@ fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34349,7 +34840,7 @@ fn sv_cdlxsidegap3methods(core: &Core, params: &Value) -> String {
             if c2.cdlxsidegap3methods_open(&fz_o[..lb], &fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ceil(core: &Core, params: &Value) -> String {
@@ -34377,6 +34868,8 @@ fn sv_ceil(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -34434,15 +34927,16 @@ fn sv_ceil(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34507,7 +35001,7 @@ fn sv_ceil(core: &Core, params: &Value) -> String {
             if c2.ceil_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cmf(core: &Core, params: &Value) -> String {
@@ -34536,6 +35030,8 @@ fn sv_cmf(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -34593,15 +35089,16 @@ fn sv_cmf(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34666,7 +35163,7 @@ fn sv_cmf(core: &Core, params: &Value) -> String {
             if c2.cmf_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cmo(core: &Core, params: &Value) -> String {
@@ -34695,6 +35192,8 @@ fn sv_cmo(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -34753,15 +35252,16 @@ fn sv_cmo(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34826,7 +35326,7 @@ fn sv_cmo(core: &Core, params: &Value) -> String {
             if c2.cmo_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cmou(core: &Core, params: &Value) -> String {
@@ -34855,6 +35355,8 @@ fn sv_cmou(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -34912,15 +35414,16 @@ fn sv_cmou(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -34985,7 +35488,7 @@ fn sv_cmou(core: &Core, params: &Value) -> String {
             if c2.cmou_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_correl(core: &Core, params: &Value) -> String {
@@ -35014,6 +35517,8 @@ fn sv_correl(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -35071,15 +35576,16 @@ fn sv_correl(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -35144,7 +35650,7 @@ fn sv_correl(core: &Core, params: &Value) -> String {
             if c2.correl_open(&fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cos(core: &Core, params: &Value) -> String {
@@ -35172,6 +35678,8 @@ fn sv_cos(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -35229,15 +35737,16 @@ fn sv_cos(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -35302,7 +35811,7 @@ fn sv_cos(core: &Core, params: &Value) -> String {
             if c2.cos_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_cosh(core: &Core, params: &Value) -> String {
@@ -35330,6 +35839,8 @@ fn sv_cosh(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -35387,15 +35898,16 @@ fn sv_cosh(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -35460,7 +35972,7 @@ fn sv_cosh(core: &Core, params: &Value) -> String {
             if c2.cosh_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_dema(core: &Core, params: &Value) -> String {
@@ -35489,6 +36001,8 @@ fn sv_dema(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -35547,15 +36061,16 @@ fn sv_dema(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -35620,7 +36135,7 @@ fn sv_dema(core: &Core, params: &Value) -> String {
             if c2.dema_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_div(core: &Core, params: &Value) -> String {
@@ -35648,6 +36163,8 @@ fn sv_div(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -35705,15 +36222,16 @@ fn sv_div(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -35778,7 +36296,7 @@ fn sv_div(core: &Core, params: &Value) -> String {
             if c2.div_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_dx(core: &Core, params: &Value) -> String {
@@ -35807,6 +36325,8 @@ fn sv_dx(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -35865,15 +36385,16 @@ fn sv_dx(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -35938,7 +36459,7 @@ fn sv_dx(core: &Core, params: &Value) -> String {
             if c2.dx_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_efi(core: &Core, params: &Value) -> String {
@@ -35967,6 +36488,8 @@ fn sv_efi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36024,15 +36547,16 @@ fn sv_efi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -36097,7 +36621,7 @@ fn sv_efi(core: &Core, params: &Value) -> String {
             if c2.efi_open(&fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ema(core: &Core, params: &Value) -> String {
@@ -36126,6 +36650,8 @@ fn sv_ema(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36184,15 +36710,16 @@ fn sv_ema(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -36257,7 +36784,7 @@ fn sv_ema(core: &Core, params: &Value) -> String {
             if c2.ema_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_exp(core: &Core, params: &Value) -> String {
@@ -36285,6 +36812,8 @@ fn sv_exp(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36342,15 +36871,16 @@ fn sv_exp(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -36415,7 +36945,7 @@ fn sv_exp(core: &Core, params: &Value) -> String {
             if c2.exp_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_floor(core: &Core, params: &Value) -> String {
@@ -36443,6 +36973,8 @@ fn sv_floor(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36500,15 +37032,16 @@ fn sv_floor(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -36573,7 +37106,7 @@ fn sv_floor(core: &Core, params: &Value) -> String {
             if c2.floor_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_hma(core: &Core, params: &Value) -> String {
@@ -36602,6 +37135,8 @@ fn sv_hma(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36659,15 +37194,16 @@ fn sv_hma(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -36732,7 +37268,7 @@ fn sv_hma(core: &Core, params: &Value) -> String {
             if c2.hma_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
@@ -36760,6 +37296,8 @@ fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36818,15 +37356,16 @@ fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -36891,7 +37430,7 @@ fn sv_ht_dcperiod(core: &Core, params: &Value) -> String {
             if c2.ht_dcperiod_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
@@ -36919,6 +37458,8 @@ fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -36977,15 +37518,16 @@ fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -37050,7 +37592,7 @@ fn sv_ht_dcphase(core: &Core, params: &Value) -> String {
             if c2.ht_dcphase_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ht_phasor(core: &Core, params: &Value) -> String {
@@ -37079,6 +37621,8 @@ fn sv_ht_phasor(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -37141,18 +37685,19 @@ fn sv_ht_phasor(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -37224,7 +37769,7 @@ fn sv_ht_phasor(core: &Core, params: &Value) -> String {
             if c2.ht_phasor_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ht_sine(core: &Core, params: &Value) -> String {
@@ -37253,6 +37798,8 @@ fn sv_ht_sine(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -37315,18 +37862,19 @@ fn sv_ht_sine(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -37398,7 +37946,7 @@ fn sv_ht_sine(core: &Core, params: &Value) -> String {
             if c2.ht_sine_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ht_trendline(core: &Core, params: &Value) -> String {
@@ -37426,6 +37974,8 @@ fn sv_ht_trendline(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -37484,15 +38034,16 @@ fn sv_ht_trendline(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -37557,7 +38108,7 @@ fn sv_ht_trendline(core: &Core, params: &Value) -> String {
             if c2.ht_trendline_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
@@ -37585,6 +38136,8 @@ fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -37643,15 +38196,16 @@ fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -37716,7 +38270,7 @@ fn sv_ht_trendmode(core: &Core, params: &Value) -> String {
             if c2.ht_trendmode_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_imi(core: &Core, params: &Value) -> String {
@@ -37745,6 +38299,8 @@ fn sv_imi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -37802,15 +38358,16 @@ fn sv_imi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -37875,7 +38432,7 @@ fn sv_imi(core: &Core, params: &Value) -> String {
             if c2.imi_open(&fz_o[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_kama(core: &Core, params: &Value) -> String {
@@ -37904,6 +38461,8 @@ fn sv_kama(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -37962,15 +38521,16 @@ fn sv_kama(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38035,7 +38595,203 @@ fn sv_kama(core: &Core, params: &Value) -> String {
             if c2.kama_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
+}
+
+fn sv_kc(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(20) as i32;
+    let optInATRPeriod = params["optInATRPeriod"].as_i64().unwrap_or(10) as i32;
+    let optInNbDev = params["optInNbDev"].as_f64().unwrap_or(2.0);
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut b1: Vec<f64> = vec![0.0f64; svN];
+    let mut b2: Vec<f64> = vec![0.0f64; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut range_checked = 0i32;
+    let mut range_ok = true;
+    let mut range_legs = 0i64;
+    let mut range_sites = 0i32;
+    let mut value_checked = 0i32;
+    let mut value_ok = true;
+    let mut value_legs = 0i64;
+    let mut ufill_checked = 0i32;
+    let mut ufill_ok = true;
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let mut cb = core.to_builder();
+        if let Some(id) = func_unst_id_from_int(2usize) { cb = cb.unstable_period(id, svK); }
+        if let Some(id) = func_unst_id_from_int(5usize) { cb = cb.unstable_period(id, svK); }
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = match c2.KC(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, optInATRPeriod, optInNbDev, &mut b0, &mut b1, &mut b2) { Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success } Err(e) => { beg = 0; nb = 0; e } };
+        let lb = c2.KC_Lookback(optInTimePeriod, optInATRPeriod, optInNbDev).unwrap_or(usize::MAX);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.kc_open(&fz_h, &fz_l, &fz_c, optInTimePeriod, optInATRPeriod, optInNbDev).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        let mut f1: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        let mut f2: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        match c2.kc_open_and_fill(&fz_h, &fz_l, &fz_c, optInTimePeriod, optInATRPeriod, optInNbDev, &mut f0, &mut f1, &mut f2) {
+            Err(_) => { fill_ok = false; }
+            Ok((_h, fr)) => {
+                range_checked = 1; range_legs += 1; range_sites |= 1;
+                if _h.out_range().beg_idx != beg || _h.out_range().count != nb { range_ok = false; }
+                if fr.beg_idx != beg || fr.count != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                    for i in 0..nb { if sv_xtier_ne(f1[i], b1[i], &mut zsign) { fill_ok = false; } }
+                    for i in 0..nb { if sv_xtier_ne(f2[i], b2[i], &mut zsign) { fill_ok = false; } }
+                    for i in nb..svN { if f0[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                    for i in nb..svN { if f1[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                    for i in nb..svN { if f2[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.kc_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInATRPeriod, optInNbDev) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
+                    if sv_xtier_ne(v0.2, b2[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                        if t % 7 == 0 {
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                            if rp.2.to_bits() != pk.2.to_bits() { peek_rep_all = false; }
+                        }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                        if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
+                    }
+                    if all_ok {
+                        range_checked = 1; range_legs += 1; range_sites |= 2;
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb { range_ok = false; }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            match c2.kc_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInATRPeriod, optInNbDev) {
+                Err(_) => { ufill_ok = false; }
+                Ok((mut stu, _uv0)) => {
+                    ufill_checked = 1;
+                    let r0 = stu.out_range();
+                    let mut u0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+                    let mut u1: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+                    let mut u2: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+                    if stu.update_and_fill(&fz_h[p..p], &fz_l[p..p], &fz_c[p..p], &mut u0, &mut u1, &mut u2).is_err() { ufill_ok = false; }
+                    if stu.update_and_fill(&fz_h[p..], &fz_l[p..], &fz_c[p..], &mut u0[..0], &mut u1, &mut u2).is_ok() { ufill_ok = false; }
+                    if stu.out_range() != r0 { ufill_ok = false; }
+                    match stu.update_and_fill(&fz_h[p..], &fz_l[p..], &fz_c[p..], &mut u0, &mut u1, &mut u2) {
+                        Err(_) => { ufill_ok = false; }
+                        Ok(()) => {
+                            for t in p..svN { if sv_xtier_ne(u0[t - p], b0[t - beg], &mut zsign) { ufill_ok = false; } }
+                            for t in p..svN { if sv_xtier_ne(u1[t - p], b1[t - beg], &mut zsign) { ufill_ok = false; } }
+                            for t in p..svN { if sv_xtier_ne(u2[t - p], b2[t - beg], &mut zsign) { ufill_ok = false; } }
+                            for t in (svN - p)..svN { if u0[t] != -1.2345678901234e300f64 { ufill_ok = false; } }
+                            for t in (svN - p)..svN { if u1[t] != -1.2345678901234e300f64 { ufill_ok = false; } }
+                            for t in (svN - p)..svN { if u2[t] != -1.2345678901234e300f64 { ufill_ok = false; } }
+                            range_checked = 1; range_legs += 1; range_sites |= 4;
+                            if stu.out_range().beg_idx != beg || stu.out_range().count != nb { ufill_ok = false; range_ok = false; }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            match c2.kc_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInATRPeriod, optInNbDev) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"copyOpenReject\":1".to_string(); } }
+                Ok((mut sa, _v0)) => {
+                    { let va = sa.value(); value_checked = 1; value_legs += 1;
+                      if va.0.to_bits() != _v0.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                      if va.1.to_bits() != _v0.1.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                      if va.2.to_bits() != _v0.2.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                    }
+                    let mid = (p + svN) / 2;
+                    let mut forked = true;
+                    for t in p..mid { if sa.update(fz_h[t], fz_l[t], fz_c[t]).is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyPreRejected\":{}", t); } break; } }
+                    let mut sb = sa.clone();
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_src) = sa.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        let Ok(u_fork) = sb.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        if u_src.0.to_bits() != u_fork.0.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if u_src.1.to_bits() != u_fork.1.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if u_src.2.to_bits() != u_fork.2.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let va = sa.value(); let vb = sb.value(); value_checked = 1; value_legs += 1;
+                          if va.0.to_bits() != u_src.0.to_bits() || vb.0.to_bits() != u_fork.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                          if va.1.to_bits() != u_src.1.to_bits() || vb.1.to_bits() != u_fork.1.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                          if va.2.to_bits() != u_src.2.to_bits() || vb.2.to_bits() != u_fork.2.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                    }
+                    }
+                    if all_ok && forked {
+                        range_checked = 1; range_legs += 1; range_sites |= 16;
+                        if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.kc_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod, optInATRPeriod, optInNbDev).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_linearreg(core: &Core, params: &Value) -> String {
@@ -38064,6 +38820,8 @@ fn sv_linearreg(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -38121,15 +38879,16 @@ fn sv_linearreg(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38194,7 +38953,7 @@ fn sv_linearreg(core: &Core, params: &Value) -> String {
             if c2.linearreg_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
@@ -38223,6 +38982,8 @@ fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -38280,15 +39041,16 @@ fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38353,7 +39115,7 @@ fn sv_linearreg_angle(core: &Core, params: &Value) -> String {
             if c2.linearreg_angle_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
@@ -38382,6 +39144,8 @@ fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -38439,15 +39203,16 @@ fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38512,7 +39277,7 @@ fn sv_linearreg_intercept(core: &Core, params: &Value) -> String {
             if c2.linearreg_intercept_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
@@ -38541,6 +39306,8 @@ fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -38598,15 +39365,16 @@ fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38671,7 +39439,7 @@ fn sv_linearreg_slope(core: &Core, params: &Value) -> String {
             if c2.linearreg_slope_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ln(core: &Core, params: &Value) -> String {
@@ -38699,6 +39467,8 @@ fn sv_ln(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -38756,15 +39526,16 @@ fn sv_ln(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38829,7 +39600,7 @@ fn sv_ln(core: &Core, params: &Value) -> String {
             if c2.ln_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_log10(core: &Core, params: &Value) -> String {
@@ -38857,6 +39628,8 @@ fn sv_log10(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -38914,15 +39687,16 @@ fn sv_log10(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -38987,7 +39761,7 @@ fn sv_log10(core: &Core, params: &Value) -> String {
             if c2.log10_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ma(core: &Core, params: &Value) -> String {
@@ -39021,6 +39795,8 @@ fn sv_ma(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -39082,15 +39858,16 @@ fn sv_ma(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -39155,7 +39932,7 @@ fn sv_ma(core: &Core, params: &Value) -> String {
             if c2.ma_open(&fz_c[..lb], optInTimePeriod, optInMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_macd(core: &Core, params: &Value) -> String {
@@ -39188,6 +39965,8 @@ fn sv_macd(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -39254,21 +40033,22 @@ fn sv_macd(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.2, b2[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                            if rp.2.to_bits() != pk.2.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                        if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -39347,7 +40127,7 @@ fn sv_macd(core: &Core, params: &Value) -> String {
             if c2.macd_open(&fz_c[..lb], optInFastPeriod, optInSlowPeriod, optInSignalPeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_macdext(core: &Core, params: &Value) -> String {
@@ -39395,6 +40175,8 @@ fn sv_macdext(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -39464,21 +40246,22 @@ fn sv_macdext(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.2, b2[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                            if rp.2.to_bits() != pk.2.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                        if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -39557,7 +40340,7 @@ fn sv_macdext(core: &Core, params: &Value) -> String {
             if c2.macdext_open(&fz_c[..lb], optInFastPeriod, optInFastMAType, optInSlowPeriod, optInSlowMAType, optInSignalPeriod, optInSignalMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_macdfix(core: &Core, params: &Value) -> String {
@@ -39588,6 +40371,8 @@ fn sv_macdfix(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -39654,21 +40439,22 @@ fn sv_macdfix(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.2, b2[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                            if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
+                            if rp.2.to_bits() != pk.2.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if pk.2.to_bits() != up.2.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                        if sv_xtier_ne(up.2, b2[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":2,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b2[t - beg].to_bits(), up.2.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -39747,7 +40533,7 @@ fn sv_macdfix(core: &Core, params: &Value) -> String {
             if c2.macdfix_open(&fz_c[..lb], optInSignalPeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_mama(core: &Core, params: &Value) -> String {
@@ -39778,6 +40564,8 @@ fn sv_mama(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -39840,18 +40628,19 @@ fn sv_mama(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -39923,7 +40712,7 @@ fn sv_mama(core: &Core, params: &Value) -> String {
             if c2.mama_open(&fz_c[..lb], optInFastLimit, optInSlowLimit).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_marketfi(core: &Core, params: &Value) -> String {
@@ -39951,6 +40740,8 @@ fn sv_marketfi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40008,15 +40799,16 @@ fn sv_marketfi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -40081,7 +40873,7 @@ fn sv_marketfi(core: &Core, params: &Value) -> String {
             if c2.marketfi_open(&fz_h[..lb], &fz_l[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_mavp(core: &Core, params: &Value) -> String {
@@ -40117,6 +40909,8 @@ fn sv_mavp(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40178,15 +40972,16 @@ fn sv_mavp(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -40251,7 +41046,7 @@ fn sv_mavp(core: &Core, params: &Value) -> String {
             if c2.mavp_open(&fz_c[..lb], &fz_v[..lb], optInMinPeriod, optInMaxPeriod, optInMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_max(core: &Core, params: &Value) -> String {
@@ -40280,6 +41075,8 @@ fn sv_max(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40337,15 +41134,16 @@ fn sv_max(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -40410,7 +41208,7 @@ fn sv_max(core: &Core, params: &Value) -> String {
             if c2.max_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_maxindex(core: &Core, params: &Value) -> String {
@@ -40439,6 +41237,8 @@ fn sv_maxindex(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40496,15 +41296,16 @@ fn sv_maxindex(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -40569,7 +41370,7 @@ fn sv_maxindex(core: &Core, params: &Value) -> String {
             if c2.maxindex_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_medprice(core: &Core, params: &Value) -> String {
@@ -40597,6 +41398,8 @@ fn sv_medprice(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40654,15 +41457,16 @@ fn sv_medprice(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -40727,7 +41531,7 @@ fn sv_medprice(core: &Core, params: &Value) -> String {
             if c2.medprice_open(&fz_h[..lb], &fz_l[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_mfi(core: &Core, params: &Value) -> String {
@@ -40756,6 +41560,8 @@ fn sv_mfi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40813,15 +41619,16 @@ fn sv_mfi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -40886,7 +41693,7 @@ fn sv_mfi(core: &Core, params: &Value) -> String {
             if c2.mfi_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_midpoint(core: &Core, params: &Value) -> String {
@@ -40915,6 +41722,8 @@ fn sv_midpoint(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -40972,15 +41781,16 @@ fn sv_midpoint(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -41045,7 +41855,7 @@ fn sv_midpoint(core: &Core, params: &Value) -> String {
             if c2.midpoint_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_midprice(core: &Core, params: &Value) -> String {
@@ -41074,6 +41884,8 @@ fn sv_midprice(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -41131,15 +41943,16 @@ fn sv_midprice(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -41204,7 +42017,7 @@ fn sv_midprice(core: &Core, params: &Value) -> String {
             if c2.midprice_open(&fz_h[..lb], &fz_l[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_min(core: &Core, params: &Value) -> String {
@@ -41233,6 +42046,8 @@ fn sv_min(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -41290,15 +42105,16 @@ fn sv_min(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -41363,7 +42179,7 @@ fn sv_min(core: &Core, params: &Value) -> String {
             if c2.min_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_minindex(core: &Core, params: &Value) -> String {
@@ -41392,6 +42208,8 @@ fn sv_minindex(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -41449,15 +42267,16 @@ fn sv_minindex(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if v0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk != up { peek_all = false; }
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp != pk { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk != up { peek_all = false; }
+                        if up != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -41522,7 +42341,7 @@ fn sv_minindex(core: &Core, params: &Value) -> String {
             if c2.minindex_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_minmax(core: &Core, params: &Value) -> String {
@@ -41552,6 +42371,8 @@ fn sv_minmax(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -41613,18 +42434,19 @@ fn sv_minmax(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -41696,7 +42518,7 @@ fn sv_minmax(core: &Core, params: &Value) -> String {
             if c2.minmax_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_minmaxindex(core: &Core, params: &Value) -> String {
@@ -41726,6 +42548,8 @@ fn sv_minmaxindex(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -41787,18 +42611,19 @@ fn sv_minmaxindex(core: &Core, params: &Value) -> String {
                     if v0.0 != b0[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if v0.1 != b1[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0 != up.0 { peek_all = false; }
-                            if pk.1 != up.1 { peek_all = false; }
-                            if up.0 != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up.0); } }
-                            if up.1 != b1[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b1[t - beg], up.1); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if up.0 != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up.0); } }
-                            if up.1 != b1[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b1[t - beg], up.1); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0 != pk.0 { peek_rep_all = false; }
+                            if rp.1 != pk.1 { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0 != up.0 { peek_all = false; }
+                        if pk.1 != up.1 { peek_all = false; }
+                        if up.0 != b0[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b0[t - beg], up.0); } }
+                        if up.1 != b1[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b1[t - beg], up.1); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -41870,7 +42695,7 @@ fn sv_minmaxindex(core: &Core, params: &Value) -> String {
             if c2.minmaxindex_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_minus_di(core: &Core, params: &Value) -> String {
@@ -41899,6 +42724,8 @@ fn sv_minus_di(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -41957,15 +42784,16 @@ fn sv_minus_di(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42030,7 +42858,7 @@ fn sv_minus_di(core: &Core, params: &Value) -> String {
             if c2.minus_di_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_minus_dm(core: &Core, params: &Value) -> String {
@@ -42059,6 +42887,8 @@ fn sv_minus_dm(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -42117,15 +42947,16 @@ fn sv_minus_dm(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42190,7 +43021,7 @@ fn sv_minus_dm(core: &Core, params: &Value) -> String {
             if c2.minus_dm_open(&fz_h[..lb], &fz_l[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_mom(core: &Core, params: &Value) -> String {
@@ -42219,6 +43050,8 @@ fn sv_mom(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -42276,15 +43109,16 @@ fn sv_mom(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42349,7 +43183,7 @@ fn sv_mom(core: &Core, params: &Value) -> String {
             if c2.mom_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_mult(core: &Core, params: &Value) -> String {
@@ -42377,6 +43211,8 @@ fn sv_mult(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -42434,15 +43270,16 @@ fn sv_mult(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42507,7 +43344,7 @@ fn sv_mult(core: &Core, params: &Value) -> String {
             if c2.mult_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_natr(core: &Core, params: &Value) -> String {
@@ -42536,6 +43373,8 @@ fn sv_natr(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -42594,15 +43433,16 @@ fn sv_natr(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42667,7 +43507,7 @@ fn sv_natr(core: &Core, params: &Value) -> String {
             if c2.natr_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_nvi(core: &Core, params: &Value) -> String {
@@ -42695,6 +43535,8 @@ fn sv_nvi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -42752,15 +43594,16 @@ fn sv_nvi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42825,7 +43668,7 @@ fn sv_nvi(core: &Core, params: &Value) -> String {
             if c2.nvi_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_obv(core: &Core, params: &Value) -> String {
@@ -42853,6 +43696,8 @@ fn sv_obv(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -42910,15 +43755,16 @@ fn sv_obv(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -42983,7 +43829,7 @@ fn sv_obv(core: &Core, params: &Value) -> String {
             if c2.obv_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_plus_di(core: &Core, params: &Value) -> String {
@@ -43012,6 +43858,8 @@ fn sv_plus_di(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -43070,15 +43918,16 @@ fn sv_plus_di(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -43143,7 +43992,7 @@ fn sv_plus_di(core: &Core, params: &Value) -> String {
             if c2.plus_di_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_plus_dm(core: &Core, params: &Value) -> String {
@@ -43172,6 +44021,8 @@ fn sv_plus_dm(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -43230,15 +44081,16 @@ fn sv_plus_dm(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -43303,7 +44155,7 @@ fn sv_plus_dm(core: &Core, params: &Value) -> String {
             if c2.plus_dm_open(&fz_h[..lb], &fz_l[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ppo(core: &Core, params: &Value) -> String {
@@ -43338,6 +44190,8 @@ fn sv_ppo(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -43399,15 +44253,16 @@ fn sv_ppo(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -43472,7 +44327,7 @@ fn sv_ppo(core: &Core, params: &Value) -> String {
             if c2.ppo_open(&fz_c[..lb], optInFastPeriod, optInSlowPeriod, optInMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_pvi(core: &Core, params: &Value) -> String {
@@ -43500,6 +44355,8 @@ fn sv_pvi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -43557,15 +44414,16 @@ fn sv_pvi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -43630,7 +44488,7 @@ fn sv_pvi(core: &Core, params: &Value) -> String {
             if c2.pvi_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_pvo(core: &Core, params: &Value) -> String {
@@ -43665,6 +44523,8 @@ fn sv_pvo(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -43726,15 +44586,16 @@ fn sv_pvo(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -43799,7 +44660,7 @@ fn sv_pvo(core: &Core, params: &Value) -> String {
             if c2.pvo_open(&fz_v[..lb], optInFastPeriod, optInSlowPeriod, optInMAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_qstick(core: &Core, params: &Value) -> String {
@@ -43828,6 +44689,8 @@ fn sv_qstick(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -43885,15 +44748,16 @@ fn sv_qstick(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_o[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_o[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -43958,7 +44822,7 @@ fn sv_qstick(core: &Core, params: &Value) -> String {
             if c2.qstick_open(&fz_o[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_roc(core: &Core, params: &Value) -> String {
@@ -43987,6 +44851,8 @@ fn sv_roc(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -44044,15 +44910,16 @@ fn sv_roc(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -44117,7 +44984,7 @@ fn sv_roc(core: &Core, params: &Value) -> String {
             if c2.roc_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_rocp(core: &Core, params: &Value) -> String {
@@ -44146,6 +45013,8 @@ fn sv_rocp(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -44203,15 +45072,16 @@ fn sv_rocp(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -44276,7 +45146,7 @@ fn sv_rocp(core: &Core, params: &Value) -> String {
             if c2.rocp_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_rocr(core: &Core, params: &Value) -> String {
@@ -44305,6 +45175,8 @@ fn sv_rocr(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -44362,15 +45234,16 @@ fn sv_rocr(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -44435,7 +45308,7 @@ fn sv_rocr(core: &Core, params: &Value) -> String {
             if c2.rocr_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_rocr100(core: &Core, params: &Value) -> String {
@@ -44464,6 +45337,8 @@ fn sv_rocr100(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -44521,15 +45396,16 @@ fn sv_rocr100(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -44594,7 +45470,7 @@ fn sv_rocr100(core: &Core, params: &Value) -> String {
             if c2.rocr100_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_rsi(core: &Core, params: &Value) -> String {
@@ -44623,6 +45499,8 @@ fn sv_rsi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -44681,15 +45559,16 @@ fn sv_rsi(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -44754,7 +45633,7 @@ fn sv_rsi(core: &Core, params: &Value) -> String {
             if c2.rsi_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sar(core: &Core, params: &Value) -> String {
@@ -44784,6 +45663,8 @@ fn sv_sar(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -44841,15 +45722,16 @@ fn sv_sar(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -44914,7 +45796,7 @@ fn sv_sar(core: &Core, params: &Value) -> String {
             if c2.sar_open(&fz_h[..lb], &fz_l[..lb], optInAcceleration, optInMaximum).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sarext(core: &Core, params: &Value) -> String {
@@ -44950,6 +45832,8 @@ fn sv_sarext(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45007,15 +45891,16 @@ fn sv_sarext(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -45080,7 +45965,7 @@ fn sv_sarext(core: &Core, params: &Value) -> String {
             if c2.sarext_open(&fz_h[..lb], &fz_l[..lb], optInStartValue, optInOffsetOnReverse, optInAccelerationInitLong, optInAccelerationLong, optInAccelerationMaxLong, optInAccelerationInitShort, optInAccelerationShort, optInAccelerationMaxShort).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sin(core: &Core, params: &Value) -> String {
@@ -45108,6 +45993,8 @@ fn sv_sin(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45165,15 +46052,16 @@ fn sv_sin(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -45238,7 +46126,7 @@ fn sv_sin(core: &Core, params: &Value) -> String {
             if c2.sin_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sinh(core: &Core, params: &Value) -> String {
@@ -45266,6 +46154,8 @@ fn sv_sinh(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45323,15 +46213,16 @@ fn sv_sinh(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -45396,7 +46287,7 @@ fn sv_sinh(core: &Core, params: &Value) -> String {
             if c2.sinh_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sma(core: &Core, params: &Value) -> String {
@@ -45425,6 +46316,8 @@ fn sv_sma(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45482,15 +46375,16 @@ fn sv_sma(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -45555,7 +46449,7 @@ fn sv_sma(core: &Core, params: &Value) -> String {
             if c2.sma_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_smi(core: &Core, params: &Value) -> String {
@@ -45588,6 +46482,8 @@ fn sv_smi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45650,18 +46546,19 @@ fn sv_smi(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -45733,7 +46630,7 @@ fn sv_smi(core: &Core, params: &Value) -> String {
             if c2.smi_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sqrt(core: &Core, params: &Value) -> String {
@@ -45761,6 +46658,8 @@ fn sv_sqrt(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45818,15 +46717,16 @@ fn sv_sqrt(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -45891,7 +46791,7 @@ fn sv_sqrt(core: &Core, params: &Value) -> String {
             if c2.sqrt_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_stddev(core: &Core, params: &Value) -> String {
@@ -45921,6 +46821,8 @@ fn sv_stddev(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -45978,15 +46880,16 @@ fn sv_stddev(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -46051,7 +46954,7 @@ fn sv_stddev(core: &Core, params: &Value) -> String {
             if c2.stddev_open(&fz_c[..lb], optInTimePeriod, optInNbDev).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_stoch(core: &Core, params: &Value) -> String {
@@ -46093,6 +46996,8 @@ fn sv_stoch(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -46158,18 +47063,19 @@ fn sv_stoch(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -46241,7 +47147,7 @@ fn sv_stoch(core: &Core, params: &Value) -> String {
             if c2.stoch_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_stochf(core: &Core, params: &Value) -> String {
@@ -46277,6 +47183,8 @@ fn sv_stochf(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -46342,18 +47250,19 @@ fn sv_stochf(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -46425,7 +47334,7 @@ fn sv_stochf(core: &Core, params: &Value) -> String {
             if c2.stochf_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInFastK_Period, optInFastD_Period, optInFastD_MAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_stochrsi(core: &Core, params: &Value) -> String {
@@ -46462,6 +47371,8 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -46528,18 +47439,19 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
                     if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     if sv_xtier_ne(v0.1, b1[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
-                            if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
-                            if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1.to_bits() != pk.1.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1.to_bits() != up.1.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if sv_xtier_ne(up.1, b1[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b1[t - beg].to_bits(), up.1.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -46611,7 +47523,7 @@ fn sv_stochrsi(core: &Core, params: &Value) -> String {
             if c2.stochrsi_open(&fz_c[..lb], optInTimePeriod, optInFastK_Period, optInFastD_Period, optInFastD_MAType).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sub(core: &Core, params: &Value) -> String {
@@ -46639,6 +47551,8 @@ fn sv_sub(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -46696,15 +47610,16 @@ fn sv_sub(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -46769,7 +47684,7 @@ fn sv_sub(core: &Core, params: &Value) -> String {
             if c2.sub_open(&fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_sum(core: &Core, params: &Value) -> String {
@@ -46798,6 +47713,8 @@ fn sv_sum(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -46855,15 +47772,16 @@ fn sv_sum(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -46928,7 +47846,186 @@ fn sv_sum(core: &Core, params: &Value) -> String {
             if c2.sum_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
+}
+
+fn sv_supertrend(core: &Core, params: &Value) -> String {
+    let svShape = params["gen_shape"].as_i64().unwrap_or(0) as i32;
+    let svSeed = params["gen_seed"].as_i64().unwrap_or(0) as i32;
+    let mut svN = params["gen_n"].as_i64().unwrap_or(0) as usize;
+    if svN < 2 { svN = 2; }
+    if svN > 256 { svN = 256; }
+    let svK = match u32::try_from(params["unstablePeriod"].as_i64().unwrap_or(0)) {
+        Ok(v) => v,
+        Err(_) => return "{\"error\":\"negative unstablePeriod\"}".to_string(),
+    };
+    let svCompat = params["compatibility"].as_i64().unwrap_or(0) as i32;
+    if svCompat != 0 {
+        return "{\"error\":\"rust has no compatibility API (pinned to Default)\"}".to_string();
+    }
+    let optInTimePeriod = params["optInTimePeriod"].as_i64().unwrap_or(10) as i32;
+    let optInMultiplier = params["optInMultiplier"].as_f64().unwrap_or(3.0);
+    let mut fz_o = vec![0.0f64; svN];
+    let mut fz_h = vec![0.0f64; svN];
+    let mut fz_l = vec![0.0f64; svN];
+    let mut fz_c = vec![0.0f64; svN];
+    let mut fz_v = vec![0.0f64; svN];
+    let mut fz_oi = vec![0.0f64; svN];
+    fuzz_gen(svShape, svSeed, svN as i32, &mut fz_o, &mut fz_h, &mut fz_l, &mut fz_c, &mut fz_v, &mut fz_oi);
+    let mut b0: Vec<f64> = vec![0.0f64; svN];
+    let mut b1: Vec<i32> = vec![0i32; svN];
+    let mut legs = 0i64;
+    let mut all_ok = true;
+    let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
+    let mut fill_checked = 0i32;
+    let mut fill_ok = true;
+    let mut beg = 0usize;
+    let mut nb = 0usize;
+    let mut diag = String::new();
+    let mut range_checked = 0i32;
+    let mut range_ok = true;
+    let mut range_legs = 0i64;
+    let mut range_sites = 0i32;
+    let mut value_checked = 0i32;
+    let mut value_ok = true;
+    let mut value_legs = 0i64;
+    let mut ufill_checked = 0i32;
+    let mut ufill_ok = true;
+    let mut zsign = 0i64;
+    let rounds = 1;
+    for rd in 0..rounds {
+        let _ = rd;
+        let mut cb = core.to_builder();
+        if let Some(id) = func_unst_id_from_int(2usize) { cb = cb.unstable_period(id, svK); }
+        let c2 = match cb.build() {
+            Ok(c) => c,
+            Err(_) => return "{\"error\":\"unstablePeriod out of range\"}".to_string(),
+        };
+        let rc = match c2.SUPERTREND(0, svN - 1, &fz_h, &fz_l, &fz_c, optInTimePeriod, optInMultiplier, &mut b0, &mut b1) { Ok(r) => { beg = r.beg_idx; nb = r.count; RetCode::Success } Err(e) => { beg = 0; nb = 0; e } };
+        let lb = c2.SUPERTREND_Lookback(optInTimePeriod, optInMultiplier).unwrap_or(usize::MAX);
+        if rc != RetCode::Success || nb == 0 {
+            let open_rejects = c2.supertrend_open(&fz_h, &fz_l, &fz_c, optInTimePeriod, optInMultiplier).is_err();
+            return format!("{{\"retCode\":{},\"legs\":0,\"nb\":{},\"openRejects\":{},\"ok\":{},\"peek_ok\":1}}", retcode_to_int(rc), nb, i32::from(open_rejects), i32::from(open_rejects));
+        }
+        fill_checked = 1;
+        {
+        let mut f0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+        let mut f1: Vec<i32> = vec![-987654321i32; svN];
+        match c2.supertrend_open_and_fill(&fz_h, &fz_l, &fz_c, optInTimePeriod, optInMultiplier, &mut f0, &mut f1) {
+            Err(_) => { fill_ok = false; }
+            Ok((_h, fr)) => {
+                range_checked = 1; range_legs += 1; range_sites |= 1;
+                if _h.out_range().beg_idx != beg || _h.out_range().count != nb { range_ok = false; }
+                if fr.beg_idx != beg || fr.count != nb { fill_ok = false; }
+                else {
+                    for i in 0..nb { if sv_xtier_ne(f0[i], b0[i], &mut zsign) { fill_ok = false; } }
+                    for i in 0..nb { if f1[i] != b1[i] { fill_ok = false; } }
+                    for i in nb..svN { if f0[i] != -1.2345678901234e300f64 { fill_ok = false; } }
+                    for i in nb..svN { if f1[i] != -987654321i32 { fill_ok = false; } }
+                }
+            }
+        }
+        }
+        let seed_shift: usize = 0;
+        let mut pcs = vec![lb + 1 + seed_shift, lb + 13, svN / 2, svN - 1];
+        pcs.retain(|p| *p >= lb + 1 + seed_shift && *p <= svN - 1);
+        pcs.sort_unstable();
+        pcs.dedup();
+        for &p in &pcs {
+            match c2.supertrend_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInMultiplier) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = format!(",\"openRejectP\":{}", p); } }
+                Ok((mut st, v0)) => {
+                    legs += 1;
+                    if sv_xtier_ne(v0.0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
+                    if v0.1 != b1[p - 1 - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"where\":\"open\"", p - 1); } }
+                    for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                        if t % 7 == 0 {
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.0.to_bits() != pk.0.to_bits() { peek_rep_all = false; }
+                            if rp.1 != pk.1 { peek_rep_all = false; }
+                        }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.0.to_bits() != up.0.to_bits() { peek_all = false; }
+                        if pk.1 != up.1 { peek_all = false; }
+                        if sv_xtier_ne(up.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.0.to_bits()); } }
+                        if up.1 != b1[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":1,\"batchv\":\"{}\",\"streamv\":\"{}\"", t, b1[t - beg], up.1); } }
+                    }
+                    if all_ok {
+                        range_checked = 1; range_legs += 1; range_sites |= 2;
+                        if st.out_range().beg_idx != beg || st.out_range().count != nb { range_ok = false; }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            match c2.supertrend_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInMultiplier) {
+                Err(_) => { ufill_ok = false; }
+                Ok((mut stu, _uv0)) => {
+                    ufill_checked = 1;
+                    let r0 = stu.out_range();
+                    let mut u0: Vec<f64> = vec![-1.2345678901234e300f64; svN];
+                    let mut u1: Vec<i32> = vec![-987654321i32; svN];
+                    if stu.update_and_fill(&fz_h[p..p], &fz_l[p..p], &fz_c[p..p], &mut u0, &mut u1).is_err() { ufill_ok = false; }
+                    if stu.update_and_fill(&fz_h[p..], &fz_l[p..], &fz_c[p..], &mut u0[..0], &mut u1).is_ok() { ufill_ok = false; }
+                    if stu.out_range() != r0 { ufill_ok = false; }
+                    match stu.update_and_fill(&fz_h[p..], &fz_l[p..], &fz_c[p..], &mut u0, &mut u1) {
+                        Err(_) => { ufill_ok = false; }
+                        Ok(()) => {
+                            for t in p..svN { if sv_xtier_ne(u0[t - p], b0[t - beg], &mut zsign) { ufill_ok = false; } }
+                            for t in p..svN { if u1[t - p] != b1[t - beg] { ufill_ok = false; } }
+                            for t in (svN - p)..svN { if u0[t] != -1.2345678901234e300f64 { ufill_ok = false; } }
+                            for t in (svN - p)..svN { if u1[t] != -987654321i32 { ufill_ok = false; } }
+                            range_checked = 1; range_legs += 1; range_sites |= 4;
+                            if stu.out_range().beg_idx != beg || stu.out_range().count != nb { ufill_ok = false; range_ok = false; }
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(&p) = pcs.first() {
+            match c2.supertrend_open(&fz_h[..p], &fz_l[..p], &fz_c[..p], optInTimePeriod, optInMultiplier) {
+                Err(_) => { all_ok = false; if diag.is_empty() { diag = ",\"copyOpenReject\":1".to_string(); } }
+                Ok((mut sa, _v0)) => {
+                    { let va = sa.value(); value_checked = 1; value_legs += 1;
+                      if va.0.to_bits() != _v0.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                      if va.1 != _v0.1 { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterOpen\":1".to_string(); } }
+                    }
+                    let mid = (p + svN) / 2;
+                    let mut forked = true;
+                    for t in p..mid { if sa.update(fz_h[t], fz_l[t], fz_c[t]).is_err() { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyPreRejected\":{}", t); } break; } }
+                    let mut sb = sa.clone();
+                    if forked {
+                    for t in mid..svN {
+                        let Ok(u_src) = sa.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        let Ok(u_fork) = sb.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; forked = false; if diag.is_empty() { diag = format!(",\"copyRejected\":{}", t); } break; };
+                        if u_src.0.to_bits() != u_fork.0.to_bits() { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if sv_xtier_ne(u_src.0, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if u_src.1 != u_fork.1 { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        if u_src.1 != b1[t - beg] { all_ok = false; if diag.is_empty() { diag = format!(",\"copyDiverged\":{}", t); } }
+                        { let va = sa.value(); let vb = sb.value(); value_checked = 1; value_legs += 1;
+                          if va.0.to_bits() != u_src.0.to_bits() || vb.0.to_bits() != u_fork.0.to_bits() { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                          if va.1 != u_src.1 || vb.1 != u_fork.1 { value_ok = false; if diag.is_empty() { diag = ",\"valueAfterUpdate\":1".to_string(); } }
+                        }
+                    }
+                    }
+                    if all_ok && forked {
+                        range_checked = 1; range_legs += 1; range_sites |= 16;
+                        if sa.out_range().beg_idx != beg || sa.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRangeSrc\":1".to_string(); } }
+                        if sb.out_range().beg_idx != beg || sb.out_range().count != nb { range_ok = false; if diag.is_empty() { diag = ",\"copyRange\":1".to_string(); } }
+                    }
+                }
+            }
+        }
+        if lb >= 1 && lb < svN {
+            if c2.supertrend_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod, optInMultiplier).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
+        }
+    }
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_t3(core: &Core, params: &Value) -> String {
@@ -46958,6 +48055,8 @@ fn sv_t3(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47016,15 +48115,16 @@ fn sv_t3(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -47089,7 +48189,7 @@ fn sv_t3(core: &Core, params: &Value) -> String {
             if c2.t3_open(&fz_c[..lb], optInTimePeriod, optInVFactor).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_tan(core: &Core, params: &Value) -> String {
@@ -47117,6 +48217,8 @@ fn sv_tan(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47174,15 +48276,16 @@ fn sv_tan(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -47247,7 +48350,7 @@ fn sv_tan(core: &Core, params: &Value) -> String {
             if c2.tan_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_tanh(core: &Core, params: &Value) -> String {
@@ -47275,6 +48378,8 @@ fn sv_tanh(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47332,15 +48437,16 @@ fn sv_tanh(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -47405,7 +48511,7 @@ fn sv_tanh(core: &Core, params: &Value) -> String {
             if c2.tanh_open(&fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_tema(core: &Core, params: &Value) -> String {
@@ -47434,6 +48540,8 @@ fn sv_tema(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47492,15 +48600,16 @@ fn sv_tema(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -47565,7 +48674,7 @@ fn sv_tema(core: &Core, params: &Value) -> String {
             if c2.tema_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_trange(core: &Core, params: &Value) -> String {
@@ -47593,6 +48702,8 @@ fn sv_trange(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47650,15 +48761,16 @@ fn sv_trange(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -47723,7 +48835,7 @@ fn sv_trange(core: &Core, params: &Value) -> String {
             if c2.trange_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_trima(core: &Core, params: &Value) -> String {
@@ -47752,6 +48864,8 @@ fn sv_trima(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47809,15 +48923,16 @@ fn sv_trima(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -47882,7 +48997,7 @@ fn sv_trima(core: &Core, params: &Value) -> String {
             if c2.trima_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_trix(core: &Core, params: &Value) -> String {
@@ -47911,6 +49026,8 @@ fn sv_trix(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -47969,15 +49086,16 @@ fn sv_trix(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48042,7 +49160,7 @@ fn sv_trix(core: &Core, params: &Value) -> String {
             if c2.trix_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_tsf(core: &Core, params: &Value) -> String {
@@ -48071,6 +49189,8 @@ fn sv_tsf(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -48128,15 +49248,16 @@ fn sv_tsf(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48201,7 +49322,7 @@ fn sv_tsf(core: &Core, params: &Value) -> String {
             if c2.tsf_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_typprice(core: &Core, params: &Value) -> String {
@@ -48229,6 +49350,8 @@ fn sv_typprice(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -48286,15 +49409,16 @@ fn sv_typprice(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48359,7 +49483,7 @@ fn sv_typprice(core: &Core, params: &Value) -> String {
             if c2.typprice_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_ultosc(core: &Core, params: &Value) -> String {
@@ -48390,6 +49514,8 @@ fn sv_ultosc(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -48447,15 +49573,16 @@ fn sv_ultosc(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48520,7 +49647,7 @@ fn sv_ultosc(core: &Core, params: &Value) -> String {
             if c2.ultosc_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod1, optInTimePeriod2, optInTimePeriod3).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_var(core: &Core, params: &Value) -> String {
@@ -48550,6 +49677,8 @@ fn sv_var(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -48607,15 +49736,16 @@ fn sv_var(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48680,7 +49810,7 @@ fn sv_var(core: &Core, params: &Value) -> String {
             if c2.var_open(&fz_c[..lb], optInTimePeriod, optInNbDev).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_vwap(core: &Core, params: &Value) -> String {
@@ -48708,6 +49838,8 @@ fn sv_vwap(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -48765,15 +49897,16 @@ fn sv_vwap(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48838,7 +49971,7 @@ fn sv_vwap(core: &Core, params: &Value) -> String {
             if c2.vwap_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], &fz_v[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_vwma(core: &Core, params: &Value) -> String {
@@ -48867,6 +50000,8 @@ fn sv_vwma(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -48924,15 +50059,16 @@ fn sv_vwma(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1], fz_v[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t], fz_v[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -48997,7 +50133,7 @@ fn sv_vwma(core: &Core, params: &Value) -> String {
             if c2.vwma_open(&fz_c[..lb], &fz_v[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_wad(core: &Core, params: &Value) -> String {
@@ -49025,6 +50161,8 @@ fn sv_wad(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -49082,15 +50220,16 @@ fn sv_wad(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -49155,7 +50294,7 @@ fn sv_wad(core: &Core, params: &Value) -> String {
             if c2.wad_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_wclprice(core: &Core, params: &Value) -> String {
@@ -49183,6 +50322,8 @@ fn sv_wclprice(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -49240,15 +50381,16 @@ fn sv_wclprice(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -49313,7 +50455,7 @@ fn sv_wclprice(core: &Core, params: &Value) -> String {
             if c2.wclprice_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb]).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_willr(core: &Core, params: &Value) -> String {
@@ -49342,6 +50484,8 @@ fn sv_willr(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -49399,15 +50543,16 @@ fn sv_willr(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_h[t - 1], fz_l[t - 1], fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_h[t], fz_l[t], fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -49472,7 +50617,7 @@ fn sv_willr(core: &Core, params: &Value) -> String {
             if c2.willr_open(&fz_h[..lb], &fz_l[..lb], &fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn sv_wma(core: &Core, params: &Value) -> String {
@@ -49501,6 +50646,8 @@ fn sv_wma(core: &Core, params: &Value) -> String {
     let mut legs = 0i64;
     let mut all_ok = true;
     let mut peek_all = true;
+    let mut peek_reps = 0i64;
+    let mut peek_rep_all = true;
     let mut fill_checked = 0i32;
     let mut fill_ok = true;
     let mut beg = 0usize;
@@ -49558,15 +50705,16 @@ fn sv_wma(core: &Core, params: &Value) -> String {
                     legs += 1;
                     if sv_xtier_ne(v0, b0[p - 1 - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"where\":\"open\"", p - 1); } }
                     for t in p..svN {
+                        let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
                         if t % 7 == 0 {
-                            let Ok(pk) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if pk.to_bits() != up.to_bits() { peek_all = false; }
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
-                        } else {
-                            let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
-                            if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
+                            let Ok(_dk) = st.peek(fz_c[t - 1]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t - 1); } break; };
+                            let Ok(rp) = st.peek(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"peekRejected\":{}", t); } break; };
+                            peek_reps += 1;
+                            if rp.to_bits() != pk.to_bits() { peek_rep_all = false; }
                         }
+                        let Ok(up) = st.update(fz_c[t]) else { all_ok = false; if diag.is_empty() { diag = format!(",\"updateRejected\":{}", t); } break; };
+                        if pk.to_bits() != up.to_bits() { peek_all = false; }
+                        if sv_xtier_ne(up, b0[t - beg], &mut zsign) { all_ok = false; if diag.is_empty() { diag = format!(",\"badBar\":{},\"badOut\":0,\"batchv\":\"{:016x}\",\"streamv\":\"{:016x}\"", t, b0[t - beg].to_bits(), up.to_bits()); } }
                     }
                     if all_ok {
                         range_checked = 1; range_legs += 1; range_sites |= 2;
@@ -49631,7 +50779,7 @@ fn sv_wma(core: &Core, params: &Value) -> String {
             if c2.wma_open(&fz_c[..lb], optInTimePeriod).is_ok() { all_ok = false; if diag.is_empty() { diag = ",\"shortHistoryAccepted\":1".to_string(); } }
         }
     }
-    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), zsign, diag)
+    format!("{{\"retCode\":0,\"beg\":{},\"nb\":{},\"legs\":{},\"fill_checked\":{},\"fill_ok\":{},\"ufill_checked\":{},\"ufill_ok\":{},\"range_checked\":{},\"range_legs\":{},\"range_sites\":{},\"range_sites_all\":23,\"range_ok\":{},\"value_checked\":{},\"value_legs\":{},\"value_ok\":{},\"ok\":{},\"peek_ok\":{},\"peek_reps\":{},\"peek_rep_ok\":{},\"benign\":{}{}}}", beg, nb, legs, fill_checked, i32::from(fill_ok), ufill_checked, i32::from(ufill_ok), range_checked, range_legs, range_sites, i32::from(range_ok), value_checked, value_legs, i32::from(value_ok), i32::from(all_ok && fill_ok && ufill_ok && range_ok && value_ok), i32::from(peek_all), peek_reps, i32::from(peek_rep_all), zsign, diag)
 }
 
 fn handle_stream_verify(core: &Core, params: &Value) -> String {
@@ -49742,6 +50890,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_HT_TRENDMODE" => sv_ht_trendmode(core, params),
         "TA_IMI" => sv_imi(core, params),
         "TA_KAMA" => sv_kama(core, params),
+        "TA_KC" => sv_kc(core, params),
         "TA_LINEARREG" => sv_linearreg(core, params),
         "TA_LINEARREG_ANGLE" => sv_linearreg_angle(core, params),
         "TA_LINEARREG_INTERCEPT" => sv_linearreg_intercept(core, params),
@@ -49796,6 +50945,7 @@ fn handle_stream_verify(core: &Core, params: &Value) -> String {
         "TA_STOCHRSI" => sv_stochrsi(core, params),
         "TA_SUB" => sv_sub(core, params),
         "TA_SUM" => sv_sum(core, params),
+        "TA_SUPERTREND" => sv_supertrend(core, params),
         "TA_T3" => sv_t3(core, params),
         "TA_TAN" => sv_tan(core, params),
         "TA_TANH" => sv_tanh(core, params),

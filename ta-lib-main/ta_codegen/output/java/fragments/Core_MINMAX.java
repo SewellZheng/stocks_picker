@@ -536,7 +536,6 @@
       double[] x_inReal;
       double cur_outMin;
       double cur_outMax;
-      Value cachedValue;
       int outRangeBegIdx;
       int outRangeCount;
 
@@ -569,31 +568,17 @@
          this.x_inReal = other.x_inReal.clone();
          this.cur_outMin = other.cur_outMin;
          this.cur_outMax = other.cur_outMax;
-         this.cachedValue = other.cachedValue;
          this.outRangeBegIdx = other.outRangeBegIdx;
          this.outRangeCount = other.outRangeCount;
       }
 
       /**
-       * One output set, in batch output order. Immutable.
-       *
-       * <p>{@code equals} compares every component bitwise, so {@code NaN}
-       * equals {@code NaN} and {@code 0.0} does not equal {@code -0.0}.
-       * {@code hashCode} is consistent with it but its exact value is
-       * unspecified — do not persist it or compare it across JVM versions.
-       *
-       * @param min Lowest value in each rolling window.
-       * @param max Highest value in each rolling window.
-       */
-      public record Value(double min, double max) { }
-
-      /**
-       * Commit one closed bar, returning the new current value.
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
+       * output is the previous value, held, and {@link #value(MinmaxOut)} answers it.
        * The stream stays usable, so skip the bar or re-open on a clean
        * history. {@link #outRange()} does advance: the bar happened and
        * occupies a position in the series, so the handle counts it, which is
@@ -603,15 +588,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
-      public Value update( double inReal ) {
+      public void update( double inReal, MinmaxOut out ) {
+         requireArgument("MINMAX update", "out", out);
          if( !Double.isFinite(inReal) ) {
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("MINMAX update: BadParam", RetCode.BadParam);
          }
          core.minmaxStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         this.cachedValue = new Value(this.cur_outMin, this.cur_outMax);
-         return this.cachedValue;
+         out.min = this.cur_outMin;
+         out.max = this.cur_outMax;
       }
 
       /**
@@ -634,35 +620,29 @@
          final int barCount = inReal.length;
          if( outMin.length < barCount || outMax.length < barCount || (Object)outMin == (Object)inReal || (Object)outMax == (Object)inReal || (Object)outMin == (Object)outMax )
             throw new TaLibArgumentException("MINMAX updateAndFill: BadParam", RetCode.BadParam);
-         int done = 0;
-         try {
-            for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inReal[i]) ) {
-                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-                  throw new TaLibArgumentException("MINMAX updateAndFill: BadParam", RetCode.BadParam);
-               }
-               core.minmaxStepImpl(this, inReal[i]);
-               outMin[i] = this.cur_outMin;
-               outMax[i] = this.cur_outMax;
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) ) {
                if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               done = i + 1;
+               throw new TaLibArgumentException("MINMAX updateAndFill: BadParam", RetCode.BadParam);
             }
-         } finally {
-            if( done > 0 ) this.cachedValue = new Value(this.cur_outMin, this.cur_outMax);
+            core.minmaxStepImpl(this, inReal[i]);
+            outMin[i] = this.cur_outMin;
+            outMax[i] = this.cur_outMax;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          }
       }
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return — the same
+       * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
        * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * does not grow with the period and {@code peek} never allocates.
        */
-      public Value peek( double inReal ) {
+      public void peek( double inReal, MinmaxOut out ) {
+         requireArgument("MINMAX peek", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MINMAX peek: BadParam", RetCode.BadParam);
          MinmaxStream sp = this;
@@ -723,19 +703,20 @@
          }
          cur_outMax = highest;
          cur_outMin = lowest;
-         trailingIdx += 1;
-         today += 1;
-         return new Value(cur_outMin, cur_outMax);
+         out.min = cur_outMin;
+         out.max = cur_outMax;
       }
 
       /**
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
-       * then whatever the latest accepted {@code update} returned.
-       * A pure field read; {@code peek} does not change it.
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
        */
-      public Value value() {
-         return this.cachedValue;
+      public void value( MinmaxOut out ) {
+         requireArgument("MINMAX value", "out", out);
+         out.min = this.cur_outMin;
+         out.max = this.cur_outMax;
       }
 
       /**
@@ -753,6 +734,28 @@
       public MinmaxStream clone() {
          return new MinmaxStream(this);
       }
+   }
+
+   /**
+    * The outputs of one MINMAX bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class MinmaxOut {
+      /** Lowest value in each rolling window. */
+      public double min;
+      /** Highest value in each rolling window. */
+      public double max;
    }
    void minmaxStepImpl( MinmaxStream sp, double inReal )
    {
@@ -949,7 +952,6 @@
       sp.x_inReal = capX_inReal;
       sp.cur_outMin = outMin[(outNBElement.value - 1) * outStride];
       sp.cur_outMax = outMax[(outNBElement.value - 1) * outStride];
-      sp.cachedValue = new MinmaxStream.Value(sp.cur_outMin, sp.cur_outMax);
       return RetCode.Success;
    }
    /* minmaxOpenAndFill anchored at startIdx — the composed-open fusion seam. */

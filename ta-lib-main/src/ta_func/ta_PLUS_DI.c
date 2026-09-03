@@ -100,7 +100,6 @@ TA_LIB_API TA_RetCode TA_PLUS_DI( int    startIdx,
    double prevPlusDM;
    double prevTR;
    double tempReal;
-   double tempReal2;
    double diffP;
    double diffM;
    int i;
@@ -473,7 +472,6 @@ TA_RetCode TA_S_PLUS_DI( int    startIdx,
    double prevPlusDM;
    double prevTR;
    double tempReal;
-   double tempReal2;
    double diffP;
    double diffM;
    int i;
@@ -1445,8 +1443,6 @@ TA_LIB_API TA_RetCode TA_PLUS_DI_Peek( const TA_PLUS_DI_Stream *stream, double i
       {
          *outReal= (double)0.0;
       }
-      sp->prevClose = inClose;
-      sp->cur_outReal = *outReal;
    }
    else
    {
@@ -1497,7 +1493,6 @@ TA_LIB_API TA_RetCode TA_PLUS_DI_Peek( const TA_PLUS_DI_Stream *stream, double i
       {
          *outReal= 0.0;
       }
-      sp->cur_outReal = *outReal;
    }
    return TA_SUCCESS;
 }

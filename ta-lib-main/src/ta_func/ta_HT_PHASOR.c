@@ -1480,17 +1480,11 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Peek( const TA_HT_PHASOR_Stream *stream, doub
 {
    struct TA_HT_PHASOR_Stream scratch;
    struct TA_HT_PHASOR_Stream *sp = &scratch;
-   double tempReal;
-   double tempReal2;
    double adjustedPrevPeriod;
    double smoothedValue;
    double hilbertTempReal;
    double detrender;
    double Q1;
-   double jI;
-   double jQ;
-   double Q2;
-   double I2;
    double todayValue;
    int pkSlot0 = -1;
    double pkVal0 = 0.0;
@@ -1533,27 +1527,15 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Peek( const TA_HT_PHASOR_Stream *stream, doub
       *outQuadrature= Q1;
       *outInPhase= sp->I1ForEvenPrev3;
       hilbertTempReal = sp->a * sp->I1ForEvenPrev3;
-      jI = 0 - sp->jI_Even[sp->hilbertIdx];
-      jI += hilbertTempReal;
-      jI -= sp->prev_jI_Even;
       sp->prev_jI_Even = sp->b * sp->prev_jI_input_Even;
-      jI += sp->prev_jI_Even;
       sp->prev_jI_input_Even = sp->I1ForEvenPrev3;
-      jI *= adjustedPrevPeriod;
       hilbertTempReal = sp->a * Q1;
-      jQ = 0 - sp->jQ_Even[sp->hilbertIdx];
-      jQ += hilbertTempReal;
-      jQ -= sp->prev_jQ_Even;
       sp->prev_jQ_Even = sp->b * sp->prev_jQ_input_Even;
-      jQ += sp->prev_jQ_Even;
       sp->prev_jQ_input_Even = Q1;
-      jQ *= adjustedPrevPeriod;
       if( ++sp->hilbertIdx == 3 )
       {
          sp->hilbertIdx = 0;
       }
-      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
-      I2 = fma(0.2, sp->I1ForEvenPrev3 - jQ, 0.8 * sp->prevI2);
       /* The variable I1 is the detrender delayed for
        * 3 price bars.
        *
@@ -1584,23 +1566,11 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Peek( const TA_HT_PHASOR_Stream *stream, doub
       *outQuadrature= Q1;
       *outInPhase= sp->I1ForOddPrev3;
       hilbertTempReal = sp->a * sp->I1ForOddPrev3;
-      jI = 0 - sp->jI_Odd[sp->hilbertIdx];
-      jI += hilbertTempReal;
-      jI -= sp->prev_jI_Odd;
       sp->prev_jI_Odd = sp->b * sp->prev_jI_input_Odd;
-      jI += sp->prev_jI_Odd;
       sp->prev_jI_input_Odd = sp->I1ForOddPrev3;
-      jI *= adjustedPrevPeriod;
       hilbertTempReal = sp->a * Q1;
-      jQ = 0 - sp->jQ_Odd[sp->hilbertIdx];
-      jQ += hilbertTempReal;
-      jQ -= sp->prev_jQ_Odd;
       sp->prev_jQ_Odd = sp->b * sp->prev_jQ_input_Odd;
-      jQ += sp->prev_jQ_Odd;
       sp->prev_jQ_input_Odd = Q1;
-      jQ *= adjustedPrevPeriod;
-      Q2 = fma(0.2, Q1 + jI, 0.8 * sp->prevQ2);
-      I2 = fma(0.2, sp->I1ForOddPrev3 - jQ, 0.8 * sp->prevI2);
       /* The varaiable I1 is the detrender delayed for
        * 3 price bars.
        *
@@ -1610,43 +1580,6 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Peek( const TA_HT_PHASOR_Stream *stream, doub
       sp->I1ForEvenPrev3 = sp->I1ForEvenPrev2;
       sp->I1ForEvenPrev2 = detrender;
    }
-   /* Adjust the period for next price bar */
-   sp->Re = fma(0.8, sp->Re, 0.2 * (fma(I2, sp->prevI2, Q2 * sp->prevQ2)));
-   sp->Im = fma(0.8, sp->Im, 0.2 * (I2 * sp->prevQ2 - Q2 * sp->prevI2));
-   sp->prevQ2 = Q2;
-   sp->prevI2 = I2;
-   tempReal = sp->period;
-   if( sp->Im != 0.0 && sp->Re != 0.0 )
-   {
-      sp->period = 360.0 / (atan(sp->Im / sp->Re) * sp->rad2Deg);
-   }
-   tempReal2 = 1.5 * tempReal;
-   if( sp->period > tempReal2 )
-   {
-      sp->period = tempReal2;
-   }
-   tempReal2 = 0.67 * tempReal;
-   if( sp->period < tempReal2 )
-   {
-      sp->period = tempReal2;
-   }
-   if( sp->period < 6 )
-   {
-      sp->period = 6;
-   } else if( sp->period > 50 )
-   {
-      sp->period = 50;
-   }
-   sp->period = fma(0.2, sp->period, 0.8 * tempReal);
-   /* Ooof... let's do the next price bar now! */
-   sp->cur_outInPhase = *outInPhase;
-   sp->cur_outQuadrature = *outQuadrature;
-   sp->ringPos_trailingWMAIdx = sp->ringPos_trailingWMAIdx + 1;
-   if( sp->ringPos_trailingWMAIdx >= sp->ringCap_trailingWMAIdx )
-   {
-      sp->ringPos_trailingWMAIdx = 0;
-   }
-   sp->streamParity = 1 - sp->streamParity;
    return TA_SUCCESS;
 }
 

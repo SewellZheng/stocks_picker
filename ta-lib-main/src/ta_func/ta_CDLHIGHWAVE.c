@@ -58,12 +58,8 @@
 
 TA_LIB_API int TA_CDLHIGHWAVE_Lookback( void )
 {
-   int BodyShort_rangeType = TA_Globals->candleSettings[TA_BodyShort].rangeType;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
-   double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
-   int ShadowVeryLong_rangeType = TA_Globals->candleSettings[TA_ShadowVeryLong].rangeType;
    int ShadowVeryLong_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryLong].avgPeriod;
-   double ShadowVeryLong_factor = TA_Globals->candleSettings[TA_ShadowVeryLong].factor;
    return max(BodyShort_avgPeriod,ShadowVeryLong_avgPeriod);
 }
 
@@ -84,12 +80,8 @@ TA_LIB_API TA_RetCode TA_CDLHIGHWAVE( int    startIdx,
    int BodyTrailingIdx;
    int ShadowTrailingIdx;
    int lookbackTotal;
-   int BodyShort_rangeType = TA_Globals->candleSettings[TA_BodyShort].rangeType;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
-   double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
-   int ShadowVeryLong_rangeType = TA_Globals->candleSettings[TA_ShadowVeryLong].rangeType;
    int ShadowVeryLong_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryLong].avgPeriod;
-   double ShadowVeryLong_factor = TA_Globals->candleSettings[TA_ShadowVeryLong].factor;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -195,12 +187,8 @@ TA_RetCode TA_S_CDLHIGHWAVE( int    startIdx,
    int BodyTrailingIdx;
    int ShadowTrailingIdx;
    int lookbackTotal;
-   int BodyShort_rangeType = TA_Globals->candleSettings[TA_BodyShort].rangeType;
    int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
-   double BodyShort_factor = TA_Globals->candleSettings[TA_BodyShort].factor;
-   int ShadowVeryLong_rangeType = TA_Globals->candleSettings[TA_ShadowVeryLong].rangeType;
    int ShadowVeryLong_avgPeriod = TA_Globals->candleSettings[TA_ShadowVeryLong].avgPeriod;
-   double ShadowVeryLong_factor = TA_Globals->candleSettings[TA_ShadowVeryLong].factor;
 
    if( (startIdx < 0) || (startIdx > TA_MAX_INDEX) )
       return TA_OUT_OF_RANGE_START_INDEX;
@@ -530,46 +518,16 @@ TA_LIB_API TA_RetCode TA_CDLHIGHWAVE_Peek( const TA_CDLHIGHWAVE_Stream *stream, 
 {
    struct TA_CDLHIGHWAVE_Stream scratch;
    struct TA_CDLHIGHWAVE_Stream *sp = &scratch;
-   int pkSlot0 = -1;
-   double pkVal0 = 0.0;
-   int pkSlot1 = -1;
-   double pkVal1 = 0.0;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    scratch = *stream;
-   if( sp->ringCap_BodyTrailingIdx == 0 )
-   {
-      pkSlot0 = 0;
-      pkVal0 = TA_STREAM_CANDLERANGE(BodyShort,inOpen,inHigh,inLow,inClose);
-   }
-   if( sp->ringCap_ShadowTrailingIdx == 0 )
-   {
-      pkSlot1 = 0;
-      pkVal1 = TA_STREAM_CANDLERANGE(ShadowVeryLong,inOpen,inHigh,inLow,inClose);
-   }
    if( fabs(inClose - inOpen) < TA_STREAM_CANDLEAVERAGE(BodyShort,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) && (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) > TA_STREAM_CANDLEAVERAGE(ShadowVeryLong,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) && (((inClose >= inOpen) ? inOpen : inClose) - inLow) > TA_STREAM_CANDLEAVERAGE(ShadowVeryLong,sp->ShadowPeriodTotal,inOpen,inHigh,inLow,inClose) )
    {
       *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
    } else 
    {
       *outInteger= 0;
-   }
-   /* add the current range and subtract the first range: this is done after the pattern recognition
-    * when avgPeriod is not 0, that means "compare with the previous candles" (it excludes the current candle)
-    */
-   sp->BodyPeriodTotal += TA_STREAM_CANDLERANGE(BodyShort,inOpen,inHigh,inLow,inClose) - ((sp->ringPos_BodyTrailingIdx != pkSlot0) ? sp->ring_BodyTrailingIdx_derived[sp->ringPos_BodyTrailingIdx] : pkVal0);
-   sp->ShadowPeriodTotal += TA_STREAM_CANDLERANGE(ShadowVeryLong,inOpen,inHigh,inLow,inClose) - ((sp->ringPos_ShadowTrailingIdx != pkSlot1) ? sp->ring_ShadowTrailingIdx_derived[sp->ringPos_ShadowTrailingIdx] : pkVal1);
-   sp->cur_outInteger = *outInteger;
-   sp->ringPos_BodyTrailingIdx = sp->ringPos_BodyTrailingIdx + 1;
-   if( sp->ringPos_BodyTrailingIdx >= sp->ringCap_BodyTrailingIdx )
-   {
-      sp->ringPos_BodyTrailingIdx = 0;
-   }
-   sp->ringPos_ShadowTrailingIdx = sp->ringPos_ShadowTrailingIdx + 1;
-   if( sp->ringPos_ShadowTrailingIdx >= sp->ringCap_ShadowTrailingIdx )
-   {
-      sp->ringPos_ShadowTrailingIdx = 0;
    }
    return TA_SUCCESS;
 }

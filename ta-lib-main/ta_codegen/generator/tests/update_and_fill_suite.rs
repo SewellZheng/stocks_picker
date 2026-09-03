@@ -286,39 +286,41 @@ fn the_check_is_inside_the_loop_and_not_a_pre_scan() {
 /// `value()` names a bar before the ones the call committed, and disagrees with
 /// `outRange()` by exactly the committed bars.
 ///
-/// It is refreshed in a `finally`, which covers every exit including the two
-/// throwing ones (a non-finite bar, and a sub-stream rejecting a computed
-/// intermediate mid-step). That is sound only because a step writes its `cur_*`
-/// fields last — pinned separately by
-/// `no_throwing_sub_call_follows_the_cur_capture_in_a_java_step`.
-///
-/// C# has no cache (a record struct built fresh from the fields), so it must NOT
-/// grow one here — and is already correct at every exit for the same reason.
+/// The cache is gone (#310): a multi-output `update`/`peek`/`value` writes a
+/// caller-owned `<N>Out`, so there is no stored instance to keep fresh and
+/// nothing for the `finally` to publish. This replaces the refresh test rather
+/// than deleting it — the property worth pinning is now the ABSENCE, swept over
+/// both managed backends so neither grows one back.
 #[test]
-fn the_java_value_cache_is_refreshed_on_every_exit() {
-    let multi = body_of(&section("bbands", "java"), "public void updateAndFill(");
-    assert!(
-        multi.contains("} finally {"),
-        "a multi-output updateAndFill refreshes the cache in a finally:\n{multi}"
-    );
-    assert_eq!(
-        multi.matches("if( done > 0 ) this.cachedValue =").count(),
-        1,
-        "one refresh, in the finally — not repeated per exit:\n{multi}"
-    );
-    let fin = multi.find("} finally {").expect("the finally");
-    let refresh = multi.find("if( done > 0 ) this.cachedValue =").expect("the refresh");
-    assert!(refresh > fin, "the refresh belongs inside the finally:\n{multi}");
-    let single = body_of(&section("sma", "java"), "public void updateAndFill(");
-    assert!(
-        !single.contains("cachedValue") && !single.contains("finally"),
-        "a single-output handle has no cache to refresh:\n{single}"
-    );
-    let cs = body_of(&section("bbands", "csharp"), "public void UpdateAndFill(");
-    assert!(
-        !cs.contains("cachedValue") && !cs.contains("finally"),
-        "C#'s Value is a fresh record struct and needs no refresh:\n{cs}"
-    );
+fn no_managed_handle_caches_the_multi_output_value() {
+    for (func, lang, verb) in [
+        ("bbands", "java", "public void updateAndFill("),
+        ("macd", "java", "public void updateAndFill("),
+        ("stoch", "java", "public void updateAndFill("),
+        ("bbands", "csharp", "public void UpdateAndFill("),
+    ] {
+        let sect = section(func, lang);
+        let fill = body_of(&sect, verb);
+        assert!(
+            !fill.contains("cachedValue") && !fill.contains("finally"),
+            "{func}/{lang} updateAndFill still keeps a cache fresh:\n{fill}"
+        );
+        // The whole handle, not just the filler: a cache re-grown anywhere else
+        // would leave this passing while the allocation is back.
+        assert!(
+            !sect.contains("cachedValue"),
+            "{func}/{lang} still declares or writes a cached value"
+        );
+    }
+
+    // Non-vacuity: these are multi-output handles, so they DO have an out type
+    // to have cached. A single-output handle proves nothing here.
+    for (func, lang, ty) in [("bbands", "java", "BbandsOut"), ("bbands", "csharp", "BbandsValue")] {
+        assert!(
+            section(func, lang).contains(ty),
+            "{func}/{lang} has no {ty}, so its lack of a cache is not evidence"
+        );
+    }
 }
 
 /// C is the only backend with a bar count and the only one that has to reject
@@ -355,21 +357,20 @@ fn each_backend_carries_the_guards_it_can_express() {
     assert!(rd.contains("inLow.len() != inHigh.len()"), "Rust: ragged inputs:\n{rd}");
 }
 
-/// Java's `updateAndFill` refreshes the multi-output `Value` cache in a
-/// `finally`, so `value()` names the last COMMITTED bar on every exit — the
-/// throwing ones included. That is only sound if a throw out of the middle of a
-/// bar leaves `cur_*` on the PREVIOUS bar, which holds because a step writes its
-/// `sp.cur_<out>` fields last, after every sub-stream call.
+/// `value(out)` must name the last COMMITTED bar on every exit, the throwing
+/// ones included. Since #310 it reads `cur_*` straight through to the caller's
+/// sink, so the fields ARE the answer — which is only sound if a throw out of
+/// the middle of a bar leaves them on the PREVIOUS bar, and that holds because
+/// a step writes its `sp.cur_<out>` fields last, after every sub-stream call.
 ///
 /// The one thing that can throw mid-bar is a sub-stream rejecting a computed
 /// intermediate (the composed tier's documented hole), so the property to pin is
-/// exactly: no sub call after the first `cur_*` write. Without it the `finally`
-/// would publish a half-written bar, which is worse than the stale value it
-/// replaced — and C# would still be right, because its `Value` is a record
-/// struct built fresh from the same fields.
+/// exactly: no sub call after the first `cur_*` write. Without it a rejection
+/// leaves the fields a mix of two bars and the next `value(out)` hands that
+/// mixture out as a reading.
 #[test]
 fn no_throwing_sub_call_follows_the_cur_capture_in_a_java_step() {
-    let mut with_subs = 0usize;
+    let mut with_subs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for name in streaming_funcs() {
         let base = backends::common::camel_words(&name.to_uppercase());
         let s = section(&name, "java");
@@ -389,7 +390,7 @@ fn no_throwing_sub_call_follows_the_cur_capture_in_a_java_step() {
             .filter_map(|p| body.rfind(p))
             .max();
         if let Some(last_sub) = last_sub {
-            with_subs += 1;
+            with_subs.insert(name.to_string());
             assert!(
                 last_sub < first_cur,
                 "{name}: a sub-stream call runs after the first cur_* write, so a \
@@ -399,10 +400,23 @@ fn no_throwing_sub_call_follows_the_cur_capture_in_a_java_step() {
         }
     }
     // The property is only load-bearing where a sub exists to throw, so the
-    // sweep has to have found some.
-    assert!(
-        with_subs == 5,
-        "{with_subs} multi-output handles drive a sub-stream, expected 5 \
-         (BBANDS, MACD, MACDEXT, STOCH, STOCHF/STOCHRSI) — the pin has moved or gone vacuous"
+    // sweep has to have found some — pinned as an exact SET, not a count, so a
+    // function leaving it is as loud as one joining.
+    //
+    // Over the SHIPPED corpus only. `scripts/synth_gate.py` copies its fixtures
+    // into input/, and one of them (SYNTH14) is multi-output, composed and
+    // streamable, so it legitimately joins this set there. A literal that
+    // counted it would turn a correct tree red with a message naming six
+    // shipped functions and nothing to do with the change under test — the
+    // failure mode `StreamSmokeTest` records against corpus literals, and the
+    // reason this one is filtered rather than widened.
+    let shipped: std::collections::BTreeSet<&str> =
+        with_subs.iter().map(String::as_str).filter(|n| !n.starts_with("synth")).collect();
+    let expected: std::collections::BTreeSet<&str> =
+        ["bbands", "kc", "macdext", "stoch", "stochf", "stochrsi"].into_iter().collect();
+    assert_eq!(
+        shipped, expected,
+        "the set of multi-output handles driving a sub-stream moved — the pin is \
+         stale or the sweep has gone vacuous"
     );
 }

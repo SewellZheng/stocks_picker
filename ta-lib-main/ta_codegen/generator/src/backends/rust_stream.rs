@@ -1322,7 +1322,7 @@ fn peek_frame_arm(
     });
 
     let mut out = String::new();
-    for (name, ty) in &model.temps {
+    for (name, ty) in &streaming::temps_used(&model.temps, &body_ir) {
         let (rty, default) = field_type_and_default(typing, name, ty, false);
         out.push_str(&decl_line(&pad, name, &rty, default.as_ref()));
     }
@@ -2777,9 +2777,10 @@ fn open_and_fill_doctest(
     let out_vars: Vec<(String, bool, bool)> = func
         .outputs
         .iter()
-        .map(|out| {
+        .zip(super::rust_doc::output_var_names(func))
+        .map(|(out, var)| {
             (
-                super::rust_doc::output_var_name(out),
+                var,
                 out_is_int(func, &out.name),
                 nullable.contains(&out.name),
             )

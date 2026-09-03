@@ -139,7 +139,6 @@ impl Core {
         let mut prevPlusDM: f64 = 0.0_f64;
         let mut prevTR: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        let tempReal2: f64 = 0.0_f64;
         let mut diffP: f64 = 0.0_f64;
         let mut diffM: f64 = 0.0_f64;
         let mut minusDI: f64 = 0.0_f64;
@@ -733,7 +732,6 @@ impl Core {
         let mut prevPlusDM: f64 = 0.0_f64;
         let mut prevTR: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        let mut tempReal2: f64 = 0.0_f64;
         let mut diffP: f64 = 0.0_f64;
         let mut diffM: f64 = 0.0_f64;
         let mut minusDI: f64 = 0.0_f64;
@@ -1303,7 +1301,6 @@ impl AdxStream {
             let mut diffM: f64 = 0.0_f64;
             let mut minusDI: f64 = 0.0_f64;
             let mut plusDI: f64 = 0.0_f64;
-            let mut cur_outReal = sp.cur_outReal;
             let mut prevADX = sp.prevADX;
             let mut prevClose = sp.prevClose;
             let mut prevHigh = sp.prevHigh;
@@ -1357,7 +1354,6 @@ impl AdxStream {
             }
             // Output the ADX
             (*outReal) = prevADX;
-            cur_outReal = (*outReal);
         }
         Ok(outReal)
     }

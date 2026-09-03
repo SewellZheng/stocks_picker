@@ -8166,6 +8166,104 @@ TA_LIB_API TA_RetCode TA_KAMA_Value( const TA_KAMA_Stream *stream, double *outRe
 TA_LIB_API TA_RetCode TA_KAMA_Clone( const TA_KAMA_Stream *stream, TA_KAMA_Stream **clone );
 
 /*
+ * TA_KC - Keltner Channels
+ * 
+ * Input  = High, Low, Close
+ * Output = double, double, double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period for the typical price moving average
+ * 
+ * optInATRPeriod:(From 1 to 100000)
+ *    Time period for the Average True Range
+ * 
+ * optInNbDev:(From -30000000000000000000000000000000000000 to 30000000000000000000000000000000000000)
+ *    Multiplier applied to the Average True Range
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_KC( int    startIdx,
+                             int    endIdx,
+                                        const double inHigh[],
+                                        const double inLow[],
+                                        const double inClose[],
+                                        int           optInTimePeriod, /* From 2 to 100000 */
+                                        int           optInATRPeriod, /* From 1 to 100000 */
+                                        double        optInNbDev, /* From -30000000000000000000000000000000000000 to 30000000000000000000000000000000000000 */
+                                        int          *outBegIdx,
+                                        int          *outNBElement,
+                                        double        outRealUpperBand[],
+                                        double        outRealMiddleBand[],
+                                        double        outRealLowerBand[] );
+
+TA_LIB_API TA_RetCode TA_S_KC( int    startIdx,
+                               int    endIdx,
+                                          const float  inHigh[],
+                                          const float  inLow[],
+                                          const float  inClose[],
+                                          int           optInTimePeriod, /* From 2 to 100000 */
+                                          int           optInATRPeriod, /* From 1 to 100000 */
+                                          double        optInNbDev, /* From -30000000000000000000000000000000000000 to 30000000000000000000000000000000000000 */
+                                          int          *outBegIdx,
+                                          int          *outNBElement,
+                                          double        outRealUpperBand[],
+                                          double        outRealMiddleBand[],
+                                          double        outRealLowerBand[] );
+
+TA_LIB_API int TA_KC_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
+                                        int           optInATRPeriod, /* From 1 to 100000 */
+                                        double        optInNbDev );  /* From -30000000000000000000000000000000000000 to 30000000000000000000000000000000000000 */
+
+
+
+/*
+ * Streaming API for TA_KC — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_KC_Stream TA_KC_Stream;
+
+TA_LIB_API TA_RetCode TA_KC_Open( TA_KC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int optInATRPeriod, double optInNbDev, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_KC_Update( TA_KC_Stream *stream, double inHigh, double inLow, double inClose, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_KC_Peek( const TA_KC_Stream *stream, double inHigh, double inLow, double inClose, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_KC_Close( TA_KC_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_KC( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_KC_OpenAndFill( TA_KC_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int optInATRPeriod, double optInNbDev, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_KC_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_KC_UpdateAndFill( TA_KC_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_KC_Value( const TA_KC_Stream *stream, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_KC_Clone( const TA_KC_Stream *stream, TA_KC_Stream **clone );
+
+/*
  * TA_LINEARREG - Linear Regression
  * 
  * Input  = double
@@ -12574,6 +12672,96 @@ TA_LIB_API TA_RetCode TA_SUM_Value( const TA_SUM_Stream *stream, double *outReal
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_SUM_Clone( const TA_SUM_Stream *stream, TA_SUM_Stream **clone );
+
+/*
+ * TA_SUPERTREND - SuperTrend
+ * 
+ * Input  = High, Low, Close
+ * Output = double, int
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period for the Average True Range
+ * 
+ * optInMultiplier:(From 0 to 30000000000000000000000000000000000000)
+ *    ATR multiplier for band width
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_SUPERTREND( int    startIdx,
+                                     int    endIdx,
+                                                const double inHigh[],
+                                                const double inLow[],
+                                                const double inClose[],
+                                                int           optInTimePeriod, /* From 2 to 100000 */
+                                                double        optInMultiplier, /* From 0 to 30000000000000000000000000000000000000 */
+                                                int          *outBegIdx,
+                                                int          *outNBElement,
+                                                double        outReal[],
+                                                int           outInteger[] );
+
+TA_LIB_API TA_RetCode TA_S_SUPERTREND( int    startIdx,
+                                       int    endIdx,
+                                                  const float  inHigh[],
+                                                  const float  inLow[],
+                                                  const float  inClose[],
+                                                  int           optInTimePeriod, /* From 2 to 100000 */
+                                                  double        optInMultiplier, /* From 0 to 30000000000000000000000000000000000000 */
+                                                  int          *outBegIdx,
+                                                  int          *outNBElement,
+                                                  double        outReal[],
+                                                  int           outInteger[] );
+
+TA_LIB_API int TA_SUPERTREND_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
+                                                double        optInMultiplier );  /* From 0 to 30000000000000000000000000000000000000 */
+
+
+
+/*
+ * Streaming API for TA_SUPERTREND — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_SUPERTREND_Stream TA_SUPERTREND_Stream;
+
+TA_LIB_API TA_RetCode TA_SUPERTREND_Open( TA_SUPERTREND_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double optInMultiplier, double *outReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_SUPERTREND_Update( TA_SUPERTREND_Stream *stream, double inHigh, double inLow, double inClose, double *outReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_SUPERTREND_Peek( const TA_SUPERTREND_Stream *stream, double inHigh, double inLow, double inClose, double *outReal, int *outInteger );
+
+TA_LIB_API TA_RetCode TA_SUPERTREND_Close( TA_SUPERTREND_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_SUPERTREND( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_SUPERTREND_OpenAndFill( TA_SUPERTREND_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double optInMultiplier, int *outBegIdx, int *outNBElement, double outReal[], int outInteger[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_SUPERTREND_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_SUPERTREND_UpdateAndFill( TA_SUPERTREND_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outReal[], int outInteger[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_SUPERTREND_Value( const TA_SUPERTREND_Stream *stream, double *outReal, int *outInteger );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_SUPERTREND_Clone( const TA_SUPERTREND_Stream *stream, TA_SUPERTREND_Stream **clone );
 
 /*
  * TA_T3 - Triple Exponential Moving Average (T3)

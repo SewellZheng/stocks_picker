@@ -205,6 +205,7 @@ impl Core {
         let mut today: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut bufferIsAllocated: usize = 0_usize;
+        i = 0;
         // With stochastic, there is a total of 4 different lines that
         // are defined: FASTK, FASTD, SLOWK and SLOWD.
         //
@@ -719,6 +720,7 @@ impl Core {
         let mut today: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut bufferIsAllocated: usize = 0_usize;
+        i = 0;
         // With stochastic, there is a total of 4 different lines that
         // are defined: FASTK, FASTD, SLOWK and SLOWD.
         //
@@ -1265,8 +1267,6 @@ impl StochStream {
             } else {
                 cur_tempBuffer = 0.0;
             }
-            trailingIdx += 1;
-            today += 1;
 
             // Pipeline the new bar through the sub-streams (batch tail order).
             cur_tempBuffer = sp.sub0.peek(cur_tempBuffer)?;

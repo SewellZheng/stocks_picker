@@ -1,6 +1,6 @@
 //! # TA-Lib: Technical Analysis Library
 //!
-//! 176 technical-analysis indicators — moving averages, momentum oscillators,
+//! 178 technical-analysis indicators — moving averages, momentum oscillators,
 //! volatility bands, volume studies, Hilbert Transform cycle analysis, statistics,
 //! price transforms, and 61 candlestick-pattern recognizers — as a pure-Rust crate.
 //!
@@ -52,6 +52,8 @@
 //! let core = Core::builder()
 //!     .unstable_period(FuncUnstId::EMA, 10)
 //!     .build()?;
+//!
+//! assert_eq!(core.get_unstable_period(FuncUnstId::EMA)?, 10);
 //! # Ok::<(), ta_lib::RetCode>(())
 //! ```
 //!
@@ -66,7 +68,11 @@
 //! points of indicators built on fused multiply-adds are compiled twice and the
 //! hardware-FMA clone is selected at runtime (the same dispatch the C library
 //! performs via `target_clones`); both paths are correctly rounded, so results
-//! are bit-identical either way. The streaming tier stays single-path.
+//! are bit-identical either way. Calling that clone is the one `unsafe` in the
+//! crate's shipped dependency graph: it lives in `ta-lib-dispatch`, inside the
+//! `is_x86_feature_detected!("fma")` test that has just proved it sound, and
+//! `forbid` here does not see it because it expands from another crate's macro.
+//! The streaming tier stays single-path.
 //!
 //! # Live data
 //!
@@ -203,7 +209,7 @@
 //! * [`WAD`](Core::WAD) — Williams' Accumulation/Distribution
 //! * [`WILLR`](Core::WILLR) — Williams' %R
 //!
-//! ## Overlap Studies (20)
+//! ## Overlap Studies (22)
 //!
 //! * [`ACCBANDS`](Core::ACCBANDS) — Acceleration Bands
 //! * [`BBANDS`](Core::BBANDS) — Bollinger Bands
@@ -212,6 +218,7 @@
 //! * [`HMA`](Core::HMA) — Hull Moving Average
 //! * [`HT_TRENDLINE`](Core::HT_TRENDLINE) — Hilbert Transform - Instantaneous Trendline
 //! * [`KAMA`](Core::KAMA) — Kaufman Adaptive Moving Average
+//! * [`KC`](Core::KC) — Keltner Channels
 //! * [`MA`](Core::MA) — Moving average
 //! * [`MAMA`](Core::MAMA) — MESA Adaptive Moving Average
 //! * [`MAVP`](Core::MAVP) — Moving average with variable period
@@ -220,6 +227,7 @@
 //! * [`SAR`](Core::SAR) — Parabolic SAR
 //! * [`SAREXT`](Core::SAREXT) — Parabolic SAR - Extended
 //! * [`SMA`](Core::SMA) — Simple Moving Average
+//! * [`SUPERTREND`](Core::SUPERTREND) — SuperTrend
 //! * [`T3`](Core::T3) — Triple Exponential Moving Average (T3)
 //! * [`TEMA`](Core::TEMA) — Triple Exponential Moving Average
 //! * [`TRIMA`](Core::TRIMA) — Triangular Moving Average

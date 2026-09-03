@@ -131,6 +131,7 @@
 #include "ta_HT_TRENDMODE.c"
 #include "ta_IMI.c"
 #include "ta_KAMA.c"
+#include "ta_KC.c"
 #include "ta_LINEARREG.c"
 #include "ta_LINEARREG_ANGLE.c"
 #include "ta_LINEARREG_INTERCEPT.c"
@@ -184,6 +185,7 @@
 #include "ta_STOCHRSI.c"
 #include "ta_SUB.c"
 #include "ta_SUM.c"
+#include "ta_SUPERTREND.c"
 #include "ta_T3.c"
 #include "ta_TAN.c"
 #include "ta_TANH.c"
@@ -1989,6 +1991,24 @@ static void bench_all(const char *filter, int iters) {
         printf("KAMA %lld\n", best / iters);
         fflush(stdout);
     }
+    if( func_matches(filter, "KC") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_KC(0, g_nPoints - 1, g_high, g_low, g_close, 20, 10, 2.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outBuf1, g_outBuf2);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+            g_sink += (int)g_outBuf1[0];
+            g_sink += (int)g_outBuf2[0];
+        }
+        printf("KC %lld\n", best / iters);
+        fflush(stdout);
+    }
     if( func_matches(filter, "LINEARREG") ) {
         long long best = 0;
         for( int pass = 0; pass < 3; pass++ ) {
@@ -2864,6 +2884,23 @@ static void bench_all(const char *filter, int iters) {
             g_sink += (int)g_outBuf0[0];
         }
         printf("SUM %lld\n", best / iters);
+        fflush(stdout);
+    }
+    if( func_matches(filter, "SUPERTREND") ) {
+        long long best = 0;
+        for( int pass = 0; pass < 3; pass++ ) {
+            int outBegIdx, outNBElement;
+            long long t0 = get_nanotime();
+            for( int it = 0; it < iters; it++ ) {
+                TA_SUPERTREND(0, g_nPoints - 1, g_high, g_low, g_close, 10, 3.000000000000000, &outBegIdx, &outNBElement, g_outBuf0, g_outIntBuf0);
+            }
+            long long elapsed = get_nanotime() - t0;
+            if( !best || elapsed < best ) best = elapsed;
+            g_sink += outNBElement;
+            g_sink += (int)g_outBuf0[0];
+            g_sink += g_outIntBuf0[0];
+        }
+        printf("SUPERTREND %lld\n", best / iters);
         fflush(stdout);
     }
     if( func_matches(filter, "T3") ) {

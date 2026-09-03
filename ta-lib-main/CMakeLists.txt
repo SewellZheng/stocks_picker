@@ -48,6 +48,16 @@ if(NOT MSVC)
     add_compile_options(-ffp-contract=off)
 endif()
 
+# Warnings, never -Werror: MSVC and the i386 GCC cross-build ship from here and
+# their warning sets differ. One CI job holds the line instead.
+#   -Wno-unused-parameter  the uniform OHLCV signature is public API; some
+#                          indicators legitimately read only part of it.
+#   -Wno-unknown-pragmas   `#pragma STDC FP_CONTRACT OFF` (fuzz_data.h) is
+#                          honored by clang/MSVC, ignored by GCC (issue #150).
+if(NOT MSVC)
+    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unknown-pragmas)
+endif()
+
 # -fno-math-errno (issue #192): sqrt() is one machine instruction, but ISO C
 # requires it to set errno on a domain error, so without this GCC keeps it
 # scalar and out of every vectorized loop. The library never reads errno and
@@ -391,6 +401,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_HT_TRENDMODE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_IMI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KAMA.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_KC.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_ANGLE.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_LINEARREG_INTERCEPT.c"
@@ -445,6 +456,7 @@ set(LIB_SOURCES
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_STOCHRSI.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUB.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUM.c"
+	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_SUPERTREND.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_T3.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TAN.c"
 	"${CMAKE_CURRENT_SOURCE_DIR}/src/ta_func/ta_TANH.c"
@@ -647,6 +659,8 @@ if(_TA_BUILD_TOOLS)
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_marketfi.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_vwap.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cmf.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_kc.c"
+		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_supertrend.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_mfi.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_cmou.c"
 		"${CMAKE_CURRENT_SOURCE_DIR}/src/tools/ta_regtest/ta_test_func/test_variants.c"

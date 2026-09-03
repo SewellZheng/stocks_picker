@@ -55,6 +55,8 @@
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
+      savedHigh = 0.0;
+      savedLow = 0.0;
       /* Confirmation-window countdown + cached 2nd-candle high/low: the pattern
        * state carried without an absolute bar index.
        */
@@ -163,6 +165,8 @@
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
+      savedHigh = 0.0;
+      savedLow = 0.0;
       lookbackTotal = CDLHIKKAKE_Lookback();
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -484,20 +488,16 @@
          CdlhikkakeStream sp = this;
          int cd = sp.cd;
          int cur_outInteger = sp.cur_outInteger;
-         double lag1_inHigh = sp.lag1_inHigh;
-         double lag1_inLow = sp.lag1_inLow;
-         double lag2_inHigh = sp.lag2_inHigh;
-         double lag2_inLow = sp.lag2_inLow;
          int patternResult = sp.patternResult;
          double savedHigh = sp.savedHigh;
          double savedLow = sp.savedLow;
-         if( lag1_inHigh < lag2_inHigh &&
-             lag1_inLow > lag2_inLow &&   /* 1st + 2nd: lower high and higher low */
-             (inHigh < lag1_inHigh && inLow < lag1_inLow || inHigh > lag1_inHigh && inLow > lag1_inLow) ) /* (bull) 3rd: lower high and lower low (bear) 3rd: higher high and higher low */
+         if( sp.lag1_inHigh < sp.lag2_inHigh &&
+             sp.lag1_inLow > sp.lag2_inLow &&   /* 1st + 2nd: lower high and higher low */
+             (inHigh < sp.lag1_inHigh && inLow < sp.lag1_inLow || inHigh > sp.lag1_inHigh && inLow > sp.lag1_inLow) ) /* (bull) 3rd: lower high and lower low (bear) 3rd: higher high and higher low */
          {
-            patternResult = 100 * ((inHigh < lag1_inHigh) ? 1 : 0 - 1);
-            savedHigh = lag1_inHigh;
-            savedLow = lag1_inLow;
+            patternResult = 100 * ((inHigh < sp.lag1_inHigh) ? 1 : 0 - 1);
+            savedHigh = sp.lag1_inHigh;
+            savedLow = sp.lag1_inLow;
             cd = 4;
             cur_outInteger = patternResult;
          } else if( cd > 0 &&
@@ -508,13 +508,6 @@
          } else {
             cur_outInteger = 0;
          }
-         if( cd > 0 ) {
-            cd -= 1;
-         }
-         lag2_inHigh = lag1_inHigh;
-         lag1_inHigh = inHigh;
-         lag2_inLow = lag1_inLow;
-         lag1_inLow = inLow;
          return cur_outInteger;
       }
 
@@ -596,6 +589,8 @@
          outNBElement.value = 0;
          return RetCode.InsufficientHistory;
       }
+      savedHigh = 0.0;
+      savedLow = 0.0;
       /* Confirmation-window countdown + cached 2nd-candle high/low: the pattern
        * state carried without an absolute bar index.
        */

@@ -465,7 +465,6 @@
       double cur_outRealUpperBand;
       double cur_outRealMiddleBand;
       double cur_outRealLowerBand;
-      Value cachedValue;
       int outRangeBegIdx;
       int outRangeCount;
 
@@ -498,32 +497,17 @@
          this.cur_outRealUpperBand = other.cur_outRealUpperBand;
          this.cur_outRealMiddleBand = other.cur_outRealMiddleBand;
          this.cur_outRealLowerBand = other.cur_outRealLowerBand;
-         this.cachedValue = other.cachedValue;
          this.outRangeBegIdx = other.outRangeBegIdx;
          this.outRangeCount = other.outRangeCount;
       }
 
       /**
-       * One output set, in batch output order. Immutable.
-       *
-       * <p>{@code equals} compares every component bitwise, so {@code NaN}
-       * equals {@code NaN} and {@code 0.0} does not equal {@code -0.0}.
-       * {@code hashCode} is consistent with it but its exact value is
-       * unspecified — do not persist it or compare it across JVM versions.
-       *
-       * @param realUpperBand SMA of the range-scaled high band.
-       * @param realMiddleBand SMA of the close.
-       * @param realLowerBand SMA of the range-scaled low band.
-       */
-      public record Value(double realUpperBand, double realMiddleBand, double realLowerBand) { }
-
-      /**
-       * Commit one closed bar, returning the new current value.
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
+       * output is the previous value, held, and {@link #value(AccbandsOut)} answers it.
        * The stream stays usable, so skip the bar or re-open on a clean
        * history. {@link #outRange()} does advance: the bar happened and
        * occupies a position in the series, so the handle counts it, which is
@@ -533,15 +517,17 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
-      public Value update( double inHigh, double inLow, double inClose ) {
+      public void update( double inHigh, double inLow, double inClose, AccbandsOut out ) {
+         requireArgument("ACCBANDS update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("ACCBANDS update: BadParam", RetCode.BadParam);
          }
          core.accbandsStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
-         return this.cachedValue;
+         out.realUpperBand = this.cur_outRealUpperBand;
+         out.realMiddleBand = this.cur_outRealMiddleBand;
+         out.realLowerBand = this.cur_outRealLowerBand;
       }
 
       /**
@@ -567,36 +553,30 @@
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outRealUpperBand.length < barCount || outRealMiddleBand.length < barCount || outRealLowerBand.length < barCount || (Object)outRealUpperBand == (Object)inHigh || (Object)outRealUpperBand == (Object)inLow || (Object)outRealUpperBand == (Object)inClose || (Object)outRealMiddleBand == (Object)inHigh || (Object)outRealMiddleBand == (Object)inLow || (Object)outRealMiddleBand == (Object)inClose || (Object)outRealLowerBand == (Object)inHigh || (Object)outRealLowerBand == (Object)inLow || (Object)outRealLowerBand == (Object)inClose || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand )
             throw new TaLibArgumentException("ACCBANDS updateAndFill: BadParam", RetCode.BadParam);
-         int done = 0;
-         try {
-            for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-                  throw new TaLibArgumentException("ACCBANDS updateAndFill: BadParam", RetCode.BadParam);
-               }
-               core.accbandsStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-               outRealUpperBand[i] = this.cur_outRealUpperBand;
-               outRealMiddleBand[i] = this.cur_outRealMiddleBand;
-               outRealLowerBand[i] = this.cur_outRealLowerBand;
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
                if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               done = i + 1;
+               throw new TaLibArgumentException("ACCBANDS updateAndFill: BadParam", RetCode.BadParam);
             }
-         } finally {
-            if( done > 0 ) this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
+            core.accbandsStepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outRealUpperBand[i] = this.cur_outRealUpperBand;
+            outRealMiddleBand[i] = this.cur_outRealMiddleBand;
+            outRealLowerBand[i] = this.cur_outRealLowerBand;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          }
       }
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return — the same
+       * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
        * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * does not grow with the period and {@code peek} never allocates.
        */
-      public Value peek( double inHigh, double inLow, double inClose ) {
+      public void peek( double inHigh, double inLow, double inClose, AccbandsOut out ) {
+         requireArgument("ACCBANDS peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("ACCBANDS peek: BadParam", RetCode.BadParam);
          AccbandsStream sp = this;
@@ -610,7 +590,6 @@
          double periodTotalLower = sp.periodTotalLower;
          double periodTotalMiddle = sp.periodTotalMiddle;
          double periodTotalUpper = sp.periodTotalUpper;
-         int ringPos_trailingIdx = sp.ringPos_trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
@@ -641,35 +620,36 @@
          tempMiddle = periodTotalMiddle;
          tempLower = periodTotalLower;
          /* Remove the trailing bar from each running sum. */
-         tempReal = ((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) + ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1);
-         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) + Math.abs((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1))) ) {
-            tempReal = 4 * (((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) - ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1)) / tempReal;
-            periodTotalUpper -= ((ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0) * (1 + tempReal);
-            periodTotalLower -= ((ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1) * (1 - tempReal);
+         tempReal = ((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) + ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1);
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (Math.abs((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) + Math.abs((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1))) ) {
+            tempReal = 4 * (((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) - ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1)) / tempReal;
+            periodTotalUpper -= ((sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0) * (1 + tempReal);
+            periodTotalLower -= ((sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1) * (1 - tempReal);
          } else {
-            periodTotalUpper -= (ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[ringPos_trailingIdx] : pkVal0;
-            periodTotalLower -= (ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[ringPos_trailingIdx] : pkVal1;
+            periodTotalUpper -= (sp.ringPos_trailingIdx != pkSlot0) ? sp.ring_trailingIdx_inHigh[sp.ringPos_trailingIdx] : pkVal0;
+            periodTotalLower -= (sp.ringPos_trailingIdx != pkSlot1) ? sp.ring_trailingIdx_inLow[sp.ringPos_trailingIdx] : pkVal1;
          }
-         periodTotalMiddle -= (ringPos_trailingIdx != pkSlot2) ? sp.ring_trailingIdx_inClose[ringPos_trailingIdx] : pkVal2;
+         periodTotalMiddle -= (sp.ringPos_trailingIdx != pkSlot2) ? sp.ring_trailingIdx_inClose[sp.ringPos_trailingIdx] : pkVal2;
          /* Write the three bands. */
          cur_outRealUpperBand = tempUpper / (double)sp.optInTimePeriod;
          cur_outRealMiddleBand = tempMiddle / (double)sp.optInTimePeriod;
          cur_outRealLowerBand = tempLower / (double)sp.optInTimePeriod;
-         ringPos_trailingIdx = ringPos_trailingIdx + 1;
-         if( ringPos_trailingIdx >= sp.ringCap_trailingIdx ) {
-            ringPos_trailingIdx = 0;
-         }
-         return new Value(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
+         out.realUpperBand = cur_outRealUpperBand;
+         out.realMiddleBand = cur_outRealMiddleBand;
+         out.realLowerBand = cur_outRealLowerBand;
       }
 
       /**
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
-       * then whatever the latest accepted {@code update} returned.
-       * A pure field read; {@code peek} does not change it.
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
        */
-      public Value value() {
-         return this.cachedValue;
+      public void value( AccbandsOut out ) {
+         requireArgument("ACCBANDS value", "out", out);
+         out.realUpperBand = this.cur_outRealUpperBand;
+         out.realMiddleBand = this.cur_outRealMiddleBand;
+         out.realLowerBand = this.cur_outRealLowerBand;
       }
 
       /**
@@ -687,6 +667,30 @@
       public AccbandsStream clone() {
          return new AccbandsStream(this);
       }
+   }
+
+   /**
+    * The outputs of one ACCBANDS bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class AccbandsOut {
+      /** SMA of the range-scaled high band. */
+      public double realUpperBand;
+      /** SMA of the close. */
+      public double realMiddleBand;
+      /** SMA of the range-scaled low band. */
+      public double realLowerBand;
    }
    void accbandsStepImpl( AccbandsStream sp, double inHigh, double inLow, double inClose )
    {
@@ -895,7 +899,6 @@
       sp.cur_outRealUpperBand = outRealUpperBand[(outNBElement.value - 1) * outStride];
       sp.cur_outRealMiddleBand = outRealMiddleBand[(outNBElement.value - 1) * outStride];
       sp.cur_outRealLowerBand = outRealLowerBand[(outNBElement.value - 1) * outStride];
-      sp.cachedValue = new AccbandsStream.Value(sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand);
       return RetCode.Success;
    }
    /* accbandsOpenAndFill anchored at startIdx — the composed-open fusion seam. */

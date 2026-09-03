@@ -141,7 +141,6 @@ impl Core {
         let mut prevPlusDM: f64 = 0.0_f64;
         let mut prevTR: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        let tempReal2: f64 = 0.0_f64;
         let mut diffP: f64 = 0.0_f64;
         let mut diffM: f64 = 0.0_f64;
         let mut minusDI: f64 = 0.0_f64;
@@ -673,7 +672,6 @@ impl Core {
         let mut prevPlusDM: f64 = 0.0_f64;
         let mut prevTR: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        let mut tempReal2: f64 = 0.0_f64;
         let mut diffP: f64 = 0.0_f64;
         let mut diffM: f64 = 0.0_f64;
         let mut minusDI: f64 = 0.0_f64;
@@ -1181,8 +1179,6 @@ impl DxStream {
             let mut diffM: f64 = 0.0_f64;
             let mut minusDI: f64 = 0.0_f64;
             let mut plusDI: f64 = 0.0_f64;
-            let mut cur_outReal = sp.cur_outReal;
-            let mut lastOut_outReal = sp.lastOut_outReal;
             let mut prevClose = sp.prevClose;
             let mut prevHigh = sp.prevHigh;
             let mut prevLow = sp.prevLow;
@@ -1231,13 +1227,11 @@ impl DxStream {
                 if !((tempReal).abs() < 1e-14) {
                     (*outReal) = (100.0 * ((minusDI - plusDI).abs() / tempReal));
                 } else {
-                    (*outReal) = lastOut_outReal;
+                    (*outReal) = sp.lastOut_outReal;
                 }
             } else {
-                (*outReal) = lastOut_outReal;
+                (*outReal) = sp.lastOut_outReal;
             }
-            lastOut_outReal = (*outReal);
-            cur_outReal = (*outReal);
         }
         Ok(outReal)
     }

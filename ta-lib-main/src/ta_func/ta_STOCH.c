@@ -172,6 +172,7 @@ TA_LIB_API TA_RetCode TA_STOCH( int    startIdx,
    if( outSlowK == outSlowD )
       return TA_BAD_PARAM;
 
+   i = 0;
    /* With stochastic, there is a total of 4 different lines that
     * are defined: FASTK, FASTD, SLOWK and SLOWD.
     *
@@ -463,6 +464,7 @@ TA_RetCode TA_S_STOCH( int    startIdx,
    if( outSlowK == outSlowD )
       return TA_BAD_PARAM;
 
+   i = 0;
    lookbackK = optInFastK_Period - 1;
    lookbackKSlow = TA_MA_Lookback(optInSlowK_Period,optInSlowK_MAType);
    lookbackDSlow = TA_MA_Lookback(optInSlowD_Period,optInSlowD_MAType);
@@ -633,9 +635,9 @@ static void TA_STOCH_ReleaseImpl( struct TA_STOCH_Stream *sp )
 /* Private function, not in public API. */
 static TA_RetCode TA_STOCH_StepImpl( struct TA_STOCH_Stream *sp, double inHigh, double inLow, double inClose, double *outSlowK, double *outSlowD )
 {
-   double tmp;
    double cur_tempBuffer = 0.0;
    double cur_outSlowD = 0.0;
+   double tmp;
 
    if( sp->today >= 1073741824 )
    {
@@ -809,7 +811,7 @@ static TA_RetCode TA_STOCH_OpenImpl( struct TA_STOCH_Stream **stream, const doub
       int lookbackDSlow;
       int trailingIdx;
       int today;
-      int i;
+      int i = 0;
       int bufferIsAllocated;
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
@@ -1177,9 +1179,9 @@ TA_LIB_API TA_RetCode TA_STOCH_Peek( const TA_STOCH_Stream *stream, double inHig
 {
    struct TA_STOCH_Stream scratch;
    struct TA_STOCH_Stream *sp = &scratch;
-   double tmp;
    double cur_tempBuffer = 0.0;
    double cur_outSlowD = 0.0;
+   double tmp;
    int pkSlot0 = -1;
    double pkVal0 = 0.0;
    int pkSlot1 = -1;
@@ -1266,8 +1268,6 @@ TA_LIB_API TA_RetCode TA_STOCH_Peek( const TA_STOCH_Stream *stream, double inHig
    {
       cur_tempBuffer = 0.0;
    }
-   sp->trailingIdx += 1;
-   sp->today += 1;
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {

@@ -811,7 +811,6 @@
       double cur_outRealUpperBand;
       double cur_outRealMiddleBand;
       double cur_outRealLowerBand;
-      Value cachedValue;
       MaStream sub0;
       StddevStream sub1;
       int outRangeBegIdx;
@@ -841,7 +840,6 @@
          this.cur_outRealUpperBand = other.cur_outRealUpperBand;
          this.cur_outRealMiddleBand = other.cur_outRealMiddleBand;
          this.cur_outRealLowerBand = other.cur_outRealLowerBand;
-         this.cachedValue = other.cachedValue;
          this.sub0 = new MaStream(other.sub0);
          this.sub1 = new StddevStream(other.sub1);
          this.outRangeBegIdx = other.outRangeBegIdx;
@@ -849,26 +847,12 @@
       }
 
       /**
-       * One output set, in batch output order. Immutable.
-       *
-       * <p>{@code equals} compares every component bitwise, so {@code NaN}
-       * equals {@code NaN} and {@code 0.0} does not equal {@code -0.0}.
-       * {@code hashCode} is consistent with it but its exact value is
-       * unspecified — do not persist it or compare it across JVM versions.
-       *
-       * @param realUpperBand Middle band plus nbDevUp standard deviations.
-       * @param realMiddleBand The moving average.
-       * @param realLowerBand Middle band minus nbDevDn standard deviations.
-       */
-      public record Value(double realUpperBand, double realMiddleBand, double realLowerBand) { }
-
-      /**
-       * Commit one closed bar, returning the new current value.
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
+       * output is the previous value, held, and {@link #value(BbandsOut)} answers it.
        * The stream stays usable, so skip the bar or re-open on a clean
        * history. {@link #outRange()} does advance: the bar happened and
        * occupies a position in the series, so the handle counts it, which is
@@ -878,15 +862,17 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
-      public Value update( double inReal ) {
+      public void update( double inReal, BbandsOut out ) {
+         requireArgument("BBANDS update", "out", out);
          if( !Double.isFinite(inReal) ) {
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("BBANDS update: BadParam", RetCode.BadParam);
          }
          core.bbandsStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
-         return this.cachedValue;
+         out.realUpperBand = this.cur_outRealUpperBand;
+         out.realMiddleBand = this.cur_outRealMiddleBand;
+         out.realLowerBand = this.cur_outRealLowerBand;
       }
 
       /**
@@ -910,36 +896,30 @@
          final int barCount = inReal.length;
          if( outRealUpperBand.length < barCount || outRealMiddleBand.length < barCount || outRealLowerBand.length < barCount || (Object)outRealUpperBand == (Object)inReal || (Object)outRealMiddleBand == (Object)inReal || (Object)outRealLowerBand == (Object)inReal || (Object)outRealUpperBand == (Object)outRealMiddleBand || (Object)outRealUpperBand == (Object)outRealLowerBand || (Object)outRealMiddleBand == (Object)outRealLowerBand )
             throw new TaLibArgumentException("BBANDS updateAndFill: BadParam", RetCode.BadParam);
-         int done = 0;
-         try {
-            for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inReal[i]) ) {
-                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-                  throw new TaLibArgumentException("BBANDS updateAndFill: BadParam", RetCode.BadParam);
-               }
-               core.bbandsStepImpl(this, inReal[i]);
-               outRealUpperBand[i] = this.cur_outRealUpperBand;
-               outRealMiddleBand[i] = this.cur_outRealMiddleBand;
-               outRealLowerBand[i] = this.cur_outRealLowerBand;
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inReal[i]) ) {
                if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               done = i + 1;
+               throw new TaLibArgumentException("BBANDS updateAndFill: BadParam", RetCode.BadParam);
             }
-         } finally {
-            if( done > 0 ) this.cachedValue = new Value(this.cur_outRealUpperBand, this.cur_outRealMiddleBand, this.cur_outRealLowerBand);
+            core.bbandsStepImpl(this, inReal[i]);
+            outRealUpperBand[i] = this.cur_outRealUpperBand;
+            outRealMiddleBand[i] = this.cur_outRealMiddleBand;
+            outRealLowerBand[i] = this.cur_outRealLowerBand;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          }
       }
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return — the same
+       * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
        * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * does not grow with the period and {@code peek} never allocates.
        */
-      public Value peek( double inReal ) {
+      public void peek( double inReal, BbandsOut out ) {
+         requireArgument("BBANDS peek", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("BBANDS peek: BadParam", RetCode.BadParam);
          BbandsStream sp = this;
@@ -965,17 +945,22 @@
             cur_outRealLowerBand = tempReal2 - cur_tempBuffer2 * sp.optInNbDevDn;
          }
          cur_outRealMiddleBand = cur_tempBuffer1;
-         return new Value(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
+         out.realUpperBand = cur_outRealUpperBand;
+         out.realMiddleBand = cur_outRealMiddleBand;
+         out.realLowerBand = cur_outRealLowerBand;
       }
 
       /**
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
-       * then whatever the latest accepted {@code update} returned.
-       * A pure field read; {@code peek} does not change it.
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
        */
-      public Value value() {
-         return this.cachedValue;
+      public void value( BbandsOut out ) {
+         requireArgument("BBANDS value", "out", out);
+         out.realUpperBand = this.cur_outRealUpperBand;
+         out.realMiddleBand = this.cur_outRealMiddleBand;
+         out.realLowerBand = this.cur_outRealLowerBand;
       }
 
       /**
@@ -993,6 +978,30 @@
       public BbandsStream clone() {
          return new BbandsStream(this);
       }
+   }
+
+   /**
+    * The outputs of one BBANDS bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class BbandsOut {
+      /** Middle band plus nbDevUp standard deviations. */
+      public double realUpperBand;
+      /** The moving average. */
+      public double realMiddleBand;
+      /** Middle band minus nbDevDn standard deviations. */
+      public double realLowerBand;
    }
    void bbandsStepImpl( BbandsStream sp, double inReal )
    {
@@ -1153,7 +1162,6 @@
       sp.cur_outRealUpperBand = sc_outRealUpperBand[outNBElement.value - 1];
       sp.cur_outRealMiddleBand = sc_outRealMiddleBand[outNBElement.value - 1];
       sp.cur_outRealLowerBand = sc_outRealLowerBand[outNBElement.value - 1];
-      sp.cachedValue = new BbandsStream.Value(sp.cur_outRealUpperBand, sp.cur_outRealMiddleBand, sp.cur_outRealLowerBand);
       return RetCode.Success;
    }
    /* bbandsOpenAndFill anchored at startIdx — the composed-open fusion seam. */

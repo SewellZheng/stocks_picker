@@ -141,7 +141,6 @@ impl Core {
         let mut prevPlusDM: f64 = 0.0_f64;
         let mut prevTR: f64 = 0.0_f64;
         let mut tempReal: f64 = 0.0_f64;
-        let tempReal2: f64 = 0.0_f64;
         let mut diffP: f64 = 0.0_f64;
         let mut diffM: f64 = 0.0_f64;
         let mut i: usize = 0_usize;
@@ -717,7 +716,6 @@ impl Core {
             let mut prevPlusDM: f64 = 0.0_f64;
             let mut prevTR: f64 = 0.0_f64;
             let mut tempReal: f64 = 0.0_f64;
-            let mut tempReal2: f64 = 0.0_f64;
             let mut diffP: f64 = 0.0_f64;
             let mut diffM: f64 = 0.0_f64;
             let mut i: usize = 0_usize;
@@ -897,7 +895,6 @@ impl Core {
             let mut prevPlusDM: f64 = 0.0_f64;
             let mut prevTR: f64 = 0.0_f64;
             let mut tempReal: f64 = 0.0_f64;
-            let mut tempReal2: f64 = 0.0_f64;
             let mut diffP: f64 = 0.0_f64;
             let mut diffM: f64 = 0.0_f64;
             let mut i: usize = 0_usize;
@@ -1370,8 +1367,6 @@ impl PlusDiStream {
                 let mut tempReal: f64 = 0.0_f64;
                 let mut diffP: f64 = 0.0_f64;
                 let mut diffM: f64 = 0.0_f64;
-                let mut cur_outReal = sp.cur_outReal;
-                let mut prevClose = sp.prevClose;
                 let mut prevHigh = sp.prevHigh;
                 let mut prevLow = sp.prevLow;
                 tempReal = inHigh;
@@ -1386,11 +1381,11 @@ impl PlusDiStream {
                     // Case 1 and 3: +DM=diffP,-DM=0
                     let mut _true_range_6: f64;
                     let mut range_6: f64 = prevHigh - prevLow;
-                    let mut tmp_6: f64 = (prevHigh - prevClose).abs();
+                    let mut tmp_6: f64 = (prevHigh - sp.prevClose).abs();
                     if tmp_6 > range_6 {
                         range_6 = tmp_6;
                     }
-                    tmp_6 = (prevLow - prevClose).abs();
+                    tmp_6 = (prevLow - sp.prevClose).abs();
                     if tmp_6 > range_6 {
                         range_6 = tmp_6;
                     }
@@ -1404,13 +1399,10 @@ impl PlusDiStream {
                 } else {
                     (*outReal) = 0.0 as f64;
                 }
-                prevClose = inClose;
-                cur_outReal = (*outReal);
             } else {
                 let mut tempReal: f64 = 0.0_f64;
                 let mut diffP: f64 = 0.0_f64;
                 let mut diffM: f64 = 0.0_f64;
-                let mut cur_outReal = sp.cur_outReal;
                 let mut prevClose = sp.prevClose;
                 let mut prevHigh = sp.prevHigh;
                 let mut prevLow = sp.prevLow;
@@ -1453,7 +1445,6 @@ impl PlusDiStream {
                 } else {
                     (*outReal) = 0.0;
                 }
-                cur_outReal = (*outReal);
             }
         }
         Ok(outReal)

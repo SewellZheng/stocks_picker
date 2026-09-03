@@ -44,14 +44,19 @@ fn load() -> Vec<FuncDef> {
 
 /// Functions that inherit an unstable period through a hard-coded inner call, and the
 /// function each one inherits from. Measured: every one of these moves at default params.
+/// KC is the only one with TWO sources (EMA for its centre line, ATR for its band), and it
+/// shares the ATR one with SUPERTREND -- which inherits it through `atr_lookback()` alone,
+/// with no call to `atr()` in the body at all.
 const INHERITED: &[(&str, &str)] = &[
     ("ADOSC", "EMA"),
     ("ADXR", "ADX"),
     ("DEMA", "EMA"),
+    ("KC", "ATR"),
     ("MACD", "EMA"),
     ("MACDFIX", "EMA"),
     ("SMI", "EMA"),
     ("STOCHRSI", "RSI"),
+    ("SUPERTREND", "ATR"),
     ("TEMA", "EMA"),
     ("TRIX", "EMA"),
 ];
@@ -106,6 +111,18 @@ fn classification_matches_the_measured_library() {
         .collect();
     got.sort_unstable();
     assert_eq!(got, MATYPE_DEPENDENT, "set of MA-type-dependent functions changed");
+
+    // KC inherits from TWO different ids, and both matter: ta_regtest's UNSTABLE_MAP
+    // sweeps the set it is given and leaves the rest at zero, so a leg whose id is
+    // missing there never warms while the convergence envelope tightens around it.
+    // The INHERITED row above can name only one source, so assert the pair here.
+    {
+        let kc = &st["KC"].inherited_from;
+        assert!(
+            kc.iter().any(|g| g == "EMA") && kc.iter().any(|g| g == "ATR"),
+            "KC must inherit from both EMA and ATR, got {kc:?}"
+        );
+    }
 
     // SAR is the regression this analysis was narrowed for: it calls MINUS_DM (which owns
     // an unstable period) with a literal period of 1, so it inherits nothing.

@@ -216,6 +216,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             MakeHtTrendmode(),
             MakeImi(),
             MakeKama(),
+            MakeKc(),
             MakeLinearreg(),
             MakeLinearregAngle(),
             MakeLinearregIntercept(),
@@ -270,6 +271,7 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             MakeStochrsi(),
             MakeSub(),
             MakeSum(),
+            MakeSupertrend(),
             MakeT3(),
             MakeTan(),
             MakeTanh(),
@@ -2545,6 +2547,33 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
             core.KAMA(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
 
+    private static FunctionInfo MakeKc() => new(
+        name: "KC",
+        group: FunctionGroup.OverlapStudies,
+        hint: "Keltner Channels",
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period for the typical price moving average", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 20, 4, 200, 1)),
+            new OptInputInfo("optInATRPeriod", "ATR Period", "Time period for the Average True Range", OptInputFlags.None, new OptInputDomain.IntegerRange(1, 100000, 10, 1, 200, 1)),
+            new OptInputInfo("optInNbDev", "Deviations", "Multiplier applied to the Average True Range", OptInputFlags.None, new OptInputDomain.RealRange(-3e37, 3e37, 2, 2.0, 1.0, 3.0, 0.5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outRealUpperBand", OutputFlags.UpperLimit),
+            new OutputInfo(OutputKind.Real, "outRealMiddleBand", OutputFlags.Line),
+            new OutputInfo(OutputKind.Real, "outRealLowerBand", OutputFlags.LowerLimit),
+        ],
+        lookback: static (core, c) => core.KC_Lookback(c.IntOpt(0), c.IntOpt(1), c.RealOpt(2)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.KC(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.IntOpt(1), c.RealOpt(2), c.RealOut(0), c.RealOut(1), c.RealOut(2)));
+
     private static FunctionInfo MakeLinearreg() => new(
         name: "LINEARREG",
         group: FunctionGroup.StatisticFunctions,
@@ -3803,6 +3832,31 @@ public sealed class FunctionCatalog : IReadOnlyList<FunctionInfo>
         invoke: static (core, c, startIdx, endIdx) =>
             core.SUM(
                 startIdx, endIdx, c.Series(0), c.IntOpt(0), c.RealOut(0)));
+
+    private static FunctionInfo MakeSupertrend() => new(
+        name: "SUPERTREND",
+        group: FunctionGroup.OverlapStudies,
+        hint: "SuperTrend",
+        flags: FunctionFlags.Overlap | FunctionFlags.Stream | FunctionFlags.PathDependent,
+        unstableId: null,
+        inputs:
+        [
+            new InputInfo(InputKind.Price, "inPriceHLC", PriceComponents.High | PriceComponents.Low | PriceComponents.Close, [PriceComponents.High, PriceComponents.Low, PriceComponents.Close]),
+        ],
+        optInputs:
+        [
+            new OptInputInfo("optInTimePeriod", "Time Period", "Time period for the Average True Range", OptInputFlags.None, new OptInputDomain.IntegerRange(2, 100000, 10, 4, 200, 1)),
+            new OptInputInfo("optInMultiplier", "Multiplier", "ATR multiplier for band width", OptInputFlags.None, new OptInputDomain.RealRange(0.0, 3e37, 1, 3.0, 1.0, 4.0, 0.5)),
+        ],
+        outputs:
+        [
+            new OutputInfo(OutputKind.Real, "outReal", OutputFlags.Line),
+            new OutputInfo(OutputKind.Integer, "outInteger", OutputFlags.Line),
+        ],
+        lookback: static (core, c) => core.SUPERTREND_Lookback(c.IntOpt(0), c.RealOpt(1)),
+        invoke: static (core, c, startIdx, endIdx) =>
+            core.SUPERTREND(
+                startIdx, endIdx, c.Price(0, PriceComponents.High), c.Price(0, PriceComponents.Low), c.Price(0, PriceComponents.Close), c.IntOpt(0), c.RealOpt(1), c.RealOut(0), c.IntOut(1)));
 
     private static FunctionInfo MakeT3() => new(
         name: "T3",

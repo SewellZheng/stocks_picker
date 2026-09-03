@@ -144,6 +144,7 @@
       if( outSlowK == outSlowD ) {
          return RetCode.BadParam ;
       }
+      i = 0;
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
        *
@@ -388,6 +389,7 @@
       if( outSlowK == outSlowD ) {
          return RetCode.BadParam ;
       }
+      i = 0;
       lookbackK = optInFastK_Period - 1;
       lookbackKSlow = MA_Lookback(optInSlowK_Period, optInSlowK_MAType);
       lookbackDSlow = MA_Lookback(optInSlowD_Period, optInSlowD_MAType);
@@ -711,7 +713,6 @@
       double[] x_inClose;
       double cur_outSlowK;
       double cur_outSlowD;
-      Value cachedValue;
       MaStream sub0;
       MaStream sub1;
       int outRangeBegIdx;
@@ -753,7 +754,6 @@
          this.x_inClose = other.x_inClose.clone();
          this.cur_outSlowK = other.cur_outSlowK;
          this.cur_outSlowD = other.cur_outSlowD;
-         this.cachedValue = other.cachedValue;
          this.sub0 = new MaStream(other.sub0);
          this.sub1 = new MaStream(other.sub1);
          this.outRangeBegIdx = other.outRangeBegIdx;
@@ -761,25 +761,12 @@
       }
 
       /**
-       * One output set, in batch output order. Immutable.
-       *
-       * <p>{@code equals} compares every component bitwise, so {@code NaN}
-       * equals {@code NaN} and {@code 0.0} does not equal {@code -0.0}.
-       * {@code hashCode} is consistent with it but its exact value is
-       * unspecified — do not persist it or compare it across JVM versions.
-       *
-       * @param slowK Raw FastK smoothed by SlowK_Period MA.
-       * @param slowD Signal line: SlowK smoothed by SlowD_Period MA.
-       */
-      public record Value(double slowK, double slowD) { }
-
-      /**
-       * Commit one closed bar, returning the new current value.
+       * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
+       * output is the previous value, held, and {@link #value(StochOut)} answers it.
        * The stream stays usable, so skip the bar or re-open on a clean
        * history. {@link #outRange()} does advance: the bar happened and
        * occupies a position in the series, so the handle counts it, which is
@@ -789,15 +776,16 @@
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
-      public Value update( double inHigh, double inLow, double inClose ) {
+      public void update( double inHigh, double inLow, double inClose, StochOut out ) {
+         requireArgument("STOCH update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
             if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
             throw new TaLibArgumentException("STOCH update: BadParam", RetCode.BadParam);
          }
          core.stochStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         this.cachedValue = new Value(this.cur_outSlowK, this.cur_outSlowD);
-         return this.cachedValue;
+         out.slowK = this.cur_outSlowK;
+         out.slowD = this.cur_outSlowD;
       }
 
       /**
@@ -822,35 +810,29 @@
          final int barCount = inHigh.length;
          if( inLow.length != barCount || inClose.length != barCount || outSlowK.length < barCount || outSlowD.length < barCount || (Object)outSlowK == (Object)inHigh || (Object)outSlowK == (Object)inLow || (Object)outSlowK == (Object)inClose || (Object)outSlowD == (Object)inHigh || (Object)outSlowD == (Object)inLow || (Object)outSlowD == (Object)inClose || (Object)outSlowK == (Object)outSlowD )
             throw new TaLibArgumentException("STOCH updateAndFill: BadParam", RetCode.BadParam);
-         int done = 0;
-         try {
-            for( int i = 0; i < barCount; i++ ) {
-               if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-                  if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-                  throw new TaLibArgumentException("STOCH updateAndFill: BadParam", RetCode.BadParam);
-               }
-               core.stochStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-               outSlowK[i] = this.cur_outSlowK;
-               outSlowD[i] = this.cur_outSlowD;
+         for( int i = 0; i < barCount; i++ ) {
+            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
                if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               done = i + 1;
+               throw new TaLibArgumentException("STOCH updateAndFill: BadParam", RetCode.BadParam);
             }
-         } finally {
-            if( done > 0 ) this.cachedValue = new Value(this.cur_outSlowK, this.cur_outSlowD);
+            core.stochStepImpl(this, inHigh[i], inLow[i], inClose[i]);
+            outSlowK[i] = this.cur_outSlowK;
+            outSlowD[i] = this.cur_outSlowD;
+            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          }
       }
 
       /**
        * Evaluate a forming bar without committing — bit-identical to what the
-       * next {@code update} with the same bar would return — the same
+       * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
+       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
        * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * does not grow with the period and {@code peek} never allocates.
        */
-      public Value peek( double inHigh, double inLow, double inClose ) {
+      public void peek( double inHigh, double inLow, double inClose, StochOut out ) {
+         requireArgument("STOCH peek", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("STOCH peek: BadParam", RetCode.BadParam);
          StochStream sp = this;
@@ -937,23 +919,24 @@
          } else {
             cur_tempBuffer = 0.0;
          }
-         trailingIdx += 1;
-         today += 1;
          /* Pipeline the new bar through the sub-streams (batch tail order). */
          cur_tempBuffer = sp.sub0.peek(cur_tempBuffer);
          cur_outSlowD = sp.sub1.peek(cur_tempBuffer);
          cur_outSlowK = cur_tempBuffer;
-         return new Value(cur_outSlowK, cur_outSlowD);
+         out.slowK = cur_outSlowK;
+         out.slowD = cur_outSlowD;
       }
 
       /**
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
-       * then whatever the latest accepted {@code update} returned.
-       * A pure field read; {@code peek} does not change it.
+       * then whatever the latest accepted {@code update} wrote.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
        */
-      public Value value() {
-         return this.cachedValue;
+      public void value( StochOut out ) {
+         requireArgument("STOCH value", "out", out);
+         out.slowK = this.cur_outSlowK;
+         out.slowD = this.cur_outSlowD;
       }
 
       /**
@@ -971,6 +954,28 @@
       public StochStream clone() {
          return new StochStream(this);
       }
+   }
+
+   /**
+    * The outputs of one STOCH bar, written by the stream into an object the
+    * CALLER owns. Allocate one and reuse it: {@code update}, {@code peek}
+    * and {@code value} overwrite its fields, so the sink itself costs
+    * nothing per bar.
+    *
+    * <p><b>Its contents are only valid until the next call that writes it.</b>
+    * It is a mutable buffer, not a reading: a reference kept past that call,
+    * or one put in a collection, sees the value change underneath it. Copy the
+    * fields out if the reading has to outlive the call.
+    *
+    * <p>Deliberately no {@code equals} or {@code hashCode}: a mutable type
+    * with value equality breaks the {@code HashMap}/{@code HashSet}
+    * invariant the moment a reused instance becomes a key. Compare the fields.
+    */
+   public static final class StochOut {
+      /** Raw FastK smoothed by SlowK_Period MA. */
+      public double slowK;
+      /** Signal line: SlowK smoothed by SlowD_Period MA. */
+      public double slowD;
    }
    void stochStepImpl( StochStream sp, double inHigh, double inLow, double inClose )
    {
@@ -1108,6 +1113,7 @@
       }
       double[] sc_outSlowK = outStride == 1 ? outSlowK : new double[historyLen];
       double[] sc_outSlowD = outStride == 1 ? outSlowD : new double[historyLen];
+      i = 0;
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
        *
@@ -1333,7 +1339,6 @@
       sp.sub1 = sub1;
       sp.cur_outSlowK = sc_outSlowK[outNBElement.value - 1];
       sp.cur_outSlowD = sc_outSlowD[outNBElement.value - 1];
-      sp.cachedValue = new StochStream.Value(sp.cur_outSlowK, sp.cur_outSlowD);
       return RetCode.Success;
    }
    /* stochOpenAndFill anchored at startIdx — the composed-open fusion seam. */

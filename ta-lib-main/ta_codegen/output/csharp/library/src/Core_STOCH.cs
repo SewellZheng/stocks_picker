@@ -198,6 +198,7 @@ public partial class Core
       if( (outSlowK.Overlaps(inHigh) && outSlowK != inHigh) || (outSlowK.Overlaps(inLow) && outSlowK != inLow) || (outSlowK.Overlaps(inClose) && outSlowK != inClose) || (outSlowD.Overlaps(inHigh) && outSlowD != inHigh) || (outSlowD.Overlaps(inLow) && outSlowD != inLow) || (outSlowD.Overlaps(inClose) && outSlowD != inClose) ) {
          return RetCode.BadParam ;
       }
+      i = 0;
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
        *
@@ -448,6 +449,7 @@ public partial class Core
       if( outSlowK.Overlaps(outSlowD) ) {
          return RetCode.BadParam ;
       }
+      i = 0;
       lookbackK = optInFastK_Period - 1;
       lookbackKSlow = MA_Lookback(optInSlowK_Period, optInSlowK_MAType);
       lookbackDSlow = MA_Lookback(optInSlowD_Period, optInSlowD_MAType);
@@ -957,8 +959,6 @@ public partial class Core
          } else {
             cur_tempBuffer = 0.0;
          }
-         trailingIdx += 1;
-         today += 1;
          /* Pipeline the new bar through the sub-streams (batch tail order). */
          cur_tempBuffer = sp.sub0.Peek(cur_tempBuffer);
          cur_outSlowD = sp.sub1.Peek(cur_tempBuffer);
@@ -1162,6 +1162,7 @@ public partial class Core
       }
       Span<double> sc_outSlowK = outStride == 1 ? outSlowK : new double[historyLen];
       Span<double> sc_outSlowD = outStride == 1 ? outSlowD : new double[historyLen];
+      i = 0;
       /* With stochastic, there is a total of 4 different lines that
        * are defined: FASTK, FASTD, SLOWK and SLOWD.
        *

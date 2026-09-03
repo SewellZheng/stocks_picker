@@ -52,6 +52,8 @@ ta_regtest_SOURCES = ta_regtest.c \
 	ta_test_func/test_marketfi.c \
 	ta_test_func/test_vwap.c \
 	ta_test_func/test_cmf.c \
+	ta_test_func/test_kc.c \
+	ta_test_func/test_supertrend.c \
 	ta_test_func/test_mfi.c \
 	ta_test_func/test_cmou.c \
 	ta_test_func/test_variants.c \
