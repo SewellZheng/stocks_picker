@@ -282,8 +282,6 @@ static TA_RetCode TA_IMI_OpenImpl( struct TA_IMI_Stream **stream, const double i
 {
    struct TA_IMI_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -302,9 +300,6 @@ static TA_RetCode TA_IMI_OpenImpl( struct TA_IMI_Stream **stream, const double i
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int lookback;
@@ -428,13 +423,14 @@ TA_LIB_API TA_RetCode TA_IMI_Update( TA_IMI_Stream *stream, double inOpen, doubl
 
 TA_LIB_API TA_RetCode TA_IMI_Peek( const TA_IMI_Stream *stream, double inOpen, double inClose, double *outReal )
 {
-   struct TA_IMI_Stream scratch;
-   struct TA_IMI_Stream *sp = &scratch;
+   const struct TA_IMI_Stream *sp = stream;
    double upsum;
    double downsum;
    int i;
    double close;
    double open;
+   double *win_i_inClose;
+   double *win_i_inOpen;
    int pkSlot0 = -1;
    double pkVal0 = 0.0;
    int pkSlot1 = -1;
@@ -442,7 +438,8 @@ TA_LIB_API TA_RetCode TA_IMI_Peek( const TA_IMI_Stream *stream, double inOpen, d
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
+   win_i_inClose = sp->win_i_inClose;
+   win_i_inOpen = sp->win_i_inOpen;
    pkSlot0 = sp->winPos_i;
    pkVal0 = inOpen;
    pkSlot1 = sp->winPos_i;
@@ -451,8 +448,8 @@ TA_LIB_API TA_RetCode TA_IMI_Peek( const TA_IMI_Stream *stream, double inOpen, d
    downsum = 0.0;
    for( i = sp->optInTimePeriod - 1; i >= 0; i -= 1 )
    {
-      close = (((sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i) != pkSlot1) ? sp->win_i_inClose[(sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i] : pkVal1;
-      open = (((sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i) != pkSlot0) ? sp->win_i_inOpen[(sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i] : pkVal0;
+      close = (((sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i) != pkSlot1) ? win_i_inClose[(sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i] : pkVal1;
+      open = (((sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i) != pkSlot0) ? win_i_inOpen[(sp->winPos_i + sp->winCap_i - i >= sp->winCap_i) ? sp->winPos_i + sp->winCap_i - i - sp->winCap_i : sp->winPos_i + sp->winCap_i - i] : pkVal0;
       if( close > open )
       {
          upsum += close - open;

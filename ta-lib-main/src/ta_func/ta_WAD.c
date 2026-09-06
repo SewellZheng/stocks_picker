@@ -58,9 +58,9 @@
 TA_LIB_API int TA_WAD_Lookback( void )
 {
    /* The first bar has no previous close, so it accumulates nothing and the
-    * line starts at 0.0 -- the same convention as the other four cumulative
-    * lines in the tree: OBV, AD, NVI and PVI all return 0 here and emit a
-    * seed value at startIdx. Tulip's ti_wad_start() returns 1 instead, so its
+    * line starts at 0.0 -- the same convention as the other cumulative
+    * lines in the tree: OBV, AD, NVI, PVI and PVT all return 0 here and emit
+    * a seed value at startIdx. Tulip's ti_wad_start() returns 1 instead, so its
     * series is this one without the leading zero.
     */
    return 0;
@@ -278,8 +278,6 @@ static TA_RetCode TA_WAD_OpenImpl( struct TA_WAD_Stream **stream, const double i
 {
    struct TA_WAD_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -294,9 +292,6 @@ static TA_RetCode TA_WAD_OpenImpl( struct TA_WAD_Stream **stream, const double i
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       double sum = 0.0;
@@ -444,14 +439,14 @@ TA_LIB_API TA_RetCode TA_WAD_Update( TA_WAD_Stream *stream, double inHigh, doubl
 
 TA_LIB_API TA_RetCode TA_WAD_Peek( const TA_WAD_Stream *stream, double inHigh, double inLow, double inClose, double *outReal )
 {
-   struct TA_WAD_Stream scratch;
-   struct TA_WAD_Stream *sp = &scratch;
+   const struct TA_WAD_Stream *sp = stream;
    double close;
    double trueExtreme;
+   double sum;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
+   sum = sp->sum;
    close = inClose;
    if( close > sp->prevClose )
    {
@@ -460,7 +455,7 @@ TA_LIB_API TA_RetCode TA_WAD_Peek( const TA_WAD_Stream *stream, double inHigh, d
       {
          trueExtreme = sp->prevClose;
       }
-      sp->sum += close - trueExtreme;
+      sum += close - trueExtreme;
    } else if( close < sp->prevClose )
    {
       trueExtreme = inHigh;
@@ -468,9 +463,9 @@ TA_LIB_API TA_RetCode TA_WAD_Peek( const TA_WAD_Stream *stream, double inHigh, d
       {
          trueExtreme = sp->prevClose;
       }
-      sp->sum += close - trueExtreme;
+      sum += close - trueExtreme;
    }
-   *outReal= sp->sum;
+   *outReal= sum;
    return TA_SUCCESS;
 }
 

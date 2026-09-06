@@ -793,7 +793,6 @@ static TA_RetCode TA_BBANDS_OpenImpl( struct TA_BBANDS_Stream **stream, const do
    int dummyBegIdx;
    int dummyNBElement;
    TA_RetCode subRc;
-   double subOpenDummy;
    double *sc_outRealUpperBand;
    double *sc_outRealMiddleBand;
    double *sc_outRealLowerBand;
@@ -832,10 +831,8 @@ static TA_RetCode TA_BBANDS_OpenImpl( struct TA_BBANDS_Stream **stream, const do
    dummyBegIdx = 0;
    dummyNBElement = 0;
    subRc = TA_SUCCESS;
-   subOpenDummy = 0.0;
    sub0 = NULL;
    sub1 = NULL;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
    if( outStride ) sc_outRealUpperBand = outRealUpperBand;
    else
    {
@@ -1082,10 +1079,10 @@ TA_LIB_API TA_RetCode TA_BBANDS_Update( TA_BBANDS_Stream *stream, double inReal,
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_BBANDS_Peek( const TA_BBANDS_Stream *stream, double inReal, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
-   struct TA_BBANDS_Stream scratch;
-   struct TA_BBANDS_Stream *sp = &scratch;
+   const struct TA_BBANDS_Stream *sp = stream;
    double tempReal;
    double tempReal2;
    double cur_tempBuffer1 = 0.0;
@@ -1095,7 +1092,6 @@ TA_LIB_API TA_RetCode TA_BBANDS_Peek( const TA_BBANDS_Stream *stream, double inR
 
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   scratch = *stream;
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {

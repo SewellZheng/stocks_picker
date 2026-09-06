@@ -14,26 +14,51 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#75) More docs for DEMA, TEMA, T3, MFI, ULTOSC, KAMA and TRIX. Thanks @nehemiah888 !
 - New TA Functions:
   - AC: Accelerator/Decelerator Oscillator (#228)
+  - ADR: Average Day Range, the mean of the last n bar ranges (#367)
   - AO: Awesome Oscillator (#227)
   - CMF: Chaikin Money Flow (#134)
   - CMOU: Chande Momentum Oscillator, Unsmoothed (#124)
+  - CVI: Chaikin's Volatility, the percent change of a smoothed high-low spread (#358)
+  - COPPOCK: Coppock Curve (#362)
+  - CUMSUM: Cumulative Sum (#372)
+  - DONCHIAN: Donchian Channels, the rolling extrema bands (#342)
+  - DPO: Detrended Price Oscillator, price displaced back a half cycle less its moving average (#363)
+  - ER: Kaufman Efficiency Ratio (#350)
+  - ERI: Elder Ray Index, Bull Power / Bear Power (#361)
   - EFI: Elder's Force Index (#206)
+  - FOSC: Forecast Oscillator, the close against the previous bar's time series forecast (#345)
+  - FRACTAL: Williams Fractal, the bars that are a strict local high or low of a bounded window (#371)
+  - HA: Heikin-Ashi Candles, an OHLC-to-OHLC smoothing transform (#373)
   - HMA: Hull Moving Average (#139)
   - KC: Keltner Channels (#273)
+  - KDJ: KDJ Stochastic, the Wilder-smoothed stochastic plus the J divergence line (#365)
   - MARKETFI: Market Facilitation Index (#230)
+  - MASSI: Mass Index, a range-expansion reversal-bulge detector (#359)
   - NVI: Negative Volume Index (#126)
+  - PERCENTILE: Percentile, the nearest-rank order statistic of the trailing window (#368)
+  - PERCENTRANK: Percent Rank, the share of the previous window a value ranks above (#369)
   - PVI: Positive Volume Index (#126)
   - PVO: Percentage Volume Oscillator (#119)
+  - PVT: Price Volume Trend, volume weighted by the bar's fractional price change (#364)
   - QSTICK: Qstick (#226)
+  - RMA: Wilder's Smoothed Moving Average (#348)
+  - RVI: Relative Volatility Index, RSI over the standard deviation instead of the price change (#366)
+  - RVOL: Relative Volume, the current bar's volume against the preceding window's average (#370)
   - SMI: Stochastic Momentum Index (#238)
   - SUPERTREND: SuperTrend, an ATR-scaled trailing band with a trend flag (#272)
+  - TSI: True Strength Index, a double-smoothed momentum oscillator bounded by +/-100 (#360)
+  - VHF: Vertical Horizontal Filter, a trend-versus-range strength filter (#346)
+  - VORTEX: Vortex Indicator (#349)
   - VWAP: Volume Weighted Average Price (#237)
   - VWMA: Volume Weighted Moving Average (#131)
   - WAD: Williams' Accumulation/Distribution (#200)
+  - ZLEMA: Zero-Lag Exponential Moving Average (#347)
 - New MAType (for MA, BBANDS, STOCH etc...):
   - TA_MAType_HMA (#139)
   - TA_MAType_DISABLED — no smoothing at any period; the output is a copy of the input (#93)
   - TA_MAType_DEFAULT — selects that parameter's documented MA type (#182)
+  - TA_MAType_ZLEMA (#347)
+  - TA_MAType_RMA (#348)
 
 ### Faster
 - ~8x: MACD, MACDFIX and MACDEXT (when MA type is EMA).
@@ -44,12 +69,16 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - ~30%: MAVP (#143). Thanks @dexhunter !
 - ~27% Apple, ~8% GCC: MIN, MAX, MINMAX, MININDEX, MAXINDEX, MINMAXINDEX, MIDPOINT, MIDPRICE, AROON, AROONOSC and WILLR (#128). Thanks @dexhunter !
 - ~20%: VAR, STDDEV, BBANDS
-- ~10%: ATR and NATR
+- ~3x to 4.7x: ATR and NATR (#338), and ~1.4x SUPERTREND / ~1.3x KC with them. The upper end needs the gcc/glibc/x86_64 hardware-FMA clone; elsewhere it is ~2x.
 
 ### Changed
 - (#133) BBANDS default `optInTimePeriod` changed from 5 to 20, as intended by John Bollinger.
 - (#120) PPO and APO now default `optInMAType` to EMA (was SMA), matching Gerald Appel's original PPO/MACD definition. Pass `TA_MAType_SMA` explicitly to keep the previous behavior.
 - (#96) Fused multiply-add and other floating-point re-ordering produce minor output differences; an intentional modernization.
+- (#338) ATR, NATR and SUPERTREND smooth the true range with a fused two-coefficient step
+  instead of multiply, add, divide, which takes the divide out of the loop-carried chain.
+  Values move by at most 1.3e-15 relative from the reference series, and KC inherits the
+  same shift through its ATR. Period 1 and 2 are unchanged.
 - (#183) EMA now uses a fused multiply-add in its recursion, as the EMA cascades inside
   DEMA, TEMA, TRIX, MACD and MACDFIX already did. Values move by at most 2.8e-16 relative
   from the reference series, and the same shift reaches MA, BBANDS, APO, PPO, PVO, MAVP,

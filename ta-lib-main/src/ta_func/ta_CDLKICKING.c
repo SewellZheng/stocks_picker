@@ -161,7 +161,10 @@ TA_LIB_API TA_RetCode TA_CDLKICKING( int    startIdx,
           fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal[0],i) && /* 2nd marubozu */
           (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[0],i) &&
           (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[0],i) &&
-          ((((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && ((inLow[i] > inHigh[i - 1]) ? 1 : 0)) || (((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 && ((inHigh[i] < inLow[i - 1]) ? 1 : 0))) ) /* gap */
+          ((((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && /* gap */
+            ((inLow[i] > inHigh[i - 1]) ? 1 : 0)) ||
+           (((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 &&
+            ((inHigh[i] < inLow[i - 1]) ? 1 : 0))) )
       {
          outInteger[outIdx++] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
       } else 
@@ -329,7 +332,10 @@ static void TA_CDLKICKING_StepImpl( struct TA_CDLKICKING_Stream *sp, double inOp
        fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal[0],inOpen,inHigh,inLow,inClose) && /* 2nd marubozu */
        (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) &&
        (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) &&
-       ((((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && ((inLow > sp->lag1_inHigh) ? 1 : 0)) || (((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && ((inHigh < sp->lag1_inLow) ? 1 : 0))) ) /* gap */
+       ((((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* gap */
+         ((inLow > sp->lag1_inHigh) ? 1 : 0)) ||
+        (((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 &&
+         ((inHigh < sp->lag1_inLow) ? 1 : 0))) )
    {
       *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
    } else 
@@ -365,8 +371,6 @@ static TA_RetCode TA_CDLKICKING_OpenImpl( struct TA_CDLKICKING_Stream **stream, 
 {
    struct TA_CDLKICKING_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -381,9 +385,6 @@ static TA_RetCode TA_CDLKICKING_OpenImpl( struct TA_CDLKICKING_Stream **stream, 
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
@@ -455,7 +456,10 @@ static TA_RetCode TA_CDLKICKING_OpenImpl( struct TA_CDLKICKING_Stream **stream, 
              fabs(inClose[i] - inOpen[i]) > TA_CANDLEAVERAGE(BodyLong,BodyLongPeriodTotal[0],i) && /* 2nd marubozu */
              (inHigh[i] - ((inClose[i] >= inOpen[i]) ? inClose[i] : inOpen[i])) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[0],i) &&
              (((inClose[i] >= inOpen[i]) ? inOpen[i] : inClose[i]) - inLow[i]) < TA_CANDLEAVERAGE(ShadowVeryShort,ShadowVeryShortPeriodTotal[0],i) &&
-             ((((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && ((inLow[i] > inHigh[i - 1]) ? 1 : 0)) || (((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 && ((inHigh[i] < inLow[i - 1]) ? 1 : 0))) ) /* gap */
+             ((((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 0 - 1 && /* gap */
+               ((inLow[i] > inHigh[i - 1]) ? 1 : 0)) ||
+              (((inClose[i - 1] >= inOpen[i - 1]) ? 1 : 0 - 1) == 1 &&
+               ((inHigh[i] < inLow[i - 1]) ? 1 : 0))) )
          {
             outInteger[outIdx++ * outStride] = ((inClose[i] >= inOpen[i]) ? 1 : 0 - 1) * 100;
          } else 
@@ -577,12 +581,10 @@ TA_LIB_API TA_RetCode TA_CDLKICKING_Update( TA_CDLKICKING_Stream *stream, double
 
 TA_LIB_API TA_RetCode TA_CDLKICKING_Peek( const TA_CDLKICKING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   struct TA_CDLKICKING_Stream scratch;
-   struct TA_CDLKICKING_Stream *sp = &scratch;
+   const struct TA_CDLKICKING_Stream *sp = stream;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
    if( ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - ((inClose >= inOpen) ? 1 : 0 - 1) && /* opposite candles */
        fabs(sp->lag1_inClose - sp->lag1_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* 1st marubozu */
        (sp->lag1_inHigh - ((sp->lag1_inClose >= sp->lag1_inOpen) ? sp->lag1_inClose : sp->lag1_inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) &&
@@ -590,7 +592,10 @@ TA_LIB_API TA_RetCode TA_CDLKICKING_Peek( const TA_CDLKICKING_Stream *stream, do
        fabs(inClose - inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal[0],inOpen,inHigh,inLow,inClose) && /* 2nd marubozu */
        (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) &&
        (((inClose >= inOpen) ? inOpen : inClose) - inLow) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal[0],inOpen,inHigh,inLow,inClose) &&
-       ((((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && ((inLow > sp->lag1_inHigh) ? 1 : 0)) || (((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 && ((inHigh < sp->lag1_inLow) ? 1 : 0))) ) /* gap */
+       ((((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* gap */
+         ((inLow > sp->lag1_inHigh) ? 1 : 0)) ||
+        (((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 1 &&
+         ((inHigh < sp->lag1_inLow) ? 1 : 0))) )
    {
       *outInteger= ((inClose >= inOpen) ? 1 : 0 - 1) * 100;
    } else 

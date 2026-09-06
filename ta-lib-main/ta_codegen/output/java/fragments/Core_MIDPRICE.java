@@ -382,6 +382,7 @@
     * <p><b>Formula</b>
     * <pre>{@code
     * MIDPRICE = (Highest(High, N) + Lowest(Low, N)) / 2, over the N=optInTimePeriod bars ending at each index
+    * This is the Donchian Channel centerline: `DONCHIAN` emits this line as its middle output, alongside the two extrema.
     * }</pre>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -444,6 +445,7 @@
     * <p><b>Formula</b>
     * <pre>{@code
     * MIDPRICE = (Highest(High, N) + Lowest(Low, N)) / 2, over the N=optInTimePeriod bars ending at each index
+    * This is the Donchian Channel centerline: `DONCHIAN` emits this line as its middle output, alongside the two extrema.
     * }</pre>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -642,7 +644,7 @@
          MidpriceStream sp = this;
          double tmpLow = 0.0;
          double tmpHigh = 0.0;
-         double cur_outReal = sp.cur_outReal;
+         double cur_outReal = 0.0;
          double highest = sp.highest;
          int highestIdx = sp.highestIdx;
          int i = sp.i;

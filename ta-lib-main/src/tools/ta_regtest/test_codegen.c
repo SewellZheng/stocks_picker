@@ -504,7 +504,7 @@ static int check_stream_counter_parity( void )
  * the %.15g transport was never the limit. Applied as 1e-9 * max(1, |value|). */
 #define CODEGEN_EPSILON_DOUBLE  1e-9
 #define JSON_BUF_SIZE    (128 * 1024)   /* 128KB: enough for OHLCV inputs */
-#define MAX_OUTPUTS      3              /* Max outputs any TA function has */
+#define MAX_OUTPUTS      CODEGEN_MAX_OUTPUTS   /* enforced at startup, issue #352 */
 
 /* ---- Minimal JSON helpers (no library dependency) ---- */
 
@@ -706,6 +706,7 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"CMO",          TA_FUNC_UNST_CMO},
     {"DX",           TA_FUNC_UNST_DX},
     {"EMA",          TA_FUNC_UNST_EMA},
+    {"HA",           TA_FUNC_UNST_HA},
     {"HT_DCPERIOD",  TA_FUNC_UNST_HT_DCPERIOD},
     {"HT_DCPHASE",   TA_FUNC_UNST_HT_DCPHASE},
     {"HT_PHASOR",    TA_FUNC_UNST_HT_PHASOR},
@@ -720,13 +721,16 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * enum entries are retained for ABI but no longer advertise instability.
      */
     {"KAMA",         TA_FUNC_UNST_KAMA},
+    {"ERI",          TA_FUNC_UNST_EMA},
     {"MAMA",         TA_FUNC_UNST_MAMA},
     {"MINUS_DI",     TA_FUNC_UNST_MINUS_DI},
     {"MINUS_DM",     TA_FUNC_UNST_MINUS_DM},
     {"NATR",         TA_FUNC_UNST_NATR},
     {"PLUS_DI",      TA_FUNC_UNST_PLUS_DI},
     {"PLUS_DM",      TA_FUNC_UNST_PLUS_DM},
+    {"RMA",          TA_FUNC_UNST_RMA},
     {"RSI",          TA_FUNC_UNST_RSI},
+    {"RVI",          TA_FUNC_UNST_RVI},
     {"T3",           TA_FUNC_UNST_T3},
     /* EMA-derived: doRangeTest sweeps UNST_EMA, as the hand MA tests do. */
     {"DEMA",         TA_FUNC_UNST_EMA},
@@ -746,6 +750,17 @@ static const UnstableLookup UNSTABLE_MAP[] = {
     {"PVO",          TA_FUNC_UNST_EMA},
     /* EFI smooths its force series with the same EMA. */
     {"EFI",          TA_FUNC_UNST_EMA},
+    /* ZLEMA de-lags the input and hands it to the same EMA recurrence, seeded
+     * the same way, so its whole trajectory shifts with UNST_EMA. */
+    {"ZLEMA",        TA_FUNC_UNST_EMA},
+    /* CVI smooths the high-low spread with the same EMA and takes a percent
+     * rate of change of it, so both the anchor and the whole line move with
+     * UNST_EMA. */
+    {"CVI",          TA_FUNC_UNST_EMA},
+    /* MASSI stacks two EMA of the high-low range and sums their ratio, so both
+     * of its stage anchors -- and therefore the whole line -- move with
+     * UNST_EMA. Its lookback carries the unstable period TWICE. */
+    {"MASSI",        TA_FUNC_UNST_EMA},
     /* KC is recursive through BOTH of its callees -- EMA of the typical price
      * and the Wilder ATR -- so it is converging, not finite-window, and it is
      * the first function here whose legs carry DIFFERENT ids. BOTH rows are
@@ -761,6 +776,10 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * pipeline shifts with UNST_EMA. Measured: outBegIdx 45 -> 54 at the
      * defaults when the unstable period is set to 3. */
     {"SMI",          TA_FUNC_UNST_EMA},
+    /* TSI carries the raw momentum and its magnitude through two EMA stages
+     * seeded exactly as ema.c seeds, and its lookback sums two ema_lookback()
+     * terms, so both stage anchors and the whole line shift with UNST_EMA. */
+    {"TSI",          TA_FUNC_UNST_EMA},
     /* ADXR/STOCHRSI own knobs were inert and retired (#129); they converge
      * via their internal ADX/RSI, like the EMA-derived set above. */
     {"ADXR",         TA_FUNC_UNST_ADX},
@@ -774,6 +793,13 @@ static const UnstableLookup UNSTABLE_MAP[] = {
      * warm-up loop the body carries for exactly that setting is never entered on
      * the streaming path in any of the four. */
     {"SUPERTREND",   TA_FUNC_UNST_ATR},
+    /* KDJ declares no unstable flag of its own -- its instability arrives
+     * through the MA type its two smoothing hops select, and the default is
+     * the recursive RMA. Without a row here stability_class() falls to the
+     * EPSILON default and the range sweep compares a converging function at
+     * ~1e-13; the second consumer is the stream K-leg, whose v == 0 defaults
+     * vector runs only for a function this map calls unstable. */
+    {"KDJ",          TA_FUNC_UNST_RMA},
 };
 #define NUM_UNSTABLE_MAP (sizeof(UNSTABLE_MAP) / sizeof(UNSTABLE_MAP[0]))
 
@@ -1903,6 +1929,11 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
         "MIN", "MAX", "MINMAX", "MIDPOINT", "MIDPRICE", "WILLR", "AROON", "AROONOSC",
         /* fresh per-bar rescan (window re-summed in bar-absolute order each output) */
         "AVGDEV",
+        /* fresh per-bar rescan, integer count -- no FP total carried across bars */
+        "PERCENTRANK",
+        /* incrementally maintained sorted window -- the state is exact copies
+         * of input values, so the output is an input element verbatim */
+        "PERCENTILE",
         /* fresh sliding window, no accumulator */
         "IMI",
         /* NOTE: LINEARREG / LINEARREG_ANGLE / LINEARREG_INTERCEPT / LINEARREG_SLOPE
@@ -1959,6 +1990,26 @@ static TA_RangeStability stability_class(const TA_FuncInfo *funcInfo)
 
 /* ---- Filter helper ---- */
 
+/* Documented in test_codegen.h. */
+int codegen_short_filter_token_matches(const char *name, const char *token)
+{
+    size_t len = strlen(token);
+    const char *p = name;
+
+    while( *p )
+    {
+        const char *end = strchr(p, '_');
+        size_t segLen = (end == NULL) ? strlen(p) : (size_t)(end - p);
+
+        if( segLen == len && strncmp(p, token, len) == 0 )
+            return 1;
+        if( end == NULL )
+            return 0;
+        p = end + 1;
+    }
+    return 0;
+}
+
 static int codegen_matches_filter(const char *filter, const char *name)
 {
     char filterCopy[1024];
@@ -1969,7 +2020,11 @@ static int codegen_matches_filter(const char *filter, const char *name)
     token = strtok(filterCopy, ",");
     while( token != NULL )
     {
-        if( strstr(name, token) != NULL ) return 1;
+        if( strlen(token) <= 2 )
+        {
+            if( codegen_short_filter_token_matches(name, token) ) return 1;
+        }
+        else if( strstr(name, token) != NULL ) return 1;
         token = strtok(NULL, ",");
     }
     return 0;
@@ -2044,7 +2099,7 @@ typedef struct {
     /* Of those, the ones whose class actually compared VALUES across ranges.
      * TA_STABLE_SKIP reaches the leg and checks coherency only, so counting it
      * as "verified" overstates the ratchet below -- and the inert set grows
-     * with every new path-dependent indicator (NVI, PVI, WAD today). */
+     * with every new post-cutover path-dependent indicator. */
     int               postCutRangeValueCompared;
     int               langIndex;   /* index into ALL_LANGUAGES */
     const CodegenLanguage *lang;
@@ -2557,11 +2612,12 @@ static void test_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
  * max, and the affected run summaries print the skip count so the exclusion
  * is loud, never silent. Current-vs-current gates are unaffected and DO
  * exercise the new value: --xlang-hash, stream_verify's enum sweep, the
- * VARIANT gate and the COMPOSITE hand tests (TA_MAType_HMA dispatch parity).
- * When a frozen oracle is re-frozen on a tag that includes #139, raise (or
- * retire) this max accordingly. */
+ * VARIANT gate and the per-function hand tests (TA_MAType_HMA, TA_MAType_ZLEMA
+ * and TA_MAType_RMA dispatch parity). When a frozen oracle is re-frozen on a tag
+ * that includes #139, raise (or retire) this max accordingly. */
 #define FROZEN_ORACLE_MATYPE_MAX 8   /* == TA_MAType_T3; 9+ postdate the frozen
-                                        oracles (HMA #139, DISABLED #93, DEFAULT #182) */
+                                        oracles (HMA #139, DISABLED #93,
+                                        DEFAULT #182, ZLEMA #347, RMA #348) */
 static long long g_frozenEnumSkips = 0;
 
 static int frozen_excludes_enum_value(const TA_OptInputParameterInfo *oi, int value)
@@ -3258,9 +3314,9 @@ static void sweep_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
 /* Sized for the widest stream-vector enumeration: MACDEXT carries 3 MAType
  * params, so its count is 8*M-1 in the MAType-list length M (base 4 + 3 params *
  * (2 base-vector crosses * (M-1) non-default arms + 1 out-of-list) + the 2 *
- * (M-1) multi-enum diagonal, #181). M=12 today (#93 added DISABLED, #182
- * DEFAULT) => 95; 128 keeps runway for 4 more MATypes before MACDEXT reaches
- * it again. Overflow is a hard failure, never a skip. */
+ * (M-1) multi-enum diagonal, #181). M=13 today (#93 added DISABLED, #182
+ * DEFAULT, #347 ZLEMA) => 103; 128 keeps runway for 3 more MATypes before
+ * MACDEXT reaches it again. Overflow is a hard failure, never a skip. */
 #define STREAM_MAX_VEC 128
 #define STREAM_N       240
 /* Stream-leg variants: 0 = ambient defaults, 1 = unstable period, 2 = Metastock,
@@ -3453,7 +3509,7 @@ static int stream_build_vectors(const TA_FuncInfo *fi,
      * all-EMA call to TA_MACD's single lockstep pass, the streaming tier
      * composes the generic three-MA path instead, and no stream leg ever
      * selected all-EMA to hold the two to each other. The full cross is M^N
-     * (1331 vectors for MACDEXT at M=12) and is what makes this deliberately
+     * (2197 vectors for MACDEXT at M=13) and is what makes this deliberately
      * uncovered; the diagonal is M-1 and reaches every "all slots equal" guard.
      *
      * Crossed with the same base vectors as the sweep above, which puts the
@@ -3861,7 +3917,25 @@ static void stream_one_function(const TA_FuncInfo *funcInfo, void *opaqueData)
              * C-only. */
             {
                 int pr = stream_flag(ctx->responseBuf, "\"peek_reps\":");
+                int pj = stream_flag(ctx->responseBuf, "\"peek_rejects\":");
                 if( pr > 0 ) peekReps += pr;
+                /* A peek is allowed to refuse a bar: the probe feeds it one the
+                 * batch never visits, and a composed stream can derive a
+                 * non-finite intermediate from finite inputs. A refusal is
+                 * counted here rather than failed -- but it must stay the
+                 * exception. More refusals than completed probes means the leg
+                 * has stopped measuring and its `peek_rep_ok` is vacuous. */
+                if( pj > 0 && pj > pr )
+                {
+                    printf("STREAM PEEK REJECT FLOOD [TA_%s] vector=%d K=%d compat=%d\n"
+                           "  %d peek refusal(s) against %d completed repeat probe(s)\n"
+                           "  request:  %s\n  response: %s\n",
+                           funcInfo->name, v, K, compat, pj, pr,
+                           ctx->requestBuf, ctx->responseBuf);
+                    ctx->failed++;
+                    ctx->error = TA_CODEGEN_STREAM_MISMATCH;
+                    return;
+                }
                 if( stream_flag(ctx->responseBuf, "\"peek_rep_ok\":") == 0 )
                 {
                     printf("STREAM PEEK REPEAT MISMATCH [TA_%s] vector=%d K=%d compat=%d\n"
@@ -4775,7 +4849,7 @@ static ErrorNumber test_codegen_for_language(
 
         if( g_frozenEnumSkips > 0 )
             printf("  post-freeze enums: %lld MAType value(s) > %d excluded vs ta_ref_serve "
-                   "(#139, #93, #182; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
+                   "(#139, #93, #182, #347, #348; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
                    g_frozenEnumSkips, FROZEN_ORACLE_MATYPE_MAX);
     }
 
@@ -5430,10 +5504,11 @@ static const char *const argv_064[] = {"./ta_064_serve", NULL};
                              * 3 period ranges (<= 6 candidates + 2 reject + 1
                              * sentinel each) + 3 MAType lists (M-1 values + 1
                              * sentinel each, #162) + the defaults vector <= 3*M+28
-                             * in the MAType-list length M. M=12 today => 64 worst
-                             * case, 63 actually built (one of optInSignalPeriod's
-                             * boundary candidates lands on its own default and is
-                             * dropped). 80 gives runway to M=17, and still matches
+                             * in the MAType-list length M. M=13 today => 67 worst
+                             * case, one fewer actually built (one of
+                             * optInSignalPeriod's boundary candidates lands on its
+                             * own default and is dropped). 80 gives runway to M=17,
+                             * and still matches
                              * STREAM_MAX_VEC.
                              * fuzz_build_vectors reports any overflow (this cap or
                              * the cand cap) and the caller fails the run loudly. */
@@ -5868,6 +5943,13 @@ static const TA_Fuzz064Tol FUZZ_064_TOL[] = {
     { "WMA",                 TOL_REL_IN, 1e-9, 0.0 },  /* #255                               */
     { "STOCH",               TOL_REL_IN, 1e-9, 0.0 },  /* #255  via TA_MAType_WMA            */
     { "STOCHF",              TOL_REL_IN, 1e-9, 0.0 },  /* #255  via TA_MAType_WMA            */
+    /* #338 the two-coefficient Wilder step. Named rather than left to the FMA
+     * transition bucket, whose 1e-9 is six orders looser than these two need
+     * and would swallow a real ATR regression whole. Input-relative because an
+     * ATR is a convex combination of true ranges; NATR divides by a close, so
+     * it is a percentage and output-relative. */
+    { "ATR",                 TOL_REL_IN,  2e-15, 0.0 }, /* #338  measured 5.19e-16 */
+    { "NATR",                TOL_REL_OUT, 4e-15, 0.0 }, /* #338  measured 1.29e-15 */
     { "IMI",                 TOL_NAN_TO, 50.0, 0.0 },  /* #112 all-flat window 0/0 -> NaN, now 50.0 */
 };
 
@@ -6767,7 +6849,8 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
                ctx.skipped98);
     if( ctx.cciTol > 0 )
         printf("manifest-tolerated: %lld case(s) under an authorized latest->0.6.4 entry "
-               "(CCI #7 near-zero; LINEARREG family + TSF #103 sliding-sum; IMI #112 NaN->50.0)\n", ctx.cciTol);
+               "(CCI #7 near-zero; LINEARREG family + TSF #103 sliding-sum; IMI #112 NaN->50.0; "
+               "ATR/NATR #338 two-coefficient Wilder step)\n", ctx.cciTol);
 #if FMA_TRANSITION_TOLERANCE
     if( ctx.fmaTol > 0 )
         printf("fma-rebaseline: %lld case(s) within the 1e-9 relative FMA contract vs 0.6.4 "
@@ -6793,7 +6876,7 @@ ErrorNumber fuzz_ref064(const char *functionFilter)
                ctx.mfiSkipped);
     if( g_frozenEnumSkips > 0 )
         printf("post-freeze enums: %lld MAType value(s) > %d excluded vs v0.6.4 "
-               "(#139, #93, #182; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
+               "(#139, #93, #182, #347, #348; covered current-vs-current by xlang-hash/stream/COMPOSITE)\n",
                g_frozenEnumSkips, FROZEN_ORACLE_MATYPE_MAX);
     if( ctx.varianceSkipped > 0 )
         printf("variance-skipped: %lld VAR/STDDEV/BBANDS case(s) ill-conditioned for 0.6.4 (kappa > %.0e, issue #118); every better-conditioned case was compared\n",
@@ -9533,6 +9616,37 @@ static void cdl_collect(const TA_FuncInfo *fi, void *opaque)
     CdlList *L = (CdlList *)opaque;
     if( (fi->flags & TA_FUNC_FLG_CANDLESTICK) && L->n < 128 )
     { L->h[L->n] = fi->handle; L->nm[L->n] = fi->name; L->n++; }
+}
+
+/* ---- Output-arity cap guard (issue #352) ----
+ * CODEGEN_MAX_OUTPUTS is a hand-written cap over hand-written buffers; nothing
+ * else checks it. Every comparison loop in this file clamps at it, so a wider
+ * function would report PASS with outputs 3+ never compared, and
+ * CodegenRangeTestParam's buffer arrays are sized with it, so the unclamped
+ * loops would read past the struct. Fail loudly at startup instead — called
+ * from main() ahead of every run mode, because --fuzz-064 and --xlang-hash are
+ * self-contained early returns that never reach test_codegen(), and their
+ * buffers and clamped loops live in this file too. The library must be
+ * initialized when this runs (TA_ForEachFunc walks the registered table). */
+static void arity_cap_check(const TA_FuncInfo *funcInfo, void *opaqueData)
+{
+    if( funcInfo->nbOutput > MAX_OUTPUTS )
+    {
+        printf("\nFAIL - %s has %u outputs but CODEGEN_MAX_OUTPUTS is %d.\n"
+               "       Raise it in test_codegen.h; the harness buffers and\n"
+               "       clamped loops size from it.\n",
+               funcInfo->name, (unsigned int)funcInfo->nbOutput, MAX_OUTPUTS);
+        (*(int *)opaqueData)++;
+    }
+}
+
+ErrorNumber codegen_output_arity_within_cap(void)
+{
+    int wide = 0;
+    TA_ForEachFunc(arity_cap_check, &wide);
+    if( wide != 0 )
+        return TA_CODEGEN_OUTPUT_ARITY_EXCEEDS_CAP;
+    return TA_TEST_PASS;
 }
 
 static ErrorNumber verify_fuzz_candle_nonvacuous(void)

@@ -312,8 +312,6 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
 {
    struct TA_EMA_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -332,9 +330,6 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    if( optInTimePeriod == 1 )
    {
@@ -514,22 +509,22 @@ TA_LIB_API TA_RetCode TA_EMA_Update( TA_EMA_Stream *stream, double inReal, doubl
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_EMA_Peek( const TA_EMA_Stream *stream, double inReal, double *outReal )
 {
-   struct TA_EMA_Stream scratch;
-   struct TA_EMA_Stream *sp = &scratch;
+   const struct TA_EMA_Stream *sp = stream;
+   double prevMA;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   scratch = *stream;
+   prevMA = sp->prevMA;
    if( sp->optInTimePeriod == 1 )
    {
       *outReal= inReal;
-      sp->cur_outReal = *outReal;
       return TA_SUCCESS;
    }
-   sp->prevMA = fma(inReal - sp->prevMA, sp->optInK_1, sp->prevMA);
-   *outReal= sp->prevMA;
+   prevMA = fma(inReal - prevMA, sp->optInK_1, prevMA);
+   *outReal= prevMA;
    return TA_SUCCESS;
 }
 

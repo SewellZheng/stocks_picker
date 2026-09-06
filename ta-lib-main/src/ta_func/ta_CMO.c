@@ -573,8 +573,6 @@ static TA_RetCode TA_CMO_OpenImpl( struct TA_CMO_Stream **stream, const double i
 {
    struct TA_CMO_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -593,9 +591,6 @@ static TA_RetCode TA_CMO_OpenImpl( struct TA_CMO_Stream **stream, const double i
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    if( optInTimePeriod == 1 )
    {
@@ -915,38 +910,41 @@ TA_LIB_API TA_RetCode TA_CMO_Update( TA_CMO_Stream *stream, double inReal, doubl
 
 TA_LIB_API TA_RetCode TA_CMO_Peek( const TA_CMO_Stream *stream, double inReal, double *outReal )
 {
-   struct TA_CMO_Stream scratch;
-   struct TA_CMO_Stream *sp = &scratch;
+   const struct TA_CMO_Stream *sp = stream;
    double tempValue1;
    double tempValue2;
+   double prevGain;
+   double prevLoss;
+   double prevValue;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   scratch = *stream;
+   prevGain = sp->prevGain;
+   prevLoss = sp->prevLoss;
+   prevValue = sp->prevValue;
    if( sp->optInTimePeriod == 1 )
    {
       *outReal= inReal;
-      sp->cur_outReal = *outReal;
       return TA_SUCCESS;
    }
    tempValue1 = inReal;
-   tempValue2 = tempValue1 - sp->prevValue;
-   sp->prevValue = tempValue1;
-   sp->prevLoss *= sp->optInTimePeriod - 1;
-   sp->prevGain *= sp->optInTimePeriod - 1;
+   tempValue2 = tempValue1 - prevValue;
+   prevValue = tempValue1;
+   prevLoss *= sp->optInTimePeriod - 1;
+   prevGain *= sp->optInTimePeriod - 1;
    if( tempValue2 < 0 )
    {
-      sp->prevLoss -= tempValue2;
+      prevLoss -= tempValue2;
    } else 
    {
-      sp->prevGain += tempValue2;
+      prevGain += tempValue2;
    }
-   sp->prevLoss /= sp->optInTimePeriod;
-   sp->prevGain /= sp->optInTimePeriod;
-   tempValue1 = sp->prevGain + sp->prevLoss;
+   prevLoss /= sp->optInTimePeriod;
+   prevGain /= sp->optInTimePeriod;
+   tempValue1 = prevGain + prevLoss;
    if( tempValue1 > 0.0 )
    {
-      *outReal= 100.0 * ((sp->prevGain - sp->prevLoss) / tempValue1);
+      *outReal= 100.0 * ((prevGain - prevLoss) / tempValue1);
    } else 
    {
       *outReal= 0.0;

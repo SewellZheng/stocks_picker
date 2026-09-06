@@ -430,8 +430,6 @@ static TA_RetCode TA_CDLHAMMER_OpenImpl( struct TA_CDLHAMMER_Stream **stream, co
 {
    struct TA_CDLHAMMER_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -446,9 +444,6 @@ static TA_RetCode TA_CDLHAMMER_OpenImpl( struct TA_CDLHAMMER_Stream **stream, co
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int BodyShort_avgPeriod = TA_Globals->candleSettings[TA_BodyShort].avgPeriod;
@@ -680,12 +675,10 @@ TA_LIB_API TA_RetCode TA_CDLHAMMER_Update( TA_CDLHAMMER_Stream *stream, double i
 
 TA_LIB_API TA_RetCode TA_CDLHAMMER_Peek( const TA_CDLHAMMER_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   struct TA_CDLHAMMER_Stream scratch;
-   struct TA_CDLHAMMER_Stream *sp = &scratch;
+   const struct TA_CDLHAMMER_Stream *sp = stream;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
    if( fabs(inClose - inOpen) < TA_STREAM_CANDLEAVERAGE(BodyShort,sp->BodyPeriodTotal,inOpen,inHigh,inLow,inClose) && /* small rb */
        (((inClose >= inOpen) ? inOpen : inClose) - inLow) > TA_STREAM_CANDLEAVERAGE(ShadowLong,sp->ShadowLongPeriodTotal,inOpen,inHigh,inLow,inClose) && /* long lower shadow */
        (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose) && /* very short upper shadow */

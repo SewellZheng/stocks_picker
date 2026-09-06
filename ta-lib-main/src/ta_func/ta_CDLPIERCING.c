@@ -323,8 +323,6 @@ static TA_RetCode TA_CDLPIERCING_OpenImpl( struct TA_CDLPIERCING_Stream **stream
 {
    struct TA_CDLPIERCING_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -339,9 +337,6 @@ static TA_RetCode TA_CDLPIERCING_OpenImpl( struct TA_CDLPIERCING_Stream **stream
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
@@ -506,14 +501,13 @@ TA_LIB_API TA_RetCode TA_CDLPIERCING_Update( TA_CDLPIERCING_Stream *stream, doub
    return TA_SUCCESS;
 }
 
+TA_FMA_MULTIVERSION
 TA_LIB_API TA_RetCode TA_CDLPIERCING_Peek( const TA_CDLPIERCING_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   struct TA_CDLPIERCING_Stream scratch;
-   struct TA_CDLPIERCING_Stream *sp = &scratch;
+   const struct TA_CDLPIERCING_Stream *sp = stream;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
    if( ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 1st: black */
        fabs(sp->lag1_inClose - sp->lag1_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal[1],sp->lag1_inOpen,sp->lag1_inHigh,sp->lag1_inLow,sp->lag1_inClose) && /* long */
        ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&                       /* 2nd: white */

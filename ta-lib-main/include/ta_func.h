@@ -540,6 +540,86 @@ TA_LIB_API TA_RetCode TA_ADOSC_Value( const TA_ADOSC_Stream *stream, double *out
 TA_LIB_API TA_RetCode TA_ADOSC_Clone( const TA_ADOSC_Stream *stream, TA_ADOSC_Stream **clone );
 
 /*
+ * TA_ADR - Average Day Range
+ * 
+ * Input  = High, Low
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_ADR( int    startIdx,
+                              int    endIdx,
+                                         const double inHigh[],
+                                         const double inLow[],
+                                         int           optInTimePeriod, /* From 1 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_ADR( int    startIdx,
+                                int    endIdx,
+                                           const float  inHigh[],
+                                           const float  inLow[],
+                                           int           optInTimePeriod, /* From 1 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_ADR_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_ADR — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_ADR_Stream TA_ADR_Stream;
+
+TA_LIB_API TA_RetCode TA_ADR_Open( TA_ADR_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADR_Update( TA_ADR_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADR_Peek( const TA_ADR_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ADR_Close( TA_ADR_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_ADR( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_ADR_OpenAndFill( TA_ADR_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_ADR_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_ADR_UpdateAndFill( TA_ADR_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_ADR_Value( const TA_ADR_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_ADR_Clone( const TA_ADR_Stream *stream, TA_ADR_Stream **clone );
+
+/*
  * TA_ADX - Average Directional Movement Index
  * 
  * Input  = High, Low, Close
@@ -6756,6 +6836,96 @@ TA_LIB_API TA_RetCode TA_CMOU_Value( const TA_CMOU_Stream *stream, double *outRe
 TA_LIB_API TA_RetCode TA_CMOU_Clone( const TA_CMOU_Stream *stream, TA_CMOU_Stream **clone );
 
 /*
+ * TA_COPPOCK - Coppock Curve
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInWMAPeriod:(From 1 to 100000)
+ *    Smoothing period for the ROC sum
+ * 
+ * optInROC1Period:(From 1 to 100000)
+ *    Short rate-of-change period
+ * 
+ * optInROC2Period:(From 1 to 100000)
+ *    Long rate-of-change period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_COPPOCK( int    startIdx,
+                                  int    endIdx,
+                                             const double inReal[],
+                                             int           optInWMAPeriod, /* From 1 to 100000 */
+                                             int           optInROC1Period, /* From 1 to 100000 */
+                                             int           optInROC2Period, /* From 1 to 100000 */
+                                             int          *outBegIdx,
+                                             int          *outNBElement,
+                                             double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_COPPOCK( int    startIdx,
+                                    int    endIdx,
+                                               const float  inReal[],
+                                               int           optInWMAPeriod, /* From 1 to 100000 */
+                                               int           optInROC1Period, /* From 1 to 100000 */
+                                               int           optInROC2Period, /* From 1 to 100000 */
+                                               int          *outBegIdx,
+                                               int          *outNBElement,
+                                               double        outReal[] );
+
+TA_LIB_API int TA_COPPOCK_Lookback( int           optInWMAPeriod, /* From 1 to 100000 */
+                                             int           optInROC1Period, /* From 1 to 100000 */
+                                             int           optInROC2Period );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_COPPOCK — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_COPPOCK_Stream TA_COPPOCK_Stream;
+
+TA_LIB_API TA_RetCode TA_COPPOCK_Open( TA_COPPOCK_Stream **stream, const double inReal[], int historyLen, int optInWMAPeriod, int optInROC1Period, int optInROC2Period, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COPPOCK_Update( TA_COPPOCK_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COPPOCK_Peek( const TA_COPPOCK_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_COPPOCK_Close( TA_COPPOCK_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_COPPOCK( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_COPPOCK_OpenAndFill( TA_COPPOCK_Stream **stream, const double inReal[], int historyLen, int optInWMAPeriod, int optInROC1Period, int optInROC2Period, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_COPPOCK_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_COPPOCK_UpdateAndFill( TA_COPPOCK_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_COPPOCK_Value( const TA_COPPOCK_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_COPPOCK_Clone( const TA_COPPOCK_Stream *stream, TA_COPPOCK_Stream **clone );
+
+/*
  * TA_CORREL - Pearson's Correlation Coefficient (r)
  * 
  * Input  = double, double
@@ -6976,6 +7146,162 @@ TA_LIB_API TA_RetCode TA_COSH_Value( const TA_COSH_Stream *stream, double *outRe
 TA_LIB_API TA_RetCode TA_COSH_Clone( const TA_COSH_Stream *stream, TA_COSH_Stream **clone );
 
 /*
+ * TA_CUMSUM - Cumulative Sum
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ */
+TA_LIB_API TA_RetCode TA_CUMSUM( int    startIdx,
+                                 int    endIdx,
+                                            const double inReal[],
+                                            int          *outBegIdx,
+                                            int          *outNBElement,
+                                            double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_CUMSUM( int    startIdx,
+                                   int    endIdx,
+                                              const float  inReal[],
+                                              int          *outBegIdx,
+                                              int          *outNBElement,
+                                              double        outReal[] );
+
+TA_LIB_API int TA_CUMSUM_Lookback( void );
+
+
+
+/*
+ * Streaming API for TA_CUMSUM — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_CUMSUM_Stream TA_CUMSUM_Stream;
+
+TA_LIB_API TA_RetCode TA_CUMSUM_Open( TA_CUMSUM_Stream **stream, const double inReal[], int historyLen, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CUMSUM_Update( TA_CUMSUM_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CUMSUM_Peek( const TA_CUMSUM_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CUMSUM_Close( TA_CUMSUM_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_CUMSUM( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_CUMSUM_OpenAndFill( TA_CUMSUM_Stream **stream, const double inReal[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_CUMSUM_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_CUMSUM_UpdateAndFill( TA_CUMSUM_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_CUMSUM_Value( const TA_CUMSUM_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_CUMSUM_Clone( const TA_CUMSUM_Stream *stream, TA_CUMSUM_Stream **clone );
+
+/*
+ * TA_CVI - Chaikin's Volatility
+ * 
+ * Input  = High, Low
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Period of the EMA smoothing the high-low spread
+ * 
+ * optInROCPeriod:(From 1 to 100000)
+ *    Number of bars the rate of change reaches back
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_CVI( int    startIdx,
+                              int    endIdx,
+                                         const double inHigh[],
+                                         const double inLow[],
+                                         int           optInTimePeriod, /* From 2 to 100000 */
+                                         int           optInROCPeriod, /* From 1 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_CVI( int    startIdx,
+                                int    endIdx,
+                                           const float  inHigh[],
+                                           const float  inLow[],
+                                           int           optInTimePeriod, /* From 2 to 100000 */
+                                           int           optInROCPeriod, /* From 1 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_CVI_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
+                                         int           optInROCPeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_CVI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_CVI_Stream TA_CVI_Stream;
+
+TA_LIB_API TA_RetCode TA_CVI_Open( TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, int optInROCPeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CVI_Update( TA_CVI_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CVI_Peek( const TA_CVI_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_CVI_Close( TA_CVI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_CVI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_CVI_OpenAndFill( TA_CVI_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, int optInROCPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_CVI_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_CVI_UpdateAndFill( TA_CVI_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_CVI_Value( const TA_CVI_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_CVI_Clone( const TA_CVI_Stream *stream, TA_CVI_Stream **clone );
+
+/*
  * TA_DEMA - Double Exponential Moving Average
  * 
  * Input  = double
@@ -7124,6 +7450,168 @@ TA_LIB_API TA_RetCode TA_DIV_Value( const TA_DIV_Stream *stream, double *outReal
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_DIV_Clone( const TA_DIV_Stream *stream, TA_DIV_Stream **clone );
+
+/*
+ * TA_DONCHIAN - Donchian Channels
+ * 
+ * Input  = High, Low
+ * Output = double, double, double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_DONCHIAN( int    startIdx,
+                                   int    endIdx,
+                                              const double inHigh[],
+                                              const double inLow[],
+                                              int           optInTimePeriod, /* From 2 to 100000 */
+                                              int          *outBegIdx,
+                                              int          *outNBElement,
+                                              double        outRealUpperBand[],
+                                              double        outRealMiddleBand[],
+                                              double        outRealLowerBand[] );
+
+TA_LIB_API TA_RetCode TA_S_DONCHIAN( int    startIdx,
+                                     int    endIdx,
+                                                const float  inHigh[],
+                                                const float  inLow[],
+                                                int           optInTimePeriod, /* From 2 to 100000 */
+                                                int          *outBegIdx,
+                                                int          *outNBElement,
+                                                double        outRealUpperBand[],
+                                                double        outRealMiddleBand[],
+                                                double        outRealLowerBand[] );
+
+TA_LIB_API int TA_DONCHIAN_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_DONCHIAN — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_DONCHIAN_Stream TA_DONCHIAN_Stream;
+
+TA_LIB_API TA_RetCode TA_DONCHIAN_Open( TA_DONCHIAN_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_DONCHIAN_Update( TA_DONCHIAN_Stream *stream, double inHigh, double inLow, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_DONCHIAN_Peek( const TA_DONCHIAN_Stream *stream, double inHigh, double inLow, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+TA_LIB_API TA_RetCode TA_DONCHIAN_Close( TA_DONCHIAN_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_DONCHIAN( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_DONCHIAN_OpenAndFill( TA_DONCHIAN_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_DONCHIAN_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_DONCHIAN_UpdateAndFill( TA_DONCHIAN_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_DONCHIAN_Value( const TA_DONCHIAN_Stream *stream, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_DONCHIAN_Clone( const TA_DONCHIAN_Stream *stream, TA_DONCHIAN_Stream **clone );
+
+/*
+ * TA_DPO - Detrended Price Oscillator
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_DPO( int    startIdx,
+                              int    endIdx,
+                                         const double inReal[],
+                                         int           optInTimePeriod, /* From 2 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_DPO( int    startIdx,
+                                int    endIdx,
+                                           const float  inReal[],
+                                           int           optInTimePeriod, /* From 2 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_DPO_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_DPO — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_DPO_Stream TA_DPO_Stream;
+
+TA_LIB_API TA_RetCode TA_DPO_Open( TA_DPO_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DPO_Update( TA_DPO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DPO_Peek( const TA_DPO_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_DPO_Close( TA_DPO_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_DPO( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_DPO_OpenAndFill( TA_DPO_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_DPO_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_DPO_UpdateAndFill( TA_DPO_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_DPO_Value( const TA_DPO_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_DPO_Clone( const TA_DPO_Stream *stream, TA_DPO_Stream **clone );
 
 /*
  * TA_DX - Directional Movement Index
@@ -7366,6 +7854,168 @@ TA_LIB_API TA_RetCode TA_EMA_Value( const TA_EMA_Stream *stream, double *outReal
 TA_LIB_API TA_RetCode TA_EMA_Clone( const TA_EMA_Stream *stream, TA_EMA_Stream **clone );
 
 /*
+ * TA_ER - Kaufman Efficiency Ratio
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Number of one-bar changes in the path sum
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_ER( int    startIdx,
+                             int    endIdx,
+                                        const double inReal[],
+                                        int           optInTimePeriod, /* From 2 to 100000 */
+                                        int          *outBegIdx,
+                                        int          *outNBElement,
+                                        double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_ER( int    startIdx,
+                               int    endIdx,
+                                          const float  inReal[],
+                                          int           optInTimePeriod, /* From 2 to 100000 */
+                                          int          *outBegIdx,
+                                          int          *outNBElement,
+                                          double        outReal[] );
+
+TA_LIB_API int TA_ER_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_ER — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_ER_Stream TA_ER_Stream;
+
+TA_LIB_API TA_RetCode TA_ER_Open( TA_ER_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ER_Update( TA_ER_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ER_Peek( const TA_ER_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ER_Close( TA_ER_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_ER( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_ER_OpenAndFill( TA_ER_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_ER_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_ER_UpdateAndFill( TA_ER_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_ER_Value( const TA_ER_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_ER_Clone( const TA_ER_Stream *stream, TA_ER_Stream **clone );
+
+/*
+ * TA_ERI - Elder Ray Index (Bull Power / Bear Power)
+ * 
+ * Input  = High, Low, Close
+ * Output = double, double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Number of bars in the EMA of close
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_ERI( int    startIdx,
+                              int    endIdx,
+                                         const double inHigh[],
+                                         const double inLow[],
+                                         const double inClose[],
+                                         int           optInTimePeriod, /* From 1 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outBullPower[],
+                                         double        outBearPower[] );
+
+TA_LIB_API TA_RetCode TA_S_ERI( int    startIdx,
+                                int    endIdx,
+                                           const float  inHigh[],
+                                           const float  inLow[],
+                                           const float  inClose[],
+                                           int           optInTimePeriod, /* From 1 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outBullPower[],
+                                           double        outBearPower[] );
+
+TA_LIB_API int TA_ERI_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_ERI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_ERI_Stream TA_ERI_Stream;
+
+TA_LIB_API TA_RetCode TA_ERI_Open( TA_ERI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double *outBullPower, double *outBearPower );
+
+TA_LIB_API TA_RetCode TA_ERI_Update( TA_ERI_Stream *stream, double inHigh, double inLow, double inClose, double *outBullPower, double *outBearPower );
+
+TA_LIB_API TA_RetCode TA_ERI_Peek( const TA_ERI_Stream *stream, double inHigh, double inLow, double inClose, double *outBullPower, double *outBearPower );
+
+TA_LIB_API TA_RetCode TA_ERI_Close( TA_ERI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_ERI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_ERI_OpenAndFill( TA_ERI_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outBullPower[], double outBearPower[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_ERI_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_ERI_UpdateAndFill( TA_ERI_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outBullPower[], double outBearPower[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_ERI_Value( const TA_ERI_Stream *stream, double *outBullPower, double *outBearPower );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_ERI_Clone( const TA_ERI_Stream *stream, TA_ERI_Stream **clone );
+
+/*
  * TA_EXP - Vector Arithmetic Exp
  * 
  * Input  = double
@@ -7504,6 +8154,254 @@ TA_LIB_API TA_RetCode TA_FLOOR_Value( const TA_FLOOR_Stream *stream, double *out
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_FLOOR_Clone( const TA_FLOOR_Stream *stream, TA_FLOOR_Stream **clone );
+
+/*
+ * TA_FOSC - Forecast Oscillator
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_FOSC( int    startIdx,
+                               int    endIdx,
+                                          const double inReal[],
+                                          int           optInTimePeriod, /* From 2 to 100000 */
+                                          int          *outBegIdx,
+                                          int          *outNBElement,
+                                          double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_FOSC( int    startIdx,
+                                 int    endIdx,
+                                            const float  inReal[],
+                                            int           optInTimePeriod, /* From 2 to 100000 */
+                                            int          *outBegIdx,
+                                            int          *outNBElement,
+                                            double        outReal[] );
+
+TA_LIB_API int TA_FOSC_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_FOSC — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_FOSC_Stream TA_FOSC_Stream;
+
+TA_LIB_API TA_RetCode TA_FOSC_Open( TA_FOSC_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_FOSC_Update( TA_FOSC_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_FOSC_Peek( const TA_FOSC_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_FOSC_Close( TA_FOSC_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_FOSC( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_FOSC_OpenAndFill( TA_FOSC_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_FOSC_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_FOSC_UpdateAndFill( TA_FOSC_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_FOSC_Value( const TA_FOSC_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_FOSC_Clone( const TA_FOSC_Stream *stream, TA_FOSC_Stream **clone );
+
+/*
+ * TA_FRACTAL - Williams Fractal
+ * 
+ * Input  = High, Low
+ * Output = int, int
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInLeftBars:(From 1 to 100000)
+ *    Number of bars required to be lower/higher before the pivot
+ * 
+ * optInRightBars:(From 1 to 100000)
+ *    Number of bars required to be lower/higher after the pivot
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_FRACTAL( int    startIdx,
+                                  int    endIdx,
+                                             const double inHigh[],
+                                             const double inLow[],
+                                             int           optInLeftBars, /* From 1 to 100000 */
+                                             int           optInRightBars, /* From 1 to 100000 */
+                                             int          *outBegIdx,
+                                             int          *outNBElement,
+                                             int           outSwingHigh[],
+                                             int           outSwingLow[] );
+
+TA_LIB_API TA_RetCode TA_S_FRACTAL( int    startIdx,
+                                    int    endIdx,
+                                               const float  inHigh[],
+                                               const float  inLow[],
+                                               int           optInLeftBars, /* From 1 to 100000 */
+                                               int           optInRightBars, /* From 1 to 100000 */
+                                               int          *outBegIdx,
+                                               int          *outNBElement,
+                                               int           outSwingHigh[],
+                                               int           outSwingLow[] );
+
+TA_LIB_API int TA_FRACTAL_Lookback( int           optInLeftBars, /* From 1 to 100000 */
+                                             int           optInRightBars );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_FRACTAL — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_FRACTAL_Stream TA_FRACTAL_Stream;
+
+TA_LIB_API TA_RetCode TA_FRACTAL_Open( TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInLeftBars, int optInRightBars, int *outSwingHigh, int *outSwingLow );
+
+TA_LIB_API TA_RetCode TA_FRACTAL_Update( TA_FRACTAL_Stream *stream, double inHigh, double inLow, int *outSwingHigh, int *outSwingLow );
+
+TA_LIB_API TA_RetCode TA_FRACTAL_Peek( const TA_FRACTAL_Stream *stream, double inHigh, double inLow, int *outSwingHigh, int *outSwingLow );
+
+TA_LIB_API TA_RetCode TA_FRACTAL_Close( TA_FRACTAL_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_FRACTAL( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_FRACTAL_OpenAndFill( TA_FRACTAL_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInLeftBars, int optInRightBars, int *outBegIdx, int *outNBElement, int outSwingHigh[], int outSwingLow[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_FRACTAL_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_FRACTAL_UpdateAndFill( TA_FRACTAL_Stream *stream, const double inHigh[], const double inLow[], int barCount, int outSwingHigh[], int outSwingLow[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_FRACTAL_Value( const TA_FRACTAL_Stream *stream, int *outSwingHigh, int *outSwingLow );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_FRACTAL_Clone( const TA_FRACTAL_Stream *stream, TA_FRACTAL_Stream **clone );
+
+/*
+ * TA_HA - Heikin-Ashi Candles
+ * 
+ * Input  = Open, High, Low, Close
+ * Output = double, double, double, double
+ * 
+ */
+TA_LIB_API TA_RetCode TA_HA( int    startIdx,
+                             int    endIdx,
+                                        const double inOpen[],
+                                        const double inHigh[],
+                                        const double inLow[],
+                                        const double inClose[],
+                                        int          *outBegIdx,
+                                        int          *outNBElement,
+                                        double        outHAOpen[],
+                                        double        outHAHigh[],
+                                        double        outHALow[],
+                                        double        outHAClose[] );
+
+TA_LIB_API TA_RetCode TA_S_HA( int    startIdx,
+                               int    endIdx,
+                                          const float  inOpen[],
+                                          const float  inHigh[],
+                                          const float  inLow[],
+                                          const float  inClose[],
+                                          int          *outBegIdx,
+                                          int          *outNBElement,
+                                          double        outHAOpen[],
+                                          double        outHAHigh[],
+                                          double        outHALow[],
+                                          double        outHAClose[] );
+
+TA_LIB_API int TA_HA_Lookback( void );
+
+
+
+/*
+ * Streaming API for TA_HA — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_HA_Stream TA_HA_Stream;
+
+TA_LIB_API TA_RetCode TA_HA_Open( TA_HA_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, double *outHAOpen, double *outHAHigh, double *outHALow, double *outHAClose );
+
+TA_LIB_API TA_RetCode TA_HA_Update( TA_HA_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outHAOpen, double *outHAHigh, double *outHALow, double *outHAClose );
+
+TA_LIB_API TA_RetCode TA_HA_Peek( const TA_HA_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outHAOpen, double *outHAHigh, double *outHALow, double *outHAClose );
+
+TA_LIB_API TA_RetCode TA_HA_Close( TA_HA_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_HA( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_HA_OpenAndFill( TA_HA_Stream **stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int historyLen, int *outBegIdx, int *outNBElement, double outHAOpen[], double outHAHigh[], double outHALow[], double outHAClose[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_HA_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_HA_UpdateAndFill( TA_HA_Stream *stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int barCount, double outHAOpen[], double outHAHigh[], double outHALow[], double outHAClose[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_HA_Value( const TA_HA_Stream *stream, double *outHAOpen, double *outHAHigh, double *outHALow, double *outHAClose );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_HA_Clone( const TA_HA_Stream *stream, TA_HA_Stream **clone );
 
 /*
  * TA_HMA - Hull Moving Average
@@ -8262,6 +9160,115 @@ TA_LIB_API TA_RetCode TA_KC_Value( const TA_KC_Stream *stream, double *outRealUp
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_KC_Clone( const TA_KC_Stream *stream, TA_KC_Stream **clone );
+
+/*
+ * TA_KDJ - KDJ Stochastic
+ * 
+ * Input  = High, Low, Close
+ * Output = double, double, double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInFastK_Period:(From 1 to 100000)
+ *    Time period for building the Fast-K line
+ * 
+ * optInSlowK_Period:(From 1 to 100000)
+ *    Smoothing for making the Slow-K line. Usually set to 3
+ * 
+ * optInSlowK_MAType:
+ *    Type of Moving Average for Slow-K
+ * 
+ * optInSlowD_Period:(From 1 to 100000)
+ *    Smoothing for making the Slow-D line
+ * 
+ * optInSlowD_MAType:
+ *    Type of Moving Average for Slow-D
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_KDJ( int    startIdx,
+                              int    endIdx,
+                                         const double inHigh[],
+                                         const double inLow[],
+                                         const double inClose[],
+                                         int           optInFastK_Period, /* From 1 to 100000 */
+                                         int           optInSlowK_Period, /* From 1 to 100000 */
+                                         TA_MAType     optInSlowK_MAType,
+                                         int           optInSlowD_Period, /* From 1 to 100000 */
+                                         TA_MAType     optInSlowD_MAType,
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outK[],
+                                         double        outD[],
+                                         double        outJ[] );
+
+TA_LIB_API TA_RetCode TA_S_KDJ( int    startIdx,
+                                int    endIdx,
+                                           const float  inHigh[],
+                                           const float  inLow[],
+                                           const float  inClose[],
+                                           int           optInFastK_Period, /* From 1 to 100000 */
+                                           int           optInSlowK_Period, /* From 1 to 100000 */
+                                           TA_MAType     optInSlowK_MAType,
+                                           int           optInSlowD_Period, /* From 1 to 100000 */
+                                           TA_MAType     optInSlowD_MAType,
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outK[],
+                                           double        outD[],
+                                           double        outJ[] );
+
+TA_LIB_API int TA_KDJ_Lookback( int           optInFastK_Period, /* From 1 to 100000 */
+                                         int           optInSlowK_Period, /* From 1 to 100000 */
+                                         TA_MAType     optInSlowK_MAType,
+                                         int           optInSlowD_Period, /* From 1 to 100000 */
+                                         TA_MAType     optInSlowD_MAType );
+
+
+/*
+ * Streaming API for TA_KDJ — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_KDJ_Stream TA_KDJ_Stream;
+
+TA_LIB_API TA_RetCode TA_KDJ_Open( TA_KDJ_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType, double *outK, double *outD, double *outJ );
+
+TA_LIB_API TA_RetCode TA_KDJ_Update( TA_KDJ_Stream *stream, double inHigh, double inLow, double inClose, double *outK, double *outD, double *outJ );
+
+TA_LIB_API TA_RetCode TA_KDJ_Peek( const TA_KDJ_Stream *stream, double inHigh, double inLow, double inClose, double *outK, double *outD, double *outJ );
+
+TA_LIB_API TA_RetCode TA_KDJ_Close( TA_KDJ_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_KDJ( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_KDJ_OpenAndFill( TA_KDJ_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInFastK_Period, int optInSlowK_Period, TA_MAType optInSlowK_MAType, int optInSlowD_Period, TA_MAType optInSlowD_MAType, int *outBegIdx, int *outNBElement, double outK[], double outD[], double outJ[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_KDJ_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_KDJ_UpdateAndFill( TA_KDJ_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outK[], double outD[], double outJ[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_KDJ_Value( const TA_KDJ_Stream *stream, double *outK, double *outD, double *outJ );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_KDJ_Clone( const TA_KDJ_Stream *stream, TA_KDJ_Stream **clone );
 
 /*
  * TA_LINEARREG - Linear Regression
@@ -9244,6 +10251,92 @@ TA_LIB_API TA_RetCode TA_MARKETFI_Value( const TA_MARKETFI_Stream *stream, doubl
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_MARKETFI_Clone( const TA_MARKETFI_Stream *stream, TA_MARKETFI_Stream **clone );
+
+/*
+ * TA_MASSI - Mass Index
+ * 
+ * Input  = High, Low
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInFastPeriod:(From 2 to 100000)
+ *    Period of both exponential averages of the high-low range
+ * 
+ * optInSlowPeriod:(From 2 to 100000)
+ *    Number of bars the ratio is summed over
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_MASSI( int    startIdx,
+                                int    endIdx,
+                                           const double inHigh[],
+                                           const double inLow[],
+                                           int           optInFastPeriod, /* From 2 to 100000 */
+                                           int           optInSlowPeriod, /* From 2 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_MASSI( int    startIdx,
+                                  int    endIdx,
+                                             const float  inHigh[],
+                                             const float  inLow[],
+                                             int           optInFastPeriod, /* From 2 to 100000 */
+                                             int           optInSlowPeriod, /* From 2 to 100000 */
+                                             int          *outBegIdx,
+                                             int          *outNBElement,
+                                             double        outReal[] );
+
+TA_LIB_API int TA_MASSI_Lookback( int           optInFastPeriod, /* From 2 to 100000 */
+                                           int           optInSlowPeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_MASSI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_MASSI_Stream TA_MASSI_Stream;
+
+TA_LIB_API TA_RetCode TA_MASSI_Open( TA_MASSI_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInFastPeriod, int optInSlowPeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MASSI_Update( TA_MASSI_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MASSI_Peek( const TA_MASSI_Stream *stream, double inHigh, double inLow, double *outReal );
+
+TA_LIB_API TA_RetCode TA_MASSI_Close( TA_MASSI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_MASSI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_MASSI_OpenAndFill( TA_MASSI_Stream **stream, const double inHigh[], const double inLow[], int historyLen, int optInFastPeriod, int optInSlowPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_MASSI_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_MASSI_UpdateAndFill( TA_MASSI_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_MASSI_Value( const TA_MASSI_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_MASSI_Clone( const TA_MASSI_Stream *stream, TA_MASSI_Stream **clone );
 
 /*
  * TA_MAVP - Moving average with variable period
@@ -10661,6 +11754,168 @@ TA_LIB_API TA_RetCode TA_OBV_Value( const TA_OBV_Stream *stream, double *outReal
 TA_LIB_API TA_RetCode TA_OBV_Clone( const TA_OBV_Stream *stream, TA_OBV_Stream **clone );
 
 /*
+ * TA_PERCENTILE - Percentile (nearest rank)
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Number of bars in the window
+ * 
+ * optInPercentile:(From 0 to 100)
+ *    Percentile to report
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_PERCENTILE( int    startIdx,
+                                     int    endIdx,
+                                                const double inReal[],
+                                                int           optInTimePeriod, /* From 2 to 100000 */
+                                                double        optInPercentile, /* From 0 to 100 */
+                                                int          *outBegIdx,
+                                                int          *outNBElement,
+                                                double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_PERCENTILE( int    startIdx,
+                                       int    endIdx,
+                                                  const float  inReal[],
+                                                  int           optInTimePeriod, /* From 2 to 100000 */
+                                                  double        optInPercentile, /* From 0 to 100 */
+                                                  int          *outBegIdx,
+                                                  int          *outNBElement,
+                                                  double        outReal[] );
+
+TA_LIB_API int TA_PERCENTILE_Lookback( int           optInTimePeriod, /* From 2 to 100000 */
+                                                double        optInPercentile );  /* From 0 to 100 */
+
+
+
+/*
+ * Streaming API for TA_PERCENTILE — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_PERCENTILE_Stream TA_PERCENTILE_Stream;
+
+TA_LIB_API TA_RetCode TA_PERCENTILE_Open( TA_PERCENTILE_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInPercentile, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PERCENTILE_Update( TA_PERCENTILE_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PERCENTILE_Peek( const TA_PERCENTILE_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PERCENTILE_Close( TA_PERCENTILE_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_PERCENTILE( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_PERCENTILE_OpenAndFill( TA_PERCENTILE_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double optInPercentile, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_PERCENTILE_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_PERCENTILE_UpdateAndFill( TA_PERCENTILE_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_PERCENTILE_Value( const TA_PERCENTILE_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_PERCENTILE_Clone( const TA_PERCENTILE_Stream *stream, TA_PERCENTILE_Stream **clone );
+
+/*
+ * TA_PERCENTRANK - Percent Rank
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_PERCENTRANK( int    startIdx,
+                                      int    endIdx,
+                                                 const double inReal[],
+                                                 int           optInTimePeriod, /* From 2 to 100000 */
+                                                 int          *outBegIdx,
+                                                 int          *outNBElement,
+                                                 double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_PERCENTRANK( int    startIdx,
+                                        int    endIdx,
+                                                   const float  inReal[],
+                                                   int           optInTimePeriod, /* From 2 to 100000 */
+                                                   int          *outBegIdx,
+                                                   int          *outNBElement,
+                                                   double        outReal[] );
+
+TA_LIB_API int TA_PERCENTRANK_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_PERCENTRANK — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_PERCENTRANK_Stream TA_PERCENTRANK_Stream;
+
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Open( TA_PERCENTRANK_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Update( TA_PERCENTRANK_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Peek( const TA_PERCENTRANK_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Close( TA_PERCENTRANK_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_PERCENTRANK( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_PERCENTRANK_OpenAndFill( TA_PERCENTRANK_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_PERCENTRANK_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_PERCENTRANK_UpdateAndFill( TA_PERCENTRANK_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Value( const TA_PERCENTRANK_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Clone( const TA_PERCENTRANK_Stream *stream, TA_PERCENTRANK_Stream **clone );
+
+/*
  * TA_PLUS_DI - Plus Directional Indicator
  * 
  * Input  = High, Low, Close
@@ -11073,6 +12328,78 @@ TA_LIB_API TA_RetCode TA_PVO_Value( const TA_PVO_Stream *stream, double *outReal
 TA_LIB_API TA_RetCode TA_PVO_Clone( const TA_PVO_Stream *stream, TA_PVO_Stream **clone );
 
 /*
+ * TA_PVT - Price Volume Trend
+ * 
+ * Input  = Close, Volume
+ * Output = double
+ * 
+ */
+TA_LIB_API TA_RetCode TA_PVT( int    startIdx,
+                              int    endIdx,
+                                         const double inClose[],
+                                         const double inVolume[],
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_PVT( int    startIdx,
+                                int    endIdx,
+                                           const float  inClose[],
+                                           const float  inVolume[],
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_PVT_Lookback( void );
+
+
+
+/*
+ * Streaming API for TA_PVT — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_PVT_Stream TA_PVT_Stream;
+
+TA_LIB_API TA_RetCode TA_PVT_Open( TA_PVT_Stream **stream, const double inClose[], const double inVolume[], int historyLen, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PVT_Update( TA_PVT_Stream *stream, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PVT_Peek( const TA_PVT_Stream *stream, double inClose, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_PVT_Close( TA_PVT_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_PVT( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_PVT_OpenAndFill( TA_PVT_Stream **stream, const double inClose[], const double inVolume[], int historyLen, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_PVT_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_PVT_UpdateAndFill( TA_PVT_Stream *stream, const double inClose[], const double inVolume[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_PVT_Value( const TA_PVT_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_PVT_Clone( const TA_PVT_Stream *stream, TA_PVT_Stream **clone );
+
+/*
  * TA_QSTICK - Qstick
  * 
  * Input  = Open, Close
@@ -11151,6 +12478,84 @@ TA_LIB_API TA_RetCode TA_QSTICK_Value( const TA_QSTICK_Stream *stream, double *o
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_QSTICK_Clone( const TA_QSTICK_Stream *stream, TA_QSTICK_Stream **clone );
+
+/*
+ * TA_RMA - Wilder's Smoothed Moving Average
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_RMA( int    startIdx,
+                              int    endIdx,
+                                         const double inReal[],
+                                         int           optInTimePeriod, /* From 1 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_RMA( int    startIdx,
+                                int    endIdx,
+                                           const float  inReal[],
+                                           int           optInTimePeriod, /* From 1 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_RMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_RMA — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_RMA_Stream TA_RMA_Stream;
+
+TA_LIB_API TA_RetCode TA_RMA_Open( TA_RMA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RMA_Update( TA_RMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RMA_Peek( const TA_RMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RMA_Close( TA_RMA_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_RMA( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_RMA_OpenAndFill( TA_RMA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_RMA_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_RMA_UpdateAndFill( TA_RMA_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_RMA_Value( const TA_RMA_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_RMA_Clone( const TA_RMA_Stream *stream, TA_RMA_Stream **clone );
 
 /*
  * TA_ROC - Rate of change : ((price/prevPrice)-1)*100
@@ -11541,6 +12946,168 @@ TA_LIB_API TA_RetCode TA_RSI_Value( const TA_RSI_Stream *stream, double *outReal
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_RSI_Clone( const TA_RSI_Stream *stream, TA_RSI_Stream **clone );
+
+/*
+ * TA_RVI - Relative Volatility Index
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period of the Wilder smoothing applied to both legs
+ * 
+ * optInStdDevPeriod:(From 2 to 100000)
+ *    Time period of the standard deviation
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_RVI( int    startIdx,
+                              int    endIdx,
+                                         const double inReal[],
+                                         int           optInTimePeriod, /* From 1 to 100000 */
+                                         int           optInStdDevPeriod, /* From 2 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_RVI( int    startIdx,
+                                int    endIdx,
+                                           const float  inReal[],
+                                           int           optInTimePeriod, /* From 1 to 100000 */
+                                           int           optInStdDevPeriod, /* From 2 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_RVI_Lookback( int           optInTimePeriod, /* From 1 to 100000 */
+                                         int           optInStdDevPeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_RVI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_RVI_Stream TA_RVI_Stream;
+
+TA_LIB_API TA_RetCode TA_RVI_Open( TA_RVI_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int optInStdDevPeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RVI_Update( TA_RVI_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RVI_Peek( const TA_RVI_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RVI_Close( TA_RVI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_RVI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_RVI_OpenAndFill( TA_RVI_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int optInStdDevPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_RVI_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_RVI_UpdateAndFill( TA_RVI_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_RVI_Value( const TA_RVI_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_RVI_Clone( const TA_RVI_Stream *stream, TA_RVI_Stream **clone );
+
+/*
+ * TA_RVOL - Relative Volume
+ * 
+ * Input  = Volume
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_RVOL( int    startIdx,
+                               int    endIdx,
+                                          const double inVolume[],
+                                          int           optInTimePeriod, /* From 1 to 100000 */
+                                          int          *outBegIdx,
+                                          int          *outNBElement,
+                                          double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_RVOL( int    startIdx,
+                                 int    endIdx,
+                                            const float  inVolume[],
+                                            int           optInTimePeriod, /* From 1 to 100000 */
+                                            int          *outBegIdx,
+                                            int          *outNBElement,
+                                            double        outReal[] );
+
+TA_LIB_API int TA_RVOL_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_RVOL — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_RVOL_Stream TA_RVOL_Stream;
+
+TA_LIB_API TA_RetCode TA_RVOL_Open( TA_RVOL_Stream **stream, const double inVolume[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RVOL_Update( TA_RVOL_Stream *stream, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RVOL_Peek( const TA_RVOL_Stream *stream, double inVolume, double *outReal );
+
+TA_LIB_API TA_RetCode TA_RVOL_Close( TA_RVOL_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_RVOL( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_RVOL_OpenAndFill( TA_RVOL_Stream **stream, const double inVolume[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_RVOL_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_RVOL_UpdateAndFill( TA_RVOL_Stream *stream, const double inVolume[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_RVOL_Value( const TA_RVOL_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_RVOL_Clone( const TA_RVOL_Stream *stream, TA_RVOL_Stream **clone );
 
 /*
  * TA_SAR - Parabolic SAR
@@ -13374,6 +14941,90 @@ TA_LIB_API TA_RetCode TA_TSF_Value( const TA_TSF_Stream *stream, double *outReal
 TA_LIB_API TA_RetCode TA_TSF_Clone( const TA_TSF_Stream *stream, TA_TSF_Stream **clone );
 
 /*
+ * TA_TSI - True Strength Index
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInFirstPeriod:(From 2 to 100000)
+ *    Period of the first smoothing, applied to the raw momentum
+ * 
+ * optInSecondPeriod:(From 2 to 100000)
+ *    Period of the second smoothing, applied to the first
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_TSI( int    startIdx,
+                              int    endIdx,
+                                         const double inReal[],
+                                         int           optInFirstPeriod, /* From 2 to 100000 */
+                                         int           optInSecondPeriod, /* From 2 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_TSI( int    startIdx,
+                                int    endIdx,
+                                           const float  inReal[],
+                                           int           optInFirstPeriod, /* From 2 to 100000 */
+                                           int           optInSecondPeriod, /* From 2 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_TSI_Lookback( int           optInFirstPeriod, /* From 2 to 100000 */
+                                         int           optInSecondPeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_TSI — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_TSI_Stream TA_TSI_Stream;
+
+TA_LIB_API TA_RetCode TA_TSI_Open( TA_TSI_Stream **stream, const double inReal[], int historyLen, int optInFirstPeriod, int optInSecondPeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TSI_Update( TA_TSI_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TSI_Peek( const TA_TSI_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_TSI_Close( TA_TSI_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_TSI( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_TSI_OpenAndFill( TA_TSI_Stream **stream, const double inReal[], int historyLen, int optInFirstPeriod, int optInSecondPeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_TSI_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_TSI_UpdateAndFill( TA_TSI_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_TSI_Value( const TA_TSI_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_TSI_Clone( const TA_TSI_Stream *stream, TA_TSI_Stream **clone );
+
+/*
  * TA_TYPPRICE - Typical Price
  * 
  * Input  = High, Low, Close
@@ -13624,6 +15275,168 @@ TA_LIB_API TA_RetCode TA_VAR_Value( const TA_VAR_Stream *stream, double *outReal
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_VAR_Clone( const TA_VAR_Stream *stream, TA_VAR_Stream **clone );
+
+/*
+ * TA_VHF - Vertical Horizontal Filter
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 2 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_VHF( int    startIdx,
+                              int    endIdx,
+                                         const double inReal[],
+                                         int           optInTimePeriod, /* From 2 to 100000 */
+                                         int          *outBegIdx,
+                                         int          *outNBElement,
+                                         double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_VHF( int    startIdx,
+                                int    endIdx,
+                                           const float  inReal[],
+                                           int           optInTimePeriod, /* From 2 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API int TA_VHF_Lookback( int           optInTimePeriod );  /* From 2 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_VHF — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_VHF_Stream TA_VHF_Stream;
+
+TA_LIB_API TA_RetCode TA_VHF_Open( TA_VHF_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_VHF_Update( TA_VHF_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_VHF_Peek( const TA_VHF_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_VHF_Close( TA_VHF_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_VHF( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_VHF_OpenAndFill( TA_VHF_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_VHF_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_VHF_UpdateAndFill( TA_VHF_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_VHF_Value( const TA_VHF_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_VHF_Clone( const TA_VHF_Stream *stream, TA_VHF_Stream **clone );
+
+/*
+ * TA_VORTEX - Vortex Indicator
+ * 
+ * Input  = High, Low, Close
+ * Output = double, double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Number of bars in the rolling sums
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_VORTEX( int    startIdx,
+                                 int    endIdx,
+                                            const double inHigh[],
+                                            const double inLow[],
+                                            const double inClose[],
+                                            int           optInTimePeriod, /* From 1 to 100000 */
+                                            int          *outBegIdx,
+                                            int          *outNBElement,
+                                            double        outPlusVI[],
+                                            double        outMinusVI[] );
+
+TA_LIB_API TA_RetCode TA_S_VORTEX( int    startIdx,
+                                   int    endIdx,
+                                              const float  inHigh[],
+                                              const float  inLow[],
+                                              const float  inClose[],
+                                              int           optInTimePeriod, /* From 1 to 100000 */
+                                              int          *outBegIdx,
+                                              int          *outNBElement,
+                                              double        outPlusVI[],
+                                              double        outMinusVI[] );
+
+TA_LIB_API int TA_VORTEX_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_VORTEX — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_VORTEX_Stream TA_VORTEX_Stream;
+
+TA_LIB_API TA_RetCode TA_VORTEX_Open( TA_VORTEX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, double *outPlusVI, double *outMinusVI );
+
+TA_LIB_API TA_RetCode TA_VORTEX_Update( TA_VORTEX_Stream *stream, double inHigh, double inLow, double inClose, double *outPlusVI, double *outMinusVI );
+
+TA_LIB_API TA_RetCode TA_VORTEX_Peek( const TA_VORTEX_Stream *stream, double inHigh, double inLow, double inClose, double *outPlusVI, double *outMinusVI );
+
+TA_LIB_API TA_RetCode TA_VORTEX_Close( TA_VORTEX_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_VORTEX( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_VORTEX_OpenAndFill( TA_VORTEX_Stream **stream, const double inHigh[], const double inLow[], const double inClose[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outPlusVI[], double outMinusVI[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_VORTEX_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_VORTEX_UpdateAndFill( TA_VORTEX_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outPlusVI[], double outMinusVI[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_VORTEX_Value( const TA_VORTEX_Stream *stream, double *outPlusVI, double *outMinusVI );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_VORTEX_Clone( const TA_VORTEX_Stream *stream, TA_VORTEX_Stream **clone );
 
 /*
  * TA_VWAP - Volume Weighted Average Price
@@ -14088,6 +15901,84 @@ TA_LIB_API TA_RetCode TA_WMA_Value( const TA_WMA_Stream *stream, double *outReal
  * carries the value and the range verbatim.
  */
 TA_LIB_API TA_RetCode TA_WMA_Clone( const TA_WMA_Stream *stream, TA_WMA_Stream **clone );
+
+/*
+ * TA_ZLEMA - Zero-Lag Exponential Moving Average
+ * 
+ * Input  = double
+ * Output = double
+ * 
+ * Optional Parameters
+ * -------------------
+ * optInTimePeriod:(From 1 to 100000)
+ *    Time period
+ * 
+ * 
+ */
+TA_LIB_API TA_RetCode TA_ZLEMA( int    startIdx,
+                                int    endIdx,
+                                           const double inReal[],
+                                           int           optInTimePeriod, /* From 1 to 100000 */
+                                           int          *outBegIdx,
+                                           int          *outNBElement,
+                                           double        outReal[] );
+
+TA_LIB_API TA_RetCode TA_S_ZLEMA( int    startIdx,
+                                  int    endIdx,
+                                             const float  inReal[],
+                                             int           optInTimePeriod, /* From 1 to 100000 */
+                                             int          *outBegIdx,
+                                             int          *outNBElement,
+                                             double        outReal[] );
+
+TA_LIB_API int TA_ZLEMA_Lookback( int           optInTimePeriod );  /* From 1 to 100000 */
+
+
+
+/*
+ * Streaming API for TA_ZLEMA — incremental per-bar evaluation.
+ * See docs/streaming-api-design.md.
+ */
+typedef struct TA_ZLEMA_Stream TA_ZLEMA_Stream;
+
+TA_LIB_API TA_RetCode TA_ZLEMA_Open( TA_ZLEMA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ZLEMA_Update( TA_ZLEMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ZLEMA_Peek( const TA_ZLEMA_Stream *stream, double inReal, double *outReal );
+
+TA_LIB_API TA_RetCode TA_ZLEMA_Close( TA_ZLEMA_Stream *stream );
+
+/*
+ * OpenAndFill: like Open, but a single pass ALSO fills the caller's arrays
+ * with the whole warm-up history — bit-identical to TA_ZLEMA( 0, historyLen-1,
+ * ... ).
+ */
+TA_LIB_API TA_RetCode TA_ZLEMA_OpenAndFill( TA_ZLEMA_Stream **stream, const double inReal[], int historyLen, int optInTimePeriod, int *outBegIdx, int *outNBElement, double outReal[] );
+
+/*
+ * UpdateAndFill: commit barCount closed bars and write the barCount values,
+ * in one call — barCount back-to-back TA_ZLEMA_Update calls, including the
+ * per-bar rejection. A rejected bar k leaves the bars before it committed and
+ * written, itself uncommitted and its output slot untouched; TA_StreamOutRange
+ * then reports k+1, the rejected bar being the last one counted. Outputs must
+ * not alias the inputs or each other.
+ */
+TA_LIB_API TA_RetCode TA_ZLEMA_UpdateAndFill( TA_ZLEMA_Stream *stream, const double inReal[], int barCount, double outReal[] );
+
+/*
+ * Value: the value(s) at the last bar the stream counted — the bar
+ * TA_StreamOutRange ends on — without recomputing. Seeded by Open, refreshed by
+ * every accepted Update and UpdateAndFill, left alone by Peek.
+ */
+TA_LIB_API TA_RetCode TA_ZLEMA_Value( const TA_ZLEMA_Stream *stream, double *outReal );
+
+/*
+ * Clone: fork the stream — an independent stream at the same bar, owning its
+ * own copy of everything the original owns. Both must be closed. The fork
+ * carries the value and the range verbatim.
+ */
+TA_LIB_API TA_RetCode TA_ZLEMA_Clone( const TA_ZLEMA_Stream *stream, TA_ZLEMA_Stream **clone );
 
 /* The range of bars a live stream has an output for, in the
  * input series' coordinates: [*outBegIdx, *outBegIdx + *outNBElement).

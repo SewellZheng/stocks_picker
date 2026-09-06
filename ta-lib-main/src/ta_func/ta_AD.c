@@ -235,8 +235,6 @@ static TA_RetCode TA_AD_OpenImpl( struct TA_AD_Stream **stream, const double inH
 {
    struct TA_AD_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -251,9 +249,6 @@ static TA_RetCode TA_AD_OpenImpl( struct TA_AD_Stream **stream, const double inH
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int nbBar;
@@ -370,25 +365,25 @@ TA_LIB_API TA_RetCode TA_AD_Update( TA_AD_Stream *stream, double inHigh, double 
 
 TA_LIB_API TA_RetCode TA_AD_Peek( const TA_AD_Stream *stream, double inHigh, double inLow, double inClose, double inVolume, double *outReal )
 {
-   struct TA_AD_Stream scratch;
-   struct TA_AD_Stream *sp = &scratch;
+   const struct TA_AD_Stream *sp = stream;
    double high;
    double low;
    double close;
    double tmp;
+   double ad;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
-   scratch = *stream;
+   ad = sp->ad;
    high = inHigh;
    low = inLow;
    tmp = high - low;
    close = inClose;
    if( tmp > 0.0 )
    {
-      sp->ad += (close - low - (high - close)) / tmp * (double)inVolume;
+      ad += (close - low - (high - close)) / tmp * (double)inVolume;
    }
-   *outReal= sp->ad;
+   *outReal= ad;
    return TA_SUCCESS;
 }
 

@@ -348,6 +348,7 @@ typedef enum
   TA_CODEGEN_RANGE_VACUOUS           = 1115,
   TA_CODEGEN_GENCODE_DIGEST_SKEW     = 1116,
   TA_CODEGEN_GENCODE_DIGEST_VACUOUS  = 1117,
+  TA_CODEGEN_OUTPUT_ARITY_EXCEEDS_CAP = 1118,
 
   /* Abstract codegen test errors */
   TA_ABSTRACT_LOOKBACK_MISMATCH      = 1200,
@@ -494,6 +495,24 @@ typedef enum
   TA_CMOU_VACUOUS                    = 1651,
   TA_MAVP_VACUOUS                    = 1652,
   TA_UNSTABLE_MAP_INCOMPLETE         = 1653,
+  TA_DONCHIAN_ORACLE_VACUOUS         = 1654,
+  TA_RMA_ORACLE_VACUOUS              = 1655,
+  TA_ZLEMA_VACUOUS                   = 1656,
+  TA_VHF_VACUOUS                     = 1657,
+  TA_FOSC_VACUOUS                    = 1658,
+  TA_DPO_VACUOUS                     = 1664,
+  TA_PERCENTRANK_VACUOUS             = 1665,
+  TA_PERCENTILE_VACUOUS              = 1666,
+  TA_CVI_VACUOUS                     = 1662,
+  TA_MASSI_VACUOUS                   = 1663,
+  TA_ADR_VACUOUS                     = 1659,
+  TA_PVT_VACUOUS                     = 1660,
+  TA_RVOL_VACUOUS                    = 1661,
+  TA_TSI_VACUOUS                     = 1670,
+  TA_KDJ_VACUOUS                     = 1671,
+  TA_FRACTAL_VACUOUS                 = 1675,
+  TA_HA_VACUOUS                      = 1678,
+  TA_RVI_VACUOUS                     = 1676,
 
   /* --function= named something no test group covers, on a run that had
    * nothing else to do. Reported rather than passed silently. */

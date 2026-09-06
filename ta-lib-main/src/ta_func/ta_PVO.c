@@ -331,7 +331,6 @@ static TA_RetCode TA_PVO_OpenImpl( struct TA_PVO_Stream **stream, const double i
    int dummyBegIdx;
    int dummyNBElement;
    TA_RetCode subRc;
-   double subOpenDummy;
    double *sc_outReal;
    TA_MA_Stream *sub0;
    TA_MA_Stream *sub1;
@@ -364,10 +363,8 @@ static TA_RetCode TA_PVO_OpenImpl( struct TA_PVO_Stream **stream, const double i
    dummyBegIdx = 0;
    dummyNBElement = 0;
    subRc = TA_SUCCESS;
-   subOpenDummy = 0.0;
    sub0 = NULL;
    sub1 = NULL;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
    if( outStride ) sc_outReal = outReal;
    else
    {
@@ -560,15 +557,13 @@ TA_LIB_API TA_RetCode TA_PVO_Update( TA_PVO_Stream *stream, double inVolume, dou
 
 TA_LIB_API TA_RetCode TA_PVO_Peek( const TA_PVO_Stream *stream, double inVolume, double *outReal )
 {
-   struct TA_PVO_Stream scratch;
-   struct TA_PVO_Stream *sp = &scratch;
+   const struct TA_PVO_Stream *sp = stream;
    double tempReal;
    double cur_tempBuffer = 0.0;
    double cur_outReal = 0.0;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
-   scratch = *stream;
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {

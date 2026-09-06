@@ -371,8 +371,6 @@ static TA_RetCode TA_CDLTAKURI_OpenImpl( struct TA_CDLTAKURI_Stream **stream, co
 {
    struct TA_CDLTAKURI_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -387,9 +385,6 @@ static TA_RetCode TA_CDLTAKURI_OpenImpl( struct TA_CDLTAKURI_Stream **stream, co
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int BodyDoji_avgPeriod = TA_Globals->candleSettings[TA_BodyDoji].avgPeriod;
@@ -588,12 +583,10 @@ TA_LIB_API TA_RetCode TA_CDLTAKURI_Update( TA_CDLTAKURI_Stream *stream, double i
 
 TA_LIB_API TA_RetCode TA_CDLTAKURI_Peek( const TA_CDLTAKURI_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   struct TA_CDLTAKURI_Stream scratch;
-   struct TA_CDLTAKURI_Stream *sp = &scratch;
+   const struct TA_CDLTAKURI_Stream *sp = stream;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
    if( fabs(inClose - inOpen) <= TA_STREAM_CANDLEAVERAGE(BodyDoji,sp->BodyDojiPeriodTotal,inOpen,inHigh,inLow,inClose) && (inHigh - ((inClose >= inOpen) ? inClose : inOpen)) < TA_STREAM_CANDLEAVERAGE(ShadowVeryShort,sp->ShadowVeryShortPeriodTotal,inOpen,inHigh,inLow,inClose) && (((inClose >= inOpen) ? inOpen : inClose) - inLow) > TA_STREAM_CANDLEAVERAGE(ShadowVeryLong,sp->ShadowVeryLongPeriodTotal,inOpen,inHigh,inLow,inClose) )
    {
       *outInteger= 100;

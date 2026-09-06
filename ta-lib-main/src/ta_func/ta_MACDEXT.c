@@ -536,7 +536,6 @@ static TA_RetCode TA_MACDEXT_OpenImpl( struct TA_MACDEXT_Stream **stream, const 
    int dummyBegIdx;
    int dummyNBElement;
    TA_RetCode subRc;
-   double subOpenDummy;
    double *sc_outMACD;
    double *sc_outMACDSignal;
    double *sc_outMACDHist;
@@ -584,11 +583,9 @@ static TA_RetCode TA_MACDEXT_OpenImpl( struct TA_MACDEXT_Stream **stream, const 
    dummyBegIdx = 0;
    dummyNBElement = 0;
    subRc = TA_SUCCESS;
-   subOpenDummy = 0.0;
    sub0 = NULL;
    sub1 = NULL;
    sub2 = NULL;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
    if( outStride ) sc_outMACD = outMACD;
    else
    {
@@ -879,8 +876,7 @@ TA_LIB_API TA_RetCode TA_MACDEXT_Update( TA_MACDEXT_Stream *stream, double inRea
 
 TA_LIB_API TA_RetCode TA_MACDEXT_Peek( const TA_MACDEXT_Stream *stream, double inReal, double *outMACD, double *outMACDSignal, double *outMACDHist )
 {
-   struct TA_MACDEXT_Stream scratch;
-   struct TA_MACDEXT_Stream *sp = &scratch;
+   const struct TA_MACDEXT_Stream *sp = stream;
    double cur_slowMABuffer = 0.0;
    double cur_fastMABuffer = 0.0;
    double cur_outMACDSignal = 0.0;
@@ -888,7 +884,6 @@ TA_LIB_API TA_RetCode TA_MACDEXT_Peek( const TA_MACDEXT_Stream *stream, double i
 
    if( !stream || !outMACD || !outMACDSignal || !outMACDHist ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
-   scratch = *stream;
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {

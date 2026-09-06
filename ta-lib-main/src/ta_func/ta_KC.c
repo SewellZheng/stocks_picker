@@ -416,7 +416,6 @@ static TA_RetCode TA_KC_OpenImpl( struct TA_KC_Stream **stream, const double inH
    int dummyBegIdx;
    int dummyNBElement;
    TA_RetCode subRc;
-   double subOpenDummy;
    double *sc_outRealUpperBand;
    double *sc_outRealMiddleBand;
    double *sc_outRealLowerBand;
@@ -452,11 +451,9 @@ static TA_RetCode TA_KC_OpenImpl( struct TA_KC_Stream **stream, const double inH
    dummyBegIdx = 0;
    dummyNBElement = 0;
    subRc = TA_SUCCESS;
-   subOpenDummy = 0.0;
    sub0 = NULL;
    sub1 = NULL;
    sub2 = NULL;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement; (void)subRc; (void)subOpenDummy;
    if( outStride ) sc_outRealUpperBand = outRealUpperBand;
    else
    {
@@ -702,8 +699,7 @@ TA_LIB_API TA_RetCode TA_KC_Update( TA_KC_Stream *stream, double inHigh, double 
 
 TA_LIB_API TA_RetCode TA_KC_Peek( const TA_KC_Stream *stream, double inHigh, double inLow, double inClose, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
-   struct TA_KC_Stream scratch;
-   struct TA_KC_Stream *sp = &scratch;
+   const struct TA_KC_Stream *sp = stream;
    double middle;
    double tempReal;
    double cur_tempTP = 0.0;
@@ -714,7 +710,6 @@ TA_LIB_API TA_RetCode TA_KC_Peek( const TA_KC_Stream *stream, double inHigh, dou
 
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
 
    /* Pipeline the new bar through the sub-streams (batch tail order). */
    {

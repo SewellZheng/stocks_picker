@@ -364,8 +364,6 @@ static TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenImpl( struct TA_CDLUPSIDEGAP2CROWS_S
 {
    struct TA_CDLUPSIDEGAP2CROWS_Stream *sp;
    int endIdx;
-   int dummyBegIdx;
-   int dummyNBElement;
 
    if( !stream ) return TA_BAD_PARAM;
    *stream = NULL;
@@ -380,9 +378,6 @@ static TA_RetCode TA_CDLUPSIDEGAP2CROWS_OpenImpl( struct TA_CDLUPSIDEGAP2CROWS_S
    }
 
    endIdx = historyLen - 1;
-   dummyBegIdx = 0;
-   dummyNBElement = 0;
-   (void)startIdx; (void)dummyBegIdx; (void)dummyNBElement;
 
    {
       int BodyLong_avgPeriod = TA_Globals->candleSettings[TA_BodyLong].avgPeriod;
@@ -575,12 +570,10 @@ TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Update( TA_CDLUPSIDEGAP2CROWS_Stream
 
 TA_LIB_API TA_RetCode TA_CDLUPSIDEGAP2CROWS_Peek( const TA_CDLUPSIDEGAP2CROWS_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
-   struct TA_CDLUPSIDEGAP2CROWS_Stream scratch;
-   struct TA_CDLUPSIDEGAP2CROWS_Stream *sp = &scratch;
+   const struct TA_CDLUPSIDEGAP2CROWS_Stream *sp = stream;
 
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
-   scratch = *stream;
    if( ((sp->lag2_inClose >= sp->lag2_inOpen) ? 1 : 0 - 1) == 1 &&     /* 1st: white */
        fabs(sp->lag2_inClose - sp->lag2_inOpen) > TA_STREAM_CANDLEAVERAGE(BodyLong,sp->BodyLongPeriodTotal,sp->lag2_inOpen,sp->lag2_inHigh,sp->lag2_inLow,sp->lag2_inClose) && /* long */
        ((sp->lag1_inClose >= sp->lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* 2nd: black */
