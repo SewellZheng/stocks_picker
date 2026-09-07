@@ -287,8 +287,7 @@ TA_RetCode TA_S_PPO( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_PPO_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_PPO_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_PPO_Value). */
@@ -403,6 +402,7 @@ static TA_RetCode TA_PPO_OpenImpl( struct TA_PPO_Stream **stream, const double i
       {
          dummyBegIdx = 0;
          dummyNBElement = 0;
+         *outBegIdx = 0; *outNBElement = 0;
          TA_MA_Close( sub0 ); TA_MA_Close( sub1 ); if( !outStride ) TA_Free( sc_outReal );
          return TA_INSUFFICIENT_HISTORY;
       }
@@ -481,7 +481,7 @@ static TA_RetCode TA_PPO_OpenImpl( struct TA_PPO_Stream **stream, const double i
       free(tempBuffer);
 
       /* Capture the live producer state + sub handles. */
-      if( dummyNBElement < 1 ) { TA_MA_Close( sub0 ); TA_MA_Close( sub1 ); if( !outStride ) TA_Free( sc_outReal ); return TA_INSUFFICIENT_HISTORY; }
+      if( dummyNBElement < 1 ) { *outBegIdx = 0; *outNBElement = 0; TA_MA_Close( sub0 ); TA_MA_Close( sub1 ); if( !outStride ) TA_Free( sc_outReal ); return TA_INSUFFICIENT_HISTORY; }
       sp = (struct TA_PPO_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { TA_MA_Close( sub0 ); TA_MA_Close( sub1 ); if( !outStride ) TA_Free( sc_outReal ); return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -549,11 +549,7 @@ TA_LIB_API TA_RetCode TA_PPO_Update( TA_PPO_Stream *stream, double inReal, doubl
    TA_RetCode retCode;
 
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    retCode = TA_PPO_StepImpl( stream, inReal, outReal );
    if( retCode != TA_SUCCESS ) return retCode;
    stream->cur_outReal = *outReal;
@@ -593,29 +589,6 @@ TA_LIB_API TA_RetCode TA_PPO_Peek( const TA_PPO_Stream *stream, double inReal, d
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_PPO_UpdateAndFill( TA_PPO_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-   TA_RetCode retCode;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      retCode = TA_PPO_StepImpl( stream, inReal[i], &outReal[i] );
-      if( retCode != TA_SUCCESS ) return retCode;
-      stream->cur_outReal = outReal[i];
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_PPO_Close( TA_PPO_Stream *stream )
 {
    if( !stream ) return TA_SUCCESS;
@@ -629,6 +602,21 @@ TA_LIB_API TA_RetCode TA_PPO_Value( const TA_PPO_Stream *stream, double *outReal
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PPO_OutRange( const TA_PPO_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PPO_Advance( TA_PPO_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

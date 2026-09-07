@@ -879,8 +879,7 @@ TA_RetCode TA_S_MAMA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MAMA_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_MAMA_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_MAMA_Value). */
@@ -1696,11 +1695,7 @@ TA_RetCode TA_MAMA_OpenAndFillInternal( struct TA_MAMA_Stream **stream, const do
 TA_LIB_API TA_RetCode TA_MAMA_Update( TA_MAMA_Stream *stream, double inReal, double *outMAMA, double *outFAMA )
 {
    if( !stream || !outMAMA ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_MAMA_StepImpl( stream, inReal, outMAMA, outFAMA );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1887,26 +1882,6 @@ TA_LIB_API TA_RetCode TA_MAMA_Peek( const TA_MAMA_Stream *stream, double inReal,
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_MAMA_UpdateAndFill( TA_MAMA_Stream *stream, const double inReal[], int barCount, double outMAMA[], double outFAMA[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outMAMA ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outMAMA == (const void *)inReal || (outFAMA != NULL && (const void *)outFAMA == (const void *)inReal) || (outFAMA != NULL && (const void *)outMAMA == (const void *)outFAMA) ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_MAMA_StepImpl( stream, inReal[i], &outMAMA[i], outFAMA ? &outFAMA[i] : NULL );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_MAMA_Close( TA_MAMA_Stream *stream )
 {
    TA_MAMA_ReleaseImpl( stream );
@@ -1919,6 +1894,21 @@ TA_LIB_API TA_RetCode TA_MAMA_Value( const TA_MAMA_Stream *stream, double *outMA
    *outMAMA = stream->cur_outMAMA;
    if( outFAMA != NULL )
       *outFAMA = stream->cur_outFAMA;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MAMA_OutRange( const TA_MAMA_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MAMA_Advance( TA_MAMA_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

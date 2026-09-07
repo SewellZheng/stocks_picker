@@ -471,6 +471,39 @@ fn assert_nullable_stores_are_guardable(func: &FuncDef, nullable: &[String]) {
     }
 }
 
+/// One C# span-overlap term, shared by the batch (`csharp.rs`) and streaming
+/// (`csharp_stream.rs`) aliasing guards.
+///
+/// Same-element-type pair: `Span<T>.Overlaps` directly. Cross-typed pair (a
+/// `Span<double>` output against a `Span<int>` output, or against a real
+/// input): `Overlaps` is not defined across element types, but a caller CAN
+/// place the two on the same backing memory (`MemoryMarshal.Cast`, or any
+/// other reinterpretation), so compare the byte ranges instead —
+/// `MemoryMarshal.AsBytes` is safe code for any unmanaged `T` and needs no
+/// `unsafe` block in this project. SUPERTREND is the corpus's only mixed-type
+/// output pair today.
+///
+/// `allow_identity` carves out the exact-same-span case (`a == b`) from the
+/// same-type rejection: legitimate for an output computing in place over one
+/// of its inputs (BBANDS-style scratch election), never legitimate between
+/// two outputs, and moot on the cross-type arm — a `Span<int>` and a
+/// `Span<double>` can never be the same span object to begin with, so the
+/// carve-out would be dead code there.
+pub(crate) fn csharp_overlap_expr(a: &str, a_int: bool, b: &str, b_int: bool, allow_identity: bool) -> String {
+    if a_int == b_int {
+        if allow_identity {
+            format!("({a}.Overlaps({b}) && {a} != {b})")
+        } else {
+            format!("{a}.Overlaps({b})")
+        }
+    } else {
+        format!(
+            "System.Runtime.InteropServices.MemoryMarshal.AsBytes({a}).Overlaps(\
+             System.Runtime.InteropServices.MemoryMarshal.AsBytes({b}))"
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

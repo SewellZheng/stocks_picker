@@ -126,13 +126,10 @@ public partial class Core
        *
        * One fused loop, not ema() + a combine map: a composed form cannot
        * stream (raw bar inputs are outside check_map_step's provenance), which
-       * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-       * op for op -- sequential seed sum from 0.0 then one divide, the
-       * unstable-period warm-up consumed bar by bar -- so the differential
-       * against shipped TA_EMA holds bitwise. No compatibility branch: the
-       * Metastock arm is unreachable from three of the four backends, and a
-       * new function honouring it would make C diverge from them (EFI/SMI
-       * precedent).
+       * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+       * sequential seed sum from 0.0 then one divide, the unstable-period
+       * warm-up consumed bar by bar -- so the differential against shipped
+       * TA_EMA holds bitwise.
        *
        * No division in the per-bar map: no 0/0, no NaN path (#112 by
        * construction). Bull >= Bear on every bar since high >= low.
@@ -461,9 +458,9 @@ public partial class Core
    /// <summary>One <c>ERI</c> output set, in batch output order.</summary>
    /// <remarks>
    /// <para>Equality is the compiler-generated record-struct equality, which compares
-   /// the components with <c>==</c>: <c>NaN</c> does not equal <c>NaN</c>, and
-   /// <c>0.0</c> equals <c>-0.0</c>. That is deliberately <em>not</em> the Java
-   /// <c>Value</c> contract, which compares bitwise — compare
+   /// each component with <see cref="System.Double.Equals(System.Double)"/>, not
+   /// <c>==</c>: any two <c>NaN</c> payloads compare equal, and <c>0.0</c>
+   /// equals <c>-0.0</c>. Compare
    /// <see cref="System.BitConverter.DoubleToInt64Bits(double)"/> per component
    /// when bit-level identity is what you mean.</para>
    /// </remarks>
@@ -504,13 +501,26 @@ public partial class Core
       /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Eri</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
-      /// to the count — a non-finite bar is rejected but still counted, because the
-      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
-      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
-      /// this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count — a rejected one changes nothing, and neither does
+      /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
+      /// hands back only the last value, a subset of this range, because the caller
+      /// chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
+
+      /// <summary>Count one bar this stream was not fed: <see cref="OutRange"/> advances by
+      /// one and nothing else moves.</summary>
+      /// <remarks>
+      /// <para><see cref="Value"/> keeps answering the previous output, which is this
+      /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
+      /// rejected and that will not be re-fed, or a session with no print. Without
+      /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// </remarks>
+      public void Advance()
+      {
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+      }
 
       internal EriStream( EriStream other )
       {
@@ -529,14 +539,13 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so no state moves, <see cref="Value"/> still answers the previous value,
-      /// and the stream stays usable — just carry on with the next bar.
-      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
-      /// which keeps two handles fed the same series positionally aligned when only
-      /// one of them rejects a bar. This is the one place the streaming tier is
-      /// stricter than the batch API, which computes on whatever it is given: a
-      /// handle retains its state, so a single non-finite bar would poison every
-      /// later value it produces.</para>
+      /// so nothing moves — <see cref="OutRange"/> included — and
+      /// <see cref="Value"/> still answers the previous value. Re-feed the bar when
+      /// a corrected value arrives, or call <see cref="Advance"/> to count it and
+      /// carry on; two handles on one feed drift a bar apart if neither happens.
+      /// This is the one place the streaming tier is stricter than the batch API,
+      /// which computes on whatever it is given: a handle retains its state, so a
+      /// single non-finite bar would poison every later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -544,11 +553,7 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public EriValue Update( double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) )
-         {
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-            throw Core.StreamFailure("ERI", "update", RetCode.BadParam);
-         }
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ERI", "update", RetCode.BadParam);
          core.EriStepImpl(this, inHigh, inLow, inClose);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new EriValue(cur_outBullPower, cur_outBearPower);
@@ -594,42 +599,6 @@ public partial class Core
             cur_outBearPower = tempLT - prevMA;
          }
          return new EriValue(cur_outBullPower, cur_outBearPower);
-      }
-
-      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
-      /// <remarks>
-      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
-      /// argument checks instead of <c>n</c>. The outputs must hold at least
-      /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
-      /// a rejection readable: a non-finite bar <c>k</c> throws
-      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
-      /// and everything after it not written, and the count advanced by <c>k +
-      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
-      /// is the one that failed.</para>
-      /// </remarks>
-      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
-      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
-      /// <param name="inClose">Closed bars for <c>inClose</c>, oldest first.</param>
-      /// <param name="outBullPower">Receives one <c>outBullPower</c> value per bar committed.</param>
-      /// <param name="outBearPower">Receives one <c>outBearPower</c> value per bar committed.</param>
-      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outBullPower, Span<double> outBearPower )
-      {
-         int barCount = inHigh.Length;
-         if( inLow.Length != barCount || inClose.Length != barCount || outBullPower.Length < barCount || outBearPower.Length < barCount || outBullPower.Overlaps(inHigh) || outBullPower.Overlaps(inLow) || outBullPower.Overlaps(inClose) || outBearPower.Overlaps(inHigh) || outBearPower.Overlaps(inLow) || outBearPower.Overlaps(inClose) || outBullPower.Overlaps(outBearPower) ) throw Core.StreamFailure("ERI", "updateAndFill", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ )
-         {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) )
-            {
-               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-               throw Core.StreamFailure("ERI", "updateAndFill", RetCode.BadParam);
-            }
-            core.EriStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-            outBullPower[i] = cur_outBullPower;
-            outBearPower[i] = cur_outBearPower;
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-         }
       }
 
       /// <summary>The value at the last bar this stream counted — the bar
@@ -709,13 +678,10 @@ public partial class Core
           *
           * One fused loop, not ema() + a combine map: a composed form cannot
           * stream (raw bar inputs are outside check_map_step's provenance), which
-          * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-          * op for op -- sequential seed sum from 0.0 then one divide, the
-          * unstable-period warm-up consumed bar by bar -- so the differential
-          * against shipped TA_EMA holds bitwise. No compatibility branch: the
-          * Metastock arm is unreachable from three of the four backends, and a
-          * new function honouring it would make C diverge from them (EFI/SMI
-          * precedent).
+          * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+          * sequential seed sum from 0.0 then one divide, the unstable-period
+          * warm-up consumed bar by bar -- so the differential against shipped
+          * TA_EMA holds bitwise.
           *
           * No division in the per-bar map: no 0/0, no NaN path (#112 by
           * construction). Bull >= Bear on every bar since high >= low.
@@ -775,13 +741,10 @@ public partial class Core
           *
           * One fused loop, not ema() + a combine map: a composed form cannot
           * stream (raw bar inputs are outside check_map_step's provenance), which
-          * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-          * op for op -- sequential seed sum from 0.0 then one divide, the
-          * unstable-period warm-up consumed bar by bar -- so the differential
-          * against shipped TA_EMA holds bitwise. No compatibility branch: the
-          * Metastock arm is unreachable from three of the four backends, and a
-          * new function honouring it would make C diverge from them (EFI/SMI
-          * precedent).
+          * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+          * sequential seed sum from 0.0 then one divide, the unstable-period
+          * warm-up consumed bar by bar -- so the differential against shipped
+          * TA_EMA holds bitwise.
           *
           * No division in the per-bar map: no 0/0, no NaN path (#112 by
           * construction). Bull >= Bear on every bar since high >= low.

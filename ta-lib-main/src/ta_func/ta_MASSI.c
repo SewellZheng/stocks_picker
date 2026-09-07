@@ -166,11 +166,6 @@ TA_LIB_API TA_RetCode TA_MASSI( int    startIdx,
     * confusing them is invisible until TA_SetUnstablePeriod(TA_FUNC_UNST_EMA)
     * is warmed. The seed sums accumulate from 0.0 in production order; do not
     * reorder or fuse them (0.0+x is not x for x=-0.0).
-    *
-    * Seed from the SMA arm only: ema.c's TA_COMPATIBILITY_METASTOCK arm is
-    * unreachable from the Rust, Java and C# APIs, so consulting
-    * TA_GetCompatibility() here would make C diverge from three backends for a
-    * setting they cannot read.
     */
    optInK_1 = 2.0 / (double)(optInFastPeriod + 1);
    ema1 = 0.0;
@@ -458,8 +453,7 @@ TA_RetCode TA_S_MASSI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MASSI_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_MASSI_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_MASSI_Value). */
@@ -601,11 +595,6 @@ static TA_RetCode TA_MASSI_OpenImpl( struct TA_MASSI_Stream **stream, const doub
        * confusing them is invisible until TA_SetUnstablePeriod(TA_FUNC_UNST_EMA)
        * is warmed. The seed sums accumulate from 0.0 in production order; do not
        * reorder or fuse them (0.0+x is not x for x=-0.0).
-       *
-       * Seed from the SMA arm only: ema.c's TA_COMPATIBILITY_METASTOCK arm is
-       * unreachable from the Rust, Java and C# APIs, so consulting
-       * TA_GetCompatibility() here would make C diverge from three backends for a
-       * setting they cannot read.
        */
       optInK_1 = 2.0 / (double)(optInFastPeriod + 1);
       ema1 = 0.0;
@@ -786,11 +775,7 @@ TA_RetCode TA_MASSI_OpenAndFillInternal( struct TA_MASSI_Stream **stream, const 
 TA_LIB_API TA_RetCode TA_MASSI_Update( TA_MASSI_Stream *stream, double inHigh, double inLow, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    TA_MASSI_StepImpl( stream, inHigh, inLow, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -842,26 +827,6 @@ TA_LIB_API TA_RetCode TA_MASSI_Peek( const TA_MASSI_Stream *stream, double inHig
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_MASSI_UpdateAndFill( TA_MASSI_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inHigh || !inLow || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_MASSI_StepImpl( stream, inHigh[i], inLow[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_MASSI_Close( TA_MASSI_Stream *stream )
 {
    TA_MASSI_ReleaseImpl( stream );
@@ -872,6 +837,21 @@ TA_LIB_API TA_RetCode TA_MASSI_Value( const TA_MASSI_Stream *stream, double *out
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MASSI_OutRange( const TA_MASSI_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MASSI_Advance( TA_MASSI_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

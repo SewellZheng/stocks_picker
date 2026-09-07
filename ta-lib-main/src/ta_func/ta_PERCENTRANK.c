@@ -200,8 +200,7 @@ TA_RetCode TA_S_PERCENTRANK( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_PERCENTRANK_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_PERCENTRANK_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_PERCENTRANK_Value). */
@@ -378,11 +377,7 @@ TA_RetCode TA_PERCENTRANK_OpenAndFillInternal( struct TA_PERCENTRANK_Stream **st
 TA_LIB_API TA_RetCode TA_PERCENTRANK_Update( TA_PERCENTRANK_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_PERCENTRANK_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -419,26 +414,6 @@ TA_LIB_API TA_RetCode TA_PERCENTRANK_Peek( const TA_PERCENTRANK_Stream *stream, 
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_PERCENTRANK_UpdateAndFill( TA_PERCENTRANK_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_PERCENTRANK_StepImpl( stream, inReal[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_PERCENTRANK_Close( TA_PERCENTRANK_Stream *stream )
 {
    TA_PERCENTRANK_ReleaseImpl( stream );
@@ -449,6 +424,21 @@ TA_LIB_API TA_RetCode TA_PERCENTRANK_Value( const TA_PERCENTRANK_Stream *stream,
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PERCENTRANK_OutRange( const TA_PERCENTRANK_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PERCENTRANK_Advance( TA_PERCENTRANK_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

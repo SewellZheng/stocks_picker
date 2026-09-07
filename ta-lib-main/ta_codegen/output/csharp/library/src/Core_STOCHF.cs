@@ -67,6 +67,9 @@ public partial class Core
     *               small enough to fall under it.
     *  082726 MF,CC Drop the dead retCode block after the copy: the rejection is
     *               already answered above it, and the shape reads like #269.
+    *  090626 MF,CC Fix #390. Divide by the range, scale after: the hoisted
+    *               `(highest-lowest)/100.0` underflowed to 0.0 on a denormal
+    *               range that the guard still called "not flat".
     */
    /// <summary>
    /// Number of leading input bars <c>STOCHF</c> consumes before it can produce
@@ -130,7 +133,6 @@ public partial class Core
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
       Span<double> tempBuffer;
       int outIdx = 0;
       int lowestIdx = 0;
@@ -241,7 +243,6 @@ public partial class Core
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       /* Allocate a temporary buffer large enough to
        * store the K.
        *
@@ -273,11 +274,9 @@ public partial class Core
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          /* Set the highest high */
          tmp = inHigh[today];
@@ -292,22 +291,22 @@ public partial class Core
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-          * machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-          * range against ITS OWN two extremes, not against a fixed band: the range
-          * carries the quote unit, so a constant put against it answers "flat" for
-          * every window of an instrument quoted below it and zeroed the whole
-          * output (issue #253).
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
+            tempBuffer[outIdx++] = (inClose[today] - lowest) / (highest - lowest) * 100.0;
          } else {
             tempBuffer[outIdx++] = 0.0;
          }
@@ -361,7 +360,6 @@ public partial class Core
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
       Span<double> tempBuffer;
       int outIdx = 0;
       int lowestIdx = 0;
@@ -416,7 +414,6 @@ public partial class Core
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       bufferIsAllocated = 0;
       bufferIsAllocated = 1;
       tempBuffer = new double[(int)((endIdx - today + 1) * 1)];
@@ -433,11 +430,9 @@ public partial class Core
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          tmp = (double)inHigh[today];
          if( highestIdx < trailingIdx ) {
@@ -451,14 +446,12 @@ public partial class Core
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
-            tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
+            tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / (highest - lowest) * 100.0;
          } else {
             tempBuffer[outIdx++] = 0.0;
          }
@@ -655,9 +648,9 @@ public partial class Core
    /// <summary>One <c>STOCHF</c> output set, in batch output order.</summary>
    /// <remarks>
    /// <para>Equality is the compiler-generated record-struct equality, which compares
-   /// the components with <c>==</c>: <c>NaN</c> does not equal <c>NaN</c>, and
-   /// <c>0.0</c> equals <c>-0.0</c>. That is deliberately <em>not</em> the Java
-   /// <c>Value</c> contract, which compares bitwise — compare
+   /// each component with <see cref="System.Double.Equals(System.Double)"/>, not
+   /// <c>==</c>: any two <c>NaN</c> payloads compare equal, and <c>0.0</c>
+   /// equals <c>-0.0</c>. Compare
    /// <see cref="System.BitConverter.DoubleToInt64Bits(double)"/> per component
    /// when bit-level identity is what you mean.</para>
    /// </remarks>
@@ -689,7 +682,6 @@ public partial class Core
       internal MAType optInFastD_MAType;
       internal double lowest;
       internal double highest;
-      internal double diff;
       internal int lowestIdx;
       internal int highestIdx;
       internal int trailingIdx;
@@ -711,13 +703,26 @@ public partial class Core
       /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Stochf</c> reports over the same bars: the opener sets
-      /// it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds
-      /// one to the count — a non-finite bar is rejected but still counted, because
-      /// the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries
-      /// it verbatim. A plain <c>Open</c> hands back only the last value, a subset
-      /// of this range, because the caller chose not to take the fill.</para>
+      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count — a rejected one changes nothing, and
+      /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
+      /// <c>Open</c> hands back only the last value, a subset of this range,
+      /// because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
+
+      /// <summary>Count one bar this stream was not fed: <see cref="OutRange"/> advances by
+      /// one and nothing else moves.</summary>
+      /// <remarks>
+      /// <para><see cref="Value"/> keeps answering the previous output, which is this
+      /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
+      /// rejected and that will not be re-fed, or a session with no print. Without
+      /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// </remarks>
+      public void Advance()
+      {
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+      }
 
       internal StochfStream( StochfStream other )
       {
@@ -727,7 +732,6 @@ public partial class Core
          this.optInFastD_MAType = other.optInFastD_MAType;
          this.lowest = other.lowest;
          this.highest = other.highest;
-         this.diff = other.diff;
          this.lowestIdx = other.lowestIdx;
          this.highestIdx = other.highestIdx;
          this.trailingIdx = other.trailingIdx;
@@ -752,14 +756,13 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so no state moves, <see cref="Value"/> still answers the previous value,
-      /// and the stream stays usable — just carry on with the next bar.
-      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
-      /// which keeps two handles fed the same series positionally aligned when only
-      /// one of them rejects a bar. This is the one place the streaming tier is
-      /// stricter than the batch API, which computes on whatever it is given: a
-      /// handle retains its state, so a single non-finite bar would poison every
-      /// later value it produces.</para>
+      /// so nothing moves — <see cref="OutRange"/> included — and
+      /// <see cref="Value"/> still answers the previous value. Re-feed the bar when
+      /// a corrected value arrives, or call <see cref="Advance"/> to count it and
+      /// carry on; two handles on one feed drift a bar apart if neither happens.
+      /// This is the one place the streaming tier is stricter than the batch API,
+      /// which computes on whatever it is given: a handle retains its state, so a
+      /// single non-finite bar would poison every later value it produces.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -767,11 +770,7 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public StochfValue Update( double inHigh, double inLow, double inClose )
       {
-         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) )
-         {
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-            throw Core.StreamFailure("STOCHF", "update", RetCode.BadParam);
-         }
+         if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("STOCHF", "update", RetCode.BadParam);
          core.StochfStepImpl(this, inHigh, inLow, inClose);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new StochfValue(cur_outFastK, cur_outFastD);
@@ -799,7 +798,6 @@ public partial class Core
          double cur_outFastD = 0.0;
          double cur_outFastK = 0.0;
          double tmp = 0.0;
-         double diff = sp.diff;
          double highest = sp.highest;
          int highestIdx = sp.highestIdx;
          int i = sp.i;
@@ -840,11 +838,9 @@ public partial class Core
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          /* Set the highest high */
          tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
@@ -859,22 +855,22 @@ public partial class Core
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-          * machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-          * range against ITS OWN two extremes, not against a fixed band: the range
-          * carries the quote unit, so a constant put against it answers "flat" for
-          * every window of an instrument quoted below it and zeroed the whole
-          * output (issue #253).
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
-            cur_tempBuffer = ((((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - lowest) / diff;
+            cur_tempBuffer = ((((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - lowest) / (highest - lowest) * 100.0;
          } else {
             cur_tempBuffer = 0.0;
          }
@@ -882,42 +878,6 @@ public partial class Core
          cur_outFastD = sp.sub0.Peek(cur_tempBuffer);
          cur_outFastK = cur_tempBuffer;
          return new StochfValue(cur_outFastK, cur_outFastD);
-      }
-
-      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
-      /// <remarks>
-      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
-      /// argument checks instead of <c>n</c>. The outputs must hold at least
-      /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
-      /// a rejection readable: a non-finite bar <c>k</c> throws
-      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
-      /// and everything after it not written, and the count advanced by <c>k +
-      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
-      /// is the one that failed.</para>
-      /// </remarks>
-      /// <param name="inHigh">Closed bars for <c>inHigh</c>, oldest first.</param>
-      /// <param name="inLow">Closed bars for <c>inLow</c>, oldest first.</param>
-      /// <param name="inClose">Closed bars for <c>inClose</c>, oldest first.</param>
-      /// <param name="outFastK">Receives one <c>outFastK</c> value per bar committed.</param>
-      /// <param name="outFastD">Receives one <c>outFastD</c> value per bar committed.</param>
-      public void UpdateAndFill( ReadOnlySpan<double> inHigh, ReadOnlySpan<double> inLow, ReadOnlySpan<double> inClose, Span<double> outFastK, Span<double> outFastD )
-      {
-         int barCount = inHigh.Length;
-         if( inLow.Length != barCount || inClose.Length != barCount || outFastK.Length < barCount || outFastD.Length < barCount || outFastK.Overlaps(inHigh) || outFastK.Overlaps(inLow) || outFastK.Overlaps(inClose) || outFastD.Overlaps(inHigh) || outFastD.Overlaps(inLow) || outFastD.Overlaps(inClose) || outFastK.Overlaps(outFastD) ) throw Core.StreamFailure("STOCHF", "updateAndFill", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ )
-         {
-            if( !double.IsFinite(inHigh[i]) || !double.IsFinite(inLow[i]) || !double.IsFinite(inClose[i]) )
-            {
-               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-               throw Core.StreamFailure("STOCHF", "updateAndFill", RetCode.BadParam);
-            }
-            core.StochfStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-            outFastK[i] = cur_outFastK;
-            outFastD[i] = cur_outFastD;
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-         }
       }
 
       /// <summary>The value at the last bar this stream counted — the bar
@@ -966,11 +926,9 @@ public partial class Core
                sp.lowest = tmp;
             }
          }
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       } else if( tmp <= sp.lowest ) {
          sp.lowestIdx = sp.today;
          sp.lowest = tmp;
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
       /* Set the highest high */
       tmp = sp.x_inHigh[sp.today & sp.xMask];
@@ -985,22 +943,22 @@ public partial class Core
                sp.highest = tmp;
             }
          }
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       } else if( tmp >= sp.highest ) {
          sp.highestIdx = sp.today;
          sp.highest = tmp;
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
-      /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-       * machine-flat window leaves a sub-epsilon residue that an exact check
-       * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-       * range against ITS OWN two extremes, not against a fixed band: the range
-       * carries the quote unit, so a constant put against it answers "flat" for
-       * every window of an instrument quoted below it and zeroed the whole
-       * output (issue #253).
+      /* Divide by the range itself and scale after: the guard has to test the
+       * very expression the division uses, or a scaling step can carry a
+       * guarded-non-zero into a zero divisor.
+       *
+       * The band is the range against ITS OWN two extremes, not a fixed
+       * constant: the range carries the quote unit, so a constant answers
+       * "flat" for every window of an instrument quoted below it (issue #253).
+       * It absorbs the machine-flat window an exact test would divide into
+       * [0,100] noise (issue #107 / STOCHRSI).
        */
       if( !(Math.Abs(sp.highest - sp.lowest) <= 0.00000000000001 * (Math.Abs(sp.highest) + Math.Abs(sp.lowest))) ) {
-         cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / sp.diff;
+         cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / (sp.highest - sp.lowest) * 100.0;
       } else {
          cur_tempBuffer = 0.0;
       }
@@ -1020,7 +978,6 @@ public partial class Core
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
       Span<double> tempBuffer;
       int outIdx = 0;
       int lowestIdx = 0;
@@ -1140,7 +1097,6 @@ public partial class Core
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       /* Allocate a temporary buffer large enough to
        * store the K.
        *
@@ -1172,11 +1128,9 @@ public partial class Core
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          /* Set the highest high */
          tmp = inHigh[today];
@@ -1191,22 +1145,22 @@ public partial class Core
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-          * machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-          * range against ITS OWN two extremes, not against a fixed band: the range
-          * carries the quote unit, so a constant put against it answers "flat" for
-          * every window of an instrument quoted below it and zeroed the whole
-          * output (issue #253).
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
+            tempBuffer[outIdx++] = (inClose[today] - lowest) / (highest - lowest) * 100.0;
          } else {
             tempBuffer[outIdx++] = 0.0;
          }
@@ -1268,7 +1222,6 @@ public partial class Core
       sp.optInFastD_MAType = optInFastD_MAType;
       sp.lowest = lowest;
       sp.highest = highest;
-      sp.diff = diff;
       sp.lowestIdx = lowestIdx;
       sp.highestIdx = highestIdx;
       sp.trailingIdx = trailingIdx;

@@ -903,9 +903,9 @@ fn emit_handle_class_with_members(
     d.open("remarks");
     d.para(&format!(
         "It is what <c>Core.{base}</c> reports over the same bars: the opener sets it to \
-         <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one to the count \
-         — a non-finite bar is rejected but still counted, because the bar happened — \
-         <c>Peek</c> leaves it alone, and <c>Clone</c> carries it verbatim. A plain \
+         <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c> adds one to \
+         the count — a rejected one changes nothing, and neither does <c>Peek</c> — and \
+         <c>Clone</c> carries it verbatim. A plain \
          <c>Open</c> hands back only the last value, a subset of this range, because the \
          caller chose not to take the fill."
     ));
@@ -919,6 +919,26 @@ fn emit_handle_class_with_members(
         o,
         "      public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);"
     );
+
+    let mut d = XmlDoc::new();
+    d.summary(
+        "Count one bar this stream was not fed: <see cref=\"OutRange\"/> advances by one \
+         and nothing else moves.",
+    );
+    d.open("remarks");
+    d.para(
+        "<see cref=\"Value\"/> keeps answering the previous output, which is this bar's \
+         output too. For a bar the caller leaves out: one an <c>Update</c> rejected and \
+         that will not be re-fed, or a session with no print. Without it two handles on \
+         one feed drift a bar apart when only one of them skips.",
+    );
+    d.close("remarks");
+    o.push('\n');
+    o.push_str(&d.render(6));
+    let _ = writeln!(o, "      public void Advance()");
+    let _ = writeln!(o, "      {{");
+    o.push_str(&advance_out_range("         "));
+    let _ = writeln!(o, "      }}");
 
     // Deep-copy constructor: scalars assign, arrays are allocated and copied
     // (never `(double[])x.Clone()` — 2.3x slower), sub-handles copy
@@ -978,10 +998,9 @@ fn emit_value_type(o: &mut String, func: &FuncDef) {
     d.summary(&format!("One <c>{n}</c> output set, in batch output order."));
     d.open("remarks");
     d.para(
-        "Equality is the compiler-generated record-struct equality, which compares the \
-         components with <c>==</c>: <c>NaN</c> does not equal <c>NaN</c>, and <c>0.0</c> \
-         equals <c>-0.0</c>. That is deliberately <em>not</em> the Java <c>Value</c> \
-         contract, which compares bitwise — compare \
+        "Equality is the compiler-generated record-struct equality, which compares each \
+         component with <see cref=\"System.Double.Equals(System.Double)\"/>, not <c>==</c>: \
+         any two <c>NaN</c> payloads compare equal, and <c>0.0</c> equals <c>-0.0</c>. Compare \
          <see cref=\"System.BitConverter.DoubleToInt64Bits(double)\"/> per component when \
          bit-level identity is what you mean.",
     );
@@ -1040,14 +1059,12 @@ fn advance_out_range(indent: &str) -> String {
 /// retained: one non-finite bar poisons every recursive accumulator in it for
 /// the rest of its life, long after the feed recovers.
 ///
-/// `advance` is the U3 half of that contract: a committing entry point counts
-/// the rejected bar before it throws, because the bar happened and occupies a
-/// position in the series. Pass `false` only where nothing commits — `Peek`,
-/// whose receiver must stay untouched under every outcome.
+/// The rejection changes nothing at all — the produced-bar count included.
+/// Counting a bar the caller declined to commit is `Advance()`'s job.
 ///
 /// Routed through `Core.StreamFailure` so the message prefix and the exception
 /// type match the open rejections exactly.
-fn finite_bar_check(func: &FuncDef, indent: &str, what: &str, advance: bool) -> String {
+fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
     let bars = streaming::input_array_names(func);
     if bars.is_empty() {
         return String::new();
@@ -1056,21 +1073,13 @@ fn finite_bar_check(func: &FuncDef, indent: &str, what: &str, advance: bool) -> 
     let conds: Vec<String> = bars.iter().map(|b| format!("!double.IsFinite({b})")).collect();
     let cond = conds.join(" || ");
     let throw = format!("throw Core.StreamFailure(\"{n}\", \"{what}\", RetCode.BadParam);");
-    if !advance {
-        return format!("{indent}if( {cond} ) {throw}\n");
-    }
-    let inner = format!("{indent}   ");
-    format!(
-        "{indent}if( {cond} )\n{indent}{{\n{}{inner}{throw}\n{indent}}}\n",
-        advance_out_range(&inner)
-    )
+    format!("{indent}if( {cond} ) {throw}\n")
 }
 
 
 fn emit_update_peek_value_clone(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     emit_update_method(o, func);
     emit_peek_method(o, func, frame);
-    emit_update_and_fill_method(o, func);
     emit_value_property(o, func);
     emit_clone_method(o, func);
 }
@@ -1090,11 +1099,11 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     );
     d.para(
         "Throws <see cref=\"System.ArgumentException\"/> if any bar value is not finite \
-         (NaN or an infinity). That check runs before anything is written, so no state \
-         moves, <see cref=\"Value\"/> still answers the previous value, and the stream \
-         stays usable — just carry on with the next bar. <see cref=\"OutRange\"/> does \
-         advance: the bar happened, so it is counted, which keeps two handles fed the \
-         same series positionally aligned when only one of them rejects a bar. This is \
+         (NaN or an infinity). That check runs before anything is written, so nothing \
+         moves — <see cref=\"OutRange\"/> included — and <see cref=\"Value\"/> still \
+         answers the previous value. Re-feed the bar when a corrected value arrives, or \
+         call <see cref=\"Advance\"/> to count it and carry on; two handles on one feed \
+         drift a bar apart if neither happens. This is \
          the one place the streaming tier is stricter than the batch API, which computes \
          on whatever it is given: a handle retains its state, so a single non-finite bar \
          would poison every later value it produces.",
@@ -1108,10 +1117,9 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     o.push_str(&d.render(6));
     let _ = writeln!(o, "      public {vt} Update( {sig_bars} )");
     let _ = writeln!(o, "      {{");
-    o.push_str(&finite_bar_check(func, "         ", "update", true));
+    o.push_str(&finite_bar_check(func, "         ", "update"));
     let _ = writeln!(o, "         core.{base}StepImpl(this, {fwd_bars});");
-    // The accepted bar's own bump; the rejected one is counted on the reject
-    // path above. `Peek` runs a frame that commits nothing and reaches neither.
+    // The accepted bar's own bump; a rejected bar is not counted at all.
     o.push_str(&advance_out_range("         "));
     let _ = writeln!(o, "         return {};", fresh_value_expr(func, ""));
     let _ = writeln!(o, "      }}");
@@ -1162,146 +1170,11 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     let _ = writeln!(o, "      {{");
     // Ahead of the frame, not left to the transition: a rejected bar must not
     // run any of it.
-    o.push_str(&finite_bar_check(func, "         ", "peek", false));
+    o.push_str(&finite_bar_check(func, "         ", "peek"));
     let body = frame.expect("every tier emits a peek frame");
     let _ = writeln!(o, "         {class} sp = this;");
     o.push_str(body);
     let _ = writeln!(o, "         return {};", fresh_value_expr(func, ""));
-    let _ = writeln!(o, "      }}");
-}
-
-// --- UpdateAndFill ---------------------------------------------------------------
-/// `UpdateAndFill`'s XML doc — hoisted so the emitter itself stays readable.
-fn update_and_fill_doc(func: &FuncDef, inputs: &[String]) -> XmlDoc {
-    let mut d = XmlDoc::new();
-    d.summary(
-        "Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.",
-    );
-    d.open("remarks");
-    d.para(
-        "Exactly <c>n</c> back-to-back <see cref=\"Update\"/> calls, with one set of \
-         argument checks instead of <c>n</c>. The outputs must hold at least <c>n</c> \
-         values and must not overlap an input or each other.",
-    );
-    d.para(
-        "<see cref=\"OutRange\"/> counts what this call took in, which is what makes a \
-         rejection readable: a non-finite bar <c>k</c> throws \
-         <see cref=\"System.ArgumentException\"/> exactly as <see cref=\"Update\"/> would, \
-         with the bars before <c>k</c> committed and written, bar <c>k</c> and everything \
-         after it not written, and the count advanced by <c>k + 1</c> — the committed bars \
-         plus the rejected one, so the last bar counted is the one that failed.",
-    );
-    // Rule U6a reads the same as S6a, and a caller of this tier needs telling in
-    // the same place a caller of the opener is told.
-    {
-        let names = super::common::nullable_output_list(func);
-        if !names.is_empty() {
-            let list = names
-                .iter()
-                .map(|n| format!("<c>{n}</c>"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            d.para(&format!(
-                "{list} may be declined with an empty span, per call and independently of \
-                 what the opener was given: the value is still computed — \
-                 <see cref=\"Value\"/> reports it — and nothing is written out."
-            ));
-        }
-    }
-    d.close("remarks");
-    for input in inputs {
-        d.param(input, &format!("Closed bars for <c>{input}</c>, oldest first."));
-    }
-    for out in &func.outputs {
-        d.param(
-            &out.name,
-            &format!("Receives one <c>{}</c> value per bar committed.", out.name),
-        );
-    }
-    d
-}
-
-fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
-    let raw = base_name(func);
-    let base = pascal_words(&raw);
-    let inputs = streaming::input_array_names(func);
-
-    // One emitter for every tier: each owns a `<base>StepImpl` with the same
-    // surface, so the n-bar filler is that step in a loop (issue #246). No
-    // `Value` cache to keep in step on the way out, unlike Java: a multi-output
-    // `Value` here is a record struct built fresh from the handle's fields.
-    let mut sig = String::new();
-    for a in &inputs {
-        let _ = write!(sig, "ReadOnlySpan<double> {a}, ");
-    }
-    for out in &func.outputs {
-        let t = if out_is_int(func, &out.name) { "int" } else { "double" };
-        let _ = write!(sig, "Span<{t}> {}, ", out.name);
-    }
-    let sig = sig.trim_end_matches(", ");
-    let count_src = inputs
-        .first()
-        .map_or_else(|| "0".to_string(), |a| format!("{a}.Length"));
-    o.push('\n');
-    o.push_str(&update_and_fill_doc(func, &inputs).render(6));
-    let _ = writeln!(o, "      public void UpdateAndFill( {sig} )");
-    let _ = writeln!(o, "      {{");
-    let _ = writeln!(o, "         int barCount = {count_src};");
-    let mut checks: Vec<String> = inputs
-        .iter()
-        .skip(1)
-        .map(|a| format!("{a}.Length != barCount"))
-        .collect();
-    // A `nullable` output may be declined here exactly as at the opener (rule
-    // U6a), per call: bounded only where it was supplied, and its store guarded.
-    // Nothing recorded at `Open` constrains what this call presents. An empty
-    // span IS the declination, as it is at the opener — a span cannot be null.
-    let nullable = super::common::nullable_output_names(func);
-    for out in &func.outputs {
-        if nullable.contains(&out.name) {
-            checks.push(format!("(!{0}.IsEmpty && {0}.Length < barCount)", out.name));
-        } else {
-            checks.push(format!("{}.Length < barCount", out.name));
-        }
-    }
-    if let Some(alias) = alias_condition(func, &inputs) {
-        checks.push(alias);
-    }
-    if !checks.is_empty() {
-        let _ = writeln!(
-            o,
-            "         if( {} ) throw Core.StreamFailure(\"{raw}\", \"updateAndFill\", RetCode.BadParam);",
-            checks.join(" || ")
-        );
-    }
-    let _ = writeln!(o, "         for( int i = 0; i < barCount; i++ )");
-    let _ = writeln!(o, "         {{");
-    if !inputs.is_empty() {
-        let conds: Vec<String> = inputs
-            .iter()
-            .map(|b| format!("!double.IsFinite({b}[i])"))
-            .collect();
-        // Rule U3 per bar: the rejected bar is counted, its output slot is not
-        // written, and the loop stops — so the caller reads the range to learn
-        // which bar it was.
-        let _ = writeln!(o, "            if( {} )", conds.join(" || "));
-        let _ = writeln!(o, "            {{");
-        o.push_str(&advance_out_range("               "));
-        let _ = writeln!(
-            o,
-            "               throw Core.StreamFailure(\"{raw}\", \"updateAndFill\", RetCode.BadParam);"
-        );
-        let _ = writeln!(o, "            }}");
-    }
-    let idx_bars: Vec<String> = inputs.iter().map(|a| format!("{a}[i]")).collect();
-    let _ = writeln!(o, "            core.{base}StepImpl(this, {});", idx_bars.join(", "));
-    for out in &func.outputs {
-        let name = &out.name;
-        let guard = if nullable.contains(name) { format!("if( !{name}.IsEmpty ) ") } else { String::new() };
-        let _ = writeln!(o, "            {guard}{name}[i] = cur_{name};");
-    }
-    o.push_str(&advance_out_range("            "));
-    let _ = writeln!(o, "         }}");
     let _ = writeln!(o, "      }}");
 }
 
@@ -1822,27 +1695,29 @@ fn emit_extrema_rebase(o: &mut String, model: &StreamModel, indent: usize) {
 /// the wrong arm and write through its own input. Rejecting overlap up front is
 /// what keeps those branches sound.
 ///
-/// Cross-typed output pairs (`Span<double>` against `Span<int>`) cannot alias
-/// and are skipped: `Overlaps` is not defined across element types, and the
-/// runtime cannot place them on the same memory anyway.
+/// Cross-typed output pairs (`Span<double>` against `Span<int>`) go through
+/// [`super::common::csharp_overlap_expr`] rather than being skipped —
+/// SUPERTREND is the corpus's only mixed-type output pair today.
 fn alias_condition(func: &FuncDef, inputs: &[String]) -> Option<String> {
     let outs: Vec<&str> = func.outputs.iter().map(|out| out.name.as_str()).collect();
     let mut pairs: Vec<String> = Vec::new();
     for out in &outs {
-        // An int output cannot overlap a double input series.
-        if out_is_int(func, out) {
-            continue;
-        }
+        let out_int = out_is_int(func, out);
         for input in inputs {
-            pairs.push(format!("{out}.Overlaps({input})"));
+            // Every declared input is a real series, so a mismatch here is
+            // exactly the int-output-vs-real-input case.
+            pairs.push(super::common::csharp_overlap_expr(out, out_int, input, false, false));
         }
     }
     for i in 0..outs.len() {
         for b in &outs[i + 1..] {
-            if out_is_int(func, outs[i]) != out_is_int(func, b) {
-                continue;
-            }
-            pairs.push(format!("{}.Overlaps({b})", outs[i]));
+            pairs.push(super::common::csharp_overlap_expr(
+                outs[i],
+                out_is_int(func, outs[i]),
+                b,
+                out_is_int(func, b),
+                false,
+            ));
         }
     }
     if pairs.is_empty() { None } else { Some(pairs.join(" || ")) }
@@ -1900,7 +1775,7 @@ fn scale_by_stride(idx: Expr) -> Expr {
 }
 
 /// Map a batch return-code variable for the open body. Early SUCCESS returns
-/// (the no-data guard AND the Metastock seed-boundary return) become
+/// (the no-data guard) become
 /// `InsufficientHistory`, which the wrapper types as
 /// `InsufficientHistoryException`. Everything else passes through.
 fn map_open_return(v: &str) -> String {

@@ -357,8 +357,7 @@ TA_RetCode TA_S_KC( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_KC_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_KC_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_KC_Value). */
@@ -495,6 +494,7 @@ static TA_RetCode TA_KC_OpenImpl( struct TA_KC_Stream **stream, const double inH
       {
          dummyBegIdx = 0;
          dummyNBElement = 0;
+         *outBegIdx = 0; *outNBElement = 0;
          TA_TYPPRICE_Close( sub0 ); TA_ATR_Close( sub1 ); TA_EMA_Close( sub2 ); if( !outStride ) TA_Free( sc_outRealUpperBand ); if( !outStride ) TA_Free( sc_outRealMiddleBand ); if( !outStride ) TA_Free( sc_outRealLowerBand );
          return TA_INSUFFICIENT_HISTORY;
       }
@@ -604,7 +604,7 @@ static TA_RetCode TA_KC_OpenImpl( struct TA_KC_Stream **stream, const double inH
       free(tempATR);
 
       /* Capture the live producer state + sub handles. */
-      if( dummyNBElement < 1 ) { TA_TYPPRICE_Close( sub0 ); TA_ATR_Close( sub1 ); TA_EMA_Close( sub2 ); if( !outStride ) TA_Free( sc_outRealUpperBand ); if( !outStride ) TA_Free( sc_outRealMiddleBand ); if( !outStride ) TA_Free( sc_outRealLowerBand ); return TA_INSUFFICIENT_HISTORY; }
+      if( dummyNBElement < 1 ) { *outBegIdx = 0; *outNBElement = 0; TA_TYPPRICE_Close( sub0 ); TA_ATR_Close( sub1 ); TA_EMA_Close( sub2 ); if( !outStride ) TA_Free( sc_outRealUpperBand ); if( !outStride ) TA_Free( sc_outRealMiddleBand ); if( !outStride ) TA_Free( sc_outRealLowerBand ); return TA_INSUFFICIENT_HISTORY; }
       sp = (struct TA_KC_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { TA_TYPPRICE_Close( sub0 ); TA_ATR_Close( sub1 ); TA_EMA_Close( sub2 ); if( !outStride ) TA_Free( sc_outRealUpperBand ); if( !outStride ) TA_Free( sc_outRealMiddleBand ); if( !outStride ) TA_Free( sc_outRealLowerBand ); return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -683,11 +683,7 @@ TA_LIB_API TA_RetCode TA_KC_Update( TA_KC_Stream *stream, double inHigh, double 
    TA_RetCode retCode;
 
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    retCode = TA_KC_StepImpl( stream, inHigh, inLow, inClose, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
    if( retCode != TA_SUCCESS ) return retCode;
    stream->cur_outRealUpperBand = *outRealUpperBand;
@@ -735,31 +731,6 @@ TA_LIB_API TA_RetCode TA_KC_Peek( const TA_KC_Stream *stream, double inHigh, dou
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_KC_UpdateAndFill( TA_KC_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
-{
-   int i;
-   TA_RetCode retCode;
-
-   if( !stream || !inHigh || !inLow || !inClose || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outRealUpperBand == (const void *)inHigh || (const void *)outRealUpperBand == (const void *)inLow || (const void *)outRealUpperBand == (const void *)inClose || (const void *)outRealMiddleBand == (const void *)inHigh || (const void *)outRealMiddleBand == (const void *)inLow || (const void *)outRealMiddleBand == (const void *)inClose || (const void *)outRealLowerBand == (const void *)inHigh || (const void *)outRealLowerBand == (const void *)inLow || (const void *)outRealLowerBand == (const void *)inClose || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      retCode = TA_KC_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outRealUpperBand[i], &outRealMiddleBand[i], &outRealLowerBand[i] );
-      if( retCode != TA_SUCCESS ) return retCode;
-      stream->cur_outRealUpperBand = outRealUpperBand[i];
-      stream->cur_outRealMiddleBand = outRealMiddleBand[i];
-      stream->cur_outRealLowerBand = outRealLowerBand[i];
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_KC_Close( TA_KC_Stream *stream )
 {
    if( !stream ) return TA_SUCCESS;
@@ -776,6 +747,21 @@ TA_LIB_API TA_RetCode TA_KC_Value( const TA_KC_Stream *stream, double *outRealUp
    *outRealUpperBand = stream->cur_outRealUpperBand;
    *outRealMiddleBand = stream->cur_outRealMiddleBand;
    *outRealLowerBand = stream->cur_outRealLowerBand;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_KC_OutRange( const TA_KC_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_KC_Advance( TA_KC_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

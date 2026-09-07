@@ -294,8 +294,7 @@ TA_RetCode TA_S_CDLEVENINGSTAR( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CDLEVENINGSTAR_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_CDLEVENINGSTAR_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_CDLEVENINGSTAR_Value). */
@@ -587,11 +586,7 @@ TA_RetCode TA_CDLEVENINGSTAR_OpenAndFillInternal( struct TA_CDLEVENINGSTAR_Strea
 TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Update( TA_CDLEVENINGSTAR_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_CDLEVENINGSTAR_StepImpl( stream, inOpen, inHigh, inLow, inClose, outInteger );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -619,26 +614,6 @@ TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Peek( const TA_CDLEVENINGSTAR_Stream *st
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_UpdateAndFill( TA_CDLEVENINGSTAR_Stream *stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int barCount, int outInteger[] )
-{
-   int i;
-
-   if( !stream || !inOpen || !inHigh || !inLow || !inClose || !outInteger ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outInteger == (const void *)inOpen || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inOpen[i] ) || !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_CDLEVENINGSTAR_StepImpl( stream, inOpen[i], inHigh[i], inLow[i], inClose[i], &outInteger[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Close( TA_CDLEVENINGSTAR_Stream *stream )
 {
    TA_CDLEVENINGSTAR_ReleaseImpl( stream );
@@ -649,6 +624,21 @@ TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Value( const TA_CDLEVENINGSTAR_Stream *s
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    *outInteger = stream->cur_outInteger;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_OutRange( const TA_CDLEVENINGSTAR_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CDLEVENINGSTAR_Advance( TA_CDLEVENINGSTAR_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

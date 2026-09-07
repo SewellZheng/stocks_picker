@@ -271,6 +271,9 @@ typedef enum
   TA_INTERNAL_CANDLE_BOUND_FAIL_3   = 734,
   TA_INTERNAL_CANDLE_BOUND_FAIL_4   = 735,
   TA_INTERNAL_CANDLE_VACUOUS        = 736,
+  TA_INTERNAL_COMPAT_NOOP_FAIL_0    = 737,
+  TA_INTERNAL_COMPAT_NOOP_FAIL_1    = 738,
+  TA_INTERNAL_COMPAT_NOOP_FAIL_2    = 739,
 
   /* Error code related to CSI data source tests. */
   TA_CSI_ADDDATASOURCE_FAILED    = 800,
@@ -445,14 +448,6 @@ typedef enum
   TA_STREAM_EMPTY_HISTORY_WRONG_CODE = 1607,
   TA_STREAM_EMPTY_HISTORY_VACUOUS    = 1608,
 
-  /* Streaming UpdateAndFill: n bars in one call, and its partial commit. */
-  TA_STREAM_UFILL_ACCEPTED_BAD_BAR   = 1601,
-  TA_STREAM_UFILL_WRONG_COMMIT       = 1602,
-  TA_STREAM_UFILL_VALUE_MISMATCH     = 1603,
-  TA_STREAM_UFILL_WROTE_PAST_COMMIT  = 1604,
-  TA_STREAM_UFILL_SETUP_FAILED       = 1605,
-  TA_STREAM_UFILL_VACUOUS            = 1606,
-
   /* DIV's documented zero-divisor result (issue #249). */
   TA_DIVZERO_BAD_RETCODE             = 1610,
   TA_DIVZERO_BAD_SHAPE               = 1611,
@@ -475,9 +470,10 @@ typedef enum
   /* Rule B6a: declining a nullable output changed what the call produced. */
   TA_BATCH_ARG_NULLABLE_DIVERGED     = 1633,
 
-  /* Rule U3, stated absolutely: what ONE rejected Update costs. The
-   * UpdateAndFill gate above compares the two tiers against each other, so it
-   * is blind to any change that moves both. */
+  /* Rule U3, stated absolutely: what ONE rejected Update costs. Driving two
+   * handles off one feed and comparing them is symmetric, so it is blind to any
+   * change that moves both; these ids belong to the leg that demands the
+   * numbers outright. */
   TA_STREAM_ADVANCE_NOT_REJECTED     = 1640,
   TA_STREAM_ADVANCE_WRONG_COUNT      = 1641,
   TA_STREAM_ADVANCE_VALUE_MOVED      = 1642,
@@ -513,6 +509,10 @@ typedef enum
   TA_FRACTAL_VACUOUS                 = 1675,
   TA_HA_VACUOUS                      = 1678,
   TA_RVI_VACUOUS                     = 1676,
+
+  /* A rejected Open/OpenAndFill and the caller's output buffer (#389). */
+  TA_OPEN_CONTRACT_WROTE             = 1680,
+  TA_OPEN_CONTRACT_VACUOUS           = 1682,
 
   /* --function= named something no test group covers, on a run that had
    * nothing else to do. Reported rather than passed silently. */

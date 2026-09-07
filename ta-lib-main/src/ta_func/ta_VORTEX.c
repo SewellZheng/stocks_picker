@@ -466,8 +466,7 @@ TA_RetCode TA_S_VORTEX( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_VORTEX_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_VORTEX_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_VORTEX_Value). */
@@ -925,11 +924,7 @@ TA_RetCode TA_VORTEX_OpenAndFillInternal( struct TA_VORTEX_Stream **stream, cons
 TA_LIB_API TA_RetCode TA_VORTEX_Update( TA_VORTEX_Stream *stream, double inHigh, double inLow, double inClose, double *outPlusVI, double *outMinusVI )
 {
    if( !stream || !outPlusVI || !outMinusVI ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_VORTEX_StepImpl( stream, inHigh, inLow, inClose, outPlusVI, outMinusVI );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1072,26 +1067,6 @@ TA_LIB_API TA_RetCode TA_VORTEX_Peek( const TA_VORTEX_Stream *stream, double inH
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_VORTEX_UpdateAndFill( TA_VORTEX_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outPlusVI[], double outMinusVI[] )
-{
-   int i;
-
-   if( !stream || !inHigh || !inLow || !inClose || !outPlusVI || !outMinusVI ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outPlusVI == (const void *)inHigh || (const void *)outPlusVI == (const void *)inLow || (const void *)outPlusVI == (const void *)inClose || (const void *)outMinusVI == (const void *)inHigh || (const void *)outMinusVI == (const void *)inLow || (const void *)outMinusVI == (const void *)inClose || (const void *)outPlusVI == (const void *)outMinusVI ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_VORTEX_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outPlusVI[i], &outMinusVI[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_VORTEX_Close( TA_VORTEX_Stream *stream )
 {
    TA_VORTEX_ReleaseImpl( stream );
@@ -1103,6 +1078,21 @@ TA_LIB_API TA_RetCode TA_VORTEX_Value( const TA_VORTEX_Stream *stream, double *o
    if( !stream || !outPlusVI || !outMinusVI ) return TA_BAD_PARAM;
    *outPlusVI = stream->cur_outPlusVI;
    *outMinusVI = stream->cur_outMinusVI;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_VORTEX_OutRange( const TA_VORTEX_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_VORTEX_Advance( TA_VORTEX_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

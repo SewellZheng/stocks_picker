@@ -666,15 +666,13 @@ impl MaxStream {
     /// whatever it is given — a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
-    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
-    /// so two handles fed the same series stay positionally aligned even when
-    /// one rejects a bar the other accepts.
+    /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when
+    /// a corrected value arrives, or call [`Self::advance`] to count it and
+    /// carry on — two handles on one feed drift a bar apart if neither
+    /// happens.
     #[doc(alias = "TA_MAX_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -683,44 +681,6 @@ impl MaxStream {
             self.out.count += 1;
         }
         Ok(outReal)
-    }
-
-    /// Commit `n` closed bars and write their `n` values, in one call —
-    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
-    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
-    /// hold at least that many. Never allocates.
-    ///
-    /// [`Self::out_range`] counts what this call took in, which is what makes the
-    /// rejection below readable: there is no second out-parameter for it.
-    ///
-    /// # Errors
-    ///
-    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
-    /// is shorter than the bar count — neither commits anything — or if a bar
-    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
-    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
-    /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k + 1` — the committed bars, plus the rejected one, which is counted
-    /// but never written.
-    #[doc(alias = "TA_MAX_UpdateAndFill")]
-    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
-        let barCount = inReal.len();
-        if outReal.len() < barCount {
-            return Err(RetCode::BadParam);
-        }
-        for i in 0..barCount {
-            if !inReal[i].is_finite() {
-                if self.out.count < Core::MAX_INDEX {
-                    self.out.count += 1;
-                }
-                return Err(RetCode::BadParam);
-            }
-            Core::max_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
-        }
-        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -733,8 +693,7 @@ impl MaxStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies — but a rejected peek changes nothing at all, where a
-    /// rejected `update` still counts the bar in [`Self::out_range`].
+    /// `update` applies, and a rejected peek changes nothing at all.
     #[doc(alias = "TA_MAX_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -784,7 +743,7 @@ impl MaxStream {
 
     /// The value(s) at the last bar the stream counted — the bar
     /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
-    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// refreshed by every accepted `update`, and left
     /// alone by `peek`.
     ///
     /// A clone carries them verbatim, so a forked handle can be asked its
@@ -799,14 +758,28 @@ impl MaxStream {
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::MAX`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
-    /// count — a bar rejected for being non-finite included, because it still
-    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
-    /// A plain `Open` hands back only the last value, a subset of this range,
-    /// because the caller chose not to take the fill.
-    #[doc(alias = "TA_StreamOutRange")]
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds
+    /// one to the count — a rejected one changes nothing, and neither does
+    /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
+    /// only the last value, a subset of this range, because the caller chose
+    /// not to take the fill.
+    #[doc(alias = "TA_MAX_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
+    }
+
+    /// Count one bar this stream was not fed: [`Self::out_range`] advances by
+    /// one and nothing else moves — [`Self::value`] keeps answering the
+    /// previous output, which is this bar's output too.
+    ///
+    /// For a bar the caller leaves out: one an `update` rejected and that
+    /// will not be re-fed, or a session with no print. Without it two handles
+    /// on one feed drift a bar apart when only one of them skips.
+    #[doc(alias = "TA_MAX_Advance")]
+    pub fn advance(&mut self) {
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
     }
 }
 

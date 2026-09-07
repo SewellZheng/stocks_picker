@@ -173,16 +173,11 @@ public partial class Core
        * The arithmetic order below is the bit-exactness contract
        * (do not reorder or fuse operations):
        *  - EMA recursion: ((x-prev)*k)+prev.
-       *  - Default compatibility: each EMA is seeded with the sum of
-       *    its first 'period' inputs, accumulated from 0.0 in input
-       *    order, divided by the period. The fast and slow seed
-       *    windows end on the same bar. The signal EMA is seeded the
-       *    same way from the first 'signal period' MACD-line values.
-       *  - Metastock compatibility: the fast and slow EMA are seeded
-       *    from inReal[0], the signal EMA from the first MACD-line
-       *    value.
-       * Output alignment is identical for all compatibility modes;
-       * only the seed values differ.
+       *  - Each EMA is seeded with the sum of its first 'period'
+       *    inputs, accumulated from 0.0 in input order, divided by
+       *    the period. The fast and slow seed windows end on the
+       *    same bar. The signal EMA is seeded the same way from the
+       *    first 'signal period' MACD-line values.
        *
        * In-place (an output == inReal) is supported: outputs at
        * [outIdx] are written only after inReal[startIdx+outIdx] was
@@ -549,9 +544,9 @@ public partial class Core
    /// <summary>One <c>MACDFIX</c> output set, in batch output order.</summary>
    /// <remarks>
    /// <para>Equality is the compiler-generated record-struct equality, which compares
-   /// the components with <c>==</c>: <c>NaN</c> does not equal <c>NaN</c>, and
-   /// <c>0.0</c> equals <c>-0.0</c>. That is deliberately <em>not</em> the Java
-   /// <c>Value</c> contract, which compares bitwise — compare
+   /// each component with <see cref="System.Double.Equals(System.Double)"/>, not
+   /// <c>==</c>: any two <c>NaN</c> payloads compare equal, and <c>0.0</c>
+   /// equals <c>-0.0</c>. Compare
    /// <see cref="System.BitConverter.DoubleToInt64Bits(double)"/> per component
    /// when bit-level identity is what you mean.</para>
    /// </remarks>
@@ -598,13 +593,26 @@ public partial class Core
       /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Macdfix</c> reports over the same bars: the opener sets
-      /// it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds
-      /// one to the count — a non-finite bar is rejected but still counted, because
-      /// the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries
-      /// it verbatim. A plain <c>Open</c> hands back only the last value, a subset
-      /// of this range, because the caller chose not to take the fill.</para>
+      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count — a rejected one changes nothing, and
+      /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
+      /// <c>Open</c> hands back only the last value, a subset of this range,
+      /// because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
+
+      /// <summary>Count one bar this stream was not fed: <see cref="OutRange"/> advances by
+      /// one and nothing else moves.</summary>
+      /// <remarks>
+      /// <para><see cref="Value"/> keeps answering the previous output, which is this
+      /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
+      /// rejected and that will not be re-fed, or a session with no print. Without
+      /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// </remarks>
+      public void Advance()
+      {
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+      }
 
       internal MacdfixStream( MacdfixStream other )
       {
@@ -628,24 +636,19 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so no state moves, <see cref="Value"/> still answers the previous value,
-      /// and the stream stays usable — just carry on with the next bar.
-      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
-      /// which keeps two handles fed the same series positionally aligned when only
-      /// one of them rejects a bar. This is the one place the streaming tier is
-      /// stricter than the batch API, which computes on whatever it is given: a
-      /// handle retains its state, so a single non-finite bar would poison every
-      /// later value it produces.</para>
+      /// so nothing moves — <see cref="OutRange"/> included — and
+      /// <see cref="Value"/> still answers the previous value. Re-feed the bar when
+      /// a corrected value arrives, or call <see cref="Advance"/> to count it and
+      /// carry on; two handles on one feed drift a bar apart if neither happens.
+      /// This is the one place the streaming tier is stricter than the batch API,
+      /// which computes on whatever it is given: a handle retains its state, so a
+      /// single non-finite bar would poison every later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public MacdfixValue Update( double inReal )
       {
-         if( !double.IsFinite(inReal) )
-         {
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-            throw Core.StreamFailure("MACDFIX", "update", RetCode.BadParam);
-         }
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MACDFIX", "update", RetCode.BadParam);
          core.MacdfixStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return new MacdfixValue(cur_outMACD, cur_outMACDSignal, cur_outMACDHist);
@@ -688,42 +691,6 @@ public partial class Core
          cur_outMACDSignal = prevSignal;
          cur_outMACDHist = macdValue - prevSignal;
          return new MacdfixValue(cur_outMACD, cur_outMACDSignal, cur_outMACDHist);
-      }
-
-      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
-      /// <remarks>
-      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
-      /// argument checks instead of <c>n</c>. The outputs must hold at least
-      /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
-      /// a rejection readable: a non-finite bar <c>k</c> throws
-      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
-      /// and everything after it not written, and the count advanced by <c>k +
-      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
-      /// is the one that failed.</para>
-      /// </remarks>
-      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
-      /// <param name="outMACD">Receives one <c>outMACD</c> value per bar committed.</param>
-      /// <param name="outMACDSignal">Receives one <c>outMACDSignal</c> value per bar committed.</param>
-      /// <param name="outMACDHist">Receives one <c>outMACDHist</c> value per bar committed.</param>
-      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outMACD, Span<double> outMACDSignal, Span<double> outMACDHist )
-      {
-         int barCount = inReal.Length;
-         if( outMACD.Length < barCount || outMACDSignal.Length < barCount || outMACDHist.Length < barCount || outMACD.Overlaps(inReal) || outMACDSignal.Overlaps(inReal) || outMACDHist.Overlaps(inReal) || outMACD.Overlaps(outMACDSignal) || outMACD.Overlaps(outMACDHist) || outMACDSignal.Overlaps(outMACDHist) ) throw Core.StreamFailure("MACDFIX", "updateAndFill", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ )
-         {
-            if( !double.IsFinite(inReal[i]) )
-            {
-               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-               throw Core.StreamFailure("MACDFIX", "updateAndFill", RetCode.BadParam);
-            }
-            core.MacdfixStepImpl(this, inReal[i]);
-            outMACD[i] = cur_outMACD;
-            outMACDSignal[i] = cur_outMACDSignal;
-            outMACDHist[i] = cur_outMACDHist;
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-         }
       }
 
       /// <summary>The value at the last bar this stream counted — the bar
@@ -841,16 +808,11 @@ public partial class Core
        * The arithmetic order below is the bit-exactness contract
        * (do not reorder or fuse operations):
        *  - EMA recursion: ((x-prev)*k)+prev.
-       *  - Default compatibility: each EMA is seeded with the sum of
-       *    its first 'period' inputs, accumulated from 0.0 in input
-       *    order, divided by the period. The fast and slow seed
-       *    windows end on the same bar. The signal EMA is seeded the
-       *    same way from the first 'signal period' MACD-line values.
-       *  - Metastock compatibility: the fast and slow EMA are seeded
-       *    from inReal[0], the signal EMA from the first MACD-line
-       *    value.
-       * Output alignment is identical for all compatibility modes;
-       * only the seed values differ.
+       *  - Each EMA is seeded with the sum of its first 'period'
+       *    inputs, accumulated from 0.0 in input order, divided by
+       *    the period. The fast and slow seed windows end on the
+       *    same bar. The signal EMA is seeded the same way from the
+       *    first 'signal period' MACD-line values.
        *
        * In-place (an output == inReal) is supported: outputs at
        * [outIdx] are written only after inReal[startIdx+outIdx] was

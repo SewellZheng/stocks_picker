@@ -23,6 +23,9 @@
  *               small enough to fall under it.
  *  082726 MF,CC Drop the dead retCode block after the copy: the rejection is
  *               already answered above it, and the shape reads like #269.
+ *  090626 MF,CC Fix #390. Divide by the range, scale after: the hoisted
+ *               `(highest-lowest)/100.0` underflowed to 0.0 on a denormal
+ *               range that the guard still called "not flat".
  */
 
    /**
@@ -83,7 +86,6 @@
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
       double[] tempBuffer;
       int outIdx = 0;
       int lowestIdx = 0;
@@ -189,7 +191,6 @@
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       /* Allocate a temporary buffer large enough to
        * store the K.
        *
@@ -221,11 +222,9 @@
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          /* Set the highest high */
          tmp = inHigh[today];
@@ -240,22 +239,22 @@
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-          * machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-          * range against ITS OWN two extremes, not against a fixed band: the range
-          * carries the quote unit, so a constant put against it answers "flat" for
-          * every window of an instrument quoted below it and zeroed the whole
-          * output (issue #253).
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
+            tempBuffer[outIdx++] = (inClose[today] - lowest) / (highest - lowest) * 100.0;
          } else {
             tempBuffer[outIdx++] = 0.0;
          }
@@ -307,7 +306,6 @@
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
       double[] tempBuffer;
       int outIdx = 0;
       int lowestIdx = 0;
@@ -360,7 +358,6 @@
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       bufferIsAllocated = 0;
       if( false || false || false ) {
          tempBuffer = outFastK;
@@ -381,11 +378,9 @@
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          tmp = (double)inHigh[today];
          if( highestIdx < trailingIdx ) {
@@ -399,14 +394,12 @@
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
-            tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / diff;
+            tempBuffer[outIdx++] = ((double)inClose[today] - lowest) / (highest - lowest) * 100.0;
          } else {
             tempBuffer[outIdx++] = 0.0;
          }
@@ -622,7 +615,6 @@
       MAType optInFastD_MAType;
       double lowest;
       double highest;
-      double diff;
       int lowestIdx;
       int highestIdx;
       int trailingIdx;
@@ -645,13 +637,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#STOCHF} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(StochfOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       StochfStream( StochfStream other ) {
          this.core = other.core;
@@ -660,7 +662,6 @@
          this.optInFastD_MAType = other.optInFastD_MAType;
          this.lowest = other.lowest;
          this.highest = other.highest;
-         this.diff = other.diff;
          this.lowestIdx = other.lowestIdx;
          this.highestIdx = other.highestIdx;
          this.trailingIdx = other.trailingIdx;
@@ -682,12 +683,11 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value(StochfOut)} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(StochfOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
@@ -695,48 +695,12 @@
        */
       public void update( double inHigh, double inLow, double inClose, StochfOut out ) {
          requireArgument("STOCHF update", "out", out);
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("STOCHF update: BadParam", RetCode.BadParam);
-         }
          core.stochfStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          out.fastK = this.cur_outFastK;
          out.fastD = this.cur_outFastD;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inHigh.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outFastK[], double outFastD[] ) {
-         requireArgument("STOCHF updateAndFill", "inHigh", inHigh);
-         requireArgument("STOCHF updateAndFill", "inLow", inLow);
-         requireArgument("STOCHF updateAndFill", "inClose", inClose);
-         requireArgument("STOCHF updateAndFill", "outFastK", outFastK);
-         requireArgument("STOCHF updateAndFill", "outFastD", outFastD);
-         final int barCount = inHigh.length;
-         if( inLow.length != barCount || inClose.length != barCount || outFastK.length < barCount || outFastD.length < barCount || (Object)outFastK == (Object)inHigh || (Object)outFastK == (Object)inLow || (Object)outFastK == (Object)inClose || (Object)outFastD == (Object)inHigh || (Object)outFastD == (Object)inLow || (Object)outFastD == (Object)inClose || (Object)outFastK == (Object)outFastD )
-            throw new TaLibArgumentException("STOCHF updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("STOCHF updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.stochfStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-            outFastK[i] = this.cur_outFastK;
-            outFastD[i] = this.cur_outFastD;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -757,7 +721,6 @@
          double cur_outFastD = 0.0;
          double cur_outFastK = 0.0;
          double tmp = 0.0;
-         double diff = sp.diff;
          double highest = sp.highest;
          int highestIdx = sp.highestIdx;
          int i = sp.i;
@@ -798,11 +761,9 @@
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          /* Set the highest high */
          tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
@@ -817,22 +778,22 @@
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-          * machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-          * range against ITS OWN two extremes, not against a fixed band: the range
-          * carries the quote unit, so a constant put against it answers "flat" for
-          * every window of an instrument quoted below it and zeroed the whole
-          * output (issue #253).
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
-            cur_tempBuffer = ((((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - lowest) / diff;
+            cur_tempBuffer = ((((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - lowest) / (highest - lowest) * 100.0;
          } else {
             cur_tempBuffer = 0.0;
          }
@@ -922,11 +883,9 @@
                sp.lowest = tmp;
             }
          }
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       } else if( tmp <= sp.lowest ) {
          sp.lowestIdx = sp.today;
          sp.lowest = tmp;
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
       /* Set the highest high */
       tmp = sp.x_inHigh[sp.today & sp.xMask];
@@ -941,22 +900,22 @@
                sp.highest = tmp;
             }
          }
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       } else if( tmp >= sp.highest ) {
          sp.highestIdx = sp.today;
          sp.highest = tmp;
-         sp.diff = (sp.highest - sp.lowest) / 100.0;
       }
-      /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-       * machine-flat window leaves a sub-epsilon residue that an exact check
-       * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-       * range against ITS OWN two extremes, not against a fixed band: the range
-       * carries the quote unit, so a constant put against it answers "flat" for
-       * every window of an instrument quoted below it and zeroed the whole
-       * output (issue #253).
+      /* Divide by the range itself and scale after: the guard has to test the
+       * very expression the division uses, or a scaling step can carry a
+       * guarded-non-zero into a zero divisor.
+       *
+       * The band is the range against ITS OWN two extremes, not a fixed
+       * constant: the range carries the quote unit, so a constant answers
+       * "flat" for every window of an instrument quoted below it (issue #253).
+       * It absorbs the machine-flat window an exact test would divide into
+       * [0,100] noise (issue #107 / STOCHRSI).
        */
       if( !(Math.abs(sp.highest - sp.lowest) <= 0.00000000000001 * (Math.abs(sp.highest) + Math.abs(sp.lowest))) ) {
-         cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / sp.diff;
+         cur_tempBuffer = (sp.x_inClose[sp.today & sp.xMask] - sp.lowest) / (sp.highest - sp.lowest) * 100.0;
       } else {
          cur_tempBuffer = 0.0;
       }
@@ -973,7 +932,6 @@
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
       double[] tempBuffer;
       int outIdx = 0;
       int lowestIdx = 0;
@@ -1091,7 +1049,6 @@
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       /* Allocate a temporary buffer large enough to
        * store the K.
        *
@@ -1123,11 +1080,9 @@
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
          /* Set the highest high */
          tmp = inHigh[today];
@@ -1142,22 +1097,22 @@
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / 100.0;
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / 100.0;
          }
-         /* Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-          * machine-flat window leaves a sub-epsilon residue that an exact check
-          * would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-          * range against ITS OWN two extremes, not against a fixed band: the range
-          * carries the quote unit, so a constant put against it answers "flat" for
-          * every window of an instrument quoted below it and zeroed the whole
-          * output (issue #253).
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
-            tempBuffer[outIdx++] = (inClose[today] - lowest) / diff;
+            tempBuffer[outIdx++] = (inClose[today] - lowest) / (highest - lowest) * 100.0;
          } else {
             tempBuffer[outIdx++] = 0.0;
          }
@@ -1216,7 +1171,6 @@
       sp.optInFastD_MAType = optInFastD_MAType;
       sp.lowest = lowest;
       sp.highest = highest;
-      sp.diff = diff;
       sp.lowestIdx = lowestIdx;
       sp.highestIdx = highestIdx;
       sp.trailingIdx = trailingIdx;

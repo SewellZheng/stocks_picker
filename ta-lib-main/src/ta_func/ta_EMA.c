@@ -142,41 +142,14 @@ TA_LIB_API TA_RetCode TA_EMA( int    startIdx,
    }
    *outBegIdx= startIdx;
    /* Do the EMA calculation using tight loops. */
-   /* The first EMA is calculated differently. It
-    * then become the seed for subsequent EMA.
-    *
-    * The algorithm for this seed vary widely.
-    * Only 3 are implemented here:
-    *
-    * TA_MA_CLASSIC:
-    *    Use a simple MA of the first 'period'.
-    *    This is the approach most widely documented.
-    *
-    * TA_MA_METASTOCK:
-    *    Use first price bar value as a seed
-    *    from the begining of all the available
-    *    data.
-    *
-    * TA_MA_TRADESTATION:
-    *    Use 4th price bar as a seed, except when
-    *    period is 1 who use 2th price bar or something
-    *    like that... (not an obvious one...).
-    */
-   if( TA_GLOBALS_COMPATIBILITY == TA_COMPATIBILITY_DEFAULT )
+   today = startIdx - lookbackTotal;
+   i = optInTimePeriod;
+   tempReal = 0.0;
+   while( i-- > 0 )
    {
-      today = startIdx - lookbackTotal;
-      i = optInTimePeriod;
-      tempReal = 0.0;
-      while( i-- > 0 )
-      {
-         tempReal += inReal[today++];
-      }
-      prevMA = tempReal / optInTimePeriod;
-   } else 
-   {
-      prevMA = inReal[0];
-      today = 1;
+      tempReal += inReal[today++];
    }
+   prevMA = tempReal / optInTimePeriod;
    while( today <= startIdx )
    {
       prevMA = fma(inReal[today++] - prevMA, optInK_1, prevMA);
@@ -250,21 +223,14 @@ TA_RetCode TA_S_EMA( int    startIdx,
       return TA_SUCCESS;
    }
    *outBegIdx= startIdx;
-   if( TA_GLOBALS_COMPATIBILITY == TA_COMPATIBILITY_DEFAULT )
+   today = startIdx - lookbackTotal;
+   i = optInTimePeriod;
+   tempReal = 0.0;
+   while( i-- > 0 )
    {
-      today = startIdx - lookbackTotal;
-      i = optInTimePeriod;
-      tempReal = 0.0;
-      while( i-- > 0 )
-      {
-         tempReal += (double)inReal[today++];
-      }
-      prevMA = tempReal / optInTimePeriod;
-   } else 
-   {
-      prevMA = (double)inReal[0];
-      today = 1;
+      tempReal += (double)inReal[today++];
    }
+   prevMA = tempReal / optInTimePeriod;
    while( today <= startIdx )
    {
       prevMA = fma((double)inReal[today++] - prevMA, optInK_1, prevMA);
@@ -283,8 +249,7 @@ TA_RetCode TA_S_EMA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_EMA_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_EMA_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_EMA_Value). */
@@ -335,7 +300,12 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
    {
       int fillLb = TA_EMA_Lookback( optInTimePeriod );
       if( startIdx > fillLb ) fillLb = startIdx;
-      if( historyLen < fillLb + 1 ) return TA_INSUFFICIENT_HISTORY;
+      if( historyLen < fillLb + 1 )
+      {
+         *outBegIdx = 0;
+         *outNBElement = 0;
+         return TA_INSUFFICIENT_HISTORY;
+      }
       sp = (struct TA_EMA_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -391,41 +361,14 @@ static TA_RetCode TA_EMA_OpenImpl( struct TA_EMA_Stream **stream, const double i
       }
       *outBegIdx= startIdx;
       /* Do the EMA calculation using tight loops. */
-      /* The first EMA is calculated differently. It
-       * then become the seed for subsequent EMA.
-       *
-       * The algorithm for this seed vary widely.
-       * Only 3 are implemented here:
-       *
-       * TA_MA_CLASSIC:
-       *    Use a simple MA of the first 'period'.
-       *    This is the approach most widely documented.
-       *
-       * TA_MA_METASTOCK:
-       *    Use first price bar value as a seed
-       *    from the begining of all the available
-       *    data.
-       *
-       * TA_MA_TRADESTATION:
-       *    Use 4th price bar as a seed, except when
-       *    period is 1 who use 2th price bar or something
-       *    like that... (not an obvious one...).
-       */
-      if( TA_GLOBALS_COMPATIBILITY == TA_COMPATIBILITY_DEFAULT )
+      today = startIdx - lookbackTotal;
+      i = optInTimePeriod;
+      tempReal = 0.0;
+      while( i-- > 0 )
       {
-         today = startIdx - lookbackTotal;
-         i = optInTimePeriod;
-         tempReal = 0.0;
-         while( i-- > 0 )
-         {
-            tempReal += inReal[today++];
-         }
-         prevMA = tempReal / optInTimePeriod;
-      } else 
-      {
-         prevMA = inReal[0];
-         today = 1;
+         tempReal += inReal[today++];
       }
+      prevMA = tempReal / optInTimePeriod;
       while( today <= startIdx )
       {
          prevMA = fma(inReal[today++] - prevMA, optInK_1, prevMA);
@@ -499,11 +442,7 @@ TA_RetCode TA_EMA_OpenAndFillInternal( struct TA_EMA_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_EMA_Update( TA_EMA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_EMA_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -528,26 +467,6 @@ TA_LIB_API TA_RetCode TA_EMA_Peek( const TA_EMA_Stream *stream, double inReal, d
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_EMA_UpdateAndFill( TA_EMA_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_EMA_StepImpl( stream, inReal[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_EMA_Close( TA_EMA_Stream *stream )
 {
    if( stream ) TA_Free( stream );
@@ -558,6 +477,21 @@ TA_LIB_API TA_RetCode TA_EMA_Value( const TA_EMA_Stream *stream, double *outReal
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_EMA_OutRange( const TA_EMA_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_EMA_Advance( TA_EMA_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

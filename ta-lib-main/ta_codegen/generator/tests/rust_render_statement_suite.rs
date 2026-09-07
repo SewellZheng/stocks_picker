@@ -1064,7 +1064,7 @@ fn rust_public_entry_documents_exactly_its_parameters() {
         assert!(!params.is_empty(), "{name}: parsed no parameters -- the test would be vacuous");
         checked += 1;
     }
-    assert!(checked > 150, "expected the whole corpus, checked only {checked}");
+    assert!(checked >= 200, "expected the whole corpus, checked only {checked}");
 }
 
 #[test]
@@ -1412,20 +1412,6 @@ fn rust_func_call_unstable_period() {
     assert!(
         rendered.contains("self.unstable_period[FuncUnstId::RSI as usize]"),
         "UNSTABLE_PERIOD should render with FuncUnstId: {rendered}"
-    );
-}
-
-#[test]
-fn rust_func_call_compatibility() {
-    let stmt = ir::Statement::Assign {
-        target: ir::Expr::Var("x".to_string()),
-        value: ir::Expr::FuncCall("COMPATIBILITY".to_string(), vec![]),
-        compound: false,
-    };
-    let rendered = render_rust_stmt(&stmt);
-    assert!(
-        rendered.contains("self.compatibility"),
-        "COMPATIBILITY should render as self.compatibility: {rendered}"
     );
 }
 

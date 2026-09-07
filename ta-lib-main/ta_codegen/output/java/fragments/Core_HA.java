@@ -499,13 +499,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#HA} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(HaOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       HaStream( HaStream other ) {
          this.core = other.core;
@@ -524,12 +534,11 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value(HaOut)} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(HaOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
@@ -537,55 +546,14 @@
        */
       public void update( double inOpen, double inHigh, double inLow, double inClose, HaOut out ) {
          requireArgument("HA update", "out", out);
-         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("HA update: BadParam", RetCode.BadParam);
-         }
          core.haStepImpl(this, inOpen, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          out.haOpen = this.cur_outHAOpen;
          out.haHigh = this.cur_outHAHigh;
          out.haLow = this.cur_outHALow;
          out.haClose = this.cur_outHAClose;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inOpen.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inOpen[], double inHigh[], double inLow[], double inClose[], double outHAOpen[], double outHAHigh[], double outHALow[], double outHAClose[] ) {
-         requireArgument("HA updateAndFill", "inOpen", inOpen);
-         requireArgument("HA updateAndFill", "inHigh", inHigh);
-         requireArgument("HA updateAndFill", "inLow", inLow);
-         requireArgument("HA updateAndFill", "inClose", inClose);
-         requireArgument("HA updateAndFill", "outHAOpen", outHAOpen);
-         requireArgument("HA updateAndFill", "outHAHigh", outHAHigh);
-         requireArgument("HA updateAndFill", "outHALow", outHALow);
-         requireArgument("HA updateAndFill", "outHAClose", outHAClose);
-         final int barCount = inOpen.length;
-         if( inHigh.length != barCount || inLow.length != barCount || inClose.length != barCount || outHAOpen.length < barCount || outHAHigh.length < barCount || outHALow.length < barCount || outHAClose.length < barCount || (Object)outHAOpen == (Object)inOpen || (Object)outHAOpen == (Object)inHigh || (Object)outHAOpen == (Object)inLow || (Object)outHAOpen == (Object)inClose || (Object)outHAHigh == (Object)inOpen || (Object)outHAHigh == (Object)inHigh || (Object)outHAHigh == (Object)inLow || (Object)outHAHigh == (Object)inClose || (Object)outHALow == (Object)inOpen || (Object)outHALow == (Object)inHigh || (Object)outHALow == (Object)inLow || (Object)outHALow == (Object)inClose || (Object)outHAClose == (Object)inOpen || (Object)outHAClose == (Object)inHigh || (Object)outHAClose == (Object)inLow || (Object)outHAClose == (Object)inClose || (Object)outHAOpen == (Object)outHAHigh || (Object)outHAOpen == (Object)outHALow || (Object)outHAOpen == (Object)outHAClose || (Object)outHAHigh == (Object)outHALow || (Object)outHAHigh == (Object)outHAClose || (Object)outHALow == (Object)outHAClose )
-            throw new TaLibArgumentException("HA updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inOpen[i]) || !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("HA updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.haStepImpl(this, inOpen[i], inHigh[i], inLow[i], inClose[i]);
-            outHAOpen[i] = this.cur_outHAOpen;
-            outHAHigh[i] = this.cur_outHAHigh;
-            outHALow[i] = this.cur_outHALow;
-            outHAClose[i] = this.cur_outHAClose;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**

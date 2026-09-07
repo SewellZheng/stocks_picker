@@ -1055,8 +1055,7 @@ TA_RetCode TA_S_HT_TRENDMODE( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HT_TRENDMODE_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_HT_TRENDMODE_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_HT_TRENDMODE_Value). */
@@ -2095,11 +2094,7 @@ TA_RetCode TA_HT_TRENDMODE_OpenAndFillInternal( struct TA_HT_TRENDMODE_Stream **
 TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Update( TA_HT_TRENDMODE_Stream *stream, double inReal, int *outInteger )
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_HT_TRENDMODE_StepImpl( stream, inReal, outInteger );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -2478,26 +2473,6 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Peek( const TA_HT_TRENDMODE_Stream *stream
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_HT_TRENDMODE_UpdateAndFill( TA_HT_TRENDMODE_Stream *stream, const double inReal[], int barCount, int outInteger[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outInteger ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outInteger == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_HT_TRENDMODE_StepImpl( stream, inReal[i], &outInteger[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Close( TA_HT_TRENDMODE_Stream *stream )
 {
    TA_HT_TRENDMODE_ReleaseImpl( stream );
@@ -2508,6 +2483,21 @@ TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Value( const TA_HT_TRENDMODE_Stream *strea
 {
    if( !stream || !outInteger ) return TA_BAD_PARAM;
    *outInteger = stream->cur_outInteger;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_TRENDMODE_OutRange( const TA_HT_TRENDMODE_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_TRENDMODE_Advance( TA_HT_TRENDMODE_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

@@ -23,6 +23,10 @@
  *  082326 MF,CC  Fix #253. Scale that flatness test to the window's own price
  *                level: the fixed band zeroed the whole output for any
  *                instrument quoted small enough to fall under it.
+ *  090626 MF,CC  Fix #395. Test the divisor itself, not just the deviation it
+ *                scales: `0.015*tempReal2` underflows to 0.0 on a denormal
+ *                price the deviation's own band still calls "not flat", and
+ *                the division returned +/-Inf under TA_SUCCESS.
  */
 
    /**
@@ -143,7 +147,14 @@
          tempReal2 /= optInTimePeriod;
          /* And finally, the CCI... */
          tempReal = lastValue - theAverage;
-         /* Both tests are relative to the window's own price level (issue #253).
+         /* The third test is the divisor itself, and it is not implied by the
+          * second: the deviation's band is RELATIVE and the product's underflow is
+          * ABSOLUTE, so below ~1.6e-308 the band admits a deviation whose scaled
+          * copy is exactly 0.0 (issue #395). An exact test, not a band -- the
+          * flatness question is already answered above, and this one is only
+          * asking whether the value the division uses exists.
+          *
+          * The first two tests are relative to the window's own price level (#253).
           * They ask "is this window flat?", and flatness is a property of the
           * prices relative to each other -- but a deviation carries the quote
           * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
@@ -153,7 +164,7 @@
           * average, which is what it was widened for in the first place (#7).
           */
          tempReal3 = Math.abs(theAverage);
-         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) && 0.015 * tempReal2 != 0.0 ) {
             outReal[outIdx++] = tempReal / (0.015 * tempReal2);
          } else {
             outReal[outIdx++] = 0.0;
@@ -240,7 +251,7 @@
          tempReal2 /= optInTimePeriod;
          tempReal = lastValue - theAverage;
          tempReal3 = Math.abs(theAverage);
-         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) && 0.015 * tempReal2 != 0.0 ) {
             outReal[outIdx++] = tempReal / (0.015 * tempReal2);
          } else {
             outReal[outIdx++] = 0.0;
@@ -428,13 +439,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#CCI} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value()} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       CciStream( CciStream other ) {
          this.core = other.core;
@@ -453,57 +474,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value()} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CCI update: BadParam", RetCode.BadParam);
-         }
          core.cciStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inHigh.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
-         requireArgument("CCI updateAndFill", "inHigh", inHigh);
-         requireArgument("CCI updateAndFill", "inLow", inLow);
-         requireArgument("CCI updateAndFill", "inClose", inClose);
-         requireArgument("CCI updateAndFill", "outReal", outReal);
-         final int barCount = inHigh.length;
-         if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
-            throw new TaLibArgumentException("CCI updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("CCI updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.cciStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-            outReal[i] = this.cur_outReal;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -547,7 +533,14 @@
          tempReal2 /= sp.optInTimePeriod;
          /* And finally, the CCI... */
          tempReal = lastValue - theAverage;
-         /* Both tests are relative to the window's own price level (issue #253).
+         /* The third test is the divisor itself, and it is not implied by the
+          * second: the deviation's band is RELATIVE and the product's underflow is
+          * ABSOLUTE, so below ~1.6e-308 the band admits a deviation whose scaled
+          * copy is exactly 0.0 (issue #395). An exact test, not a band -- the
+          * flatness question is already answered above, and this one is only
+          * asking whether the value the division uses exists.
+          *
+          * The first two tests are relative to the window's own price level (#253).
           * They ask "is this window flat?", and flatness is a property of the
           * prices relative to each other -- but a deviation carries the quote
           * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
@@ -557,7 +550,7 @@
           * average, which is what it was widened for in the first place (#7).
           */
          tempReal3 = Math.abs(theAverage);
-         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) && 0.015 * tempReal2 != 0.0 ) {
             cur_outReal = tempReal / (0.015 * tempReal2);
          } else {
             cur_outReal = 0.0;
@@ -617,7 +610,14 @@
       tempReal2 /= sp.optInTimePeriod;
       /* And finally, the CCI... */
       tempReal = lastValue - theAverage;
-      /* Both tests are relative to the window's own price level (issue #253).
+      /* The third test is the divisor itself, and it is not implied by the
+       * second: the deviation's band is RELATIVE and the product's underflow is
+       * ABSOLUTE, so below ~1.6e-308 the band admits a deviation whose scaled
+       * copy is exactly 0.0 (issue #395). An exact test, not a band -- the
+       * flatness question is already answered above, and this one is only
+       * asking whether the value the division uses exists.
+       *
+       * The first two tests are relative to the window's own price level (#253).
        * They ask "is this window flat?", and flatness is a property of the
        * prices relative to each other -- but a deviation carries the quote
        * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
@@ -627,7 +627,7 @@
        * average, which is what it was widened for in the first place (#7).
        */
       tempReal3 = Math.abs(theAverage);
-      if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+      if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) && 0.015 * tempReal2 != 0.0 ) {
          sp.cur_outReal = tempReal / (0.015 * tempReal2);
       } else {
          sp.cur_outReal = 0.0;
@@ -736,7 +736,14 @@
          tempReal2 /= optInTimePeriod;
          /* And finally, the CCI... */
          tempReal = lastValue - theAverage;
-         /* Both tests are relative to the window's own price level (issue #253).
+         /* The third test is the divisor itself, and it is not implied by the
+          * second: the deviation's band is RELATIVE and the product's underflow is
+          * ABSOLUTE, so below ~1.6e-308 the band admits a deviation whose scaled
+          * copy is exactly 0.0 (issue #395). An exact test, not a band -- the
+          * flatness question is already answered above, and this one is only
+          * asking whether the value the division uses exists.
+          *
+          * The first two tests are relative to the window's own price level (#253).
           * They ask "is this window flat?", and flatness is a property of the
           * prices relative to each other -- but a deviation carries the quote
           * unit, so the fixed TA_IS_ZERO band these used to be answered "flat" for
@@ -746,7 +753,7 @@
           * average, which is what it was widened for in the first place (#7).
           */
          tempReal3 = Math.abs(theAverage);
-         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) ) {
+         if( !(Math.abs(tempReal) <= 0.00000000000001 * (tempReal3)) && !(Math.abs(tempReal2) <= 0.00000000000001 * (tempReal3)) && 0.015 * tempReal2 != 0.0 ) {
             outReal[outIdx++ * outStride] = tempReal / (0.015 * tempReal2);
          } else {
             outReal[outIdx++ * outStride] = 0.0;

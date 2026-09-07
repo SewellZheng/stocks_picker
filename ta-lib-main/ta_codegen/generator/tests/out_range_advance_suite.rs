@@ -1,27 +1,30 @@
-//! A rejected bar is still counted (rule U3), in all four backends.
+//! Only an ACCEPTED bar advances the range, in all four backends (#384).
 //!
-//! `Update` refuses a non-finite bar and writes no state — but the bar happened
-//! and occupies a position in the series, so the handle's `OutRange` count moves
-//! anyway. That is what keeps two handles driven off one feed positionally
-//! aligned when only one of them rejects a bar, and it is what makes a partial
-//! `UpdateAndFill` readable: the count ends ON the offending bar.
+//! `Update` refuses a non-finite bar, writes no state, and moves no count: the
+//! rejection costs the caller nothing but the call. Counting a bar the caller
+//! decided not to feed is the `advance` call's job — `TA_<N>_Advance`,
+//! `advance()`, `advance()`, `Advance()` — which is what leaves the retry
+//! expressible.
 //!
 //! `stream_verify` never feeds a non-finite bar, so it cannot see this at all.
 //! The per-backend stream suites in C, Java and C# can. What this suite adds
-//! over them is reach: one check, all four backends, all 176 functions, on the
-//! PR gate — where the Java and C# suites are nightly-only. Three things are
-//! pinned here, and the third is the one most likely to regress silently:
+//! over them is reach: one check, all four backends, every streaming function,
+//! on the PR gate — where the Java and C# suites are nightly-only. Three things
+//! are pinned here, and the last is the one most likely to regress silently:
 //!
-//! 1. Every `Update` advances between its finite test and the rejection.
-//! 2. Every `UpdateAndFill` does the same at EVERY per-bar site — the dispatch
-//!    tier has two, because its identity arm is a loop of its own.
+//! 1. No advance between a `Update`'s finite test and the rejection it guards —
+//!    the window an advance would be re-added into.
+//! 2. The accepted bar still advances, after the finite test. A "fix" that
+//!    deleted the advance outright, or hoisted it above the presence guards,
+//!    fails here.
 //! 3. No `Peek` advances anything, anywhere. A peek that moved the count is a
 //!    peek that wrote the handle, which is the whole guarantee of the receiver
 //!    being `const`/`&self`.
 //!
-//! And the rejections that must NOT advance stay put: the handle/output presence
-//! guards, and `UpdateAndFill`'s pre-loop length, count and aliasing checks. Only
-//! the per-bar finite test counts a bar it turned down.
+//! `advance` is emitted per handle in all four backends (#387) and swept here
+//! in all four. `every_c_handle_answers_its_own_range` below covers what only C
+//! has: a range READER whose two out-parameters can be paired the wrong way
+//! round.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -62,7 +65,7 @@ fn streaming_funcs() -> Vec<String> {
         }
     }
     out.sort();
-    assert!(out.len() > 150, "the corpus sweep found only {} functions", out.len());
+    assert!(out.len() >= 200, "the corpus sweep found only {} functions", out.len());
     out
 }
 
@@ -144,15 +147,14 @@ fn spellings(lang: &str) -> (&'static str, &'static str, &'static str) {
 /// The full non-finite test, as that backend spells it — every bar input, joined
 /// exactly as the emitter joins them, so an anchor here cannot drift off a
 /// renamed or re-ordered condition and start matching nothing.
-fn finite_test(lang: &str, bars: &[String], indexed: bool) -> String {
-    let ix = if indexed { "[i]" } else { "" };
+fn finite_test(lang: &str, bars: &[String]) -> String {
     let terms: Vec<String> = bars
         .iter()
         .map(|b| match lang {
-            "c" => format!("!TA_IS_FINITE( {b}{ix} )"),
-            "rust" => format!("!{b}{ix}.is_finite()"),
-            "java" => format!("!Double.isFinite({b}{ix})"),
-            "csharp" => format!("!double.IsFinite({b}{ix})"),
+            "c" => format!("!TA_IS_FINITE( {b} )"),
+            "rust" => format!("!{b}.is_finite()"),
+            "java" => format!("!Double.isFinite({b})"),
+            "csharp" => format!("!double.IsFinite({b})"),
             other => panic!("unknown backend {other}"),
         })
         .collect();
@@ -166,12 +168,6 @@ fn entry_sig(lang: &str, upper: &str, verb: &str) -> Box<dyn Fn(&str) -> bool> {
             "pub fn update(".to_string(),
             " update( ".to_string(),
             " Update( ".to_string(),
-        ),
-        "fill" => (
-            format!("TA_RetCode TA_{upper}_UpdateAndFill( "),
-            "pub fn update_and_fill(".to_string(),
-            " updateAndFill( ".to_string(),
-            " UpdateAndFill( ".to_string(),
         ),
         "peek" => (
             format!("TA_RetCode TA_{upper}_Peek( "),
@@ -194,12 +190,14 @@ fn positions(hay: &str, needle: &str) -> Vec<usize> {
     hay.match_indices(needle).map(|(i, _)| i).collect()
 }
 
-/// Between each finite test and the rejection it guards there is exactly one
-/// advance. Searching forward from the test is what places the advance INSIDE
-/// the reject block: an advance hoisted above the `if` would land before the
-/// anchor and read as missing, which is the answer we want — the accepted bar
-/// must not be counted twice.
-fn advance_sits_on_every_reject(
+/// Between each finite test and the rejection it guards there is no advance at
+/// all. Searching forward from the test is what makes the window the reject
+/// block itself — the one place an advance could be re-added and still be
+/// reached only by a refused bar.
+///
+/// Both anchors are asserted present, because a window that matched nothing
+/// would satisfy "no advance in it" for the wrong reason.
+fn no_advance_on_any_reject(
     what: &str,
     body: &str,
     test: &str,
@@ -219,19 +217,37 @@ fn advance_sits_on_every_reject(
         let window = &body[*p..r];
         assert_eq!(
             window.matches(guard).count(),
-            1,
-            "{what}: the rejected bar is not counted exactly once before the rejection \
-             — rule U3 says a bar that happened is counted even when it is refused:\n{body}"
+            0,
+            "{what}: the refused bar is counted. A rejection changes nothing at all \
+             (#384) — counting a bar the caller declined to feed is what \
+             the advance call is for:\n{body}"
         );
     }
     sites.len()
 }
 
+/// The per-handle `advance`, in every backend. Matched on its signature and on
+/// the saturating guard in its body, so an accessor that lost the `MAX_INDEX`
+/// bound (#180) does not read as present.
+fn advance_entry_sig(lang: &str, upper: &str) -> Box<dyn Fn(&str) -> bool> {
+    match lang {
+        "c" => {
+            let c = format!("TA_RetCode TA_{upper}_Advance( ");
+            Box::new(move |l: &str| l.starts_with("TA_LIB_API ") && l.contains(&c))
+        }
+        "rust" => Box::new(|l: &str| l.starts_with("pub fn advance(&mut self) {")),
+        "java" => Box::new(|l: &str| l.starts_with("public void advance() {")),
+        "csharp" => Box::new(|l: &str| l.starts_with("public void Advance()")),
+        other => panic!("unknown backend {other}"),
+    }
+}
+
 /// The corpus sweep. One test rather than four so the four backends are
 /// generated once, not four times over.
 #[test]
-fn a_rejected_bar_is_counted_by_update_and_by_the_filler_and_never_by_peek() {
-    let (mut updates, mut fills, mut peeks, mut guards) = (0usize, 0usize, 0usize, 0usize);
+fn only_an_accepted_bar_advances_the_range() {
+    let (mut updates, mut peeks, mut guards) = (0usize, 0usize, 0usize);
+    let mut advancers = 0usize;
     let mut no_bars = Vec::new();
     for name in streaming_funcs() {
         let upper = name.to_uppercase();
@@ -248,50 +264,41 @@ fn a_rejected_bar_is_counted_by_update_and_by_the_filler_and_never_by_peek() {
             let (guard, increment, reject) = spellings(lang);
 
             let upd = body_of(&s, entry_sig(lang, &upper, "update"));
-            let scalar = finite_test(lang, &bars, false);
-            updates += advance_sits_on_every_reject(
+            let scalar = finite_test(lang, &bars);
+            updates += no_advance_on_any_reject(
                 &format!("{name}/{lang} Update"),
                 &upd,
                 &scalar,
                 guard,
                 reject,
             );
-            // The accepted bar is still counted too, so a "fix" that merely
-            // moved the one advance onto the reject path fails here.
+            // The accepted bar IS still counted, so deleting the advance
+            // outright fails here rather than passing the check above.
+            let advances = positions(&upd, guard);
             assert!(
-                positions(&upd, guard).len() >= 2,
-                "{name}: {lang} Update no longer counts BOTH the accepted and the \
-                 rejected bar:\n{upd}"
+                !advances.is_empty(),
+                "{name}: {lang} Update no longer counts the accepted bar:\n{upd}"
             );
             // U1/U2: the presence guards answer before any bar is looked at, and
             // a call that never reached the series must not move its count.
-            let first_advance = positions(&upd, guard)[0];
             let at_test = upd.find(&scalar).expect("the finite test");
             assert!(
-                first_advance > at_test,
+                advances[0] > at_test,
                 "{name}: {lang} Update advances before it has even tested the bar — a \
                  presence guard is counting a bar that was never handed over:\n{upd}"
             );
 
-            let fill = body_of(&s, entry_sig(lang, &upper, "fill"));
-            let indexed = finite_test(lang, &bars, true);
-            fills += advance_sits_on_every_reject(
-                &format!("{name}/{lang} UpdateAndFill"),
-                &fill,
-                &indexed,
-                guard,
-                reject,
-            );
-            // U4-U7: the pre-loop count, length, output and aliasing rejections
-            // happen before the first bar loop and must leave the count alone.
-            let at_first_test = fill.find(&indexed).expect("the per-bar test");
+            guards += 1;
+
+            // The call that DOES count a skipped bar, and the only one left that
+            // moves the range without a bar.
+            let adv = body_of(&s, advance_entry_sig(lang, &upper));
             assert!(
-                positions(&fill, guard)[0] > at_first_test,
-                "{name}: {lang} UpdateAndFill advances before its first per-bar test — a \
-                 pre-loop guard (short output, ragged inputs, aliasing) is counting a bar \
-                 the call never took in:\n{fill}"
+                adv.contains(guard),
+                "{name}: {lang} advance() does not move the count under the \
+                 MAX_INDEX guard:\n{adv}"
             );
-            guards += 2;
+            advancers += 1;
 
             let peek = body_of(&s, entry_sig(lang, &upper, "peek"));
             assert!(
@@ -312,68 +319,64 @@ fn a_rejected_bar_is_counted_by_update_and_by_the_filler_and_never_by_peek() {
     // Own counters: a refactor that stops reaching these entry points has to
     // fail here rather than pass by checking nothing.
     assert!(updates >= 700, "only {updates} Update reject sites were checked");
-    assert!(fills > updates, "only {fills} UpdateAndFill reject sites for {updates} Updates — the dispatch tier's second bar loop is gone");
     assert!(peeks >= 700, "only {peeks} Peek bodies were checked");
-    assert!(guards >= 1400, "only {guards} non-advancing guard checks were made");
+    assert!(guards >= 700, "only {guards} non-advancing guard checks were made");
+    // Its own counter, not a share of the others: a sweep that stopped reaching
+    // `advance` would still saturate the Update and Peek ones.
+    assert!(advancers >= 800, "only {advancers} advance() bodies were checked");
     println!(
-        "checked {updates} Update / {fills} UpdateAndFill reject sites, {peeks} peeks, \
-         {guards} guards across {} backends",
+        "checked {updates} Update reject sites, {peeks} peeks, {guards} guards, \
+         {advancers} advance() bodies across {} backends",
         LANGS.len()
     );
 }
 
-/// The two tiers that hand-roll their own entry-point bodies, pinned by name and
-/// by SITE COUNT. The sweep above would stay green if a tier collapsed its two
-/// bar loops into one, or grew a third that forgot the advance; this will not.
+/// C's range READER, which the sweep above has no counterpart for in the other
+/// three backends: `out_range()` hands back one value, while `TA_<N>_OutRange`
+/// fills two out-parameters that a swapped pair would populate silently — the
+/// count would read as a begIdx and every comparison would still be an int.
+///
+/// The whole prototype and the whole guard are matched, not a prefix and a bare
+/// `return`: a body with only `if( !stream )` still returns `TA_BAD_PARAM` and
+/// still assigns both fields, so a narrowed guard reads green against anything
+/// weaker — and writing through a NULL out-parameter is the class the typed
+/// accessors exist to make unreachable. `OUT_META` in `indicator_variants_suite`
+/// pins the batch tier's pair the same way, for the same bug.
 #[test]
-fn the_hand_rolled_tiers_advance_at_every_bar_loop() {
-    // MA dispatches, and hoists its period-1/DISABLED identity arm into a bar
-    // loop of its own in C — two per-bar sites there, one everywhere else.
-    // MAVP banks a sub-handle per distinct period and has a single loop.
-    let mut checked = 0usize;
-    for (name, upper, c_fill_sites) in [("ma", "MA", 2usize), ("mavp", "MAVP", 1usize)] {
-        let (func, _) = load(name);
-        let bars = streaming::input_array_names(&func);
-        for lang in LANGS {
-            let s = section(name, lang);
-            let (guard, increment, reject) = spellings(lang);
-            let want = if lang == "c" { c_fill_sites } else { 1 };
+fn every_c_handle_answers_its_own_range() {
+    let mut readers = 0usize;
+    for name in streaming_funcs() {
+        let upper = name.to_uppercase();
+        let s = section(&name, "c");
+        assert!(
+            !s.contains("TA_StreamOutRange") && !s.contains("TA_StreamAdvance"),
+            "{name}: the void * accessor is still emitted"
+        );
 
-            let upd = body_of(&s, entry_sig(lang, upper, "update"));
-            assert_eq!(
-                advance_sits_on_every_reject(
-                    &format!("{name}/{lang} Update"),
-                    &upd,
-                    &finite_test(lang, &bars, false),
-                    guard,
-                    reject
-                ),
-                1,
-                "{name}: {lang} Update has more than one finite test"
-            );
+        let want = format!(
+            "TA_LIB_API TA_RetCode TA_{upper}_OutRange( const TA_{upper}_Stream *stream, \
+             int *outBegIdx, int *outNBElement )"
+        );
+        let body = body_of(&s, move |l: &str| l == want);
+        assert!(
+            body.contains("*outBegIdx = stream->outRangeBegIdx;")
+                && body.contains("*outNBElement = stream->outRangeCount;"),
+            "{name}: OutRange does not answer the head in its declared order:\n{body}"
+        );
+        assert!(
+            body.contains("if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;"),
+            "{name}: OutRange does not reject all three NULLs:\n{body}"
+        );
 
-            let fill = body_of(&s, entry_sig(lang, upper, "fill"));
-            assert_eq!(
-                advance_sits_on_every_reject(
-                    &format!("{name}/{lang} UpdateAndFill"),
-                    &fill,
-                    &finite_test(lang, &bars, true),
-                    guard,
-                    reject
-                ),
-                want,
-                "{name}: {lang} UpdateAndFill has the wrong number of per-bar reject \
-                 sites — a bar loop was added or merged, and one of them may now count \
-                 nothing:\n{fill}"
-            );
-
-            let peek = body_of(&s, entry_sig(lang, upper, "peek"));
-            assert!(
-                !peek.contains(guard) && !peek.contains(increment),
-                "{name}: {lang} Peek moves the range:\n{peek}"
-            );
-            checked += 1;
-        }
+        let adv = body_of(&s, advance_entry_sig("c", &upper));
+        assert!(
+            adv.contains("if( !stream ) return TA_BAD_PARAM;"),
+            "{name}: Advance takes a NULL handle:\n{adv}"
+        );
+        readers += 1;
     }
-    assert_eq!(checked, 8, "the hand-rolled tiers were checked {checked} times, expected 8");
+    // Its own counter, not a share of the sweep's: that one saturates on the
+    // three backends this test cannot see.
+    assert!(readers >= 200, "only {readers} C range accessor pairs were checked");
+    println!("checked {readers} C OutRange/Advance pairs");
 }

@@ -71,16 +71,19 @@
        *
        *   ER[t] = |c[t] - c[t-P]| / SUM(k = t-P+1 .. t) |c[k] - c[k-1]|
        *
+       * The ratio is in [0,1] in exact arithmetic, but sumROC1 drifts, so the
+       * clamp to 1.0 is what makes the declared range a bound rather than a
+       * hope -- and in kama.c what keeps its recurrence a convex combination.
+       *
        * This is a lift of TA_KAMA's inner efficiency ratio (kama.c) so the
        * two stay bit-identical -- the KAMA-reconstruction differential in
-       * test_composite2.c exists to keep it that way. Two guards are
+       * test_composite2.c exists to keep it that way. Three more guards are
        * load-bearing and shared with kama.c:
        *
        *   - `sumROC1 <= periodROC` pins the ratio to exactly 1.0 where FP
-       *     would give 1.0000000000000002. The comparison is against the
-       *     SIGNED numerator, so it only fires on up-moves; on sustained
-       *     declines the raw fabs ratio can exceed 1.0 by a few ULP. Do NOT
-       *     "fix" this with fabs -- it changes TA_KAMA's output.
+       *     would give 1.0000000000000002, on up-moves. It compares against
+       *     the SIGNED numerator, so it is false for every down move: it
+       *     bounds nothing on its own, which is what the clamp is for.
        *   - a genuinely flat window is recognized by COUNTING exactly-zero
        *     one-bar changes (nullRun >= P forces sumROC1 to 0.0, purging the
        *     running sum's rounding residue), after which `0 <= 0` pins the
@@ -89,16 +92,10 @@
        *     gate (ER is homogeneous of degree 0, and a fixed 1e-14 met a
        *     price-carrying sum).
        *
-       * A third guard is this function's own, and the one thing kama.c has
-       * no equivalent of: the division runs only where sumROC1 is exactly
-       * positive. The clamp above cannot serve as the denominator test,
-       * because it compares against the SIGNED numerator and so is false for
-       * every down move -- and a subtract-then-add sum can reach 0.0, or
-       * below it, on a window that is not flat, when a term absorbed on the
-       * way in is subtracted later at full precision. Without the guard those
-       * bars divide by zero. Where it fires, this function answers 1.0 and
-       * kama.c's inner ratio does not; no window the KAMA differential covers
-       * reaches it.
+       * The third is the denominator test (#385): a subtract-then-add sum can
+       * reach 0.0, or below it, on a window that is not flat. The clamp
+       * subsumes it numerically, so it is held by the structural sweep over
+       * divisors, not by any value test.
        *
        * The subtract-then-add update order matches TA_SUM's recurrence,
        * which is what makes the composite differential bit-exact. The
@@ -147,7 +144,11 @@
       if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          outReal[0] = 1.0;
       } else {
-         outReal[0] = Math.abs(periodROC / sumROC1);
+         tempReal = Math.abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         outReal[0] = tempReal;
       }
       outIdx = 1;
       today += 1;
@@ -179,7 +180,11 @@
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++] = 1.0;
          } else {
-            outReal[outIdx++] = Math.abs(periodROC / sumROC1);
+            tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            outReal[outIdx++] = tempReal;
          }
          today += 1;
       }
@@ -248,7 +253,11 @@
       if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          outReal[0] = 1.0;
       } else {
-         outReal[0] = Math.abs(periodROC / sumROC1);
+         tempReal = Math.abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         outReal[0] = tempReal;
       }
       outIdx = 1;
       today += 1;
@@ -271,7 +280,11 @@
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++] = 1.0;
          } else {
-            outReal[outIdx++] = Math.abs(periodROC / sumROC1);
+            tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            outReal[outIdx++] = tempReal;
          }
          today += 1;
       }
@@ -291,7 +304,7 @@
     * <pre>{@code
     * `ER[t] = |close[t] − close[t−P]| / Σ |close[k] − close[k−1]|` over the same `P` bars.
     * Two guards, both shared with `KAMA`: a ratio that floating point would nudge just above 1.0 on a straight-line advance is pinned to exactly 1.0, and a dead-flat window (0/0) also reports 1.0 — a flat market therefore reads as "perfectly efficient", which is `KAMA`'s own convention and what keeps the two reconstructible from each other.
-    * The clamp compares against the *signed* net move, so it only fires on advances: on sustained declines the output may exceed 1.0 by a few ULP. The range is "0..1, may exceed 1 by a few ULP on sustained declines", not a hard bound.
+    * The output is a hard 0..1 — the net move can never exceed the path travelled.
     * TC2000 documents a signed ×100 variant (−100..+100); the absolute 0..1 form here is the author's, StockCharts', LEAN's, backtrader's and pandas-ta's.
     * }</pre>
     * <p><b>Notes</b>
@@ -364,7 +377,7 @@
     * <pre>{@code
     * `ER[t] = |close[t] − close[t−P]| / Σ |close[k] − close[k−1]|` over the same `P` bars.
     * Two guards, both shared with `KAMA`: a ratio that floating point would nudge just above 1.0 on a straight-line advance is pinned to exactly 1.0, and a dead-flat window (0/0) also reports 1.0 — a flat market therefore reads as "perfectly efficient", which is `KAMA`'s own convention and what keeps the two reconstructible from each other.
-    * The clamp compares against the *signed* net move, so it only fires on advances: on sustained declines the output may exceed 1.0 by a few ULP. The range is "0..1, may exceed 1 by a few ULP on sustained declines", not a hard bound.
+    * The output is a hard 0..1 — the net move can never exceed the path travelled.
     * TC2000 documents a signed ×100 variant (−100..+100); the absolute 0..1 form here is the author's, StockCharts', LEAN's, backtrader's and pandas-ta's.
     * }</pre>
     * <p><b>Notes</b>
@@ -465,13 +478,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#ER} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value()} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       ErStream( ErStream other ) {
          this.core = other.core;
@@ -493,55 +516,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value()} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("ER update: BadParam", RetCode.BadParam);
-         }
          core.erStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inReal.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inReal[], double outReal[] ) {
-         requireArgument("ER updateAndFill", "inReal", inReal);
-         requireArgument("ER updateAndFill", "outReal", outReal);
-         final int barCount = inReal.length;
-         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
-            throw new TaLibArgumentException("ER updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("ER updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.erStepImpl(this, inReal[i]);
-            outReal[i] = this.cur_outReal;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -597,7 +587,11 @@
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             cur_outReal = 1.0;
          } else {
-            cur_outReal = Math.abs(periodROC / sumROC1);
+            tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            cur_outReal = tempReal;
          }
          return cur_outReal;
       }
@@ -663,7 +657,11 @@
       if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
          sp.cur_outReal = 1.0;
       } else {
-         sp.cur_outReal = Math.abs(periodROC / sp.sumROC1);
+         tempReal = Math.abs(periodROC / sp.sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         sp.cur_outReal = tempReal;
       }
       sp.lag1_inReal = inReal;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
@@ -709,16 +707,19 @@
        *
        *   ER[t] = |c[t] - c[t-P]| / SUM(k = t-P+1 .. t) |c[k] - c[k-1]|
        *
+       * The ratio is in [0,1] in exact arithmetic, but sumROC1 drifts, so the
+       * clamp to 1.0 is what makes the declared range a bound rather than a
+       * hope -- and in kama.c what keeps its recurrence a convex combination.
+       *
        * This is a lift of TA_KAMA's inner efficiency ratio (kama.c) so the
        * two stay bit-identical -- the KAMA-reconstruction differential in
-       * test_composite2.c exists to keep it that way. Two guards are
+       * test_composite2.c exists to keep it that way. Three more guards are
        * load-bearing and shared with kama.c:
        *
        *   - `sumROC1 <= periodROC` pins the ratio to exactly 1.0 where FP
-       *     would give 1.0000000000000002. The comparison is against the
-       *     SIGNED numerator, so it only fires on up-moves; on sustained
-       *     declines the raw fabs ratio can exceed 1.0 by a few ULP. Do NOT
-       *     "fix" this with fabs -- it changes TA_KAMA's output.
+       *     would give 1.0000000000000002, on up-moves. It compares against
+       *     the SIGNED numerator, so it is false for every down move: it
+       *     bounds nothing on its own, which is what the clamp is for.
        *   - a genuinely flat window is recognized by COUNTING exactly-zero
        *     one-bar changes (nullRun >= P forces sumROC1 to 0.0, purging the
        *     running sum's rounding residue), after which `0 <= 0` pins the
@@ -727,16 +728,10 @@
        *     gate (ER is homogeneous of degree 0, and a fixed 1e-14 met a
        *     price-carrying sum).
        *
-       * A third guard is this function's own, and the one thing kama.c has
-       * no equivalent of: the division runs only where sumROC1 is exactly
-       * positive. The clamp above cannot serve as the denominator test,
-       * because it compares against the SIGNED numerator and so is false for
-       * every down move -- and a subtract-then-add sum can reach 0.0, or
-       * below it, on a window that is not flat, when a term absorbed on the
-       * way in is subtracted later at full precision. Without the guard those
-       * bars divide by zero. Where it fires, this function answers 1.0 and
-       * kama.c's inner ratio does not; no window the KAMA differential covers
-       * reaches it.
+       * The third is the denominator test (#385): a subtract-then-add sum can
+       * reach 0.0, or below it, on a window that is not flat. The clamp
+       * subsumes it numerically, so it is held by the structural sweep over
+       * divisors, not by any value test.
        *
        * The subtract-then-add update order matches TA_SUM's recurrence,
        * which is what makes the composite differential bit-exact. The
@@ -785,7 +780,11 @@
       if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          outReal[0 * outStride] = 1.0;
       } else {
-         outReal[0 * outStride] = Math.abs(periodROC / sumROC1);
+         tempReal = Math.abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         outReal[0 * outStride] = tempReal;
       }
       outIdx = 1;
       today += 1;
@@ -817,7 +816,11 @@
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++ * outStride] = 1.0;
          } else {
-            outReal[outIdx++ * outStride] = Math.abs(periodROC / sumROC1);
+            tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            outReal[outIdx++ * outStride] = tempReal;
          }
          today += 1;
       }

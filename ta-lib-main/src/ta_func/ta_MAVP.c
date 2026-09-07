@@ -747,8 +747,7 @@ TA_RetCode TA_S_MAVP( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_MAVP_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_MAVP_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_MAVP_Value). */
@@ -867,7 +866,12 @@ TA_LIB_API TA_RetCode TA_MAVP_OpenAndFill( TA_MAVP_Stream **stream, const double
       return TA_BAD_PARAM;
    if( optInMinPeriod > optInMaxPeriod ) return TA_BAD_PARAM;
    lookbackTotal = TA_MA_Lookback( optInMaxPeriod, optInMAType );
-   if( historyLen < lookbackTotal + 1 ) return TA_INSUFFICIENT_HISTORY;
+   if( historyLen < lookbackTotal + 1 )
+   {
+      *outBegIdx = 0;
+      *outNBElement = 0;
+      return TA_INSUFFICIENT_HISTORY;
+   }
 
    sp = (struct TA_MAVP_Stream *)TA_Malloc( sizeof(*sp) );
    if( !sp ) return TA_ALLOC_ERR;
@@ -925,11 +929,7 @@ TA_LIB_API TA_RetCode TA_MAVP_Update( TA_MAVP_Stream *stream, double inReal, dou
    int k, cp;
    double cpReal;
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inPeriods ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inPeriods ) ) return TA_BAD_PARAM;
    for( k = 0; k < stream->nBank; k++ )
       TA_MA_Update( stream->bank[k], inReal, &stream->scratch[k] );
    cpReal = inPeriods;
@@ -956,34 +956,6 @@ TA_LIB_API TA_RetCode TA_MAVP_Peek( const TA_MAVP_Stream *stream, double inReal,
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_MAVP_UpdateAndFill( TA_MAVP_Stream *stream, const double inReal[], const double inPeriods[], int barCount, double outReal[] )
-{
-   int i, k, cp;
-   double cpReal;
-
-   if( !stream || !inReal || !inPeriods || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inPeriods ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) || !TA_IS_FINITE( inPeriods[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      for( k = 0; k < stream->nBank; k++ )
-         TA_MA_Update( stream->bank[k], inReal[i], &stream->scratch[k] );
-      cpReal = inPeriods[i];
-      if( !(cpReal >= stream->optInMinPeriod) ) cp = stream->optInMinPeriod;
-      else if( cpReal > stream->optInMaxPeriod ) cp = stream->optInMaxPeriod;
-      else cp = (int)cpReal;
-      outReal[i] = stream->scratch[cp - stream->optInMinPeriod];
-      stream->cur_outReal = outReal[i];
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_MAVP_Close( TA_MAVP_Stream *stream )
 {
    int k;
@@ -1005,6 +977,21 @@ TA_LIB_API TA_RetCode TA_MAVP_Value( const TA_MAVP_Stream *stream, double *outRe
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MAVP_OutRange( const TA_MAVP_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_MAVP_Advance( TA_MAVP_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

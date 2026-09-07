@@ -9,14 +9,14 @@
 //! walkers. No expression text is hand-built outside the shared renderers.
 //!
 //! The step is a method on `Core`, not on the handle, so batch rendering
-//! conventions — `this.compatibility`, cross-calls, `Math.fma` sites — work
+//! conventions — cross-calls, `Math.fma` sites — work
 //! verbatim.
 //!
 //! Deliberate Java shapings vs C/Rust:
 //! - Open failures surface as unchecked exceptions, typed by the thin public
 //!   wrapper. Inside `OpenImpl` the batch body's rejects stay plain `RetCode`,
 //!   because no throw statement may cross the shared renderer; the early
-//!   SUCCESS no-data/seed-boundary returns are mapped to `InsufficientHistory`
+//!   SUCCESS no-data returns are mapped to `InsufficientHistory`
 //!   so the one routine, data-dependent condition can be typed
 //!   `InsufficientHistoryException` (an `IllegalArgumentException` subclass).
 //!   `InternalError` becomes `IllegalStateException`, every other reject a
@@ -692,14 +692,28 @@ fn emit_handle_class_with_members(
          \x20      * coordinates: {{@code [begIdx, begIdx + count)}}.\n\
          \x20      * <p>It is what {{@link Core#{base}}} reports over the same bars: the\n\
          \x20      * opener sets it to {{@code (lookback, historyLen - lookback)}}, every\n\
-         \x20      * {{@code update}} adds one to the count — a bar rejected for being\n\
-         \x20      * non-finite included, because it still happened — {{@code peek}} leaves\n\
-         \x20      * it alone, and {{@code clone()}} carries it verbatim. A plain\n\
+         \x20      * accepted {{@code update}} adds one to the count — a rejected one\n\
+         \x20      * changes nothing, and neither does {{@code peek}} — and\n\
+         \x20      * {{@code clone()}} carries it verbatim. A plain\n\
          \x20      * {{@code open}} hands back only the last value, a subset of this range,\n\
          \x20      * because the caller chose not to take the fill.\n\
          \x20      */\n\
          \x20     public OutRange outRange() {{ return new OutRange(outRangeBegIdx, outRangeCount); }}",
         base = base_name(func)
+    );
+    let _ = writeln!(
+        o,
+        "\n      /**\n\
+         \x20      * Count one bar this stream was not fed: {{@link #outRange()}} advances\n\
+         \x20      * by one and nothing else moves — {vlink} keeps answering the previous\n\
+         \x20      * output, which is this bar's output too.\n\
+         \x20      * <p>For a bar the caller leaves out: one an {{@code update}} rejected\n\
+         \x20      * and that will not be re-fed, or a session with no print. Without it\n\
+         \x20      * two handles on one feed drift a bar apart when only one of them skips.\n\
+         \x20      */\n\
+         \x20     public void advance() {{ {} }}",
+        advance_out_range(),
+        vlink = value_link(func)
     );
 
     // Deep-copy constructor: scalars assign, arrays clone (element-wise for
@@ -817,10 +831,9 @@ fn value_link(func: &FuncDef) -> String {
     }
 }
 
-/// The absent-sink rejection, first in the method body. `updateAndFill` already
-/// guards its output arrays this way; without it here a null sink reaches
-/// `update` AFTER the step has committed the bar, so the caller gets a raw
-/// NullPointerException and a handle that silently advanced.
+/// The absent-sink rejection, first in the method body. Without it a null sink
+/// reaches `update` AFTER the step has committed the bar, so the caller gets a
+/// raw NullPointerException and a handle that silently advanced.
 fn require_sink(func: &FuncDef, indent: &str, verb: &str) -> String {
     if !has_value_class(func) {
         return String::new();
@@ -858,15 +871,12 @@ fn advance_out_range() -> &'static str {
 /// retained: one non-finite bar poisons every recursive accumulator in it for
 /// the rest of its life, long after the feed recovers.
 ///
-/// `advance` is rule U3's other half: a non-finite bar is still a bar, so the
-/// committing entry points count it before throwing — which is what keeps two
-/// handles driven off one feed positionally aligned when one rejects a bar the
-/// other accepts. `peek` passes `false`; a peek that moved the count would be a
-/// peek that wrote the handle.
+/// The rejection changes nothing at all — the produced-bar count included.
+/// Counting a bar the caller declined to commit is `advance()`'s job.
 ///
 /// `IllegalArgumentException` carrying the same `"<NAME> <what>: "` prefix the
 /// open rejections use, so one catch clause covers the whole tier.
-fn finite_bar_check(func: &FuncDef, indent: &str, what: &str, advance: bool) -> String {
+fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
     let bars = streaming::input_array_names(func);
     if bars.is_empty() {
         return String::new();
@@ -876,20 +886,12 @@ fn finite_bar_check(func: &FuncDef, indent: &str, what: &str, advance: bool) -> 
     let cond = conds.join(" || ");
     let throw =
         format!("throw new TaLibArgumentException(\"{n} {what}: BadParam\", RetCode.BadParam);");
-    if advance {
-        format!(
-            "{indent}if( {cond} ) {{\n{indent}   {}\n{indent}   {throw}\n{indent}}}\n",
-            advance_out_range()
-        )
-    } else {
-        format!("{indent}if( {cond} )\n{indent}   {throw}\n")
-    }
+    format!("{indent}if( {cond} )\n{indent}   {throw}\n")
 }
 
 
 fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     emit_update_method(o, func);
-    emit_update_and_fill_method(o, func);
     emit_peek_method(o, func, frame);
     emit_value_method(o, func);
     emit_copy_method(o, func);
@@ -924,12 +926,11 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
          \x20      * Never allocates handle state.\n\
          \x20      * <p>Throws {{@link IllegalArgumentException}} if any bar value is not\n\
          \x20      * finite (NaN or an infinity). That check runs before anything is\n\
-         \x20      * written, so the state is left exactly as it was: the rejected bar's\n\
-         \x20      * output is the previous value, held, and {vlink} answers it.\n\
-         \x20      * The stream stays usable, so skip the bar or re-open on a clean\n\
-         \x20      * history. {{@link #outRange()}} does advance: the bar happened and\n\
-         \x20      * occupies a position in the series, so the handle counts it, which is\n\
-         \x20      * what keeps two handles on one feed aligned when only one rejects.\n\
+         \x20      * written, so nothing moves — {{@link #outRange()}} included — and\n\
+         \x20      * {vlink} still answers the previous value. Re-feed the bar when a\n\
+         \x20      * corrected value arrives, or call {{@link #advance()}} to count it and\n\
+         \x20      * carry on; two handles on one feed drift a bar apart if neither\n\
+         \x20      * happens.\n\
          \x20      * This is the one place the streaming tier is stricter than\n\
          \x20      * the batch API, which computes on whatever it is given: a handle\n\
          \x20      * retains its state, so a single non-finite bar would poison every\n\
@@ -937,157 +938,17 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
          \x20      */"
     );
     let _ = writeln!(o, "      public {vt} update( {sig_bars}{sink} ) {{");
-    // Ahead of the finite-bar check, which counts the bar it rejects: an absent
-    // sink is a caller fault, not a bar, and must not move `outRange`.
+    // U2 before U3: an absent sink is a fault in the call, not in the bar.
     o.push_str(&require_sink(func, "         ", "update"));
-    o.push_str(&finite_bar_check(func, "         ", "update", true));
+    o.push_str(&finite_bar_check(func, "         ", "update"));
     let _ = writeln!(o, "         core.{base}StepImpl(this, {fwd_bars});");
-    // After the step, so a bar the step throws out of is not counted. The
-    // finite-bar reject above counts its own bar and is the only rejection that
-    // does; `peek` runs a frame that commits nothing and reaches neither.
+    // After the step, so a bar the step throws out of is not counted.
     let _ = writeln!(o, "         {}", advance_out_range());
     if multi {
         o.push_str(&write_out_stmts(func, "out", "this", "         "));
     } else {
         let _ = writeln!(o, "         return {};", fresh_value_expr(func, "this"));
     }
-    let _ = writeln!(o, "      }}");
-}
-
-// --- updateAndFill ---------------------------------------------------------------
-// One emitter for every tier: each owns a `<base>StepImpl` with the same
-// surface, so the n-bar filler is that step in a loop (issue #246).
-/// `updateAndFill`'s javadoc — hoisted so the emitter itself stays readable.
-fn update_and_fill_doc(func: &FuncDef, count_src: &str) -> String {
-    let mut o = String::new();
-    // Rule U6a reads the same as S6a, and a caller of this tier needs telling in
-    // the same place a caller of the opener is told.
-    let declinable = {
-        let names = super::common::nullable_output_list(func);
-        if names.is_empty() {
-            String::new()
-        } else {
-            let list = names
-                .iter()
-                .map(|n| format!("{{@code {n}}}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!(
-                "\x20      * <p>{list} may be declined with {{@code null}}, per call and\n\
-                 \x20      * independently of what the opener was given: the value is still\n\
-                 \x20      * computed — {} reports it — and nothing is written out.\n",
-                value_link(func)
-            )
-        }
-    };
-    let _ = writeln!(
-        &mut o,
-        "\n      /**\n\
-         \x20      * Commit {{@code n}} closed bars and write their {{@code n}} values, in one\n\
-         \x20      * call — exactly {{@code n}} back-to-back {{@code update}} calls, with one\n\
-         \x20      * set of argument checks instead of {{@code n}}. {{@code n}} is\n\
-         \x20      * {{@code {count_src}}}; the outputs must hold at least that many, and must\n\
-         \x20      * not be the same array as an input or as each other.\n\
-         {declinable}\
-         \x20      * <p>{{@link #outRange()}} counts what this call took in, which is what makes a\n\
-         \x20      * rejection readable: a non-finite bar {{@code k}} throws\n\
-         \x20      * {{@link IllegalArgumentException}} exactly as {{@code update}} would, with\n\
-         \x20      * the bars before {{@code k}} committed and written, bar {{@code k}} and\n\
-         \x20      * everything after it not, and the count advanced by {{@code k + 1}} —\n\
-         \x20      * the committed bars plus the rejected one.\n\
-         \x20      */"
-    );
-    o
-}
-
-fn emit_update_and_fill_method(o: &mut String, func: &FuncDef) {
-    let base = base_name(func);
-    let jbase = method_base(func);
-    let inputs = streaming::input_array_names(func);
-    let mut sig = String::new();
-    for a in &inputs {
-        let _ = write!(sig, "double {a}[], ");
-    }
-    for out in &func.outputs {
-        let _ = write!(sig, "{} {}[], ", out_java_type(func, &out.name), out.name);
-    }
-    let sig = sig.trim_end_matches(", ");
-    let count_src = inputs
-        .first()
-        .map_or_else(|| "0".to_string(), |a| format!("{a}.length"));
-    let reject = format!(
-        "throw new TaLibArgumentException(\"{base} updateAndFill: BadParam\", RetCode.BadParam);"
-    );
-    o.push_str(&update_and_fill_doc(func, &count_src));
-    let _ = writeln!(o, "      public void updateAndFill( {sig} ) {{");
-    // Rule U2, ahead of every length: a required array that is absent has no
-    // length to read, so without this the tier answered a raw
-    // `NullPointerException` naming neither the function nor the argument —
-    // where the contract is `RetCode.BadParam`, which in Java is a
-    // `TaLibArgumentException` that names both. It is `requireArgument`, the
-    // same helper the openers use, so the two tiers reject alike.
-    let nullable = super::common::nullable_output_names(func);
-    for name in inputs
-        .iter()
-        .cloned()
-        .chain(func.outputs.iter().map(|o| o.name.clone()).filter(|n| !nullable.contains(n)))
-    {
-        let _ = writeln!(
-            o,
-            "         requireArgument(\"{base} updateAndFill\", \"{name}\", {name});"
-        );
-    }
-    let _ = writeln!(o, "         final int barCount = {count_src};");
-    let mut checks: Vec<String> = inputs
-        .iter()
-        .skip(1)
-        .map(|a| format!("{a}.length != barCount"))
-        .collect();
-    // A `nullable` output may be declined here exactly as at the opener (rule
-    // U6a), per call: bounded only where it was supplied, and its store guarded.
-    // Nothing recorded at `Open` constrains what this call presents.
-    for out in &func.outputs {
-        if nullable.contains(&out.name) {
-            checks.push(format!("({0} != null && {0}.length < barCount)", out.name));
-        } else {
-            checks.push(format!("{}.length < barCount", out.name));
-        }
-    }
-    if let Some(alias) = alias_condition(func) {
-        checks.push(alias);
-    }
-    if !checks.is_empty() {
-        let _ = writeln!(o, "         if( {} )", checks.join(" || "));
-        let _ = writeln!(o, "            {reject}");
-    }
-    // `value(out)` must name the last COMMITTED bar on every exit, the throwing
-    // ones included. It reads `cur_*`, and a composed step writes those as its
-    // LAST statements — so a sub rejecting a non-finite intermediate mid-bar
-    // (the documented composed hole) leaves them holding bar `i-1`, with
-    // nothing here to publish or keep fresh.
-    let pad = "         ";
-    let _ = writeln!(o, "{pad}for( int i = 0; i < barCount; i++ ) {{");
-    let idx_bars: Vec<String> = inputs.iter().map(|a| format!("{a}[i]")).collect();
-    if !inputs.is_empty() {
-        let conds: Vec<String> = inputs
-            .iter()
-            .map(|b| format!("!Double.isFinite({b}[i])"))
-            .collect();
-        // Rule U3 per bar: the rejected bar is counted, so `outRange()` ends on
-        // the offending bar. Output slot `i` is deliberately left unwritten.
-        let _ = writeln!(o, "{pad}   if( {} ) {{", conds.join(" || "));
-        let _ = writeln!(o, "{pad}      {}", advance_out_range());
-        let _ = writeln!(o, "{pad}      {reject}");
-        let _ = writeln!(o, "{pad}   }}");
-    }
-    let _ = writeln!(o, "{pad}   core.{jbase}StepImpl(this, {});", idx_bars.join(", "));
-    for out in &func.outputs {
-        let name = &out.name;
-        let guard = if nullable.contains(name) { format!("if( {name} != null ) ") } else { String::new() };
-        let _ = writeln!(o, "{pad}   {guard}{name}[i] = this.cur_{name};");
-    }
-    let _ = writeln!(o, "{pad}   {}", advance_out_range());
-    let _ = writeln!(o, "{pad}}}");
     let _ = writeln!(o, "      }}");
 }
 
@@ -1141,7 +1002,7 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     // Ahead of the frame, not left to the transition: a rejected bar must not
     // run any of it.
     o.push_str(&require_sink(func, "         ", "peek"));
-    o.push_str(&finite_bar_check(func, "         ", "peek", false));
+    o.push_str(&finite_bar_check(func, "         ", "peek"));
     let body = frame.expect("every tier emits a peek frame");
     let _ = writeln!(o, "         {class} sp = this;");
     o.push_str(body);
@@ -1670,7 +1531,7 @@ fn emit_extrema_rebase(o: &mut String, model: &StreamModel, indent: usize) {
 // ---------------------------------------------------------------------------
 
 /// Map a batch return-code variable for the open body. Early SUCCESS returns
-/// (the no-data guard AND the Metastock seed-boundary return) become
+/// (the no-data guard) become
 /// `InsufficientHistory` — the wrapper types it as
 /// `InsufficientHistoryException`. Everything else passes through (BAD_PARAM /
 /// ALLOC_ERR / INTERNAL_ERROR render natively; `retCode` locals propagate a

@@ -361,8 +361,7 @@ TA_RetCode TA_S_HA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HA_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_HA_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_HA_Value). */
@@ -630,11 +629,7 @@ TA_RetCode TA_HA_OpenAndFillInternal( struct TA_HA_Stream **stream, const double
 TA_LIB_API TA_RetCode TA_HA_Update( TA_HA_Stream *stream, double inOpen, double inHigh, double inLow, double inClose, double *outHAOpen, double *outHAHigh, double *outHALow, double *outHAClose )
 {
    if( !stream || !outHAOpen || !outHAHigh || !outHALow || !outHAClose ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inOpen ) || !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_HA_StepImpl( stream, inOpen, inHigh, inLow, inClose, outHAOpen, outHAHigh, outHALow, outHAClose );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -691,26 +686,6 @@ TA_LIB_API TA_RetCode TA_HA_Peek( const TA_HA_Stream *stream, double inOpen, dou
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_HA_UpdateAndFill( TA_HA_Stream *stream, const double inOpen[], const double inHigh[], const double inLow[], const double inClose[], int barCount, double outHAOpen[], double outHAHigh[], double outHALow[], double outHAClose[] )
-{
-   int i;
-
-   if( !stream || !inOpen || !inHigh || !inLow || !inClose || !outHAOpen || !outHAHigh || !outHALow || !outHAClose ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outHAOpen == (const void *)inOpen || (const void *)outHAOpen == (const void *)inHigh || (const void *)outHAOpen == (const void *)inLow || (const void *)outHAOpen == (const void *)inClose || (const void *)outHAHigh == (const void *)inOpen || (const void *)outHAHigh == (const void *)inHigh || (const void *)outHAHigh == (const void *)inLow || (const void *)outHAHigh == (const void *)inClose || (const void *)outHALow == (const void *)inOpen || (const void *)outHALow == (const void *)inHigh || (const void *)outHALow == (const void *)inLow || (const void *)outHALow == (const void *)inClose || (const void *)outHAClose == (const void *)inOpen || (const void *)outHAClose == (const void *)inHigh || (const void *)outHAClose == (const void *)inLow || (const void *)outHAClose == (const void *)inClose || (const void *)outHAOpen == (const void *)outHAHigh || (const void *)outHAOpen == (const void *)outHALow || (const void *)outHAOpen == (const void *)outHAClose || (const void *)outHAHigh == (const void *)outHALow || (const void *)outHAHigh == (const void *)outHAClose || (const void *)outHALow == (const void *)outHAClose ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inOpen[i] ) || !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_HA_StepImpl( stream, inOpen[i], inHigh[i], inLow[i], inClose[i], &outHAOpen[i], &outHAHigh[i], &outHALow[i], &outHAClose[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_HA_Close( TA_HA_Stream *stream )
 {
    if( stream ) TA_Free( stream );
@@ -724,6 +699,21 @@ TA_LIB_API TA_RetCode TA_HA_Value( const TA_HA_Stream *stream, double *outHAOpen
    *outHAHigh = stream->cur_outHAHigh;
    *outHALow = stream->cur_outHALow;
    *outHAClose = stream->cur_outHAClose;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HA_OutRange( const TA_HA_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HA_Advance( TA_HA_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

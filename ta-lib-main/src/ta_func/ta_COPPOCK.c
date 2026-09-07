@@ -498,8 +498,7 @@ TA_RetCode TA_S_COPPOCK( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_COPPOCK_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_COPPOCK_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_COPPOCK_Value). */
@@ -961,11 +960,7 @@ TA_RetCode TA_COPPOCK_OpenAndFillInternal( struct TA_COPPOCK_Stream **stream, co
 TA_LIB_API TA_RetCode TA_COPPOCK_Update( TA_COPPOCK_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_COPPOCK_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1065,26 +1060,6 @@ TA_LIB_API TA_RetCode TA_COPPOCK_Peek( const TA_COPPOCK_Stream *stream, double i
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_COPPOCK_UpdateAndFill( TA_COPPOCK_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_COPPOCK_StepImpl( stream, inReal[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_COPPOCK_Close( TA_COPPOCK_Stream *stream )
 {
    TA_COPPOCK_ReleaseImpl( stream );
@@ -1095,6 +1070,21 @@ TA_LIB_API TA_RetCode TA_COPPOCK_Value( const TA_COPPOCK_Stream *stream, double 
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_COPPOCK_OutRange( const TA_COPPOCK_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_COPPOCK_Advance( TA_COPPOCK_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

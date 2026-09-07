@@ -90,9 +90,6 @@ impl Core {
         }
         let mut retValue: usize = 0_usize;
         retValue = (optInTimePeriod + self.unstable_period[FuncUnstId::RSI as usize]) as usize;
-        if self.compatibility == Compatibility::Metastock {
-            retValue = retValue - 1;
-        }
         return Ok(retValue);
     }
     /// C-shaped body behind [`Core::RSI`]: a `RetCode` plus two out-params,
@@ -127,22 +124,15 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut unstablePeriod: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut prevGain: f64 = 0.0_f64;
         let mut prevLoss: f64 = 0.0_f64;
         let mut prevValue: f64 = 0.0_f64;
-        let mut savePrevValue: f64 = 0.0_f64;
         let mut tempValue1: f64 = 0.0_f64;
         let mut tempValue2: f64 = 0.0_f64;
         // The following algorithm is base on the original
         // work from Wilder's and shall represent the
         // original idea behind the classic RSI.
-        //
-        // Metastock is starting the calculation one price
-        // bar earlier. To make this possible, they assume
-        // that the very first bar will be identical to the
-        // previous one (no gain or loss).
         // If changing this function, please check also CMO
         // which is mostly identical (just different in one step
         // of calculation).
@@ -182,71 +172,6 @@ impl Core {
         // among the initial period.
         today = startIdx - lookbackTotal;
         prevValue = inReal[today] as f64;
-        unstablePeriod = (self.unstable_period[FuncUnstId::RSI as usize]) as usize;
-        // If there is no unstable period,
-        // calculate the 'additional' initial
-        // price bar who is particuliar to
-        // metastock.
-        // If there is an unstable period,
-        // no need to calculate since this
-        // first value will be surely skip.
-        if unstablePeriod == 0 && self.compatibility == Compatibility::Metastock {
-            // Preserve prevValue because it may get
-            // overwritten by the output.
-            // (because output ptr could be the same as input ptr).
-            savePrevValue = prevValue;
-            // No unstable period, so must calculate first output
-            // particular to Metastock.
-            // (Metastock re-use the first price bar, so there
-            //  is no loss/gain at first. Beats me why they
-            //  are doing all this).
-            prevGain = 0.0;
-            prevLoss = 0.0;
-            // for( i = (optInTimePeriod) as usize; i > 0; i -= 1 )
-            i = (optInTimePeriod) as usize;
-            while i > 0 {
-                tempValue1 = inReal[today] as f64;
-                today = today + 1;
-                tempValue2 = tempValue1 - prevValue;
-                prevValue = tempValue1;
-                if tempValue2 < 0.0 {
-                    prevLoss -= tempValue2;
-                } else {
-                    prevGain += tempValue2;
-                }
-                i -= 1;
-            }
-            tempValue1 = prevLoss / (optInTimePeriod as f64);
-            tempValue2 = prevGain / (optInTimePeriod as f64);
-            // Write the output.
-            //
-            // Both halves are averages of non-negative magnitudes, so the total is
-            // zero only when every change since the seed was exactly zero -- test it
-            // exactly, do not compare it to a fixed band.  A gain carries the quote
-            // unit, so any constant put against it is a constant in some arbitrary
-            // unit, and zeroes a healthy oscillator for an instrument quoted below it
-            // (issue #253).  Wilder's smoothing only ever adds non-negative terms, so
-            // unlike a sliding sum this total cannot hold cancellation residue.
-            tempValue1 = tempValue2 + tempValue1;
-            if tempValue1 > 0.0 {
-                outReal[outIdx] = 100.0 * (tempValue2 / tempValue1);
-                outIdx = outIdx + 1;
-            } else {
-                outReal[outIdx] = 0.0;
-                outIdx = outIdx + 1;
-            }
-            // Are we done?
-            if today > endIdx {
-                (*outBegIdx) = startIdx;
-                (*outNBElement) = outIdx;
-                return RetCode::Success;
-            }
-            // Start over for the next price bar.
-            today = today - (optInTimePeriod as usize);
-            prevValue = savePrevValue;
-        }
-        // Remaining of the processing is identical
-        // for both Classic calculation and Metastock.
         prevGain = 0.0;
         prevLoss = 0.0;
         today = today + 1;
@@ -278,6 +203,12 @@ impl Core {
         //    RSI = 100 * (prevGain/(prevGain+prevLoss))
         //
         // The second equation is used here for speed optimization.
+        //
+        // prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
+        // when every change since the seed was exactly zero -- test it exactly, never
+        // against a fixed band. A gain carries the quote unit, so a constant put
+        // against it zeroes a healthy oscillator for an instrument quoted below it
+        // (issue #253).
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
             if tempValue1 > 0.0 {
@@ -552,22 +483,15 @@ impl Core {
         let mut outIdx: usize = 0_usize;
         let mut today: usize = 0_usize;
         let mut lookbackTotal: usize = 0_usize;
-        let mut unstablePeriod: usize = 0_usize;
         let mut i: usize = 0_usize;
         let mut prevGain: f64 = 0.0_f64;
         let mut prevLoss: f64 = 0.0_f64;
         let mut prevValue: f64 = 0.0_f64;
-        let mut savePrevValue: f64 = 0.0_f64;
         let mut tempValue1: f64 = 0.0_f64;
         let mut tempValue2: f64 = 0.0_f64;
         // The following algorithm is base on the original
         // work from Wilder's and shall represent the
         // original idea behind the classic RSI.
-        //
-        // Metastock is starting the calculation one price
-        // bar earlier. To make this possible, they assume
-        // that the very first bar will be identical to the
-        // previous one (no gain or loss).
         // If changing this function, please check also CMO
         // which is mostly identical (just different in one step
         // of calculation).
@@ -588,71 +512,6 @@ impl Core {
         // among the initial period.
         today = startIdx - lookbackTotal;
         prevValue = inReal[today] as f64;
-        unstablePeriod = (self.unstable_period[FuncUnstId::RSI as usize]) as usize;
-        // If there is no unstable period,
-        // calculate the 'additional' initial
-        // price bar who is particuliar to
-        // metastock.
-        // If there is an unstable period,
-        // no need to calculate since this
-        // first value will be surely skip.
-        if unstablePeriod == 0 && self.compatibility == Compatibility::Metastock {
-            // Preserve prevValue because it may get
-            // overwritten by the output.
-            // (because output ptr could be the same as input ptr).
-            savePrevValue = prevValue;
-            // No unstable period, so must calculate first output
-            // particular to Metastock.
-            // (Metastock re-use the first price bar, so there
-            //  is no loss/gain at first. Beats me why they
-            //  are doing all this).
-            prevGain = 0.0;
-            prevLoss = 0.0;
-            // for( i = (optInTimePeriod) as usize; i > 0; i -= 1 )
-            i = (optInTimePeriod) as usize;
-            while i > 0 {
-                tempValue1 = inReal[today] as f64;
-                today = today + 1;
-                tempValue2 = tempValue1 - prevValue;
-                prevValue = tempValue1;
-                if tempValue2 < 0.0 {
-                    prevLoss -= tempValue2;
-                } else {
-                    prevGain += tempValue2;
-                }
-                i -= 1;
-            }
-            tempValue1 = prevLoss / (optInTimePeriod as f64);
-            tempValue2 = prevGain / (optInTimePeriod as f64);
-            // Write the output.
-            //
-            // Both halves are averages of non-negative magnitudes, so the total is
-            // zero only when every change since the seed was exactly zero -- test it
-            // exactly, do not compare it to a fixed band.  A gain carries the quote
-            // unit, so any constant put against it is a constant in some arbitrary
-            // unit, and zeroes a healthy oscillator for an instrument quoted below it
-            // (issue #253).  Wilder's smoothing only ever adds non-negative terms, so
-            // unlike a sliding sum this total cannot hold cancellation residue.
-            tempValue1 = tempValue2 + tempValue1;
-            if tempValue1 > 0.0 {
-                outReal[(outIdx * outStride) as usize] = 100.0 * (tempValue2 / tempValue1);
-                outIdx = outIdx + 1;
-            } else {
-                outReal[(outIdx * outStride) as usize] = 0.0;
-                outIdx = outIdx + 1;
-            }
-            // Are we done?
-            if today > endIdx {
-                (*outBegIdx) = startIdx;
-                (*outNBElement) = outIdx;
-                return Err(RetCode::InsufficientHistory);
-            }
-            // Start over for the next price bar.
-            today = today - (optInTimePeriod as usize);
-            prevValue = savePrevValue;
-        }
-        // Remaining of the processing is identical
-        // for both Classic calculation and Metastock.
         prevGain = 0.0;
         prevLoss = 0.0;
         today = today + 1;
@@ -684,6 +543,12 @@ impl Core {
         //    RSI = 100 * (prevGain/(prevGain+prevLoss))
         //
         // The second equation is used here for speed optimization.
+        //
+        // prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
+        // when every change since the seed was exactly zero -- test it exactly, never
+        // against a fixed band. A gain carries the quote unit, so a constant put
+        // against it zeroes a healthy oscillator for an instrument quoted below it
+        // (issue #253).
         if today > startIdx {
             tempValue1 = prevGain + prevLoss;
             if tempValue1 > 0.0 {
@@ -871,15 +736,13 @@ impl RsiStream {
     /// whatever it is given — a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
-    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
-    /// so two handles fed the same series stay positionally aligned even when
-    /// one rejects a bar the other accepts.
+    /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when
+    /// a corrected value arrives, or call [`Self::advance`] to count it and
+    /// carry on — two handles on one feed drift a bar apart if neither
+    /// happens.
     #[doc(alias = "TA_RSI_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -888,44 +751,6 @@ impl RsiStream {
             self.out.count += 1;
         }
         Ok(outReal)
-    }
-
-    /// Commit `n` closed bars and write their `n` values, in one call —
-    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
-    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
-    /// hold at least that many. Never allocates.
-    ///
-    /// [`Self::out_range`] counts what this call took in, which is what makes the
-    /// rejection below readable: there is no second out-parameter for it.
-    ///
-    /// # Errors
-    ///
-    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
-    /// is shorter than the bar count — neither commits anything — or if a bar
-    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
-    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
-    /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k + 1` — the committed bars, plus the rejected one, which is counted
-    /// but never written.
-    #[doc(alias = "TA_RSI_UpdateAndFill")]
-    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
-        let barCount = inReal.len();
-        if outReal.len() < barCount {
-            return Err(RetCode::BadParam);
-        }
-        for i in 0..barCount {
-            if !inReal[i].is_finite() {
-                if self.out.count < Core::MAX_INDEX {
-                    self.out.count += 1;
-                }
-                return Err(RetCode::BadParam);
-            }
-            Core::rsi_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
-        }
-        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -938,8 +763,7 @@ impl RsiStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies — but a rejected peek changes nothing at all, where a
-    /// rejected `update` still counts the bar in [`Self::out_range`].
+    /// `update` applies, and a rejected peek changes nothing at all.
     #[doc(alias = "TA_RSI_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -982,7 +806,7 @@ impl RsiStream {
 
     /// The value(s) at the last bar the stream counted — the bar
     /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
-    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// refreshed by every accepted `update`, and left
     /// alone by `peek`.
     ///
     /// A clone carries them verbatim, so a forked handle can be asked its
@@ -997,14 +821,28 @@ impl RsiStream {
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::RSI`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
-    /// count — a bar rejected for being non-finite included, because it still
-    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
-    /// A plain `Open` hands back only the last value, a subset of this range,
-    /// because the caller chose not to take the fill.
-    #[doc(alias = "TA_StreamOutRange")]
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds
+    /// one to the count — a rejected one changes nothing, and neither does
+    /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
+    /// only the last value, a subset of this range, because the caller chose
+    /// not to take the fill.
+    #[doc(alias = "TA_RSI_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
+    }
+
+    /// Count one bar this stream was not fed: [`Self::out_range`] advances by
+    /// one and nothing else moves — [`Self::value`] keeps answering the
+    /// previous output, which is this bar's output too.
+    ///
+    /// For a bar the caller leaves out: one an `update` rejected and that
+    /// will not be re-fed, or a session with no print. Without it two handles
+    /// on one feed drift a bar apart when only one of them skips.
+    #[doc(alias = "TA_RSI_Advance")]
+    pub fn advance(&mut self) {
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
     }
 }
 

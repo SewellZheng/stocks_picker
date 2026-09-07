@@ -21,33 +21,33 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - CVI: Chaikin's Volatility, the percent change of a smoothed high-low spread (#358)
   - COPPOCK: Coppock Curve (#362)
   - CUMSUM: Cumulative Sum (#372)
-  - DONCHIAN: Donchian Channels, the rolling extrema bands (#342)
-  - DPO: Detrended Price Oscillator, price displaced back a half cycle less its moving average (#363)
+  - DONCHIAN: Donchian Channels (#342)
+  - DPO: Detrended Price Oscillator (#363)
   - ER: Kaufman Efficiency Ratio (#350)
   - ERI: Elder Ray Index, Bull Power / Bear Power (#361)
   - EFI: Elder's Force Index (#206)
-  - FOSC: Forecast Oscillator, the close against the previous bar's time series forecast (#345)
-  - FRACTAL: Williams Fractal, the bars that are a strict local high or low of a bounded window (#371)
+  - FOSC: Forecast Oscillator (#345)
+  - FRACTAL: Williams Fractal (#371)
   - HA: Heikin-Ashi Candles, an OHLC-to-OHLC smoothing transform (#373)
   - HMA: Hull Moving Average (#139)
   - KC: Keltner Channels (#273)
-  - KDJ: KDJ Stochastic, the Wilder-smoothed stochastic plus the J divergence line (#365)
+  - KDJ: KDJ Stochastic (#365)
   - MARKETFI: Market Facilitation Index (#230)
   - MASSI: Mass Index, a range-expansion reversal-bulge detector (#359)
   - NVI: Negative Volume Index (#126)
-  - PERCENTILE: Percentile, the nearest-rank order statistic of the trailing window (#368)
-  - PERCENTRANK: Percent Rank, the share of the previous window a value ranks above (#369)
+  - PERCENTILE: Percentile, statistic of the trailing window (#368)
+  - PERCENTRANK: Percent Rank, share of the previous window a value ranks above (#369)
   - PVI: Positive Volume Index (#126)
   - PVO: Percentage Volume Oscillator (#119)
-  - PVT: Price Volume Trend, volume weighted by the bar's fractional price change (#364)
+  - PVT: Price Volume Trend (#364)
   - QSTICK: Qstick (#226)
   - RMA: Wilder's Smoothed Moving Average (#348)
-  - RVI: Relative Volatility Index, RSI over the standard deviation instead of the price change (#366)
-  - RVOL: Relative Volume, the current bar's volume against the preceding window's average (#370)
+  - RVI: Relative Volatility Index (#366)
+  - RVOL: Relative Volume (#370)
   - SMI: Stochastic Momentum Index (#238)
   - SUPERTREND: SuperTrend, an ATR-scaled trailing band with a trend flag (#272)
-  - TSI: True Strength Index, a double-smoothed momentum oscillator bounded by +/-100 (#360)
-  - VHF: Vertical Horizontal Filter, a trend-versus-range strength filter (#346)
+  - TSI: True Strength Index (#360)
+  - VHF: Vertical Horizontal Filter (#346)
   - VORTEX: Vortex Indicator (#349)
   - VWAP: Volume Weighted Average Price (#237)
   - VWMA: Volume Weighted Moving Average (#131)
@@ -55,7 +55,7 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
   - ZLEMA: Zero-Lag Exponential Moving Average (#347)
 - New MAType (for MA, BBANDS, STOCH etc...):
   - TA_MAType_HMA (#139)
-  - TA_MAType_DISABLED — no smoothing at any period; the output is a copy of the input (#93)
+  - TA_MAType_DISABLED — no smoothing at any period; output copy the input (#93)
   - TA_MAType_DEFAULT — selects that parameter's documented MA type (#182)
   - TA_MAType_ZLEMA (#347)
   - TA_MAType_RMA (#348)
@@ -90,11 +90,10 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#144) API: `TA_FUNC_UNST_NONE` enum constant removed. It could not be passed in
   (it is rejected) and was never returned, so it had no use in the public API.
 - (#122) Removed the `ide/` directory (Visual Studio/Xcode/MSVC project files). Use autotools, CMake and vcpkg instead.
-
-### Deprecated
-- `TA_SetCompatibility()` and `TA_GetCompatibility()`. The notion of variant (e.g. MetaStock compatibility) is not actively maintained and will be removed in a future release. Default behavior is unaffected. Moving forward TA-Lib will create separate TA functions for distinct behaviors.
+- (#388) API: the MetaStock variant of CMO, DEMA, EMA, MACD, MACDFIX, RSI, TEMA and TRIX is removed. The same variant reached MA, BBANDS, APO, PPO, PVO, MAVP, STOCH, STOCHF and STOCHRSI when the MAType was EMA, DEMA or TEMA. Default behavior is unchanged. `TA_SetCompatibility()` and `TA_GetCompatibility()` remain declared, so existing sources still compile, but the setter now does nothing and the getter always answers `TA_COMPATIBILITY_DEFAULT`. They are not exported from the Windows DLL — no released version exported them either. Moving forward TA-Lib will create separate TA functions for distinct behaviors.
 
 ### Fixed
+- (#385) KAMA could divide by zero and return `-Inf`, after which every remaining bar of the call was NaN. It needs a window whose one-bar changes sum to exactly zero through floating-point absorption while the net change over that window is negative.
 - (#130) In-place calls (same buffer as input and output) returned wrong values for STOCH, STOCHF and MAVP. Regular (separate-buffer) calls were always correct.
 - (#118,#242) VAR, CORREL, STDDEV and BBANDS more precise and faster.
 - (#33) Float overflow in the single-precision (`TA_S_*`) functions. Thanks @iglesias !
@@ -113,6 +112,10 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#243) STDDEV and BBANDS returned exactly 0 for a standard deviation that was small but non-zero. In rare cases, was making the bands "collapse" on the middle line.
 - (#244) MFI returned 0 instead of the index whenever the window summed to less than 1.0. Also, no longer returns values slightly outside 0-100 (clamps the epsilon errors).
 - (#253) Fix many TA_IS_ZERO vs TA_IS_ZERO_SCALED choices. Numerically better for edge cases, like very small inputs (<10e-8) or mostly flat input prices.
+- (#390) STOCH and STOCHF returned `inf` or `NaN` while reporting success, for prices near the bottom of the double range. A close sitting on the window high now comes out as exactly 100.
+- (#390) KAMA could return values outside the range of the prices it was smoothing, and ER values above 1. Both come from the same efficiency ratio exceeding its own maximum when floating-point drift left the running sum of price movement below the net move it bounds. The ratio is now clamped, making ER a hard 0..1.
+- (#395) CCI returned `+/-Inf` while reporting success, and CORREL returned `NaN` or a perfect +/-1 correlation from a window that had none, for prices near the bottom of the double range. Both now test the divisor itself, and answer such a window with 0 like any other degenerate one. Values are unchanged everywhere the old code returned a number.
+- (#395) WILLR could return values outside its documented [-100, 0] range, and answered 0 - the value meaning a close at the period high - for a close sitting on the period low whenever the window's high-low range was very small. A close on the period low now comes out as exactly -100, the range is guaranteed even for a close outside its own bar, and a window flat to within rounding of its own prices answers 0, as STOCH and STOCHF already did.
 
 ## [0.7.1] 2026-07-03
 ### Added

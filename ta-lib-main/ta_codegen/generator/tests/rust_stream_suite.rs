@@ -140,8 +140,6 @@ fn test_rust_ema_scalar_recurrence_stream_section() {
     assert!(s.contains("prevMA: f64,"));
     assert!(s.contains("optInK_1: f64,"));
     assert!(!s.contains("Vec<f64>,"), "EMA carries only scalars");
-    // Compatibility is consumed during the transcribed open (read from self).
-    assert!(s.contains("self.compatibility"));
     // Update returns the bare value.
     assert!(s.contains("pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {"));
     // Peek runs a frame against the borrowed state.
@@ -270,7 +268,7 @@ fn every_streamable_func_emits_rust_stream() {
         parser::c_source::wire_parsed_source(&mut func, &parsed);
         funcs.push(func);
     }
-    assert!(funcs.len() >= 160, "discovery floor: found {}", funcs.len());
+    assert!(funcs.len() >= 200, "discovery floor: found {}", funcs.len());
     let mut checked = 0;
     for f in &funcs {
         if !f.streaming {
@@ -283,7 +281,7 @@ fn every_streamable_func_emits_rust_stream() {
             f.name
         );
     }
-    assert!(checked >= 160, "streamable floor: checked {checked}");
+    assert!(checked >= 200, "streamable floor: checked {checked}");
 }
 
 // ---------------------------------------------------------------------------
@@ -598,7 +596,7 @@ fn no_rust_peek_copies_the_handle() {
             fully_shadowed.insert(name.clone());
         }
     }
-    assert!(swept > 170, "only {swept} peek(s) swept");
+    assert!(swept >= 200, "only {swept} peek(s) swept");
     assert_eq!(
         frames + stateless,
         swept,

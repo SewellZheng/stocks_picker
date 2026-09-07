@@ -3,14 +3,19 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  010802 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  010802 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  090626 MF,CC Fix #395. Divide by the range, scale after, then clamp: the
+ *               hoisted `(highest-lowest)/-100.0` underflowed to 0.0 on a
+ *               denormal range that the guard still called "not flat", and
+ *               the pre-scaled divisor left the documented [-100,0] bound.
  */
 
    /**
@@ -59,7 +64,7 @@
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
+      double tempReal = 0;
       int outIdx = 0;
       int nbInitialElementNeeded = 0;
       int trailingIdx = 0;
@@ -97,8 +102,6 @@
          outNBElement.value = 0;
          return RetCode.Success ;
       }
-      /* Initialize 'diff', just to avoid warning. */
-      diff = 0.0;
       /* Proceed with the calculation for the requested range.
        * Note that this algorithm allows the input and
        * output to be the same buffer.
@@ -164,9 +167,29 @@
          }
          highest = sufHighest[0];
          lowest = sufLowest[0];
-         diff = (highest - lowest) / (0 - 100.0);
-         if( diff != 0.0 ) {
-            outReal[outIdx++] = (highest - inClose[today]) / diff;
+         /* Divide by the range itself and scale after: the guard has to test the
+          * very expression the division uses, or a scaling step can carry a
+          * guarded-non-zero into a zero divisor. It is also what puts a close on
+          * the period low at exactly -100.
+          *
+          * The band is the range against ITS OWN two extremes, not a fixed
+          * constant: the range carries the quote unit, so a constant answers
+          * "flat" for every window of an instrument quoted below it (issue #253).
+          * It absorbs the machine-flat window an exact test would divide into
+          * [-100,0] noise (issue #107 / STOCH).
+          *
+          * The clamp is unreachable while lowest <= close <= highest -- the
+          * quotient is <= 1 under any rounding mode. Its domain is the close
+          * outside its own bar, which nothing here validates.
+          */
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
+            tempReal = (highest - inClose[today]) / (highest - lowest) * (0 - 100.0);
+            if( tempReal > 0.0 ) {
+               tempReal = 0.0;
+            } else if( tempReal < 0 - 100.0 ) {
+               tempReal = 0 - 100.0;
+            }
+            outReal[outIdx++] = tempReal;
          } else {
             outReal[outIdx++] = 0.0;
          }
@@ -216,9 +239,14 @@
                if( preLowest[m - 1] < lowest ) {
                   lowest = preLowest[m - 1];
                }
-               diff = (highest - lowest) / (0 - 100.0);
-               if( diff != 0.0 ) {
-                  outReal[outIdx++] = (highest - inClose[today + m - 1]) / diff;
+               if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
+                  tempReal = (highest - inClose[today + m - 1]) / (highest - lowest) * (0 - 100.0);
+                  if( tempReal > 0.0 ) {
+                     tempReal = 0.0;
+                  } else if( tempReal < 0 - 100.0 ) {
+                     tempReal = 0 - 100.0;
+                  }
+                  outReal[outIdx++] = tempReal;
                } else {
                   outReal[outIdx++] = 0.0;
                }
@@ -261,7 +289,7 @@
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
+      double tempReal = 0;
       int outIdx = 0;
       int nbInitialElementNeeded = 0;
       int trailingIdx = 0;
@@ -291,7 +319,6 @@
          outNBElement.value = 0;
          return RetCode.Success ;
       }
-      diff = 0.0;
       outIdx = 0;
       today = startIdx;
       trailingIdx = startIdx - nbInitialElementNeeded;
@@ -333,9 +360,14 @@
          }
          highest = sufHighest[0];
          lowest = sufLowest[0];
-         diff = (highest - lowest) / (0 - 100.0);
-         if( diff != 0.0 ) {
-            outReal[outIdx++] = (highest - (double)inClose[today]) / diff;
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
+            tempReal = (highest - (double)inClose[today]) / (highest - lowest) * (0 - 100.0);
+            if( tempReal > 0.0 ) {
+               tempReal = 0.0;
+            } else if( tempReal < 0 - 100.0 ) {
+               tempReal = 0 - 100.0;
+            }
+            outReal[outIdx++] = tempReal;
          } else {
             outReal[outIdx++] = 0.0;
          }
@@ -377,9 +409,14 @@
                if( preLowest[m - 1] < lowest ) {
                   lowest = preLowest[m - 1];
                }
-               diff = (highest - lowest) / (0 - 100.0);
-               if( diff != 0.0 ) {
-                  outReal[outIdx++] = (highest - (double)inClose[today + m - 1]) / diff;
+               if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
+                  tempReal = (highest - (double)inClose[today + m - 1]) / (highest - lowest) * (0 - 100.0);
+                  if( tempReal > 0.0 ) {
+                     tempReal = 0.0;
+                  } else if( tempReal < 0 - 100.0 ) {
+                     tempReal = 0 - 100.0;
+                  }
+                  outReal[outIdx++] = tempReal;
                } else {
                   outReal[outIdx++] = 0.0;
                }
@@ -401,7 +438,7 @@
     * = close at period low (oversold).
     * <p><b>Formula</b>
     * <pre>{@code
-    * %R = -100 * (highestHigh - close) / (highestHigh - lowestLow) over the trailing optInTimePeriod bars; if highestHigh == lowestLow, output 0.
+    * %R = ((highestHigh - close) / (highestHigh - lowestLow)) * -100 over the trailing optInTimePeriod bars, clamped to [-100, 0]; if highestHigh == lowestLow, output 0.
     * }</pre>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -467,7 +504,7 @@
     * = close at period low (oversold).
     * <p><b>Formula</b>
     * <pre>{@code
-    * %R = -100 * (highestHigh - close) / (highestHigh - lowestLow) over the trailing optInTimePeriod bars; if highestHigh == lowestLow, output 0.
+    * %R = ((highestHigh - close) / (highestHigh - lowestLow)) * -100 over the trailing optInTimePeriod bars, clamped to [-100, 0]; if highestHigh == lowestLow, output 0.
     * }</pre>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -552,7 +589,6 @@
       int optInTimePeriod;
       double lowest;
       double highest;
-      double diff;
       int trailingIdx;
       int lowestIdx;
       int highestIdx;
@@ -573,20 +609,29 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#WILLR} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value()} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       WillrStream( WillrStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.lowest = other.lowest;
          this.highest = other.highest;
-         this.diff = other.diff;
          this.trailingIdx = other.trailingIdx;
          this.lowestIdx = other.lowestIdx;
          this.highestIdx = other.highestIdx;
@@ -606,57 +651,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value()} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inHigh, double inLow, double inClose ) {
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("WILLR update: BadParam", RetCode.BadParam);
-         }
          core.willrStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inHigh.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outReal[] ) {
-         requireArgument("WILLR updateAndFill", "inHigh", inHigh);
-         requireArgument("WILLR updateAndFill", "inLow", inLow);
-         requireArgument("WILLR updateAndFill", "inClose", inClose);
-         requireArgument("WILLR updateAndFill", "outReal", outReal);
-         final int barCount = inHigh.length;
-         if( inLow.length != barCount || inClose.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose )
-            throw new TaLibArgumentException("WILLR updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("WILLR updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.willrStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-            outReal[i] = this.cur_outReal;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -673,8 +683,8 @@
             throw new TaLibArgumentException("WILLR peek: BadParam", RetCode.BadParam);
          WillrStream sp = this;
          double tmp = 0.0;
+         double tempReal = 0.0;
          double cur_outReal = 0.0;
-         double diff = sp.diff;
          double highest = sp.highest;
          int highestIdx = sp.highestIdx;
          int i = sp.i;
@@ -715,11 +725,9 @@
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / (0 - 100.0);
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / (0 - 100.0);
          }
          /* Set the highest high */
          tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
@@ -734,14 +742,19 @@
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / (0 - 100.0);
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / (0 - 100.0);
          }
-         if( diff != 0.0 ) {
-            cur_outReal = (highest - (((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2)) / diff;
+         /* Same rule, band and clamp as the block scan above. */
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
+            tempReal = (highest - (((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2)) / (highest - lowest) * (0 - 100.0);
+            if( tempReal > 0.0 ) {
+               tempReal = 0.0;
+            } else if( tempReal < 0 - 100.0 ) {
+               tempReal = 0 - 100.0;
+            }
+            cur_outReal = tempReal;
          } else {
             cur_outReal = 0.0;
          }
@@ -777,6 +790,7 @@
    void willrStepImpl( WillrStream sp, double inHigh, double inLow, double inClose )
    {
       double tmp = 0.0;
+      double tempReal = 0.0;
       if( sp.today >= 1073741824 ) {
          int rebaseShift = sp.trailingIdx & ~sp.xMask;
          sp.today -= rebaseShift;
@@ -801,11 +815,9 @@
                sp.lowest = tmp;
             }
          }
-         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
       } else if( tmp <= sp.lowest ) {
          sp.lowestIdx = sp.today;
          sp.lowest = tmp;
-         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
       }
       /* Set the highest high */
       tmp = sp.x_inHigh[sp.today & sp.xMask];
@@ -820,14 +832,19 @@
                sp.highest = tmp;
             }
          }
-         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
       } else if( tmp >= sp.highest ) {
          sp.highestIdx = sp.today;
          sp.highest = tmp;
-         sp.diff = (sp.highest - sp.lowest) / (0 - 100.0);
       }
-      if( sp.diff != 0.0 ) {
-         sp.cur_outReal = (sp.highest - sp.x_inClose[sp.today & sp.xMask]) / sp.diff;
+      /* Same rule, band and clamp as the block scan above. */
+      if( !(Math.abs(sp.highest - sp.lowest) <= 0.00000000000001 * (Math.abs(sp.highest) + Math.abs(sp.lowest))) ) {
+         tempReal = (sp.highest - sp.x_inClose[sp.today & sp.xMask]) / (sp.highest - sp.lowest) * (0 - 100.0);
+         if( tempReal > 0.0 ) {
+            tempReal = 0.0;
+         } else if( tempReal < 0 - 100.0 ) {
+            tempReal = 0 - 100.0;
+         }
+         sp.cur_outReal = tempReal;
       } else {
          sp.cur_outReal = 0.0;
       }
@@ -839,7 +856,7 @@
       double lowest = 0;
       double highest = 0;
       double tmp = 0;
-      double diff = 0;
+      double tempReal = 0;
       int outIdx = 0;
       int nbInitialElementNeeded = 0;
       int trailingIdx = 0;
@@ -885,8 +902,6 @@
          outNBElement.value = 0;
          return RetCode.InsufficientHistory ;
       }
-      /* Initialize 'diff', just to avoid warning. */
-      diff = 0.0;
       /* Proceed with the calculation for the requested range.
        * Note that this algorithm allows the input and
        * output to be the same buffer.
@@ -915,7 +930,6 @@
       lowestIdx = highestIdx;
       lowest = 0.0;
       highest = lowest;
-      diff = highest;
       while( today <= endIdx ) {
          /* Set the lowest low */
          tmp = inLow[today];
@@ -930,11 +944,9 @@
                   lowest = tmp;
                }
             }
-            diff = (highest - lowest) / (0 - 100.0);
          } else if( tmp <= lowest ) {
             lowestIdx = today;
             lowest = tmp;
-            diff = (highest - lowest) / (0 - 100.0);
          }
          /* Set the highest high */
          tmp = inHigh[today];
@@ -949,14 +961,19 @@
                   highest = tmp;
                }
             }
-            diff = (highest - lowest) / (0 - 100.0);
          } else if( tmp >= highest ) {
             highestIdx = today;
             highest = tmp;
-            diff = (highest - lowest) / (0 - 100.0);
          }
-         if( diff != 0.0 ) {
-            outReal[outIdx++ * outStride] = (highest - inClose[today]) / diff;
+         /* Same rule, band and clamp as the block scan above. */
+         if( !(Math.abs(highest - lowest) <= 0.00000000000001 * (Math.abs(highest) + Math.abs(lowest))) ) {
+            tempReal = (highest - inClose[today]) / (highest - lowest) * (0 - 100.0);
+            if( tempReal > 0.0 ) {
+               tempReal = 0.0;
+            } else if( tempReal < 0 - 100.0 ) {
+               tempReal = 0 - 100.0;
+            }
+            outReal[outIdx++ * outStride] = tempReal;
          } else {
             outReal[outIdx++ * outStride] = 0.0;
          }
@@ -988,7 +1005,6 @@
       sp.optInTimePeriod = optInTimePeriod;
       sp.lowest = lowest;
       sp.highest = highest;
-      sp.diff = diff;
       sp.trailingIdx = trailingIdx;
       sp.lowestIdx = lowestIdx;
       sp.highestIdx = highestIdx;

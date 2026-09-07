@@ -496,8 +496,7 @@ TA_RetCode TA_S_SUPERTREND( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_SUPERTREND_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_SUPERTREND_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_SUPERTREND_Value). */
@@ -882,11 +881,7 @@ TA_RetCode TA_SUPERTREND_OpenAndFillInternal( struct TA_SUPERTREND_Stream **stre
 TA_LIB_API TA_RetCode TA_SUPERTREND_Update( TA_SUPERTREND_Stream *stream, double inHigh, double inLow, double inClose, double *outReal, int *outInteger )
 {
    if( !stream || !outReal || !outInteger ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_SUPERTREND_StepImpl( stream, inHigh, inLow, inClose, outReal, outInteger );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -984,26 +979,6 @@ TA_LIB_API TA_RetCode TA_SUPERTREND_Peek( const TA_SUPERTREND_Stream *stream, do
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_SUPERTREND_UpdateAndFill( TA_SUPERTREND_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outReal[], int outInteger[] )
-{
-   int i;
-
-   if( !stream || !inHigh || !inLow || !inClose || !outReal || !outInteger ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inHigh || (const void *)outReal == (const void *)inLow || (const void *)outReal == (const void *)inClose || (const void *)outInteger == (const void *)inHigh || (const void *)outInteger == (const void *)inLow || (const void *)outInteger == (const void *)inClose || (const void *)outReal == (const void *)outInteger ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_SUPERTREND_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outReal[i], &outInteger[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_SUPERTREND_Close( TA_SUPERTREND_Stream *stream )
 {
    if( stream ) TA_Free( stream );
@@ -1015,6 +990,21 @@ TA_LIB_API TA_RetCode TA_SUPERTREND_Value( const TA_SUPERTREND_Stream *stream, d
    if( !stream || !outReal || !outInteger ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
    *outInteger = stream->cur_outInteger;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SUPERTREND_OutRange( const TA_SUPERTREND_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_SUPERTREND_Advance( TA_SUPERTREND_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

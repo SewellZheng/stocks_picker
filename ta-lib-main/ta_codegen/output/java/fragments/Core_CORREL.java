@@ -3,18 +3,23 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  120802 MF   Template creation.
- *  101003 MF   Initial Coding
- *  062804 MF   Resolve div by zero bug on limit case.
- *  082326 MF   Fix #242. Cancellation-free sums (shifted data + reseed, as
- *              TA_VAR does since #118), per-factor degeneracy test and a
- *              range clamp.
+ *  120802 MF    Template creation.
+ *  101003 MF    Initial Coding
+ *  062804 MF    Resolve div by zero bug on limit case.
+ *  082326 MF    Fix #242. Cancellation-free sums (shifted data + reseed, as
+ *               TA_VAR does since #118), per-factor degeneracy test and a
+ *               range clamp.
+ *  090626 MF,CC Fix #395. Test the product too: it underflows to 0.0 while ssX
+ *               and ssY are still ordinary normals, and the divide then
+ *               returned NaN under TA_SUCCESS -- which the range clamp cannot
+ *               catch -- or a perfect correlation from a degenerate window.
  */
 
    /**
@@ -248,21 +253,19 @@
           *
           * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
           * established both are positive, so the product needs no protection from
-          * a negative operand, and the second square root is worth ~25% of the
-          * runtime.
+          * a negative operand, and the second square root is worth ~14% of this
+          * function's runtime (measured, #395).
           *
-          * The product CAN overflow to +Inf, and the one-root form is chosen with
-          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-          * arrays are not range-checked, so ssX and ssY are bounded only by the
-          * double range and their product exceeds it once |x| passes ~1e154. The
-          * two-root form would not overflow there -- but the form this replaces
-          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-          * correlation. Trading a quarter of the runtime for a case that already
-          * behaved this way, on inputs 117 orders past any price, is not a trade
-          * worth making. Revisit only if input range-checking is ever added.
+          * The product is then tested on its own, because neither factor's test
+          * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+          * and ssY are still ordinary normals (#395). A zero divisor there gives
+          * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+          * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+          * not a band: an absolute band on the product is the #253 defect at a new
+          * address. At the other end the product overflows to +Inf and the quotient
+          * is 0.0, the degenerate answer anyway.
           */
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.sqrt(ssX * ssY);
             /* A correlation coefficient cannot leave [-1,1]; rounding in the
              * three sums can still put it a few ulp outside.
@@ -417,7 +420,7 @@
          trailingX = (double)inReal0[trailingIdx] - shiftX;
          trailingY = (double)inReal1[trailingIdx] - shiftY;
          trailingIdx += 1;
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.sqrt(ssX * ssY);
             if( tempReal > 1.0 ) {
                tempReal = 1.0;
@@ -625,13 +628,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#CORREL} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value()} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       CorrelStream( CorrelStream other ) {
          this.core = other.core;
@@ -664,56 +677,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value()} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal0, double inReal1 ) {
-         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
             throw new TaLibArgumentException("CORREL update: BadParam", RetCode.BadParam);
-         }
          core.correlStepImpl(this, inReal0, inReal1);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inReal0.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inReal0[], double inReal1[], double outReal[] ) {
-         requireArgument("CORREL updateAndFill", "inReal0", inReal0);
-         requireArgument("CORREL updateAndFill", "inReal1", inReal1);
-         requireArgument("CORREL updateAndFill", "outReal", outReal);
-         final int barCount = inReal0.length;
-         if( inReal1.length != barCount || outReal.length < barCount || (Object)outReal == (Object)inReal0 || (Object)outReal == (Object)inReal1 )
-            throw new TaLibArgumentException("CORREL updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal0[i]) || !Double.isFinite(inReal1[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("CORREL updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.correlStepImpl(this, inReal0[i], inReal1[i]);
-            outReal[i] = this.cur_outReal;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -867,21 +846,19 @@
           *
           * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
           * established both are positive, so the product needs no protection from
-          * a negative operand, and the second square root is worth ~25% of the
-          * runtime.
+          * a negative operand, and the second square root is worth ~14% of this
+          * function's runtime (measured, #395).
           *
-          * The product CAN overflow to +Inf, and the one-root form is chosen with
-          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-          * arrays are not range-checked, so ssX and ssY are bounded only by the
-          * double range and their product exceeds it once |x| passes ~1e154. The
-          * two-root form would not overflow there -- but the form this replaces
-          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-          * correlation. Trading a quarter of the runtime for a case that already
-          * behaved this way, on inputs 117 orders past any price, is not a trade
-          * worth making. Revisit only if input range-checking is ever added.
+          * The product is then tested on its own, because neither factor's test
+          * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+          * and ssY are still ordinary normals (#395). A zero divisor there gives
+          * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+          * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+          * not a band: an absolute band on the product is the #253 defect at a new
+          * address. At the other end the product overflows to +Inf and the quotient
+          * is 0.0, the degenerate answer anyway.
           */
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.sqrt(ssX * ssY);
             /* A correlation coefficient cannot leave [-1,1]; rounding in the
              * three sums can still put it a few ulp outside.
@@ -1053,21 +1030,19 @@
        *
        * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
        * established both are positive, so the product needs no protection from
-       * a negative operand, and the second square root is worth ~25% of the
-       * runtime.
+       * a negative operand, and the second square root is worth ~14% of this
+       * function's runtime (measured, #395).
        *
-       * The product CAN overflow to +Inf, and the one-root form is chosen with
-       * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-       * arrays are not range-checked, so ssX and ssY are bounded only by the
-       * double range and their product exceeds it once |x| passes ~1e154. The
-       * two-root form would not overflow there -- but the form this replaces
-       * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-       * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-       * correlation. Trading a quarter of the runtime for a case that already
-       * behaved this way, on inputs 117 orders past any price, is not a trade
-       * worth making. Revisit only if input range-checking is ever added.
+       * The product is then tested on its own, because neither factor's test
+       * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+       * and ssY are still ordinary normals (#395). A zero divisor there gives
+       * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+       * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+       * not a band: an absolute band on the product is the #253 defect at a new
+       * address. At the other end the product overflows to +Inf and the quotient
+       * is 0.0, the degenerate answer anyway.
        */
-      if( ssX > 0.00000000000001 * sp.sumX2 && ssY > 0.00000000000001 * sp.sumY2 ) {
+      if( ssX > 0.00000000000001 * sp.sumX2 && ssY > 0.00000000000001 * sp.sumY2 && ssX * ssY > 0.0 ) {
          tempReal = spXY / Math.sqrt(ssX * ssY);
          /* A correlation coefficient cannot leave [-1,1]; rounding in the
           * three sums can still put it a few ulp outside.
@@ -1304,21 +1279,19 @@
           *
           * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
           * established both are positive, so the product needs no protection from
-          * a negative operand, and the second square root is worth ~25% of the
-          * runtime.
+          * a negative operand, and the second square root is worth ~14% of this
+          * function's runtime (measured, #395).
           *
-          * The product CAN overflow to +Inf, and the one-root form is chosen with
-          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-          * arrays are not range-checked, so ssX and ssY are bounded only by the
-          * double range and their product exceeds it once |x| passes ~1e154. The
-          * two-root form would not overflow there -- but the form this replaces
-          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-          * correlation. Trading a quarter of the runtime for a case that already
-          * behaved this way, on inputs 117 orders past any price, is not a trade
-          * worth making. Revisit only if input range-checking is ever added.
+          * The product is then tested on its own, because neither factor's test
+          * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+          * and ssY are still ordinary normals (#395). A zero divisor there gives
+          * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+          * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+          * not a band: an absolute band on the product is the #253 defect at a new
+          * address. At the other end the product overflows to +Inf and the quotient
+          * is 0.0, the degenerate answer anyway.
           */
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.sqrt(ssX * ssY);
             /* A correlation coefficient cannot leave [-1,1]; rounding in the
              * three sums can still put it a few ulp outside.

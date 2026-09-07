@@ -121,13 +121,10 @@ TA_LIB_API TA_RetCode TA_ERI( int    startIdx,
     *
     * One fused loop, not ema() + a combine map: a composed form cannot
     * stream (raw bar inputs are outside check_map_step's provenance), which
-    * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-    * op for op -- sequential seed sum from 0.0 then one divide, the
-    * unstable-period warm-up consumed bar by bar -- so the differential
-    * against shipped TA_EMA holds bitwise. No compatibility branch: the
-    * Metastock arm is unreachable from three of the four backends, and a
-    * new function honouring it would make C diverge from them (EFI/SMI
-    * precedent).
+    * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+    * sequential seed sum from 0.0 then one divide, the unstable-period
+    * warm-up consumed bar by bar -- so the differential against shipped
+    * TA_EMA holds bitwise.
     *
     * No division in the per-bar map: no 0/0, no NaN path (#112 by
     * construction). Bull >= Bear on every bar since high >= low.
@@ -320,8 +317,7 @@ TA_RetCode TA_S_ERI( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_ERI_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_ERI_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_ERI_Value). */
@@ -408,13 +404,10 @@ static TA_RetCode TA_ERI_OpenImpl( struct TA_ERI_Stream **stream, const double i
        *
        * One fused loop, not ema() + a combine map: a composed form cannot
        * stream (raw bar inputs are outside check_map_step's provenance), which
-       * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-       * op for op -- sequential seed sum from 0.0 then one divide, the
-       * unstable-period warm-up consumed bar by bar -- so the differential
-       * against shipped TA_EMA holds bitwise. No compatibility branch: the
-       * Metastock arm is unreachable from three of the four backends, and a
-       * new function honouring it would make C diverge from them (EFI/SMI
-       * precedent).
+       * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+       * sequential seed sum from 0.0 then one divide, the unstable-period
+       * warm-up consumed bar by bar -- so the differential against shipped
+       * TA_EMA holds bitwise.
        *
        * No division in the per-bar map: no 0/0, no NaN path (#112 by
        * construction). Bull >= Bear on every bar since high >= low.
@@ -487,13 +480,10 @@ static TA_RetCode TA_ERI_OpenImpl( struct TA_ERI_Stream **stream, const double i
        *
        * One fused loop, not ema() + a combine map: a composed form cannot
        * stream (raw bar inputs are outside check_map_step's provenance), which
-       * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-       * op for op -- sequential seed sum from 0.0 then one divide, the
-       * unstable-period warm-up consumed bar by bar -- so the differential
-       * against shipped TA_EMA holds bitwise. No compatibility branch: the
-       * Metastock arm is unreachable from three of the four backends, and a
-       * new function honouring it would make C diverge from them (EFI/SMI
-       * precedent).
+       * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+       * sequential seed sum from 0.0 then one divide, the unstable-period
+       * warm-up consumed bar by bar -- so the differential against shipped
+       * TA_EMA holds bitwise.
        *
        * No division in the per-bar map: no 0/0, no NaN path (#112 by
        * construction). Bull >= Bear on every bar since high >= low.
@@ -621,11 +611,7 @@ TA_RetCode TA_ERI_OpenAndFillInternal( struct TA_ERI_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_ERI_Update( TA_ERI_Stream *stream, double inHigh, double inLow, double inClose, double *outBullPower, double *outBearPower )
 {
    if( !stream || !outBullPower || !outBearPower ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    TA_ERI_StepImpl( stream, inHigh, inLow, inClose, outBullPower, outBearPower );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -666,26 +652,6 @@ TA_LIB_API TA_RetCode TA_ERI_Peek( const TA_ERI_Stream *stream, double inHigh, d
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_ERI_UpdateAndFill( TA_ERI_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outBullPower[], double outBearPower[] )
-{
-   int i;
-
-   if( !stream || !inHigh || !inLow || !inClose || !outBullPower || !outBearPower ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outBullPower == (const void *)inHigh || (const void *)outBullPower == (const void *)inLow || (const void *)outBullPower == (const void *)inClose || (const void *)outBearPower == (const void *)inHigh || (const void *)outBearPower == (const void *)inLow || (const void *)outBearPower == (const void *)inClose || (const void *)outBullPower == (const void *)outBearPower ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_ERI_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outBullPower[i], &outBearPower[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_ERI_Close( TA_ERI_Stream *stream )
 {
    if( stream ) TA_Free( stream );
@@ -697,6 +663,21 @@ TA_LIB_API TA_RetCode TA_ERI_Value( const TA_ERI_Stream *stream, double *outBull
    if( !stream || !outBullPower || !outBearPower ) return TA_BAD_PARAM;
    *outBullPower = stream->cur_outBullPower;
    *outBearPower = stream->cur_outBearPower;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_ERI_OutRange( const TA_ERI_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_ERI_Advance( TA_ERI_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

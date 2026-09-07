@@ -65,6 +65,9 @@
  *                the fixed TA_IS_ZERO band beside the efficiency ratio, which
  *                forced the fastest adaptation on any instrument quoted small
  *                enough to fall under it.
+ *  090626 MF,CC  Fix #390. Clamp the efficiency ratio to 1. A drifted sumROC1
+ *                let it exceed its own mathematical maximum, and the squared
+ *                smoothing constant then amplified instead of averaging.
  */
 
 // Import types from parent module
@@ -252,16 +255,21 @@ impl Core {
         trailingValue = tempReal2;
         // Calculate the efficiency ratio.
         //
-        // The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
-        // both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
-        // sit beside it was not -- it declared the window flat, and forced the
-        // fastest adaptation, for every window of an instrument quoted below it
-        // (issue #253). A genuinely flat window is now recognized by the exact bar
-        // count above instead.
-        if sumROC1 <= periodROC {
+        // The ratio cannot exceed 1 in exact arithmetic, but sumROC1 drifts, so
+        // clamp it: past 1 the squared smoothing constant amplifies instead of
+        // averaging and the recurrence below stops being a convex combination.
+        //
+        // `sumROC1 <= 0.0` (#385) is now numerically redundant -- the clamp maps its
+        // +Inf onto the same 1.0 -- so a value test written against it would pass
+        // with it deleted. Keep it anyway: the divisor sweep requires a division to
+        // be dominated by a test of its own divisor against a literal zero.
+        if sumROC1 <= 0.0 || sumROC1 <= periodROC {
             tempReal = 1.0;
         } else {
             tempReal = (periodROC / sumROC1).abs();
+            if tempReal > 1.0 {
+                tempReal = 1.0;
+            }
         }
         // Calculate the smoothing constant
         tempReal = (tempReal as f64).mul_add(constDiff, constMax);
@@ -300,10 +308,13 @@ impl Core {
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC {
+            if sumROC1 <= 0.0 || sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
+                if tempReal > 1.0 {
+                    tempReal = 1.0;
+                }
             }
             // Calculate the smoothing constant
             tempReal = (tempReal as f64).mul_add(constDiff, constMax);
@@ -344,10 +355,13 @@ impl Core {
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC {
+            if sumROC1 <= 0.0 || sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
+                if tempReal > 1.0 {
+                    tempReal = 1.0;
+                }
             }
             // Calculate the smoothing constant
             tempReal = (tempReal as f64).mul_add(constDiff, constMax);
@@ -542,10 +556,13 @@ impl Core {
         // and outReal can be pointers to the same buffer.
         sp.trailingValue = tempReal2;
         // Calculate the efficiency ratio
-        if sp.sumROC1 <= periodROC {
+        if sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC {
             tempReal = 1.0;
         } else {
             tempReal = (periodROC / sp.sumROC1).abs();
+            if tempReal > 1.0 {
+                tempReal = 1.0;
+            }
         }
         // Calculate the smoothing constant
         tempReal = (tempReal as f64).mul_add(sp.constDiff, sp.constMax);
@@ -692,16 +709,21 @@ impl Core {
         trailingValue = tempReal2;
         // Calculate the efficiency ratio.
         //
-        // The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
-        // both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
-        // sit beside it was not -- it declared the window flat, and forced the
-        // fastest adaptation, for every window of an instrument quoted below it
-        // (issue #253). A genuinely flat window is now recognized by the exact bar
-        // count above instead.
-        if sumROC1 <= periodROC {
+        // The ratio cannot exceed 1 in exact arithmetic, but sumROC1 drifts, so
+        // clamp it: past 1 the squared smoothing constant amplifies instead of
+        // averaging and the recurrence below stops being a convex combination.
+        //
+        // `sumROC1 <= 0.0` (#385) is now numerically redundant -- the clamp maps its
+        // +Inf onto the same 1.0 -- so a value test written against it would pass
+        // with it deleted. Keep it anyway: the divisor sweep requires a division to
+        // be dominated by a test of its own divisor against a literal zero.
+        if sumROC1 <= 0.0 || sumROC1 <= periodROC {
             tempReal = 1.0;
         } else {
             tempReal = (periodROC / sumROC1).abs();
+            if tempReal > 1.0 {
+                tempReal = 1.0;
+            }
         }
         // Calculate the smoothing constant
         tempReal = (tempReal as f64).mul_add(constDiff, constMax);
@@ -740,10 +762,13 @@ impl Core {
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC {
+            if sumROC1 <= 0.0 || sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
+                if tempReal > 1.0 {
+                    tempReal = 1.0;
+                }
             }
             // Calculate the smoothing constant
             tempReal = (tempReal as f64).mul_add(constDiff, constMax);
@@ -784,10 +809,13 @@ impl Core {
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC {
+            if sumROC1 <= 0.0 || sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
+                if tempReal > 1.0 {
+                    tempReal = 1.0;
+                }
             }
             // Calculate the smoothing constant
             tempReal = (tempReal as f64).mul_add(constDiff, constMax);
@@ -945,15 +973,13 @@ impl KamaStream {
     /// whatever it is given — a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
-    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
-    /// so two handles fed the same series stay positionally aligned even when
-    /// one rejects a bar the other accepts.
+    /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when
+    /// a corrected value arrives, or call [`Self::advance`] to count it and
+    /// carry on — two handles on one feed drift a bar apart if neither
+    /// happens.
     #[doc(alias = "TA_KAMA_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -962,44 +988,6 @@ impl KamaStream {
             self.out.count += 1;
         }
         Ok(outReal)
-    }
-
-    /// Commit `n` closed bars and write their `n` values, in one call —
-    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
-    /// argument checks instead of `n`. `n` is `inReal.len()`; the outputs must
-    /// hold at least that many. Never allocates.
-    ///
-    /// [`Self::out_range`] counts what this call took in, which is what makes the
-    /// rejection below readable: there is no second out-parameter for it.
-    ///
-    /// # Errors
-    ///
-    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
-    /// is shorter than the bar count — neither commits anything — or if a bar
-    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
-    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
-    /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k + 1` — the committed bars, plus the rejected one, which is counted
-    /// but never written.
-    #[doc(alias = "TA_KAMA_UpdateAndFill")]
-    pub fn update_and_fill(&mut self, inReal: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
-        let barCount = inReal.len();
-        if outReal.len() < barCount {
-            return Err(RetCode::BadParam);
-        }
-        for i in 0..barCount {
-            if !inReal[i].is_finite() {
-                if self.out.count < Core::MAX_INDEX {
-                    self.out.count += 1;
-                }
-                return Err(RetCode::BadParam);
-            }
-            Core::kama_step_impl(&mut self.state, inReal[i], &mut outReal[i]);
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
-        }
-        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -1012,8 +1000,7 @@ impl KamaStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies — but a rejected peek changes nothing at all, where a
-    /// rejected `update` still counts the bar in [`Self::out_range`].
+    /// `update` applies, and a rejected peek changes nothing at all.
     #[doc(alias = "TA_KAMA_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -1066,10 +1053,13 @@ impl KamaStream {
             // and outReal can be pointers to the same buffer.
             trailingValue = tempReal2;
             // Calculate the efficiency ratio
-            if sumROC1 <= periodROC {
+            if sumROC1 <= 0.0 || sumROC1 <= periodROC {
                 tempReal = 1.0;
             } else {
                 tempReal = (periodROC / sumROC1).abs();
+                if tempReal > 1.0 {
+                    tempReal = 1.0;
+                }
             }
             // Calculate the smoothing constant
             tempReal = (tempReal as f64).mul_add(sp.constDiff, sp.constMax);
@@ -1084,7 +1074,7 @@ impl KamaStream {
 
     /// The value(s) at the last bar the stream counted — the bar
     /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
-    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// refreshed by every accepted `update`, and left
     /// alone by `peek`.
     ///
     /// A clone carries them verbatim, so a forked handle can be asked its
@@ -1099,14 +1089,28 @@ impl KamaStream {
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::KAMA`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
-    /// count — a bar rejected for being non-finite included, because it still
-    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
-    /// A plain `Open` hands back only the last value, a subset of this range,
-    /// because the caller chose not to take the fill.
-    #[doc(alias = "TA_StreamOutRange")]
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds
+    /// one to the count — a rejected one changes nothing, and neither does
+    /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
+    /// only the last value, a subset of this range, because the caller chose
+    /// not to take the fill.
+    #[doc(alias = "TA_KAMA_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
+    }
+
+    /// Count one bar this stream was not fed: [`Self::out_range`] advances by
+    /// one and nothing else moves — [`Self::value`] keeps answering the
+    /// previous output, which is this bar's output too.
+    ///
+    /// For a bar the caller leaves out: one an `update` rejected and that
+    /// will not be re-fed, or a session with no print. Without it two handles
+    /// on one feed drift a bar apart when only one of them skips.
+    #[doc(alias = "TA_KAMA_Advance")]
+    pub fn advance(&mut self) {
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
     }
 }
 

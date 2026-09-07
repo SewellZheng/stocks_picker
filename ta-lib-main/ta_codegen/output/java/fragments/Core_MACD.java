@@ -176,16 +176,11 @@
        * The arithmetic order below is the bit-exactness contract
        * (do not reorder or fuse operations):
        *  - EMA recursion: ((x-prev)*k)+prev.
-       *  - Default compatibility: each EMA is seeded with the sum of
-       *    its first 'period' inputs, accumulated from 0.0 in input
-       *    order, divided by the period. The fast and slow seed
-       *    windows end on the same bar. The signal EMA is seeded the
-       *    same way from the first 'signal period' MACD-line values.
-       *  - Metastock compatibility: the fast and slow EMA are seeded
-       *    from inReal[0], the signal EMA from the first MACD-line
-       *    value.
-       * Output alignment is identical for all compatibility modes;
-       * only the seed values differ.
+       *  - Each EMA is seeded with the sum of its first 'period'
+       *    inputs, accumulated from 0.0 in input order, divided by
+       *    the period. The fast and slow seed windows end on the
+       *    same bar. The signal EMA is seeded the same way from the
+       *    first 'signal period' MACD-line values.
        *
        * In-place (an output == inReal) is supported: outputs at
        * [outIdx] are written only after inReal[startIdx+outIdx] was
@@ -622,13 +617,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#MACD} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(MacdOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       MacdStream( MacdStream other ) {
          this.core = other.core;
@@ -653,12 +658,11 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value(MacdOut)} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(MacdOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
@@ -666,49 +670,13 @@
        */
       public void update( double inReal, MacdOut out ) {
          requireArgument("MACD update", "out", out);
-         if( !Double.isFinite(inReal) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MACD update: BadParam", RetCode.BadParam);
-         }
          core.macdStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          out.macd = this.cur_outMACD;
          out.macdSignal = this.cur_outMACDSignal;
          out.macdHist = this.cur_outMACDHist;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inReal.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inReal[], double outMACD[], double outMACDSignal[], double outMACDHist[] ) {
-         requireArgument("MACD updateAndFill", "inReal", inReal);
-         requireArgument("MACD updateAndFill", "outMACD", outMACD);
-         requireArgument("MACD updateAndFill", "outMACDSignal", outMACDSignal);
-         requireArgument("MACD updateAndFill", "outMACDHist", outMACDHist);
-         final int barCount = inReal.length;
-         if( outMACD.length < barCount || outMACDSignal.length < barCount || outMACDHist.length < barCount || (Object)outMACD == (Object)inReal || (Object)outMACDSignal == (Object)inReal || (Object)outMACDHist == (Object)inReal || (Object)outMACD == (Object)outMACDSignal || (Object)outMACD == (Object)outMACDHist || (Object)outMACDSignal == (Object)outMACDHist )
-            throw new TaLibArgumentException("MACD updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("MACD updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.macdStepImpl(this, inReal[i]);
-            outMACD[i] = this.cur_outMACD;
-            outMACDSignal[i] = this.cur_outMACDSignal;
-            outMACDHist[i] = this.cur_outMACDHist;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -921,16 +889,11 @@
        * The arithmetic order below is the bit-exactness contract
        * (do not reorder or fuse operations):
        *  - EMA recursion: ((x-prev)*k)+prev.
-       *  - Default compatibility: each EMA is seeded with the sum of
-       *    its first 'period' inputs, accumulated from 0.0 in input
-       *    order, divided by the period. The fast and slow seed
-       *    windows end on the same bar. The signal EMA is seeded the
-       *    same way from the first 'signal period' MACD-line values.
-       *  - Metastock compatibility: the fast and slow EMA are seeded
-       *    from inReal[0], the signal EMA from the first MACD-line
-       *    value.
-       * Output alignment is identical for all compatibility modes;
-       * only the seed values differ.
+       *  - Each EMA is seeded with the sum of its first 'period'
+       *    inputs, accumulated from 0.0 in input order, divided by
+       *    the period. The fast and slow seed windows end on the
+       *    same bar. The signal EMA is seeded the same way from the
+       *    first 'signal period' MACD-line values.
        *
        * In-place (an output == inReal) is supported: outputs at
        * [outIdx] are written only after inReal[startIdx+outIdx] was

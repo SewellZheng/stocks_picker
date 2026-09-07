@@ -344,8 +344,7 @@ TA_RetCode TA_S_DONCHIAN( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_DONCHIAN_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_DONCHIAN_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_DONCHIAN_Value). */
@@ -678,11 +677,7 @@ TA_RetCode TA_DONCHIAN_OpenAndFillInternal( struct TA_DONCHIAN_Stream **stream, 
 TA_LIB_API TA_RetCode TA_DONCHIAN_Update( TA_DONCHIAN_Stream *stream, double inHigh, double inLow, double *outRealUpperBand, double *outRealMiddleBand, double *outRealLowerBand )
 {
    if( !stream || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    TA_DONCHIAN_StepImpl( stream, inHigh, inLow, outRealUpperBand, outRealMiddleBand, outRealLowerBand );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -779,26 +774,6 @@ TA_LIB_API TA_RetCode TA_DONCHIAN_Peek( const TA_DONCHIAN_Stream *stream, double
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_DONCHIAN_UpdateAndFill( TA_DONCHIAN_Stream *stream, const double inHigh[], const double inLow[], int barCount, double outRealUpperBand[], double outRealMiddleBand[], double outRealLowerBand[] )
-{
-   int i;
-
-   if( !stream || !inHigh || !inLow || !outRealUpperBand || !outRealMiddleBand || !outRealLowerBand ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outRealUpperBand == (const void *)inHigh || (const void *)outRealUpperBand == (const void *)inLow || (const void *)outRealMiddleBand == (const void *)inHigh || (const void *)outRealMiddleBand == (const void *)inLow || (const void *)outRealLowerBand == (const void *)inHigh || (const void *)outRealLowerBand == (const void *)inLow || (const void *)outRealUpperBand == (const void *)outRealMiddleBand || (const void *)outRealUpperBand == (const void *)outRealLowerBand || (const void *)outRealMiddleBand == (const void *)outRealLowerBand ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_DONCHIAN_StepImpl( stream, inHigh[i], inLow[i], &outRealUpperBand[i], &outRealMiddleBand[i], &outRealLowerBand[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_DONCHIAN_Close( TA_DONCHIAN_Stream *stream )
 {
    TA_DONCHIAN_ReleaseImpl( stream );
@@ -811,6 +786,21 @@ TA_LIB_API TA_RetCode TA_DONCHIAN_Value( const TA_DONCHIAN_Stream *stream, doubl
    *outRealUpperBand = stream->cur_outRealUpperBand;
    *outRealMiddleBand = stream->cur_outRealMiddleBand;
    *outRealLowerBand = stream->cur_outRealLowerBand;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_DONCHIAN_OutRange( const TA_DONCHIAN_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_DONCHIAN_Advance( TA_DONCHIAN_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

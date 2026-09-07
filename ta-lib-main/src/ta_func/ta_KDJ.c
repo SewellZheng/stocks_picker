@@ -257,8 +257,7 @@ TA_RetCode TA_S_KDJ( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_KDJ_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_KDJ_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_KDJ_Value). */
@@ -375,6 +374,7 @@ static TA_RetCode TA_KDJ_OpenImpl( struct TA_KDJ_Stream **stream, const double i
       {
          dummyBegIdx = 0;
          dummyNBElement = 0;
+         *outBegIdx = 0; *outNBElement = 0;
          TA_STOCH_Close( sub0 ); if( !outStride ) TA_Free( sc_outK ); if( !outStride ) TA_Free( sc_outD ); if( !outStride ) TA_Free( sc_outJ );
          return TA_INSUFFICIENT_HISTORY;
       }
@@ -405,7 +405,7 @@ static TA_RetCode TA_KDJ_OpenImpl( struct TA_KDJ_Stream **stream, const double i
       }
 
       /* Capture the live producer state + sub handles. */
-      if( dummyNBElement < 1 ) { TA_STOCH_Close( sub0 ); if( !outStride ) TA_Free( sc_outK ); if( !outStride ) TA_Free( sc_outD ); if( !outStride ) TA_Free( sc_outJ ); return TA_INSUFFICIENT_HISTORY; }
+      if( dummyNBElement < 1 ) { *outBegIdx = 0; *outNBElement = 0; TA_STOCH_Close( sub0 ); if( !outStride ) TA_Free( sc_outK ); if( !outStride ) TA_Free( sc_outD ); if( !outStride ) TA_Free( sc_outJ ); return TA_INSUFFICIENT_HISTORY; }
       sp = (struct TA_KDJ_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { TA_STOCH_Close( sub0 ); if( !outStride ) TA_Free( sc_outK ); if( !outStride ) TA_Free( sc_outD ); if( !outStride ) TA_Free( sc_outJ ); return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -484,11 +484,7 @@ TA_LIB_API TA_RetCode TA_KDJ_Update( TA_KDJ_Stream *stream, double inHigh, doubl
    TA_RetCode retCode;
 
    if( !stream || !outK || !outD || !outJ ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) || !TA_IS_FINITE( inClose ) ) return TA_BAD_PARAM;
    retCode = TA_KDJ_StepImpl( stream, inHigh, inLow, inClose, outK, outD, outJ );
    if( retCode != TA_SUCCESS ) return retCode;
    stream->cur_outK = *outK;
@@ -521,31 +517,6 @@ TA_LIB_API TA_RetCode TA_KDJ_Peek( const TA_KDJ_Stream *stream, double inHigh, d
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_KDJ_UpdateAndFill( TA_KDJ_Stream *stream, const double inHigh[], const double inLow[], const double inClose[], int barCount, double outK[], double outD[], double outJ[] )
-{
-   int i;
-   TA_RetCode retCode;
-
-   if( !stream || !inHigh || !inLow || !inClose || !outK || !outD || !outJ ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outK == (const void *)inHigh || (const void *)outK == (const void *)inLow || (const void *)outK == (const void *)inClose || (const void *)outD == (const void *)inHigh || (const void *)outD == (const void *)inLow || (const void *)outD == (const void *)inClose || (const void *)outJ == (const void *)inHigh || (const void *)outJ == (const void *)inLow || (const void *)outJ == (const void *)inClose || (const void *)outK == (const void *)outD || (const void *)outK == (const void *)outJ || (const void *)outD == (const void *)outJ ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inHigh[i] ) || !TA_IS_FINITE( inLow[i] ) || !TA_IS_FINITE( inClose[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      retCode = TA_KDJ_StepImpl( stream, inHigh[i], inLow[i], inClose[i], &outK[i], &outD[i], &outJ[i] );
-      if( retCode != TA_SUCCESS ) return retCode;
-      stream->cur_outK = outK[i];
-      stream->cur_outD = outD[i];
-      stream->cur_outJ = outJ[i];
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_KDJ_Close( TA_KDJ_Stream *stream )
 {
    if( !stream ) return TA_SUCCESS;
@@ -560,6 +531,21 @@ TA_LIB_API TA_RetCode TA_KDJ_Value( const TA_KDJ_Stream *stream, double *outK, d
    *outK = stream->cur_outK;
    *outD = stream->cur_outD;
    *outJ = stream->cur_outJ;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_KDJ_OutRange( const TA_KDJ_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_KDJ_Advance( TA_KDJ_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

@@ -384,8 +384,7 @@ TA_RetCode TA_S_LINEARREG_SLOPE( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_LINEARREG_SLOPE_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_LINEARREG_SLOPE_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_LINEARREG_SLOPE_Value). */
@@ -800,11 +799,7 @@ TA_RetCode TA_LINEARREG_SLOPE_OpenAndFillInternal( struct TA_LINEARREG_SLOPE_Str
 TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Update( TA_LINEARREG_SLOPE_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_LINEARREG_SLOPE_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -936,26 +931,6 @@ TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Peek( const TA_LINEARREG_SLOPE_Stream *
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_UpdateAndFill( TA_LINEARREG_SLOPE_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_LINEARREG_SLOPE_StepImpl( stream, inReal[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Close( TA_LINEARREG_SLOPE_Stream *stream )
 {
    TA_LINEARREG_SLOPE_ReleaseImpl( stream );
@@ -966,6 +941,21 @@ TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Value( const TA_LINEARREG_SLOPE_Stream 
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_OutRange( const TA_LINEARREG_SLOPE_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_LINEARREG_SLOPE_Advance( TA_LINEARREG_SLOPE_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

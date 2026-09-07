@@ -101,16 +101,12 @@ public partial class Core
       int outIdx = 0;
       int today = 0;
       int lookbackTotal = 0;
-      int unstablePeriod = 0;
       int i = 0;
       double prevGain = 0;
       double prevLoss = 0;
       double prevValue = 0;
-      double savePrevValue = 0;
       double tempValue1 = 0;
       double tempValue2 = 0;
-      double tempValue3 = 0;
-      double tempValue4 = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -171,18 +167,6 @@ public partial class Core
        */
       today = startIdx - lookbackTotal;
       prevValue = inReal[today];
-      unstablePeriod = this.unstablePeriod[(int)FuncUnstId.CMO];
-      /* If there is no unstable period,
-       * calculate the 'additional' initial
-       * price bar who is particuliar to
-       * metastock.
-       * If there is an unstable period,
-       * no need to calculate since this
-       * first value will be surely skip.
-       */
-      /* Remaining of the processing is identical
-       * for both Classic calculation and Metastock.
-       */
       prevGain = 0.0;
       prevLoss = 0.0;
       today += 1;
@@ -211,6 +195,12 @@ public partial class Core
        *    RSI = 100 * (prevGain/(prevGain+prevLoss))
        *
        * The second equation is used here for speed optimization.
+       *
+       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
+       * when every change since the seed was exactly zero -- test it exactly, never
+       * against a fixed band. A gain carries the quote unit, so a constant put
+       * against it zeroes a healthy oscillator for an instrument quoted below it
+       * (issue #253).
        */
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;
@@ -279,16 +269,12 @@ public partial class Core
       int outIdx = 0;
       int today = 0;
       int lookbackTotal = 0;
-      int unstablePeriod = 0;
       int i = 0;
       double prevGain = 0;
       double prevLoss = 0;
       double prevValue = 0;
-      double savePrevValue = 0;
       double tempValue1 = 0;
       double tempValue2 = 0;
-      double tempValue3 = 0;
-      double tempValue4 = 0;
       if( (startIdx < 0) || (startIdx > MAX_INDEX) ) {
          return RetCode.OutOfRangeStartIndex ;
       }
@@ -322,7 +308,6 @@ public partial class Core
       }
       today = startIdx - lookbackTotal;
       prevValue = (double)inReal[today];
-      unstablePeriod = this.unstablePeriod[(int)FuncUnstId.CMO];
       prevGain = 0.0;
       prevLoss = 0.0;
       today += 1;
@@ -555,13 +540,26 @@ public partial class Core
       /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Cmo</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
-      /// to the count — a non-finite bar is rejected but still counted, because the
-      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
-      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
-      /// this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count — a rejected one changes nothing, and neither does
+      /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
+      /// hands back only the last value, a subset of this range, because the caller
+      /// chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
+
+      /// <summary>Count one bar this stream was not fed: <see cref="OutRange"/> advances by
+      /// one and nothing else moves.</summary>
+      /// <remarks>
+      /// <para><see cref="Value"/> keeps answering the previous output, which is this
+      /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
+      /// rejected and that will not be re-fed, or a session with no print. Without
+      /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// </remarks>
+      public void Advance()
+      {
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+      }
 
       internal CmoStream( CmoStream other )
       {
@@ -580,24 +578,19 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so no state moves, <see cref="Value"/> still answers the previous value,
-      /// and the stream stays usable — just carry on with the next bar.
-      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
-      /// which keeps two handles fed the same series positionally aligned when only
-      /// one of them rejects a bar. This is the one place the streaming tier is
-      /// stricter than the batch API, which computes on whatever it is given: a
-      /// handle retains its state, so a single non-finite bar would poison every
-      /// later value it produces.</para>
+      /// so nothing moves — <see cref="OutRange"/> included — and
+      /// <see cref="Value"/> still answers the previous value. Re-feed the bar when
+      /// a corrected value arrives, or call <see cref="Advance"/> to count it and
+      /// carry on; two handles on one feed drift a bar apart if neither happens.
+      /// This is the one place the streaming tier is stricter than the batch API,
+      /// which computes on whatever it is given: a handle retains its state, so a
+      /// single non-finite bar would poison every later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( !double.IsFinite(inReal) )
-         {
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-            throw Core.StreamFailure("CMO", "update", RetCode.BadParam);
-         }
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("CMO", "update", RetCode.BadParam);
          core.CmoStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -648,38 +641,6 @@ public partial class Core
             cur_outReal = 0.0;
          }
          return cur_outReal;
-      }
-
-      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
-      /// <remarks>
-      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
-      /// argument checks instead of <c>n</c>. The outputs must hold at least
-      /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
-      /// a rejection readable: a non-finite bar <c>k</c> throws
-      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
-      /// and everything after it not written, and the count advanced by <c>k +
-      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
-      /// is the one that failed.</para>
-      /// </remarks>
-      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
-      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
-      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
-      {
-         int barCount = inReal.Length;
-         if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("CMO", "updateAndFill", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ )
-         {
-            if( !double.IsFinite(inReal[i]) )
-            {
-               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-               throw Core.StreamFailure("CMO", "updateAndFill", RetCode.BadParam);
-            }
-            core.CmoStepImpl(this, inReal[i]);
-            outReal[i] = cur_outReal;
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-         }
       }
 
       /// <summary>The value at the last bar this stream counted — the bar
@@ -734,16 +695,12 @@ public partial class Core
       int outIdx = 0;
       int today = 0;
       int lookbackTotal = 0;
-      int unstablePeriod = 0;
       int i = 0;
       double prevGain = 0;
       double prevLoss = 0;
       double prevValue = 0;
-      double savePrevValue = 0;
       double tempValue1 = 0;
       double tempValue2 = 0;
-      double tempValue3 = 0;
-      double tempValue4 = 0;
       int historyLen = inReal.Length;
       int endIdx = historyLen - 1;
       if( historyLen < 1 ) {
@@ -812,18 +769,6 @@ public partial class Core
        */
       today = startIdx - lookbackTotal;
       prevValue = inReal[today];
-      unstablePeriod = this.unstablePeriod[(int)FuncUnstId.CMO];
-      /* If there is no unstable period,
-       * calculate the 'additional' initial
-       * price bar who is particuliar to
-       * metastock.
-       * If there is an unstable period,
-       * no need to calculate since this
-       * first value will be surely skip.
-       */
-      /* Remaining of the processing is identical
-       * for both Classic calculation and Metastock.
-       */
       prevGain = 0.0;
       prevLoss = 0.0;
       today += 1;
@@ -852,6 +797,12 @@ public partial class Core
        *    RSI = 100 * (prevGain/(prevGain+prevLoss))
        *
        * The second equation is used here for speed optimization.
+       *
+       * prevGain+prevLoss is a sum of non-negative magnitudes, so it is zero only
+       * when every change since the seed was exactly zero -- test it exactly, never
+       * against a fixed band. A gain carries the quote unit, so a constant put
+       * against it zeroes a healthy oscillator for an instrument quoted below it
+       * (issue #253).
        */
       if( today > startIdx ) {
          tempValue1 = prevGain + prevLoss;

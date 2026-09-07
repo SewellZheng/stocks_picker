@@ -161,8 +161,7 @@ TA_RetCode TA_S_PVT( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_PVT_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_PVT_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_PVT_Value). */
@@ -294,11 +293,7 @@ TA_RetCode TA_PVT_OpenAndFillInternal( struct TA_PVT_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_PVT_Update( TA_PVT_Stream *stream, double inClose, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inClose ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    TA_PVT_StepImpl( stream, inClose, inVolume, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -326,26 +321,6 @@ TA_LIB_API TA_RetCode TA_PVT_Peek( const TA_PVT_Stream *stream, double inClose, 
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_PVT_UpdateAndFill( TA_PVT_Stream *stream, const double inClose[], const double inVolume[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inClose || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inClose || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inClose[i] ) || !TA_IS_FINITE( inVolume[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_PVT_StepImpl( stream, inClose[i], inVolume[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_PVT_Close( TA_PVT_Stream *stream )
 {
    if( stream ) TA_Free( stream );
@@ -356,6 +331,21 @@ TA_LIB_API TA_RetCode TA_PVT_Value( const TA_PVT_Stream *stream, double *outReal
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PVT_OutRange( const TA_PVT_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_PVT_Advance( TA_PVT_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

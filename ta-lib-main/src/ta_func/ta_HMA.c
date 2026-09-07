@@ -794,8 +794,7 @@ TA_RetCode TA_S_HMA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HMA_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_HMA_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_HMA_Value). */
@@ -1080,7 +1079,12 @@ static TA_RetCode TA_HMA_OpenImpl( struct TA_HMA_Stream **stream, const double i
    {
       int fillLb = TA_HMA_Lookback( optInTimePeriod );
       if( startIdx > fillLb ) fillLb = startIdx;
-      if( historyLen < fillLb + 1 ) return TA_INSUFFICIENT_HISTORY;
+      if( historyLen < fillLb + 1 )
+      {
+         *outBegIdx = 0;
+         *outNBElement = 0;
+         return TA_INSUFFICIENT_HISTORY;
+      }
       sp = (struct TA_HMA_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -1706,11 +1710,7 @@ TA_RetCode TA_HMA_OpenAndFillInternal( struct TA_HMA_Stream **stream, const doub
 TA_LIB_API TA_RetCode TA_HMA_Update( TA_HMA_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_HMA_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1930,26 +1930,6 @@ TA_LIB_API TA_RetCode TA_HMA_Peek( const TA_HMA_Stream *stream, double inReal, d
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_HMA_UpdateAndFill( TA_HMA_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_HMA_StepImpl( stream, inReal[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_HMA_Close( TA_HMA_Stream *stream )
 {
    TA_HMA_ReleaseImpl( stream );
@@ -1960,6 +1940,21 @@ TA_LIB_API TA_RetCode TA_HMA_Value( const TA_HMA_Stream *stream, double *outReal
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HMA_OutRange( const TA_HMA_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HMA_Advance( TA_HMA_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

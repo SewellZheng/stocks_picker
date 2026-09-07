@@ -45,14 +45,19 @@
  *  Initial  Name/description
  *  -------------------------------------------------------------------
  *  MF       Mario Fortier
+ *  CC       Claude Code (AI assistant)
  *
  *
  * Change history:
  *
- *  MMDDYY BY   Description
+ *  MMDDYY BY    Description
  *  -------------------------------------------------------------------
- *  010802 MF   Template creation.
- *  052603 MF   Adapt code to compile with .NET Managed C++
+ *  010802 MF    Template creation.
+ *  052603 MF    Adapt code to compile with .NET Managed C++
+ *  090626 MF,CC Fix #395. Divide by the range, scale after, then clamp: the
+ *               hoisted `(highest-lowest)/-100.0` underflowed to 0.0 on a
+ *               denormal range that the guard still called "not flat", and
+ *               the pre-scaled divisor left the documented [-100,0] bound.
  */
 
 // Import types from parent module
@@ -142,7 +147,7 @@ impl Core {
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut tmp: f64 = 0.0_f64;
-        let mut diff: f64 = 0.0_f64;
+        let mut tempReal: f64 = 0.0_f64;
         let mut outIdx: usize = 0_usize;
         let mut nbInitialElementNeeded: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
@@ -167,8 +172,6 @@ impl Core {
             (*outNBElement) = 0;
             return RetCode::Success;
         }
-        // Initialize 'diff', just to avoid warning.
-        diff = 0.0;
         // Proceed with the calculation for the requested range.
         // Note that this algorithm allows the input and
         // output to be the same buffer.
@@ -252,9 +255,28 @@ impl Core {
             }
             highest = sufHighest[0];
             lowest = sufLowest[0];
-            diff = (highest - lowest) / (0_f64 - 100.0);
-            if diff != 0.0 {
-                outReal[outIdx] = (((highest - inClose[today]) / diff) as f64);
+            // Divide by the range itself and scale after: the guard has to test the
+            // very expression the division uses, or a scaling step can carry a
+            // guarded-non-zero into a zero divisor. It is also what puts a close on
+            // the period low at exactly -100.
+            //
+            // The band is the range against ITS OWN two extremes, not a fixed
+            // constant: the range carries the quote unit, so a constant answers
+            // "flat" for every window of an instrument quoted below it (issue #253).
+            // It absorbs the machine-flat window an exact test would divide into
+            // [-100,0] noise (issue #107 / STOCH).
+            //
+            // The clamp is unreachable while lowest <= close <= highest -- the
+            // quotient is <= 1 under any rounding mode. Its domain is the close
+            // outside its own bar, which nothing here validates.
+            if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
+                tempReal = (highest - inClose[today]) / (highest - lowest) * (0_f64 - 100.0);
+                if tempReal > 0.0 {
+                    tempReal = 0.0;
+                } else if tempReal < 0_f64 - 100.0 {
+                    tempReal = 0_f64 - 100.0;
+                }
+                outReal[outIdx] = tempReal;
                 outIdx += 1;
             } else {
                 outReal[outIdx] = 0.0;
@@ -304,9 +326,14 @@ impl Core {
                     if preLowest[m - 1] < lowest {
                         lowest = preLowest[m - 1];
                     }
-                    diff = (highest - lowest) / (0_f64 - 100.0);
-                    if diff != 0.0 {
-                        outReal[outIdx] = (((highest - inClose[today + m - 1]) / diff) as f64);
+                    if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
+                        tempReal = (highest - inClose[today + m - 1]) / (highest - lowest) * (0_f64 - 100.0);
+                        if tempReal > 0.0 {
+                            tempReal = 0.0;
+                        } else if tempReal < 0_f64 - 100.0 {
+                            tempReal = 0_f64 - 100.0;
+                        }
+                        outReal[outIdx] = tempReal;
                         outIdx += 1;
                     } else {
                         outReal[outIdx] = 0.0;
@@ -463,7 +490,6 @@ struct WillrStreamState {
     optInTimePeriod: i32,
     lowest: f64,
     highest: f64,
-    diff: f64,
     trailingIdx: i32,
     lowestIdx: i32,
     highestIdx: i32,
@@ -484,6 +510,7 @@ struct WillrStreamState {
 impl Core {
     fn willr_step_impl(sp: &mut WillrStreamState, inHigh: f64, inLow: f64, inClose: f64, outReal: &mut f64) {
         let mut tmp: f64 = 0.0_f64;
+        let mut tempReal: f64 = 0.0_f64;
         if sp.today >= 1073741824 {
             let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
             sp.today -= rebaseShift;
@@ -508,11 +535,9 @@ impl Core {
                     sp.lowest = tmp;
                 }
             }
-            sp.diff = (sp.highest - sp.lowest) / (0_f64 - 100.0);
         } else if tmp <= sp.lowest {
             sp.lowestIdx = sp.today;
             sp.lowest = tmp;
-            sp.diff = (sp.highest - sp.lowest) / (0_f64 - 100.0);
         }
         // Set the highest high
         tmp = sp.x_inHigh[(sp.today & sp.xMask) as usize];
@@ -527,14 +552,19 @@ impl Core {
                     sp.highest = tmp;
                 }
             }
-            sp.diff = (sp.highest - sp.lowest) / (0_f64 - 100.0);
         } else if tmp >= sp.highest {
             sp.highestIdx = sp.today;
             sp.highest = tmp;
-            sp.diff = (sp.highest - sp.lowest) / (0_f64 - 100.0);
         }
-        if sp.diff != 0.0 {
-            (*outReal) = (sp.highest - sp.x_inClose[(sp.today & sp.xMask) as usize]) / sp.diff;
+        // Same rule, band and clamp as the block scan above.
+        if !(((sp.highest - sp.lowest).abs() <= 1e-14 * ((sp.highest).abs() + (sp.lowest).abs()))) {
+            tempReal = (sp.highest - sp.x_inClose[(sp.today & sp.xMask) as usize]) / (sp.highest - sp.lowest) * (0_f64 - 100.0);
+            if tempReal > 0.0 {
+                tempReal = 0.0;
+            } else if tempReal < 0_f64 - 100.0 {
+                tempReal = 0_f64 - 100.0;
+            }
+            (*outReal) = tempReal;
         } else {
             (*outReal) = 0.0;
         }
@@ -575,7 +605,7 @@ impl Core {
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut tmp: f64 = 0.0_f64;
-        let mut diff: f64 = 0.0_f64;
+        let mut tempReal: f64 = 0.0_f64;
         let mut outIdx: usize = 0_usize;
         let mut nbInitialElementNeeded: usize = 0_usize;
         let mut trailingIdx: usize = 0_usize;
@@ -598,8 +628,6 @@ impl Core {
             (*outNBElement) = 0;
             return Err(RetCode::InsufficientHistory);
         }
-        // Initialize 'diff', just to avoid warning.
-        diff = 0.0;
         // Proceed with the calculation for the requested range.
         // Note that this algorithm allows the input and
         // output to be the same buffer.
@@ -627,7 +655,6 @@ impl Core {
         lowestIdx = highestIdx;
         lowest = 0.0;
         highest = lowest;
-        diff = highest;
         while today <= endIdx {
             // Set the lowest low
             tmp = inLow[today];
@@ -642,11 +669,9 @@ impl Core {
                         lowest = tmp;
                     }
                 }
-                diff = (highest - lowest) / (0_f64 - 100.0);
             } else if tmp <= lowest {
                 lowestIdx = (today) as i32;
                 lowest = tmp;
-                diff = (highest - lowest) / (0_f64 - 100.0);
             }
             // Set the highest high
             tmp = inHigh[today];
@@ -661,14 +686,19 @@ impl Core {
                         highest = tmp;
                     }
                 }
-                diff = (highest - lowest) / (0_f64 - 100.0);
             } else if tmp >= highest {
                 highestIdx = (today) as i32;
                 highest = tmp;
-                diff = (highest - lowest) / (0_f64 - 100.0);
             }
-            if diff != 0.0 {
-                outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = (((highest - inClose[today]) / diff) as f64);
+            // Same rule, band and clamp as the block scan above.
+            if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
+                tempReal = (highest - inClose[today]) / (highest - lowest) * (0_f64 - 100.0);
+                if tempReal > 0.0 {
+                    tempReal = 0.0;
+                } else if tempReal < 0_f64 - 100.0 {
+                    tempReal = 0_f64 - 100.0;
+                }
+                outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = tempReal;
             } else {
                 outReal[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 0.0;
             }
@@ -705,7 +735,6 @@ impl Core {
             optInTimePeriod,
             lowest,
             highest,
-            diff,
             trailingIdx: (trailingIdx) as i32,
             lowestIdx: (lowestIdx) as i32,
             highestIdx: (highestIdx) as i32,
@@ -851,15 +880,13 @@ impl WillrStream {
     /// whatever it is given — a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
-    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
-    /// so two handles fed the same series stay positionally aligned even when
-    /// one rejects a bar the other accepts.
+    /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when
+    /// a corrected value arrives, or call [`Self::advance`] to count it and
+    /// carry on — two handles on one feed drift a bar apart if neither
+    /// happens.
     #[doc(alias = "TA_WILLR_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
@@ -868,44 +895,6 @@ impl WillrStream {
             self.out.count += 1;
         }
         Ok(outReal)
-    }
-
-    /// Commit `n` closed bars and write their `n` values, in one call —
-    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
-    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
-    /// hold at least that many. Never allocates.
-    ///
-    /// [`Self::out_range`] counts what this call took in, which is what makes the
-    /// rejection below readable: there is no second out-parameter for it.
-    ///
-    /// # Errors
-    ///
-    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
-    /// is shorter than the bar count — neither commits anything — or if a bar
-    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
-    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
-    /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k + 1` — the committed bars, plus the rejected one, which is counted
-    /// but never written.
-    #[doc(alias = "TA_WILLR_UpdateAndFill")]
-    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outReal: &mut [f64]) -> Result<(), RetCode> {
-        let barCount = inHigh.len();
-        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || outReal.len() < barCount {
-            return Err(RetCode::BadParam);
-        }
-        for i in 0..barCount {
-            if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
-                if self.out.count < Core::MAX_INDEX {
-                    self.out.count += 1;
-                }
-                return Err(RetCode::BadParam);
-            }
-            Core::willr_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outReal[i]);
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
-        }
-        Ok(())
     }
 
     /// Evaluate a forming bar without committing — bit-identical to what the
@@ -918,8 +907,7 @@ impl WillrStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies — but a rejected peek changes nothing at all, where a
-    /// rejected `update` still counts the bar in [`Self::out_range`].
+    /// `update` applies, and a rejected peek changes nothing at all.
     #[doc(alias = "TA_WILLR_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<f64, RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -930,7 +918,7 @@ impl WillrStream {
             let sp = &self.state;
             let outReal = &mut outReal;
             let mut tmp: f64 = 0.0_f64;
-            let mut diff = sp.diff;
+            let mut tempReal: f64 = 0.0_f64;
             let mut highest = sp.highest;
             let mut highestIdx = sp.highestIdx;
             let mut i = sp.i;
@@ -971,11 +959,9 @@ impl WillrStream {
                         lowest = tmp;
                     }
                 }
-                diff = (highest - lowest) / (0_f64 - 100.0);
             } else if tmp <= lowest {
                 lowestIdx = today;
                 lowest = tmp;
-                diff = (highest - lowest) / (0_f64 - 100.0);
             }
             // Set the highest high
             tmp = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(today & sp.xMask) as usize] } else { pkVal0 });
@@ -990,14 +976,19 @@ impl WillrStream {
                         highest = tmp;
                     }
                 }
-                diff = (highest - lowest) / (0_f64 - 100.0);
             } else if tmp >= highest {
                 highestIdx = today;
                 highest = tmp;
-                diff = (highest - lowest) / (0_f64 - 100.0);
             }
-            if diff != 0.0 {
-                (*outReal) = (highest - (if ((today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(today & sp.xMask) as usize] } else { pkVal2 })) / diff;
+            // Same rule, band and clamp as the block scan above.
+            if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
+                tempReal = (highest - (if ((today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(today & sp.xMask) as usize] } else { pkVal2 })) / (highest - lowest) * (0_f64 - 100.0);
+                if tempReal > 0.0 {
+                    tempReal = 0.0;
+                } else if tempReal < 0_f64 - 100.0 {
+                    tempReal = 0_f64 - 100.0;
+                }
+                (*outReal) = tempReal;
             } else {
                 (*outReal) = 0.0;
             }
@@ -1007,7 +998,7 @@ impl WillrStream {
 
     /// The value(s) at the last bar the stream counted — the bar
     /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
-    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// refreshed by every accepted `update`, and left
     /// alone by `peek`.
     ///
     /// A clone carries them verbatim, so a forked handle can be asked its
@@ -1022,14 +1013,28 @@ impl WillrStream {
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::WILLR`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
-    /// count — a bar rejected for being non-finite included, because it still
-    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
-    /// A plain `Open` hands back only the last value, a subset of this range,
-    /// because the caller chose not to take the fill.
-    #[doc(alias = "TA_StreamOutRange")]
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds
+    /// one to the count — a rejected one changes nothing, and neither does
+    /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
+    /// only the last value, a subset of this range, because the caller chose
+    /// not to take the fill.
+    #[doc(alias = "TA_WILLR_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
+    }
+
+    /// Count one bar this stream was not fed: [`Self::out_range`] advances by
+    /// one and nothing else moves — [`Self::value`] keeps answering the
+    /// previous output, which is this bar's output too.
+    ///
+    /// For a bar the caller leaves out: one an `update` rejected and that
+    /// will not be re-fed, or a session with no print. Without it two handles
+    /// on one feed drift a bar apart when only one of them skips.
+    #[doc(alias = "TA_WILLR_Advance")]
+    pub fn advance(&mut self) {
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
     }
 }
 

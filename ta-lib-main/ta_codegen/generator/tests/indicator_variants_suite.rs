@@ -665,7 +665,7 @@ fn rust_public_entry_orders_the_argument_contract() {
     }
 
     // Literal floors: derived ones move with whatever the scan happens to find.
-    assert!(scanned >= 170, "only {scanned} public entries scanned");
+    assert!(scanned >= 200, "only {scanned} public entries scanned");
     assert!(with_params >= 80, "only {with_params} carried optional parameters");
     assert!(inputs_checked >= 380, "only {inputs_checked} input bounds found");
     assert!(outputs_checked >= 190, "only {outputs_checked} output bounds found");
@@ -754,7 +754,7 @@ fn rust_binder_calls_the_public_tier() {
         "the binder's own output bound is back; there must be exactly one, and it \
          is the public tier's"
     );
-    assert!(called >= 170, "only {called} binder arms scanned");
+    assert!(called >= 200, "only {called} binder arms scanned");
     assert!(guarded >= 12, "only {guarded} multi-output arms carried a presence guard");
 }
 
@@ -960,7 +960,7 @@ fn rust_cross_calls_target_the_public_tier() {
     // and they are what makes this non-vacuous — `scanned` is incremented once
     // per corpus entry and could only disagree with the corpus by panicking
     // first, so it is these two that prove the sweep found anything at all.
-    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
     assert!(callers >= 14, "only {callers} composed indicators scanned");
     assert!(sites >= 39, "only {sites} cross-call sites scanned");
 }
@@ -1062,7 +1062,7 @@ fn an_answered_cross_call_guard_is_folded_in_every_ported_backend() {
     assert_eq!(dead, 0, "{dead} dead guards survived");
     // Literal floors. Without them an emitter that stopped assigning the literal
     // would read green on a corpus with nothing left to check.
-    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
     assert!(assigns >= 100, "only {assigns} success assignments seen — the sweep found nothing");
 }
 
@@ -1124,7 +1124,7 @@ fn deallocation_is_dropped_only_where_the_backend_has_none() {
     }
 
     assert_eq!(ported_inert, 0);
-    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
     // C keeps every one. Without this floor the whole test is satisfied by a
     // pass that ran on C too and freed nothing anywhere.
     assert!(c_guards >= 10, "only {c_guards} free() call(s) left in C — the cleanup reached c.rs");
@@ -1287,7 +1287,7 @@ fn a_cross_call_rejection_is_answered_before_its_result_is_used() {
             bad.join("; ")
         );
     }
-    assert!(scanned >= 176, "only {scanned} indicators in the corpus");
+    assert!(scanned >= 200, "only {scanned} indicators in the corpus");
     assert!(composed >= 10, "only {composed} composed indicators found — the sweep found nothing");
 }
 
@@ -1369,7 +1369,7 @@ fn test_c_rsi_guarded_has_validation() {
 // 5. Indicator-specific feature tests
 // ---------------------------------------------------------------------------
 
-// --- RSI: unstable period + compatibility ---
+// --- RSI: unstable period ---
 
 #[test]
 fn test_rsi_c_unstable_period() {
@@ -1379,10 +1379,6 @@ fn test_rsi_c_unstable_period() {
     assert!(
         out.c.contains("TA_GLOBALS_UNSTABLE_PERIOD"),
         "C RSI should use TA_GLOBALS_UNSTABLE_PERIOD"
-    );
-    assert!(
-        out.c.contains("TA_GLOBALS_COMPATIBILITY"),
-        "C RSI should use TA_GLOBALS_COMPATIBILITY"
     );
 }
 
@@ -1430,31 +1426,6 @@ fn test_rsi_java_unstable_period() {
         out.java.contains("this.unstablePeriod"),
         "Java RSI should reference this.unstablePeriod"
     );
-}
-
-/// Java pins compatibility to Default and carries no such field, so the branches
-/// are constant-folded at render time. RSI is the witness: its lookback has a
-/// bare `== METASTOCK` test and its body a compound
-/// `unstablePeriod == 0 && ... == METASTOCK` one, and both arms are dead here.
-///
-/// C renders the same IR and must keep both arms — that contrast is what makes
-/// this non-vacuous (an empty Java body would satisfy the first assert alone).
-#[test]
-fn java_compatibility_is_folded_away() {
-    for name in ["rsi", "cmo", "ema", "dema", "tema", "trix", "macd", "macdfix"] {
-        let (func, enums) = load_indicator(name);
-        let out = generate_all(&func, &enums);
-
-        assert!(
-            !out.java.contains("compatibility ==") && !out.java.contains("Compatibility."),
-            "Java {name} must not reference the compatibility field — it is folded away"
-        );
-        assert!(
-            out.c.contains("TA_GLOBALS_COMPATIBILITY"),
-            "C {name} must keep both compatibility arms (proves the Java fold is \
-             a backend choice, not an empty input)"
-        );
-    }
 }
 
 // --- EMA: unstable period + ARRAY_COPY ---
@@ -1582,7 +1553,7 @@ fn test_mult_simplicity() {
         "C MULT should reference both input arrays"
     );
 
-    // No unstable period, no COMPATIBILITY
+    // No unstable period
     assert!(
         !out.c.contains("UNSTABLE_PERIOD"),
         "C MULT should NOT use UNSTABLE_PERIOD"

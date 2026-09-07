@@ -291,8 +291,7 @@ TA_RetCode TA_S_VWMA( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_VWMA_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_VWMA_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_VWMA_Value). */
@@ -386,7 +385,12 @@ static TA_RetCode TA_VWMA_OpenImpl( struct TA_VWMA_Stream **stream, const double
    {
       int fillLb = TA_VWMA_Lookback( optInTimePeriod );
       if( startIdx > fillLb ) fillLb = startIdx;
-      if( historyLen < fillLb + 1 ) return TA_INSUFFICIENT_HISTORY;
+      if( historyLen < fillLb + 1 )
+      {
+         *outBegIdx = 0;
+         *outNBElement = 0;
+         return TA_INSUFFICIENT_HISTORY;
+      }
       sp = (struct TA_VWMA_Stream *)TA_Malloc( sizeof(*sp) );
       if( !sp ) { return TA_ALLOC_ERR; }
       memset( sp, 0, sizeof(*sp) );
@@ -575,11 +579,7 @@ TA_RetCode TA_VWMA_OpenAndFillInternal( struct TA_VWMA_Stream **stream, const do
 TA_LIB_API TA_RetCode TA_VWMA_Update( TA_VWMA_Stream *stream, double inReal, double inVolume, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) || !TA_IS_FINITE( inVolume ) ) return TA_BAD_PARAM;
    TA_VWMA_StepImpl( stream, inReal, inVolume, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -637,26 +637,6 @@ TA_LIB_API TA_RetCode TA_VWMA_Peek( const TA_VWMA_Stream *stream, double inReal,
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_VWMA_UpdateAndFill( TA_VWMA_Stream *stream, const double inReal[], const double inVolume[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !inVolume || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal || (const void *)outReal == (const void *)inVolume ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) || !TA_IS_FINITE( inVolume[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_VWMA_StepImpl( stream, inReal[i], inVolume[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_VWMA_Close( TA_VWMA_Stream *stream )
 {
    TA_VWMA_ReleaseImpl( stream );
@@ -667,6 +647,21 @@ TA_LIB_API TA_RetCode TA_VWMA_Value( const TA_VWMA_Stream *stream, double *outRe
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_VWMA_OutRange( const TA_VWMA_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_VWMA_Advance( TA_VWMA_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

@@ -94,16 +94,14 @@ fn attrs_above(src: &str, sig: &str) -> Vec<String> {
 }
 
 /// Per function: the set of C symbols its generated Rust must name, and nothing
-/// else. `TA_StreamOutRange` is the one shared spelling — a handle's `out_range`
-/// is the same C entry point for every function.
+/// else.
 fn expected(func: &ir::FuncDef) -> BTreeSet<String> {
     let n = &func.name;
     let mut want: BTreeSet<String> = [format!("TA_{n}"), format!("TA_{n}_Lookback")].into();
     if func.streaming {
-        for verb in ["Stream", "Open", "OpenAndFill", "Update", "UpdateAndFill", "Peek", "Value"] {
+        for verb in ["Stream", "Open", "OpenAndFill", "Update", "Peek", "Value", "OutRange", "Advance"] {
             want.insert(format!("TA_{n}_{verb}"));
         }
-        want.insert("TA_StreamOutRange".to_string());
     }
     want
 }
@@ -111,7 +109,7 @@ fn expected(func: &ir::FuncDef) -> BTreeSet<String> {
 #[test]
 fn every_rust_function_names_exactly_its_own_c_symbols() {
     let names = indicators();
-    assert!(names.len() > 170, "expected the whole input tree, got {}", names.len());
+    assert!(names.len() >= 200, "expected the whole input tree, got {}", names.len());
 
     let (mut streamed, mut total) = (0usize, 0usize);
     for name in &names {
@@ -134,7 +132,7 @@ fn every_rust_function_names_exactly_its_own_c_symbols() {
 
     // Floors, so an emitter that stopped writing aliases altogether cannot make
     // this pass by making every expected set empty.
-    assert!(streamed > 170, "expected a streaming tier on nearly every function, got {streamed}");
+    assert!(streamed >= 200, "expected a streaming tier on nearly every function, got {streamed}");
     assert!(total > 1700, "too few C-symbol aliases across the corpus: {total}");
 }
 
@@ -155,5 +153,21 @@ fn the_batch_and_lookback_aliases_sit_on_the_functions_they_name() {
             lb.contains(&format!("#[doc(alias = \"TA_{n}_Lookback\")]")),
             "{name}: the lookback does not carry TA_{n}_Lookback; attrs were {lb:?}"
         );
+
+        // The two range accessors, per handle since #387. Set membership above
+        // cannot see which method an alias sits on.
+        if func.streaming {
+            let or = attrs_above(&src, "pub fn out_range(");
+            assert!(
+                or.contains(&format!("#[doc(alias = \"TA_{n}_OutRange\")]")),
+                "{name}: out_range does not carry TA_{n}_OutRange; attrs were {or:?}"
+            );
+
+            let adv = attrs_above(&src, "pub fn advance(");
+            assert!(
+                adv.contains(&format!("#[doc(alias = \"TA_{n}_Advance\")]")),
+                "{name}: advance does not carry TA_{n}_Advance; attrs were {adv:?}"
+            );
+        }
     }
 }

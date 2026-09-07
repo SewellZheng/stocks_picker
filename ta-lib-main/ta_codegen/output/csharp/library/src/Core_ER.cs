@@ -119,16 +119,19 @@ public partial class Core
        *
        *   ER[t] = |c[t] - c[t-P]| / SUM(k = t-P+1 .. t) |c[k] - c[k-1]|
        *
+       * The ratio is in [0,1] in exact arithmetic, but sumROC1 drifts, so the
+       * clamp to 1.0 is what makes the declared range a bound rather than a
+       * hope -- and in kama.c what keeps its recurrence a convex combination.
+       *
        * This is a lift of TA_KAMA's inner efficiency ratio (kama.c) so the
        * two stay bit-identical -- the KAMA-reconstruction differential in
-       * test_composite2.c exists to keep it that way. Two guards are
+       * test_composite2.c exists to keep it that way. Three more guards are
        * load-bearing and shared with kama.c:
        *
        *   - `sumROC1 <= periodROC` pins the ratio to exactly 1.0 where FP
-       *     would give 1.0000000000000002. The comparison is against the
-       *     SIGNED numerator, so it only fires on up-moves; on sustained
-       *     declines the raw fabs ratio can exceed 1.0 by a few ULP. Do NOT
-       *     "fix" this with fabs -- it changes TA_KAMA's output.
+       *     would give 1.0000000000000002, on up-moves. It compares against
+       *     the SIGNED numerator, so it is false for every down move: it
+       *     bounds nothing on its own, which is what the clamp is for.
        *   - a genuinely flat window is recognized by COUNTING exactly-zero
        *     one-bar changes (nullRun >= P forces sumROC1 to 0.0, purging the
        *     running sum's rounding residue), after which `0 <= 0` pins the
@@ -137,16 +140,10 @@ public partial class Core
        *     gate (ER is homogeneous of degree 0, and a fixed 1e-14 met a
        *     price-carrying sum).
        *
-       * A third guard is this function's own, and the one thing kama.c has
-       * no equivalent of: the division runs only where sumROC1 is exactly
-       * positive. The clamp above cannot serve as the denominator test,
-       * because it compares against the SIGNED numerator and so is false for
-       * every down move -- and a subtract-then-add sum can reach 0.0, or
-       * below it, on a window that is not flat, when a term absorbed on the
-       * way in is subtracted later at full precision. Without the guard those
-       * bars divide by zero. Where it fires, this function answers 1.0 and
-       * kama.c's inner ratio does not; no window the KAMA differential covers
-       * reaches it.
+       * The third is the denominator test (#385): a subtract-then-add sum can
+       * reach 0.0, or below it, on a window that is not flat. The clamp
+       * subsumes it numerically, so it is held by the structural sweep over
+       * divisors, not by any value test.
        *
        * The subtract-then-add update order matches TA_SUM's recurrence,
        * which is what makes the composite differential bit-exact. The
@@ -195,7 +192,11 @@ public partial class Core
       if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          outReal[0] = 1.0;
       } else {
-         outReal[0] = Math.Abs(periodROC / sumROC1);
+         tempReal = Math.Abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         outReal[0] = tempReal;
       }
       outIdx = 1;
       today += 1;
@@ -227,7 +228,11 @@ public partial class Core
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++] = 1.0;
          } else {
-            outReal[outIdx++] = Math.Abs(periodROC / sumROC1);
+            tempReal = Math.Abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            outReal[outIdx++] = tempReal;
          }
          today += 1;
       }
@@ -298,7 +303,11 @@ public partial class Core
       if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          outReal[0] = 1.0;
       } else {
-         outReal[0] = Math.Abs(periodROC / sumROC1);
+         tempReal = Math.Abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         outReal[0] = tempReal;
       }
       outIdx = 1;
       today += 1;
@@ -321,7 +330,11 @@ public partial class Core
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++] = 1.0;
          } else {
-            outReal[outIdx++] = Math.Abs(periodROC / sumROC1);
+            tempReal = Math.Abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            outReal[outIdx++] = tempReal;
          }
          today += 1;
       }
@@ -343,7 +356,7 @@ public partial class Core
    /// <code>
    /// `ER[t] = |close[t] − close[t−P]| / Σ |close[k] − close[k−1]|` over the same `P` bars.
    /// Two guards, both shared with `KAMA`: a ratio that floating point would nudge just above 1.0 on a straight-line advance is pinned to exactly 1.0, and a dead-flat window (0/0) also reports 1.0 — a flat market therefore reads as "perfectly efficient", which is `KAMA`'s own convention and what keeps the two reconstructible from each other.
-   /// The clamp compares against the *signed* net move, so it only fires on advances: on sustained declines the output may exceed 1.0 by a few ULP. The range is "0..1, may exceed 1 by a few ULP on sustained declines", not a hard bound.
+   /// The output is a hard 0..1 — the net move can never exceed the path travelled.
    /// TC2000 documents a signed ×100 variant (−100..+100); the absolute 0..1 form here is the author's, StockCharts', LEAN's, backtrader's and pandas-ta's.
    /// </code>
    /// <list type="bullet">
@@ -413,7 +426,7 @@ public partial class Core
    /// <code>
    /// `ER[t] = |close[t] − close[t−P]| / Σ |close[k] − close[k−1]|` over the same `P` bars.
    /// Two guards, both shared with `KAMA`: a ratio that floating point would nudge just above 1.0 on a straight-line advance is pinned to exactly 1.0, and a dead-flat window (0/0) also reports 1.0 — a flat market therefore reads as "perfectly efficient", which is `KAMA`'s own convention and what keeps the two reconstructible from each other.
-   /// The clamp compares against the *signed* net move, so it only fires on advances: on sustained declines the output may exceed 1.0 by a few ULP. The range is "0..1, may exceed 1 by a few ULP on sustained declines", not a hard bound.
+   /// The output is a hard 0..1 — the net move can never exceed the path travelled.
    /// TC2000 documents a signed ×100 variant (−100..+100); the absolute 0..1 form here is the author's, StockCharts', LEAN's, backtrader's and pandas-ta's.
    /// </code>
    /// <list type="bullet">
@@ -514,13 +527,26 @@ public partial class Core
       /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Er</c> reports over the same bars: the opener sets it
-      /// to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds one
-      /// to the count — a non-finite bar is rejected but still counted, because the
-      /// bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries it
-      /// verbatim. A plain <c>Open</c> hands back only the last value, a subset of
-      /// this range, because the caller chose not to take the fill.</para>
+      /// to <c>(lookback, historyLen - lookback)</c>, every accepted <c>Update</c>
+      /// adds one to the count — a rejected one changes nothing, and neither does
+      /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
+      /// hands back only the last value, a subset of this range, because the caller
+      /// chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
+
+      /// <summary>Count one bar this stream was not fed: <see cref="OutRange"/> advances by
+      /// one and nothing else moves.</summary>
+      /// <remarks>
+      /// <para><see cref="Value"/> keeps answering the previous output, which is this
+      /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
+      /// rejected and that will not be re-fed, or a session with no print. Without
+      /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// </remarks>
+      public void Advance()
+      {
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+      }
 
       internal ErStream( ErStream other )
       {
@@ -544,24 +570,19 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so no state moves, <see cref="Value"/> still answers the previous value,
-      /// and the stream stays usable — just carry on with the next bar.
-      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
-      /// which keeps two handles fed the same series positionally aligned when only
-      /// one of them rejects a bar. This is the one place the streaming tier is
-      /// stricter than the batch API, which computes on whatever it is given: a
-      /// handle retains its state, so a single non-finite bar would poison every
-      /// later value it produces.</para>
+      /// so nothing moves — <see cref="OutRange"/> included — and
+      /// <see cref="Value"/> still answers the previous value. Re-feed the bar when
+      /// a corrected value arrives, or call <see cref="Advance"/> to count it and
+      /// carry on; two handles on one feed drift a bar apart if neither happens.
+      /// This is the one place the streaming tier is stricter than the batch API,
+      /// which computes on whatever it is given: a handle retains its state, so a
+      /// single non-finite bar would poison every later value it produces.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
-         if( !double.IsFinite(inReal) )
-         {
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-            throw Core.StreamFailure("ER", "update", RetCode.BadParam);
-         }
+         if( !double.IsFinite(inReal) ) throw Core.StreamFailure("ER", "update", RetCode.BadParam);
          core.ErStepImpl(this, inReal);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -623,41 +644,13 @@ public partial class Core
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             cur_outReal = 1.0;
          } else {
-            cur_outReal = Math.Abs(periodROC / sumROC1);
+            tempReal = Math.Abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            cur_outReal = tempReal;
          }
          return cur_outReal;
-      }
-
-      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
-      /// <remarks>
-      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
-      /// argument checks instead of <c>n</c>. The outputs must hold at least
-      /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
-      /// a rejection readable: a non-finite bar <c>k</c> throws
-      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
-      /// and everything after it not written, and the count advanced by <c>k +
-      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
-      /// is the one that failed.</para>
-      /// </remarks>
-      /// <param name="inReal">Closed bars for <c>inReal</c>, oldest first.</param>
-      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
-      public void UpdateAndFill( ReadOnlySpan<double> inReal, Span<double> outReal )
-      {
-         int barCount = inReal.Length;
-         if( outReal.Length < barCount || outReal.Overlaps(inReal) ) throw Core.StreamFailure("ER", "updateAndFill", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ )
-         {
-            if( !double.IsFinite(inReal[i]) )
-            {
-               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-               throw Core.StreamFailure("ER", "updateAndFill", RetCode.BadParam);
-            }
-            core.ErStepImpl(this, inReal[i]);
-            outReal[i] = cur_outReal;
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-         }
       }
 
       /// <summary>The value at the last bar this stream counted — the bar
@@ -712,7 +705,11 @@ public partial class Core
       if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
          sp.cur_outReal = 1.0;
       } else {
-         sp.cur_outReal = Math.Abs(periodROC / sp.sumROC1);
+         tempReal = Math.Abs(periodROC / sp.sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         sp.cur_outReal = tempReal;
       }
       sp.lag1_inReal = inReal;
       sp.ring_trailingIdx_inReal[sp.ringPos_trailingIdx] = inReal;
@@ -761,16 +758,19 @@ public partial class Core
        *
        *   ER[t] = |c[t] - c[t-P]| / SUM(k = t-P+1 .. t) |c[k] - c[k-1]|
        *
+       * The ratio is in [0,1] in exact arithmetic, but sumROC1 drifts, so the
+       * clamp to 1.0 is what makes the declared range a bound rather than a
+       * hope -- and in kama.c what keeps its recurrence a convex combination.
+       *
        * This is a lift of TA_KAMA's inner efficiency ratio (kama.c) so the
        * two stay bit-identical -- the KAMA-reconstruction differential in
-       * test_composite2.c exists to keep it that way. Two guards are
+       * test_composite2.c exists to keep it that way. Three more guards are
        * load-bearing and shared with kama.c:
        *
        *   - `sumROC1 <= periodROC` pins the ratio to exactly 1.0 where FP
-       *     would give 1.0000000000000002. The comparison is against the
-       *     SIGNED numerator, so it only fires on up-moves; on sustained
-       *     declines the raw fabs ratio can exceed 1.0 by a few ULP. Do NOT
-       *     "fix" this with fabs -- it changes TA_KAMA's output.
+       *     would give 1.0000000000000002, on up-moves. It compares against
+       *     the SIGNED numerator, so it is false for every down move: it
+       *     bounds nothing on its own, which is what the clamp is for.
        *   - a genuinely flat window is recognized by COUNTING exactly-zero
        *     one-bar changes (nullRun >= P forces sumROC1 to 0.0, purging the
        *     running sum's rounding residue), after which `0 <= 0` pins the
@@ -779,16 +779,10 @@ public partial class Core
        *     gate (ER is homogeneous of degree 0, and a fixed 1e-14 met a
        *     price-carrying sum).
        *
-       * A third guard is this function's own, and the one thing kama.c has
-       * no equivalent of: the division runs only where sumROC1 is exactly
-       * positive. The clamp above cannot serve as the denominator test,
-       * because it compares against the SIGNED numerator and so is false for
-       * every down move -- and a subtract-then-add sum can reach 0.0, or
-       * below it, on a window that is not flat, when a term absorbed on the
-       * way in is subtracted later at full precision. Without the guard those
-       * bars divide by zero. Where it fires, this function answers 1.0 and
-       * kama.c's inner ratio does not; no window the KAMA differential covers
-       * reaches it.
+       * The third is the denominator test (#385): a subtract-then-add sum can
+       * reach 0.0, or below it, on a window that is not flat. The clamp
+       * subsumes it numerically, so it is held by the structural sweep over
+       * divisors, not by any value test.
        *
        * The subtract-then-add update order matches TA_SUM's recurrence,
        * which is what makes the composite differential bit-exact. The
@@ -837,7 +831,11 @@ public partial class Core
       if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          outReal[0 * outStride] = 1.0;
       } else {
-         outReal[0 * outStride] = Math.Abs(periodROC / sumROC1);
+         tempReal = Math.Abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
+         outReal[0 * outStride] = tempReal;
       }
       outIdx = 1;
       today += 1;
@@ -869,7 +867,11 @@ public partial class Core
          if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             outReal[outIdx++ * outStride] = 1.0;
          } else {
-            outReal[outIdx++ * outStride] = Math.Abs(periodROC / sumROC1);
+            tempReal = Math.Abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
+            outReal[outIdx++ * outStride] = tempReal;
          }
          today += 1;
       }

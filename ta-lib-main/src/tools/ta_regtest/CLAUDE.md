@@ -300,7 +300,7 @@ cd ../bin && ./ta_regtest --codegen --language=c,rust --function=SMA,RSI
 
 ## `stream_verify` — what each leg family can and cannot see
 
-One request drives eight families against one seeded series. They are not
+One request drives seven families against one seeded series. They are not
 interchangeable, and the coverage they add is very uneven:
 
 | family | what it compares | blind to |
@@ -320,13 +320,12 @@ of floors: every streaming function must report a non-zero `peek_reps`, and
 refusals outnumbering completed probes on one request is a failure of its own.
 
 | **state equivalence** | the whole handle after `Open(P)` + `n-P` updates vs the handle after `Open(n)` | a defect present in BOTH tiers |
-| `UpdateAndFill` | `Open(P)` then ONE call over the tail, every value vs batch, plus canary slack and the rejections each backend can express (aliased or overlapping output, an output shorter than the run, a negative count, a zero-bar no-op) | what every value family is blind to — whether the handle knows how many bars it has consumed |
-| **range** | the handle's `OutRange` against the batch range, at four sites: the `OpenAndFill` handle, `Open(P)` + updates, `Open(P)` + one `UpdateAndFill`, and the anchored `OpenInternal` | an anchor the history does not reach — every site keeps `lb < Sidx < svN - 1`, so the post-clamp history re-check is pinned in the generator instead |
+| **range** | the handle's `OutRange` against the batch range, at five sites: the `OpenAndFill` handle, `Open(P)` + updates, the anchored `OpenInternal`, the forked handle, and the same prefix handle after one `Advance` (which must report exactly one more) | an anchor the history does not reach — every site keeps `lb < Sidx < svN - 1`, so the post-clamp history re-check is pinned in the generator instead |
 
-Of the six value families, three delegate to the batch transcription and two are
-same-tier: the prefix sweep's Update loop and the n-bar filler are the only
-things looking at the streaming step against a batch reference, and both can
-only report a difference the **output** shows.
+Of the five value families, two delegate to the batch transcription — the
+`OpenAndFill` and anchored `OpenInternal` legs — leaving the prefix sweep's
+Update loop as the only one looking at the streaming step against a batch
+reference, and it can only report a difference the **output** shows.
 
 For a candlestick the output is a 3-valued integer, so an arithmetic error in a
 `<Setting>PeriodTotal` is invisible until it crosses a decision threshold.
@@ -341,13 +340,14 @@ The **range** leg is the odd one out twice over: the only family that is neither
 C-only nor a value comparison — it compares a number pair, so it sees what every
 value leg is structurally blind to — and the first with a per-SITE ratchet rather
 than a total. Each server reports which of its own sites fired (`range_sites`)
-and how many it has (`range_sites_n`); the driver ORs the mask across the run and
-demands every bit, because a total cannot see one site of three stop. Rust
-declares two sites: its server is a separate crate and cannot reach the
-`pub(crate)` `_OpenInternal` seam, so it says so rather than pretending.
-`sv_range_sites_mask_matches_the_declared_count` checks mask against count on
-emitted text, since a site added without bumping the count, or one reusing
-another's bit, leaves a full mask at run time and fails open.
+and which set it has (`range_sites_all`); the driver ORs the mask across the run
+and demands every bit, because a total cannot see one site of five stop. Rust
+declares four: its server is a separate crate and cannot reach the `pub(crate)`
+`_OpenInternal` seam, so it says so rather than pretending.
+`sv_range_sites_mask_matches_the_declared_set` checks the bits a server ORs in
+against the set it declares, on emitted text, since a site added without joining
+the set, or one reusing another's bit, leaves a full mask at run time and fails
+open.
 
 **Why it holds bit-for-bit.** `Update` is the transcribed batch loop body, so
 both routes execute the identical operation sequence over the identical bars, and
@@ -511,10 +511,9 @@ value, sample index, and the pinned retCode/outBegIdx/outNbElement. A
 regeneration must not lose two things: integer periods are never 1 (period-1 is
 the intentional v0.6.4 divergence and belongs to the PERIOD1/BOUNDARY group) and
 MAType never exceeds 8 (9+ post-date the freeze). The group also establishes the
-state it needs rather than inheriting it — `DO_TEST` resets compatibility between
-groups but not unstable periods or candle settings, and earlier groups change
-both — zeroing every unstable period and restoring the candle defaults, then
-putting both back.
+state it needs rather than inheriting it — `DO_TEST` resets neither unstable
+periods nor candle settings, and earlier groups change both — zeroing every
+unstable period and restoring the candle defaults, then putting both back.
 
 **At re-freeze:** regenerate against the new reference and delete every
 `LEGACY_TOL` row; both divergence causes are specific to v0.6.4. The libm floors
@@ -546,7 +545,8 @@ Scope rules (deliberate):
 
 - **period == 1 is out of scope** — 0.6.4 rejects it or has period-1 OOB bugs —
   so periods are floored at 2 and period-1 is validated by the non-0.6.4
-  comparisons. At period ≥ 2 there are **no waivers**.
+  comparisons. At period ≥ 2 there is **no blanket slack**: every exemption is
+  a manifest tolerance or a named skip.
 - **Subset tolerance is 0.6.4-only:** post-0.6.4 functions are skipped via
   `ta_064_serve`'s `list_functions`. Any non-0.6.4 comparison must instead
   require an exact function-set match.
@@ -571,6 +571,16 @@ Scope rules (deliberate):
   index or it does not. The new behaviour is pinned separately by `test_mfi.c`
   against two external oracles plus a bit-identity sweep over power-of-two volume
   scales. Reported as `mfi-skipped:`.
+- **KAMA per-case skip:** v0.6.4's efficiency ratio is decided by its running
+  sum's residue rather than by the window — on a flat window (#253), and where
+  absorption puts that residue at the scale of the window's own sum, which sends
+  v0.6.4's ratio outside [0,1] (#390). Gated on `fuzz_kama_064_blind()`, whose
+  predicate is computed from the inputs alone; the mechanism is stated there.
+  KAMA has no manifest entry, so every other case is held to the blanket 1e-9
+  FMA re-baseline bound, which is what absorbs the ULP-scale ratio changes the
+  clamp introduces; the skip covers only what leaves that bound. The same skip
+  drops the STOCH/STOCHF vectors that smooth with `MAType=KAMA`, whose
+  Fast-K series this gate cannot examine. Reported as `kama-skipped:`.
 - The oracle is reopened and retried once if it dies, so one latent 0.6.4 crash
   cannot sink the run.
 
@@ -683,13 +693,6 @@ server == expected".
   handler (`TA_<name>`, not `abstract_call`) with an FNV-1a of the raw GUARDED
   output bytes. C's per-function handler is `#ifndef TA_REF_SERVE`-guarded, its
   `fuzz_hash_*` living in `fuzz_data.h`, absent from the frozen `ta_ref_serve`.
-- **Metastock legs are C-only, permanently.** A hand-written test running under
-  non-default compatibility is skipped for Rust, Java and C# by design:
-  `TA_SetCompatibility` is deprecated in C and the ported backends expose no
-  equivalent, so there is no second implementation to compare against.
-  `codegen_lang_has_compatibility_api` is the single place that says so, and
-  closing this "gap" would mean implementing a deprecated feature in three
-  backends so that a test could verify it.
 - **Tolerance rule.** Bitwise for C ⇄ Rust (same system libm as the golden). Java
   and C# are bitwise for pure arithmetic and IEEE ops (SQRT/CEIL/FLOOR included)
   and take `CODEGEN_TRANSCENDENTAL_TOL` (1e-9, against measured drift

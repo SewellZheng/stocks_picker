@@ -155,16 +155,10 @@ fn test_java_sma_ring_stream_section() {
 }
 
 #[test]
-fn test_java_ema_derived_state_and_compat() {
+fn test_java_ema_derived_state() {
     let s = java_stream_section("ema");
     // The k factor is captured state, computed after default substitution.
     assert!(s.contains("double optInK_1;"));
-    assert!(s.contains("sp.optInK_1 = optInK_1;"));
-    // Compatibility is pinned to Default in Java and folded away at render
-    // time, so the open carries the Default arm inline with no branch left.
-    assert!(!s.contains("compatibility"), "no compatibility reference survives the fold");
-    assert!(!s.contains("Compatibility."), "no Compatibility enum reference survives the fold");
-    // Non-vacuity: the Default arm's body is what remains.
     assert!(s.contains("sp.optInK_1 = optInK_1;"));
 }
 
@@ -950,7 +944,7 @@ fn no_java_peek_copies_the_handle() {
             fully_shadowed.insert(name.clone());
         }
     }
-    assert!(swept > 170, "only {swept} peek(s) swept");
+    assert!(swept >= 200, "only {swept} peek(s) swept");
     assert_eq!(frames, swept, "{frames} of {swept} peek(s) run a frame");
     assert!(writes >= 500, "only {writes} local writes seen — the store sweep found nothing");
     assert!(

@@ -755,8 +755,7 @@ TA_RetCode TA_S_HT_PHASOR( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_HT_PHASOR_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_HT_PHASOR_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_HT_PHASOR_Value). */
@@ -1461,11 +1460,7 @@ TA_RetCode TA_HT_PHASOR_OpenAndFillInternal( struct TA_HT_PHASOR_Stream **stream
 TA_LIB_API TA_RetCode TA_HT_PHASOR_Update( TA_HT_PHASOR_Stream *stream, double inReal, double *outInPhase, double *outQuadrature )
 {
    if( !stream || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_HT_PHASOR_StepImpl( stream, inReal, outInPhase, outQuadrature );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -1603,26 +1598,6 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Peek( const TA_HT_PHASOR_Stream *stream, doub
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_HT_PHASOR_UpdateAndFill( TA_HT_PHASOR_Stream *stream, const double inReal[], int barCount, double outInPhase[], double outQuadrature[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outInPhase == (const void *)inReal || (const void *)outQuadrature == (const void *)inReal || (const void *)outInPhase == (const void *)outQuadrature ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_HT_PHASOR_StepImpl( stream, inReal[i], &outInPhase[i], &outQuadrature[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_HT_PHASOR_Close( TA_HT_PHASOR_Stream *stream )
 {
    TA_HT_PHASOR_ReleaseImpl( stream );
@@ -1634,6 +1609,21 @@ TA_LIB_API TA_RetCode TA_HT_PHASOR_Value( const TA_HT_PHASOR_Stream *stream, dou
    if( !stream || !outInPhase || !outQuadrature ) return TA_BAD_PARAM;
    *outInPhase = stream->cur_outInPhase;
    *outQuadrature = stream->cur_outQuadrature;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_PHASOR_OutRange( const TA_HT_PHASOR_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_HT_PHASOR_Advance( TA_HT_PHASOR_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

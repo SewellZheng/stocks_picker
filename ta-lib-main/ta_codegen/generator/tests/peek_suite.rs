@@ -105,9 +105,15 @@ fn handle_buffers(src: &str, upper: &str) -> BTreeSet<String> {
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
             continue;
         }
-        // A sub-stream handle is a pointer too, and peek routes into it by
-        // calling its own Peek — it is not a buffer this frame indexes.
-        if ty.contains("_Stream") {
+        // A real data buffer is always `double *` or `int *` in this corpus —
+        // an allowlist, not a denylist, so a pointer this doesn't recognize is
+        // excluded rather than silently swept in as a buffer. That is what a
+        // sub-stream handle is too (a `_Stream *`, or the Dispatch tier's one
+        // `void *sub`, type-erased and tagged by optInMAType): peek routes into
+        // it by calling its own Peek, and Clone by calling its own Clone —
+        // neither treats it as a buffer this frame indexes or memcpy's.
+        let ty = ty.trim();
+        if ty != "double" && ty != "int" {
             continue;
         }
         out.insert(name.to_string());
@@ -201,7 +207,7 @@ fn a_peek_frame_stores_into_no_handle_buffer() {
         }
     }
 
-    assert!(peek_frames > 170, "only {peek_frames} peek entry points swept");
+    assert!(peek_frames >= 200, "only {peek_frames} peek entry points swept");
     assert!(
         buffers_seen > 150,
         "only {buffers_seen} handle buffer(s) found across the corpus, so the store scan \
@@ -685,7 +691,7 @@ fn no_c_peek_copies_the_handle() {
             }
         }
     }
-    assert!(swept > 170, "only {swept} peek(s) swept");
+    assert!(swept >= 200, "only {swept} peek(s) swept");
     assert_eq!(
         frames + dispatchers + stateless,
         swept,
@@ -790,7 +796,7 @@ fn no_peek_frame_reads_a_field_it_has_bound() {
             reads += l.matches("sp->").count();
         }
     }
-    assert!(swept > 170, "only {swept} peek(s) swept");
+    assert!(swept >= 200, "only {swept} peek(s) swept");
     assert!(
         reads > 700 && binds > 400,
         "{reads} `sp->` read(s) over {binds} that name a bound local — too few for this \
@@ -828,7 +834,7 @@ fn a_fused_peek_carries_the_fma_multiversion_attribute() {
     }
 
     assert!(drifted.is_empty(), "TA_FMA_MULTIVERSION drifted from the fused peeks: {drifted:?}");
-    assert!(peeks > 170, "only {peeks} peek frame(s) rendered -- the signature moved");
+    assert!(peeks >= 200, "only {peeks} peek frame(s) rendered -- the signature moved");
     assert!(fused > 0, "no peek fuses, so this sweep proved nothing");
     assert_eq!(fused, attributed, "{fused} fused peek(s) but {attributed} attributed");
 }
@@ -1003,7 +1009,7 @@ fn no_tier_carries_a_peek_mirror_or_a_routing_flag() {
             func.name
         );
     }
-    assert!(swept > 170, "only {swept} function(s) examined");
+    assert!(swept >= 200, "only {swept} function(s) examined");
 }
 
 /// SMA is the whole mechanism in one function: the degenerate `cap == 0` store
@@ -1217,7 +1223,7 @@ fn a_peek_frame_stops_at_its_last_output_store() {
     }
 
     assert!(offenders.is_empty(), "{}", offenders.join("\n"));
-    assert!(swept > 170, "only {swept} peek frame(s) examined");
+    assert!(swept >= 200, "only {swept} peek frame(s) examined");
     assert!(phasor_seen, "HT_PHASOR was not swept, so its pin did not run");
     for (k, (mark, floor)) in tail_marks.iter().enumerate() {
         assert!(
@@ -1319,6 +1325,65 @@ fn no_peek_frame_declares_a_local_nothing_reads() {
         offenders.is_empty(),
         "a peek frame computes into a local nothing reads, so the trim orphaned it and \
          nothing purged it ({} local(s)):\n{}",
+        offenders.len(),
+        offenders.join("\n")
+    );
+}
+
+/// #386 (Clone had no generator-side gate): every heap buffer a handle owns
+/// (`handle_buffers`, the same struct-derived inventory the peek gates above
+/// use) must be named somewhere in `TA_<N>_Clone`'s body, or a fork shares
+/// that buffer with its source instead of duplicating it -- silent
+/// corruption the moment either handle advances, since Update on one
+/// handle then mutates memory the other reads.
+#[test]
+fn every_handle_buffer_is_duplicated_by_clone() {
+    let (mut swept, mut buffers_checked) = (0usize, 0usize);
+    let mut offenders: Vec<String> = Vec::new();
+
+    for name in indicators() {
+        let Some((func, enums)) = load(&name) else { continue };
+        let src = stream_c(&func, &enums);
+        let upper = func.name.to_uppercase();
+        let buffers = handle_buffers(&src, &upper);
+        if buffers.is_empty() {
+            continue;
+        }
+        swept += 1;
+        let Some(clone_body) = body_of(&src, &format!("TA_{upper}_Clone(")) else {
+            offenders.push(format!("{upper}: owns buffers but emits no Clone"));
+            continue;
+        };
+        for buf in &buffers {
+            buffers_checked += 1;
+            // Not just "mentioned" -- actually memcpy'd from the source into the
+            // fork's own allocation, not just assigned or nulled. Matched per
+            // LINE rather than as one fixed-spacing literal, so a reformat of
+            // the emitter's call layout (space after `(`, before `,`, ...)
+            // cannot make every buffer in the corpus a false offender. The
+            // trailing `,` is load-bearing, not decorative: without it a
+            // buffer whose name is a PREFIX of a sibling's (`ring` vs `ring2`)
+            // would read `sp->ring2,`'s line as proof `ring` was copied too.
+            let copied = clone_body.lines().any(|line| {
+                line.contains("memcpy(")
+                    && line.contains(&format!("sp->{buf},"))
+                    && line.contains(&format!("stream->{buf},"))
+            });
+            if !copied {
+                offenders.push(format!("{upper}: Clone never memcpy's `{buf}` from the source"));
+            }
+        }
+    }
+
+    assert!(
+        swept > 100 && buffers_checked > 150,
+        "{swept} buffer-owning handle(s) over {buffers_checked} buffer(s) -- too few for this \
+         to be measuring anything"
+    );
+    assert!(
+        offenders.is_empty(),
+        "Clone omits a buffer its handle owns, so a fork shares it with the source instead of \
+         duplicating it ({} case(s)):\n{}",
         offenders.len(),
         offenders.join("\n")
     );

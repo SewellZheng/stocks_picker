@@ -23,6 +23,9 @@
  *                the fixed TA_IS_ZERO band beside the efficiency ratio, which
  *                forced the fastest adaptation on any instrument quoted small
  *                enough to fall under it.
+ *  090626 MF,CC  Fix #390. Clamp the efficiency ratio to 1. A drifted sumROC1
+ *                let it exceed its own mathematical maximum, and the squared
+ *                smoothing constant then amplified instead of averaging.
  */
 
    /**
@@ -168,17 +171,22 @@
       trailingValue = tempReal2;
       /* Calculate the efficiency ratio.
        *
-       * The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
-       * both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
-       * sit beside it was not -- it declared the window flat, and forced the
-       * fastest adaptation, for every window of an instrument quoted below it
-       * (issue #253). A genuinely flat window is now recognized by the exact bar
-       * count above instead.
+       * The ratio cannot exceed 1 in exact arithmetic, but sumROC1 drifts, so
+       * clamp it: past 1 the squared smoothing constant amplifies instead of
+       * averaging and the recurrence below stops being a convex combination.
+       *
+       * `sumROC1 <= 0.0` (#385) is now numerically redundant -- the clamp maps its
+       * +Inf onto the same 1.0 -- so a value test written against it would pass
+       * with it deleted. Keep it anyway: the divisor sweep requires a division to
+       * be dominated by a test of its own divisor against a literal zero.
        */
-      if( sumROC1 <= periodROC ) {
+      if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
       }
       /* Calculate the smoothing constant */
       tempReal = Math.fma(tempReal, constDiff, constMax);
@@ -223,10 +231,13 @@
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
@@ -271,10 +282,13 @@
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
@@ -371,10 +385,13 @@
       tempReal2 = (double)inReal[trailingIdx++];
       periodROC = tempReal - tempReal2;
       trailingValue = tempReal2;
-      if( sumROC1 <= periodROC ) {
+      if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
       }
       tempReal = Math.fma(tempReal, constDiff, constMax);
       tempReal *= tempReal;
@@ -395,10 +412,13 @@
             sumROC1 = 0.0;
          }
          trailingValue = tempReal2;
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -423,10 +443,13 @@
             sumROC1 = 0.0;
          }
          trailingValue = tempReal2;
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          tempReal = Math.fma(tempReal, constDiff, constMax);
          tempReal *= tempReal;
@@ -451,6 +474,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>A period of 1 performs no smoothing: the output is a copy of the input, consistent with {@code MA(period=1)} for every MAType. (The natural KAMA math at period 1 would degenerate to a fixed-alpha EMA because the efficiency ratio is always 1, so the copy is made explicit.) Allowed since 0.6.5.</li>
+    * <li>The output never leaves the range of the prices it has seen.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -518,6 +542,7 @@
     * <p><b>Notes</b>
     * <ul>
     * <li>A period of 1 performs no smoothing: the output is a copy of the input, consistent with {@code MA(period=1)} for every MAType. (The natural KAMA math at period 1 would degenerate to a fixed-alpha EMA because the efficiency ratio is always 1, so the copy is made explicit.) Allowed since 0.6.5.</li>
+    * <li>The output never leaves the range of the prices it has seen.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -613,13 +638,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#KAMA} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value()} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       KamaStream( KamaStream other ) {
          this.core = other.core;
@@ -644,55 +679,22 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value()} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value()} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
        */
       public double update( double inReal ) {
-         if( !Double.isFinite(inReal) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("KAMA update: BadParam", RetCode.BadParam);
-         }
          core.kamaStepImpl(this, inReal);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          return this.cur_outReal;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inReal.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inReal[], double outReal[] ) {
-         requireArgument("KAMA updateAndFill", "inReal", inReal);
-         requireArgument("KAMA updateAndFill", "outReal", outReal);
-         final int barCount = inReal.length;
-         if( outReal.length < barCount || (Object)outReal == (Object)inReal )
-            throw new TaLibArgumentException("KAMA updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inReal[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("KAMA updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.kamaStepImpl(this, inReal[i]);
-            outReal[i] = this.cur_outReal;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -755,10 +757,13 @@
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, sp.constDiff, sp.constMax);
@@ -838,10 +843,13 @@
        */
       sp.trailingValue = tempReal2;
       /* Calculate the efficiency ratio */
-      if( sp.sumROC1 <= periodROC ) {
+      if( sp.sumROC1 <= 0.0 || sp.sumROC1 <= periodROC ) {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sp.sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
       }
       /* Calculate the smoothing constant */
       tempReal = Math.fma(tempReal, sp.constDiff, sp.constMax);
@@ -983,17 +991,22 @@
       trailingValue = tempReal2;
       /* Calculate the efficiency ratio.
        *
-       * The only threshold is `sumROC1 <= periodROC`, and it is scale-consistent:
-       * both sides carry the quote unit. The fixed TA_IS_ZERO band that used to
-       * sit beside it was not -- it declared the window flat, and forced the
-       * fastest adaptation, for every window of an instrument quoted below it
-       * (issue #253). A genuinely flat window is now recognized by the exact bar
-       * count above instead.
+       * The ratio cannot exceed 1 in exact arithmetic, but sumROC1 drifts, so
+       * clamp it: past 1 the squared smoothing constant amplifies instead of
+       * averaging and the recurrence below stops being a convex combination.
+       *
+       * `sumROC1 <= 0.0` (#385) is now numerically redundant -- the clamp maps its
+       * +Inf onto the same 1.0 -- so a value test written against it would pass
+       * with it deleted. Keep it anyway: the divisor sweep requires a division to
+       * be dominated by a test of its own divisor against a literal zero.
        */
-      if( sumROC1 <= periodROC ) {
+      if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
          tempReal = 1.0;
       } else {
          tempReal = Math.abs(periodROC / sumROC1);
+         if( tempReal > 1.0 ) {
+            tempReal = 1.0;
+         }
       }
       /* Calculate the smoothing constant */
       tempReal = Math.fma(tempReal, constDiff, constMax);
@@ -1038,10 +1051,13 @@
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);
@@ -1086,10 +1102,13 @@
           */
          trailingValue = tempReal2;
          /* Calculate the efficiency ratio */
-         if( sumROC1 <= periodROC ) {
+         if( sumROC1 <= 0.0 || sumROC1 <= periodROC ) {
             tempReal = 1.0;
          } else {
             tempReal = Math.abs(periodROC / sumROC1);
+            if( tempReal > 1.0 ) {
+               tempReal = 1.0;
+            }
          }
          /* Calculate the smoothing constant */
          tempReal = Math.fma(tempReal, constDiff, constMax);

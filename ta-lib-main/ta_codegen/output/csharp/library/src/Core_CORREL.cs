@@ -47,18 +47,23 @@ public partial class Core
     *  Initial  Name/description
     *  -------------------------------------------------------------------
     *  MF       Mario Fortier
+    *  CC       Claude Code (AI assistant)
     *
     *
     * Change history:
     *
-    *  MMDDYY BY   Description
+    *  MMDDYY BY    Description
     *  -------------------------------------------------------------------
-    *  120802 MF   Template creation.
-    *  101003 MF   Initial Coding
-    *  062804 MF   Resolve div by zero bug on limit case.
-    *  082326 MF   Fix #242. Cancellation-free sums (shifted data + reseed, as
-    *              TA_VAR does since #118), per-factor degeneracy test and a
-    *              range clamp.
+    *  120802 MF    Template creation.
+    *  101003 MF    Initial Coding
+    *  062804 MF    Resolve div by zero bug on limit case.
+    *  082326 MF    Fix #242. Cancellation-free sums (shifted data + reseed, as
+    *               TA_VAR does since #118), per-factor degeneracy test and a
+    *               range clamp.
+    *  090626 MF,CC Fix #395. Test the product too: it underflows to 0.0 while ssX
+    *               and ssY are still ordinary normals, and the divide then
+    *               returned NaN under TA_SUCCESS -- which the range clamp cannot
+    *               catch -- or a perfect correlation from a degenerate window.
     */
    /// <summary>
    /// Number of leading input bars <c>CORREL</c> consumes before it can produce
@@ -297,21 +302,19 @@ public partial class Core
           *
           * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
           * established both are positive, so the product needs no protection from
-          * a negative operand, and the second square root is worth ~25% of the
-          * runtime.
+          * a negative operand, and the second square root is worth ~14% of this
+          * function's runtime (measured, #395).
           *
-          * The product CAN overflow to +Inf, and the one-root form is chosen with
-          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-          * arrays are not range-checked, so ssX and ssY are bounded only by the
-          * double range and their product exceeds it once |x| passes ~1e154. The
-          * two-root form would not overflow there -- but the form this replaces
-          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-          * correlation. Trading a quarter of the runtime for a case that already
-          * behaved this way, on inputs 117 orders past any price, is not a trade
-          * worth making. Revisit only if input range-checking is ever added.
+          * The product is then tested on its own, because neither factor's test
+          * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+          * and ssY are still ordinary normals (#395). A zero divisor there gives
+          * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+          * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+          * not a band: an absolute band on the product is the #253 defect at a new
+          * address. At the other end the product overflows to +Inf and the quotient
+          * is 0.0, the degenerate answer anyway.
           */
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.Sqrt(ssX * ssY);
             /* A correlation coefficient cannot leave [-1,1]; rounding in the
              * three sums can still put it a few ulp outside.
@@ -468,7 +471,7 @@ public partial class Core
          trailingX = (double)inReal0[trailingIdx] - shiftX;
          trailingY = (double)inReal1[trailingIdx] - shiftY;
          trailingIdx += 1;
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.Sqrt(ssX * ssY);
             if( tempReal > 1.0 ) {
                tempReal = 1.0;
@@ -681,13 +684,26 @@ public partial class Core
       /// <c>[BegIdx, BegIdx + Count)</c>.</summary>
       /// <remarks>
       /// <para>It is what <c>Core.Correl</c> reports over the same bars: the opener sets
-      /// it to <c>(lookback, historyLen - lookback)</c>, every <c>Update</c> adds
-      /// one to the count — a non-finite bar is rejected but still counted, because
-      /// the bar happened — <c>Peek</c> leaves it alone, and <c>Clone</c> carries
-      /// it verbatim. A plain <c>Open</c> hands back only the last value, a subset
-      /// of this range, because the caller chose not to take the fill.</para>
+      /// it to <c>(lookback, historyLen - lookback)</c>, every accepted
+      /// <c>Update</c> adds one to the count — a rejected one changes nothing, and
+      /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
+      /// <c>Open</c> hands back only the last value, a subset of this range,
+      /// because the caller chose not to take the fill.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
+
+      /// <summary>Count one bar this stream was not fed: <see cref="OutRange"/> advances by
+      /// one and nothing else moves.</summary>
+      /// <remarks>
+      /// <para><see cref="Value"/> keeps answering the previous output, which is this
+      /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
+      /// rejected and that will not be re-fed, or a session with no print. Without
+      /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// </remarks>
+      public void Advance()
+      {
+         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+      }
 
       internal CorrelStream( CorrelStream other )
       {
@@ -723,25 +739,20 @@ public partial class Core
       /// <para>Allocates nothing — neither handle state nor a return value.</para>
       /// <para>Throws <see cref="System.ArgumentException"/> if any bar value is not
       /// finite (NaN or an infinity). That check runs before anything is written,
-      /// so no state moves, <see cref="Value"/> still answers the previous value,
-      /// and the stream stays usable — just carry on with the next bar.
-      /// <see cref="OutRange"/> does advance: the bar happened, so it is counted,
-      /// which keeps two handles fed the same series positionally aligned when only
-      /// one of them rejects a bar. This is the one place the streaming tier is
-      /// stricter than the batch API, which computes on whatever it is given: a
-      /// handle retains its state, so a single non-finite bar would poison every
-      /// later value it produces.</para>
+      /// so nothing moves — <see cref="OutRange"/> included — and
+      /// <see cref="Value"/> still answers the previous value. Re-feed the bar when
+      /// a corrected value arrives, or call <see cref="Advance"/> to count it and
+      /// carry on; two handles on one feed drift a bar apart if neither happens.
+      /// This is the one place the streaming tier is stricter than the batch API,
+      /// which computes on whatever it is given: a handle retains its state, so a
+      /// single non-finite bar would poison every later value it produces.</para>
       /// </remarks>
       /// <param name="inReal0">This bar's value for <c>inReal0</c>.</param>
       /// <param name="inReal1">This bar's value for <c>inReal1</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal0, double inReal1 )
       {
-         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) )
-         {
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-            throw Core.StreamFailure("CORREL", "update", RetCode.BadParam);
-         }
+         if( !double.IsFinite(inReal0) || !double.IsFinite(inReal1) ) throw Core.StreamFailure("CORREL", "update", RetCode.BadParam);
          core.CorrelStepImpl(this, inReal0, inReal1);
          if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
          return cur_outReal;
@@ -902,21 +913,19 @@ public partial class Core
           *
           * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
           * established both are positive, so the product needs no protection from
-          * a negative operand, and the second square root is worth ~25% of the
-          * runtime.
+          * a negative operand, and the second square root is worth ~14% of this
+          * function's runtime (measured, #395).
           *
-          * The product CAN overflow to +Inf, and the one-root form is chosen with
-          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-          * arrays are not range-checked, so ssX and ssY are bounded only by the
-          * double range and their product exceeds it once |x| passes ~1e154. The
-          * two-root form would not overflow there -- but the form this replaces
-          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-          * correlation. Trading a quarter of the runtime for a case that already
-          * behaved this way, on inputs 117 orders past any price, is not a trade
-          * worth making. Revisit only if input range-checking is ever added.
+          * The product is then tested on its own, because neither factor's test
+          * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+          * and ssY are still ordinary normals (#395). A zero divisor there gives
+          * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+          * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+          * not a band: an absolute band on the product is the #253 defect at a new
+          * address. At the other end the product overflows to +Inf and the quotient
+          * is 0.0, the degenerate answer anyway.
           */
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.Sqrt(ssX * ssY);
             /* A correlation coefficient cannot leave [-1,1]; rounding in the
              * three sums can still put it a few ulp outside.
@@ -931,39 +940,6 @@ public partial class Core
             cur_outReal = 0.0;
          }
          return cur_outReal;
-      }
-
-      /// <summary>Commit <c>n</c> closed bars and write their <c>n</c> values, in one call.</summary>
-      /// <remarks>
-      /// <para>Exactly <c>n</c> back-to-back <see cref="Update"/> calls, with one set of
-      /// argument checks instead of <c>n</c>. The outputs must hold at least
-      /// <c>n</c> values and must not overlap an input or each other.</para>
-      /// <para><see cref="OutRange"/> counts what this call took in, which is what makes
-      /// a rejection readable: a non-finite bar <c>k</c> throws
-      /// <see cref="System.ArgumentException"/> exactly as <see cref="Update"/>
-      /// would, with the bars before <c>k</c> committed and written, bar <c>k</c>
-      /// and everything after it not written, and the count advanced by <c>k +
-      /// 1</c> — the committed bars plus the rejected one, so the last bar counted
-      /// is the one that failed.</para>
-      /// </remarks>
-      /// <param name="inReal0">Closed bars for <c>inReal0</c>, oldest first.</param>
-      /// <param name="inReal1">Closed bars for <c>inReal1</c>, oldest first.</param>
-      /// <param name="outReal">Receives one <c>outReal</c> value per bar committed.</param>
-      public void UpdateAndFill( ReadOnlySpan<double> inReal0, ReadOnlySpan<double> inReal1, Span<double> outReal )
-      {
-         int barCount = inReal0.Length;
-         if( inReal1.Length != barCount || outReal.Length < barCount || outReal.Overlaps(inReal0) || outReal.Overlaps(inReal1) ) throw Core.StreamFailure("CORREL", "updateAndFill", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ )
-         {
-            if( !double.IsFinite(inReal0[i]) || !double.IsFinite(inReal1[i]) )
-            {
-               if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-               throw Core.StreamFailure("CORREL", "updateAndFill", RetCode.BadParam);
-            }
-            core.CorrelStepImpl(this, inReal0[i], inReal1[i]);
-            outReal[i] = cur_outReal;
-            if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
-         }
       }
 
       /// <summary>The value at the last bar this stream counted — the bar
@@ -1112,21 +1088,19 @@ public partial class Core
        *
        * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
        * established both are positive, so the product needs no protection from
-       * a negative operand, and the second square root is worth ~25% of the
-       * runtime.
+       * a negative operand, and the second square root is worth ~14% of this
+       * function's runtime (measured, #395).
        *
-       * The product CAN overflow to +Inf, and the one-root form is chosen with
-       * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-       * arrays are not range-checked, so ssX and ssY are bounded only by the
-       * double range and their product exceeds it once |x| passes ~1e154. The
-       * two-root form would not overflow there -- but the form this replaces
-       * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-       * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-       * correlation. Trading a quarter of the runtime for a case that already
-       * behaved this way, on inputs 117 orders past any price, is not a trade
-       * worth making. Revisit only if input range-checking is ever added.
+       * The product is then tested on its own, because neither factor's test
+       * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+       * and ssY are still ordinary normals (#395). A zero divisor there gives
+       * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+       * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+       * not a band: an absolute band on the product is the #253 defect at a new
+       * address. At the other end the product overflows to +Inf and the quotient
+       * is 0.0, the degenerate answer anyway.
        */
-      if( ssX > 0.00000000000001 * sp.sumX2 && ssY > 0.00000000000001 * sp.sumY2 ) {
+      if( ssX > 0.00000000000001 * sp.sumX2 && ssY > 0.00000000000001 * sp.sumY2 && ssX * ssY > 0.0 ) {
          tempReal = spXY / Math.Sqrt(ssX * ssY);
          /* A correlation coefficient cannot leave [-1,1]; rounding in the
           * three sums can still put it a few ulp outside.
@@ -1366,21 +1340,19 @@ public partial class Core
           *
           * sqrt(ssX*ssY) rather than sqrt(ssX)*sqrt(ssY): the guard has already
           * established both are positive, so the product needs no protection from
-          * a negative operand, and the second square root is worth ~25% of the
-          * runtime.
+          * a negative operand, and the second square root is worth ~14% of this
+          * function's runtime (measured, #395).
           *
-          * The product CAN overflow to +Inf, and the one-root form is chosen with
-          * that known. TA_REAL_MAX bounds optional PARAMETERS; a batch call's input
-          * arrays are not range-checked, so ssX and ssY are bounded only by the
-          * double range and their product exceeds it once |x| passes ~1e154. The
-          * two-root form would not overflow there -- but the form this replaces
-          * built exactly the same product (it tested ssX*ssY against TA_EPSILON), so
-          * the exposure is unchanged, and an Inf here yields 0.0 rather than a wrong
-          * correlation. Trading a quarter of the runtime for a case that already
-          * behaved this way, on inputs 117 orders past any price, is not a trade
-          * worth making. Revisit only if input range-checking is ever added.
+          * The product is then tested on its own, because neither factor's test
+          * implies it: at that fourth power it underflows to exactly 0.0 while ssX
+          * and ssY are still ordinary normals (#395). A zero divisor there gives
+          * NaN, which the clamp below does NOT catch -- NaN fails both comparisons
+          * -- or an infinity the clamp rewrites into a perfect correlation. Exact,
+          * not a band: an absolute band on the product is the #253 defect at a new
+          * address. At the other end the product overflows to +Inf and the quotient
+          * is 0.0, the degenerate answer anyway.
           */
-         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 ) {
+         if( ssX > 0.00000000000001 * sumX2 && ssY > 0.00000000000001 * sumY2 && ssX * ssY > 0.0 ) {
             tempReal = spXY / Math.Sqrt(ssX * ssY);
             /* A correlation coefficient cannot leave [-1,1]; rounding in the
              * three sums can still put it a few ulp outside.

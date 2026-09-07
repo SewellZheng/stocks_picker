@@ -77,13 +77,10 @@
        *
        * One fused loop, not ema() + a combine map: a composed form cannot
        * stream (raw bar inputs are outside check_map_step's provenance), which
-       * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-       * op for op -- sequential seed sum from 0.0 then one divide, the
-       * unstable-period warm-up consumed bar by bar -- so the differential
-       * against shipped TA_EMA holds bitwise. No compatibility branch: the
-       * Metastock arm is unreachable from three of the four backends, and a
-       * new function honouring it would make C diverge from them (EFI/SMI
-       * precedent).
+       * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+       * sequential seed sum from 0.0 then one divide, the unstable-period
+       * warm-up consumed bar by bar -- so the differential against shipped
+       * TA_EMA holds bitwise.
        *
        * No division in the per-bar map: no 0/0, no NaN path (#112 by
        * construction). Bull >= Bear on every bar since high >= low.
@@ -435,13 +432,23 @@
        * coordinates: {@code [begIdx, begIdx + count)}.
        * <p>It is what {@link Core#ERI} reports over the same bars: the
        * opener sets it to {@code (lookback, historyLen - lookback)}, every
-       * {@code update} adds one to the count — a bar rejected for being
-       * non-finite included, because it still happened — {@code peek} leaves
-       * it alone, and {@code clone()} carries it verbatim. A plain
+       * accepted {@code update} adds one to the count — a rejected one
+       * changes nothing, and neither does {@code peek} — and
+       * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
+
+      /**
+       * Count one bar this stream was not fed: {@link #outRange()} advances
+       * by one and nothing else moves — {@link #value(EriOut)} keeps answering the previous
+       * output, which is this bar's output too.
+       * <p>For a bar the caller leaves out: one an {@code update} rejected
+       * and that will not be re-fed, or a session with no print. Without it
+       * two handles on one feed drift a bar apart when only one of them skips.
+       */
+      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
 
       EriStream( EriStream other ) {
          this.core = other.core;
@@ -459,12 +466,11 @@
        * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
-       * written, so the state is left exactly as it was: the rejected bar's
-       * output is the previous value, held, and {@link #value(EriOut)} answers it.
-       * The stream stays usable, so skip the bar or re-open on a clean
-       * history. {@link #outRange()} does advance: the bar happened and
-       * occupies a position in the series, so the handle counts it, which is
-       * what keeps two handles on one feed aligned when only one rejects.
+       * written, so nothing moves — {@link #outRange()} included — and
+       * {@link #value(EriOut)} still answers the previous value. Re-feed the bar when a
+       * corrected value arrives, or call {@link #advance()} to count it and
+       * carry on; two handles on one feed drift a bar apart if neither
+       * happens.
        * This is the one place the streaming tier is stricter than
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
@@ -472,48 +478,12 @@
        */
       public void update( double inHigh, double inLow, double inClose, EriOut out ) {
          requireArgument("ERI update", "out", out);
-         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) ) {
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("ERI update: BadParam", RetCode.BadParam);
-         }
          core.eriStepImpl(this, inHigh, inLow, inClose);
          if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
          out.bullPower = this.cur_outBullPower;
          out.bearPower = this.cur_outBearPower;
-      }
-
-      /**
-       * Commit {@code n} closed bars and write their {@code n} values, in one
-       * call — exactly {@code n} back-to-back {@code update} calls, with one
-       * set of argument checks instead of {@code n}. {@code n} is
-       * {@code inHigh.length}; the outputs must hold at least that many, and must
-       * not be the same array as an input or as each other.
-       * <p>{@link #outRange()} counts what this call took in, which is what makes a
-       * rejection readable: a non-finite bar {@code k} throws
-       * {@link IllegalArgumentException} exactly as {@code update} would, with
-       * the bars before {@code k} committed and written, bar {@code k} and
-       * everything after it not, and the count advanced by {@code k + 1} —
-       * the committed bars plus the rejected one.
-       */
-      public void updateAndFill( double inHigh[], double inLow[], double inClose[], double outBullPower[], double outBearPower[] ) {
-         requireArgument("ERI updateAndFill", "inHigh", inHigh);
-         requireArgument("ERI updateAndFill", "inLow", inLow);
-         requireArgument("ERI updateAndFill", "inClose", inClose);
-         requireArgument("ERI updateAndFill", "outBullPower", outBullPower);
-         requireArgument("ERI updateAndFill", "outBearPower", outBearPower);
-         final int barCount = inHigh.length;
-         if( inLow.length != barCount || inClose.length != barCount || outBullPower.length < barCount || outBearPower.length < barCount || (Object)outBullPower == (Object)inHigh || (Object)outBullPower == (Object)inLow || (Object)outBullPower == (Object)inClose || (Object)outBearPower == (Object)inHigh || (Object)outBearPower == (Object)inLow || (Object)outBearPower == (Object)inClose || (Object)outBullPower == (Object)outBearPower )
-            throw new TaLibArgumentException("ERI updateAndFill: BadParam", RetCode.BadParam);
-         for( int i = 0; i < barCount; i++ ) {
-            if( !Double.isFinite(inHigh[i]) || !Double.isFinite(inLow[i]) || !Double.isFinite(inClose[i]) ) {
-               if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-               throw new TaLibArgumentException("ERI updateAndFill: BadParam", RetCode.BadParam);
-            }
-            core.eriStepImpl(this, inHigh[i], inLow[i], inClose[i]);
-            outBullPower[i] = this.cur_outBullPower;
-            outBearPower[i] = this.cur_outBearPower;
-            if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         }
       }
 
       /**
@@ -662,13 +632,10 @@
           *
           * One fused loop, not ema() + a combine map: a composed form cannot
           * stream (raw bar inputs are outside check_map_step's provenance), which
-          * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-          * op for op -- sequential seed sum from 0.0 then one divide, the
-          * unstable-period warm-up consumed bar by bar -- so the differential
-          * against shipped TA_EMA holds bitwise. No compatibility branch: the
-          * Metastock arm is unreachable from three of the four backends, and a
-          * new function honouring it would make C diverge from them (EFI/SMI
-          * precedent).
+          * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+          * sequential seed sum from 0.0 then one divide, the unstable-period
+          * warm-up consumed bar by bar -- so the differential against shipped
+          * TA_EMA holds bitwise.
           *
           * No division in the per-bar map: no 0/0, no NaN path (#112 by
           * construction). Bull >= Bear on every bar since high >= low.
@@ -728,13 +695,10 @@
           *
           * One fused loop, not ema() + a combine map: a composed form cannot
           * stream (raw bar inputs are outside check_map_step's provenance), which
-          * is the same reason ACCBANDS is fused. The EMA is ema.c's DEFAULT arm
-          * op for op -- sequential seed sum from 0.0 then one divide, the
-          * unstable-period warm-up consumed bar by bar -- so the differential
-          * against shipped TA_EMA holds bitwise. No compatibility branch: the
-          * Metastock arm is unreachable from three of the four backends, and a
-          * new function honouring it would make C diverge from them (EFI/SMI
-          * precedent).
+          * is the same reason ACCBANDS is fused. The EMA is ema.c op for op --
+          * sequential seed sum from 0.0 then one divide, the unstable-period
+          * warm-up consumed bar by bar -- so the differential against shipped
+          * TA_EMA holds bitwise.
           *
           * No division in the per-bar map: no 0/0, no NaN path (#112 by
           * construction). Bull >= Bear on every bar since high >= low.

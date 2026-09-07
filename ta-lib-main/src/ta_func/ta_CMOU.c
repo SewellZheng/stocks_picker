@@ -69,9 +69,8 @@ TA_LIB_API int TA_CMOU_Lookback( int optInTimePeriod )
    /* CMOU needs optInTimePeriod price changes -> optInTimePeriod+1 prices ->
     * the first output is at index optInTimePeriod.
     *
-    * Unlike the shipped CMO, there is NO unstable period and NO Metastock
-    * "extra initial bar" adjustment: CMOU is a plain moving-window sum, so its
-    * lookback is exactly the period.
+    * Unlike the shipped CMO, there is NO unstable period: CMOU is a plain
+    * moving-window sum, so its lookback is exactly the period.
     */
    return optInTimePeriod;
 }
@@ -401,8 +400,7 @@ TA_RetCode TA_S_CMOU( int    startIdx,
 /**** Streaming API *****/
 
 struct TA_CMOU_Stream {
-   /* The bars this handle has an output for (see TA_StreamOutRange).
-    * Kept first, and in this order, in every stream struct. */
+   /* The bars this handle has an output for (see TA_CMOU_OutRange). */
    int outRangeBegIdx;
    int outRangeCount;
    /* The value(s) at the last bar the stream counted (see TA_CMOU_Value). */
@@ -749,11 +747,7 @@ TA_RetCode TA_CMOU_OpenAndFillInternal( struct TA_CMOU_Stream **stream, const do
 TA_LIB_API TA_RetCode TA_CMOU_Update( TA_CMOU_Stream *stream, double inReal, double *outReal )
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
-   if( !TA_IS_FINITE( inReal ) )
-   {
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-      return TA_BAD_PARAM;
-   }
+   if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_CMOU_StepImpl( stream, inReal, outReal );
    if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
@@ -841,26 +835,6 @@ TA_LIB_API TA_RetCode TA_CMOU_Peek( const TA_CMOU_Stream *stream, double inReal,
    return TA_SUCCESS;
 }
 
-TA_LIB_API TA_RetCode TA_CMOU_UpdateAndFill( TA_CMOU_Stream *stream, const double inReal[], int barCount, double outReal[] )
-{
-   int i;
-
-   if( !stream || !inReal || !outReal ) return TA_BAD_PARAM;
-   if( barCount < 0 ) return TA_BAD_PARAM;
-   if( (const void *)outReal == (const void *)inReal ) return TA_BAD_PARAM;
-   for( i = 0; i < barCount; i++ )
-   {
-      if( !TA_IS_FINITE( inReal[i] ) )
-      {
-         if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-         return TA_BAD_PARAM;
-      }
-      TA_CMOU_StepImpl( stream, inReal[i], &outReal[i] );
-      if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
-   }
-   return TA_SUCCESS;
-}
-
 TA_LIB_API TA_RetCode TA_CMOU_Close( TA_CMOU_Stream *stream )
 {
    TA_CMOU_ReleaseImpl( stream );
@@ -871,6 +845,21 @@ TA_LIB_API TA_RetCode TA_CMOU_Value( const TA_CMOU_Stream *stream, double *outRe
 {
    if( !stream || !outReal ) return TA_BAD_PARAM;
    *outReal = stream->cur_outReal;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CMOU_OutRange( const TA_CMOU_Stream *stream, int *outBegIdx, int *outNBElement )
+{
+   if( !stream || !outBegIdx || !outNBElement ) return TA_BAD_PARAM;
+   *outBegIdx = stream->outRangeBegIdx;
+   *outNBElement = stream->outRangeCount;
+   return TA_SUCCESS;
+}
+
+TA_LIB_API TA_RetCode TA_CMOU_Advance( TA_CMOU_Stream *stream )
+{
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

@@ -39,7 +39,7 @@ Any of Linux, macOS, Windows or WSL2. You need:
 
 - git, a C compiler (gcc/clang/MSVC), CMake ≥ 3.18
 - The Rust toolchain via [rustup](https://rustup.rs) (the generator is written in Rust)
-- Recommended, for full cross-language verification: a JDK (`javac`/`java`) and the .NET SDK (`dotnet`). Without them, pass `--language=c,rust` to `scripts/build.py servers` and `scripts/regtest.py`. The C and Rust gates still verify your function, and CI runs the full matrix.
+- Recommended, for full cross-language verification: a JDK (`javac`/`java`), `unzip` (the committed Maven wrapper needs it), and the .NET SDK (`dotnet`). Without them, pass `--language=c,rust` to `scripts/build.py servers` and `scripts/regtest.py`. The C and Rust gates still verify your function, and CI runs the full matrix.
 
 ```bash
 git clone https://github.com/TA-Lib/ta-lib.git
@@ -82,7 +82,6 @@ If this page and the repo disagree, the repo wins; it is versioned with the code
 - `<name>.md` documents the original algebra of the indicator, never implementation artifacts: no zero-guards, epsilon comparisons or `period == 1` special cases in the formula.
 - In the `.c` input, call other TA functions by their bare lowercase name (`sma(...)`, `ema_lookback(...)`); the generator resolves each to the language's native symbol.
 - Your function may be called with an output array aliasing one of its inputs — `outReal == inClose` is a supported, tested calling convention. Within a bar, read every input value you need *before* writing that bar's output; a trailing index can reach the slot you just wrote. Carry what you need in a scalar. Every function is checked, bitwise, on every input/output pair.
-- New functions do not support `TA_SetCompatibility`. The compatibility constants are preserved for the functions that already honour one, and the Rust, Java and C# APIs expose no such setting — so honouring it in a new function makes its C output diverge from three backends that cannot read it. Copying an EMA-shaped function will hand you a METASTOCK seeding arm; drop it.
 - Enums, groups and other shared surfaces are generated; search the generator before hand-adding one anywhere.
 - If `generate` panics on a C construct, do not contort the algorithm to dodge the parser. Match the style of a shipped input file, or raise it on the spec issue: parser extensions are generator changes and need maintainer sign-off.
 

@@ -63,6 +63,9 @@
  *               small enough to fall under it.
  *  082726 MF,CC Fix #269. Answer a rejected %D ma() before the copy, not after:
  *               the stale *outNBElement overran outSlowK by lookbackDSlow.
+ *  090626 MF,CC Fix #390. Divide by the range, scale after: the hoisted
+ *               `(highest-lowest)/100.0` underflowed to 0.0 on a denormal
+ *               range that the guard still called "not flat".
  */
 
 // Import types from parent module
@@ -192,7 +195,6 @@ impl Core {
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut tmp: f64 = 0.0_f64;
-        let mut diff: f64 = 0.0_f64;
         let mut tempBuffer: Vec<f64> = Vec::new();
         let mut outIdx: usize = 0_usize;
         let mut lowestIdx: i32 = 0_i32;
@@ -273,7 +275,6 @@ impl Core {
         lowestIdx = highestIdx;
         lowest = 0.0;
         highest = lowest;
-        diff = highest;
         // Allocate a temporary buffer large enough to
         // store the K.
         //
@@ -304,11 +305,9 @@ impl Core {
                         lowest = tmp;
                     }
                 }
-                diff = (highest - lowest) / 100.0;
             } else if tmp <= lowest {
                 lowestIdx = (today) as i32;
                 lowest = tmp;
-                diff = (highest - lowest) / 100.0;
             }
             // Set the highest high
             tmp = inHigh[today];
@@ -323,21 +322,21 @@ impl Core {
                         highest = tmp;
                     }
                 }
-                diff = (highest - lowest) / 100.0;
             } else if tmp >= highest {
                 highestIdx = (today) as i32;
                 highest = tmp;
-                diff = (highest - lowest) / 100.0;
             }
-            // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-            // machine-flat window leaves a sub-epsilon residue that an exact check
-            // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-            // range against ITS OWN two extremes, not against a fixed band: the range
-            // carries the quote unit, so a constant put against it answers "flat" for
-            // every window of an instrument quoted below it and zeroed the whole
-            // output (issue #253).
+            // Divide by the range itself and scale after: the guard has to test the
+            // very expression the division uses, or a scaling step can carry a
+            // guarded-non-zero into a zero divisor.
+            //
+            // The band is the range against ITS OWN two extremes, not a fixed
+            // constant: the range carries the quote unit, so a constant answers
+            // "flat" for every window of an instrument quoted below it (issue #253).
+            // It absorbs the machine-flat window an exact test would divide into
+            // [0,100] noise (issue #107 / STOCHRSI).
             if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                tempBuffer[outIdx] = (inClose[today] - lowest) / diff;
+                tempBuffer[outIdx] = (inClose[today] - lowest) / (highest - lowest) * 100.0;
                 outIdx += 1;
             } else {
                 tempBuffer[outIdx] = 0.0;
@@ -552,7 +551,6 @@ struct StochStreamState {
     optInSlowD_MAType: MAType,
     lowest: f64,
     highest: f64,
-    diff: f64,
     lowestIdx: i32,
     highestIdx: i32,
     trailingIdx: i32,
@@ -602,11 +600,9 @@ impl Core {
                     sp.lowest = tmp;
                 }
             }
-            sp.diff = (sp.highest - sp.lowest) / 100.0;
         } else if tmp <= sp.lowest {
             sp.lowestIdx = sp.today;
             sp.lowest = tmp;
-            sp.diff = (sp.highest - sp.lowest) / 100.0;
         }
         // Set the highest high
         tmp = sp.x_inHigh[(sp.today & sp.xMask) as usize];
@@ -621,21 +617,21 @@ impl Core {
                     sp.highest = tmp;
                 }
             }
-            sp.diff = (sp.highest - sp.lowest) / 100.0;
         } else if tmp >= sp.highest {
             sp.highestIdx = sp.today;
             sp.highest = tmp;
-            sp.diff = (sp.highest - sp.lowest) / 100.0;
         }
-        // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-        // machine-flat window leaves a sub-epsilon residue that an exact check
-        // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-        // range against ITS OWN two extremes, not against a fixed band: the range
-        // carries the quote unit, so a constant put against it answers "flat" for
-        // every window of an instrument quoted below it and zeroed the whole
-        // output (issue #253).
+        // Divide by the range itself and scale after: the guard has to test the
+        // very expression the division uses, or a scaling step can carry a
+        // guarded-non-zero into a zero divisor.
+        //
+        // The band is the range against ITS OWN two extremes, not a fixed
+        // constant: the range carries the quote unit, so a constant answers
+        // "flat" for every window of an instrument quoted below it (issue #253).
+        // It absorbs the machine-flat window an exact test would divide into
+        // [0,100] noise (issue #107 / STOCHRSI).
         if !(((sp.highest - sp.lowest).abs() <= 1e-14 * ((sp.highest).abs() + (sp.lowest).abs()))) {
-            cur_tempBuffer = (sp.x_inClose[(sp.today & sp.xMask) as usize] - sp.lowest) / sp.diff;
+            cur_tempBuffer = (sp.x_inClose[(sp.today & sp.xMask) as usize] - sp.lowest) / (sp.highest - sp.lowest) * 100.0;
         } else {
             cur_tempBuffer = 0.0;
         }
@@ -707,7 +703,6 @@ impl Core {
         let mut lowest: f64 = 0.0_f64;
         let mut highest: f64 = 0.0_f64;
         let mut tmp: f64 = 0.0_f64;
-        let mut diff: f64 = 0.0_f64;
         let mut tempBuffer: Vec<f64> = Vec::new();
         let mut outIdx: usize = 0_usize;
         let mut lowestIdx: i32 = 0_i32;
@@ -788,7 +783,6 @@ impl Core {
         lowestIdx = highestIdx;
         lowest = 0.0;
         highest = lowest;
-        diff = highest;
         // Allocate a temporary buffer large enough to
         // store the K.
         //
@@ -819,11 +813,9 @@ impl Core {
                         lowest = tmp;
                     }
                 }
-                diff = (highest - lowest) / 100.0;
             } else if tmp <= lowest {
                 lowestIdx = (today) as i32;
                 lowest = tmp;
-                diff = (highest - lowest) / 100.0;
             }
             // Set the highest high
             tmp = inHigh[today];
@@ -838,21 +830,21 @@ impl Core {
                         highest = tmp;
                     }
                 }
-                diff = (highest - lowest) / 100.0;
             } else if tmp >= highest {
                 highestIdx = (today) as i32;
                 highest = tmp;
-                diff = (highest - lowest) / 100.0;
             }
-            // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-            // machine-flat window leaves a sub-epsilon residue that an exact check
-            // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-            // range against ITS OWN two extremes, not against a fixed band: the range
-            // carries the quote unit, so a constant put against it answers "flat" for
-            // every window of an instrument quoted below it and zeroed the whole
-            // output (issue #253).
+            // Divide by the range itself and scale after: the guard has to test the
+            // very expression the division uses, or a scaling step can carry a
+            // guarded-non-zero into a zero divisor.
+            //
+            // The band is the range against ITS OWN two extremes, not a fixed
+            // constant: the range carries the quote unit, so a constant answers
+            // "flat" for every window of an instrument quoted below it (issue #253).
+            // It absorbs the machine-flat window an exact test would divide into
+            // [0,100] noise (issue #107 / STOCHRSI).
             if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                tempBuffer[outIdx] = (inClose[today] - lowest) / diff;
+                tempBuffer[outIdx] = (inClose[today] - lowest) / (highest - lowest) * 100.0;
                 outIdx += 1;
             } else {
                 tempBuffer[outIdx] = 0.0;
@@ -932,7 +924,6 @@ impl Core {
             optInSlowD_MAType,
             lowest,
             highest,
-            diff,
             lowestIdx: (lowestIdx) as i32,
             highestIdx: (highestIdx) as i32,
             trailingIdx: (trailingIdx) as i32,
@@ -1101,15 +1092,13 @@ impl StochStream {
     /// whatever it is given — a handle retains its state, so a single
     /// non-finite bar would poison every later value it produces.
     ///
-    /// [`Self::out_range`] counts the rejected bar all the same: it happened,
-    /// so two handles fed the same series stay positionally aligned even when
-    /// one rejects a bar the other accepts.
+    /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when
+    /// a corrected value arrives, or call [`Self::advance`] to count it and
+    /// carry on — two handles on one feed drift a bar apart if neither
+    /// happens.
     #[doc(alias = "TA_STOCH_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
             return Err(RetCode::BadParam);
         }
         let mut outSlowK: f64 = 0.0_f64;
@@ -1123,46 +1112,6 @@ impl StochStream {
         Ok((outSlowK, outSlowD))
     }
 
-    /// Commit `n` closed bars and write their `n` values, in one call —
-    /// exactly `n` back-to-back [`Self::update`] calls, with one set of
-    /// argument checks instead of `n`. `n` is `inHigh.len()`; the outputs must
-    /// hold at least that many. Never allocates.
-    ///
-    /// [`Self::out_range`] counts what this call took in, which is what makes the
-    /// rejection below readable: there is no second out-parameter for it.
-    ///
-    /// # Errors
-    ///
-    /// [`RetCode::BadParam`] if the input slices differ in length, if an output
-    /// is shorter than the bar count — neither commits anything — or if a bar
-    /// is not finite. A non-finite bar `k` is rejected exactly as `update`
-    /// rejects it: bars `0..k` stay committed and their values written, bar `k`
-    /// and everything after it is not, and `out_range().count` has advanced by
-    /// `k + 1` — the committed bars, plus the rejected one, which is counted
-    /// but never written.
-    #[doc(alias = "TA_STOCH_UpdateAndFill")]
-    pub fn update_and_fill(&mut self, inHigh: &[f64], inLow: &[f64], inClose: &[f64], outSlowK: &mut [f64], outSlowD: &mut [f64]) -> Result<(), RetCode> {
-        let barCount = inHigh.len();
-        if inLow.len() != inHigh.len() || inClose.len() != inHigh.len() || outSlowK.len() < barCount || outSlowD.len() < barCount {
-            return Err(RetCode::BadParam);
-        }
-        for i in 0..barCount {
-            if !inHigh[i].is_finite() || !inLow[i].is_finite() || !inClose[i].is_finite() {
-                if self.out.count < Core::MAX_INDEX {
-                    self.out.count += 1;
-                }
-                return Err(RetCode::BadParam);
-            }
-            Core::stoch_step_impl(&mut self.state, inHigh[i], inLow[i], inClose[i], &mut outSlowK[i], &mut outSlowD[i])?;
-            self.state.cur_outSlowK = outSlowK[i];
-            self.state.cur_outSlowD = outSlowD[i];
-            if self.out.count < Core::MAX_INDEX {
-                self.out.count += 1;
-            }
-        }
-        Ok(())
-    }
-
     /// Evaluate a forming bar without committing — bit-identical to what the
     /// next `update` with the same bar would return: the same transition,
     /// rewritten so every store it would make lives in a local instead. It
@@ -1173,8 +1122,7 @@ impl StochStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies — but a rejected peek changes nothing at all, where a
-    /// rejected `update` still counts the bar in [`Self::out_range`].
+    /// `update` applies, and a rejected peek changes nothing at all.
     #[doc(alias = "TA_STOCH_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1189,7 +1137,6 @@ impl StochStream {
             let mut cur_tempBuffer: f64 = 0.0_f64;
             let mut cur_outSlowD: f64 = 0.0_f64;
             let mut tmp: f64 = 0.0_f64;
-            let mut diff = sp.diff;
             let mut highest = sp.highest;
             let mut highestIdx = sp.highestIdx;
             let mut i = sp.i;
@@ -1230,11 +1177,9 @@ impl StochStream {
                         lowest = tmp;
                     }
                 }
-                diff = (highest - lowest) / 100.0;
             } else if tmp <= lowest {
                 lowestIdx = today;
                 lowest = tmp;
-                diff = (highest - lowest) / 100.0;
             }
             // Set the highest high
             tmp = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(today & sp.xMask) as usize] } else { pkVal0 });
@@ -1249,21 +1194,21 @@ impl StochStream {
                         highest = tmp;
                     }
                 }
-                diff = (highest - lowest) / 100.0;
             } else if tmp >= highest {
                 highestIdx = today;
                 highest = tmp;
-                diff = (highest - lowest) / 100.0;
             }
-            // Calculate stochastic. The guard is not an exact `diff != 0.0`: a
-            // machine-flat window leaves a sub-epsilon residue that an exact check
-            // would divide into [0,100] noise (issue #107 / STOCHRSI). It is the
-            // range against ITS OWN two extremes, not against a fixed band: the range
-            // carries the quote unit, so a constant put against it answers "flat" for
-            // every window of an instrument quoted below it and zeroed the whole
-            // output (issue #253).
+            // Divide by the range itself and scale after: the guard has to test the
+            // very expression the division uses, or a scaling step can carry a
+            // guarded-non-zero into a zero divisor.
+            //
+            // The band is the range against ITS OWN two extremes, not a fixed
+            // constant: the range carries the quote unit, so a constant answers
+            // "flat" for every window of an instrument quoted below it (issue #253).
+            // It absorbs the machine-flat window an exact test would divide into
+            // [0,100] noise (issue #107 / STOCHRSI).
             if !(((highest - lowest).abs() <= 1e-14 * ((highest).abs() + (lowest).abs()))) {
-                cur_tempBuffer = ((if ((today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(today & sp.xMask) as usize] } else { pkVal2 }) - lowest) / diff;
+                cur_tempBuffer = ((if ((today & sp.xMask) as usize) != pkSlot2 { sp.x_inClose[(today & sp.xMask) as usize] } else { pkVal2 }) - lowest) / (highest - lowest) * 100.0;
             } else {
                 cur_tempBuffer = 0.0;
             }
@@ -1279,7 +1224,7 @@ impl StochStream {
 
     /// The value(s) at the last bar the stream counted — the bar
     /// [`Self::out_range`] ends on — without recomputing. Seeded by the opener,
-    /// refreshed by every accepted `update` and `update_and_fill`, and left
+    /// refreshed by every accepted `update`, and left
     /// alone by `peek`.
     ///
     /// A clone carries them verbatim, so a forked handle can be asked its
@@ -1294,14 +1239,28 @@ impl StochStream {
     /// coordinates: `[beg_idx, beg_idx + count)`.
     ///
     /// It is what [`Core::STOCH`] reports over the same bars: the opener sets it
-    /// to `(lookback, historyLen - lookback)`, every `update` adds one to the
-    /// count — a bar rejected for being non-finite included, because it still
-    /// happened — `peek` leaves it alone, and a clone carries it verbatim.
-    /// A plain `Open` hands back only the last value, a subset of this range,
-    /// because the caller chose not to take the fill.
-    #[doc(alias = "TA_StreamOutRange")]
+    /// to `(lookback, historyLen - lookback)`, every accepted `update` adds
+    /// one to the count — a rejected one changes nothing, and neither does
+    /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
+    /// only the last value, a subset of this range, because the caller chose
+    /// not to take the fill.
+    #[doc(alias = "TA_STOCH_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
+    }
+
+    /// Count one bar this stream was not fed: [`Self::out_range`] advances by
+    /// one and nothing else moves — [`Self::value`] keeps answering the
+    /// previous output, which is this bar's output too.
+    ///
+    /// For a bar the caller leaves out: one an `update` rejected and that
+    /// will not be re-fed, or a session with no print. Without it two handles
+    /// on one feed drift a bar apart when only one of them skips.
+    #[doc(alias = "TA_STOCH_Advance")]
+    pub fn advance(&mut self) {
+        if self.out.count < Core::MAX_INDEX {
+            self.out.count += 1;
+        }
     }
 }
 
