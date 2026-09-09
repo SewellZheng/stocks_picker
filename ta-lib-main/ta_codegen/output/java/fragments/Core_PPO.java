@@ -218,11 +218,8 @@
     * (scale-invariant) variant of APO. Positive when the fast MA is above the
     * slow MA (upward momentum), negative otherwise; magnitude is the %
     * deviation.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * PPO = ((fastMA(inReal) - slowMA(inReal)) / slowMA(inReal)) * 100, both MAs of type optInMAType; output = 0 when slowMA == 0
-    * The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-day EMA) / 26-day EMA) * 100, i.e. the MACD oscillator expressed as a percentage. `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original PPO/MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ppo">ta-lib.org/functions/ppo</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
@@ -293,11 +290,8 @@
     * (scale-invariant) variant of APO. Positive when the fast MA is above the
     * slow MA (upward momentum), negative otherwise; magnitude is the %
     * deviation.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * PPO = ((fastMA(inReal) - slowMA(inReal)) / slowMA(inReal)) * 100, both MAs of type optInMAType; output = 0 when slowMA == 0
-    * The standard form is exponential with periods 12 and 26 — ((12-day EMA - 26-day EMA) / 26-day EMA) * 100, i.e. the MACD oscillator expressed as a percentage. `optInMAType` therefore **defaults to EMA** — the moving average Gerald Appel used for the original PPO/MACD; pass another type (e.g. `TA_MAType_SMA`) to override.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ppo">ta-lib.org/functions/ppo</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>{@code optInMAType} applies to both the fast and slow moving average. {@code TA_MAType_MAMA} ignores its period argument, so with {@code optInMAType = TA_MAType_MAMA} the fast and slow MAs are identical, making the numerator — and therefore the output — zero at every bar.</li>
@@ -382,17 +376,17 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class PpoStream {
-      Core core;
-      int optInFastPeriod;
-      int optInSlowPeriod;
-      MAType optInMAType;
-      double cur_outReal;
-      MaStream sub0;
-      MaStream sub1;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInFastPeriod;
+      private int optInSlowPeriod;
+      private MAType optInMAType;
+      private double cur_outReal;
+      private MaStream sub0;
+      private MaStream sub1;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      PpoStream( Core core ) { this.core = core; }
+      private PpoStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -404,6 +398,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -414,10 +411,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PPO advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      PpoStream( PpoStream other ) {
+      private PpoStream( PpoStream other ) {
          this.core = other.core;
          this.optInFastPeriod = other.optInFastPeriod;
          this.optInSlowPeriod = other.optInSlowPeriod;
@@ -431,7 +436,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -443,12 +447,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PPO update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("PPO update: BadParam", RetCode.BadParam);
          core.ppoStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -457,9 +467,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -507,7 +518,7 @@
          return new PpoStream(this);
       }
    }
-   void ppoStepImpl( PpoStream sp, double inReal )
+   private void ppoStepImpl( PpoStream sp, double inReal )
    {
       double tempReal = 0.0;
       double cur_tempBuffer = 0.0;
@@ -674,8 +685,8 @@
     * <p>The history must hold at least {@code PPO_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -27,7 +27,8 @@
     * @param optInTimePeriod Window length for the variance (default 5; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Deviation count accepted by the API but never used in
-    *        the computation (default 1; {@code -4e37} selects the default).
+    *        the computation (default 1; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int VAR_Lookback( int optInTimePeriod, double optInNbDev )
@@ -347,10 +348,8 @@
     * Rolling population variance of a real series over a given period. Measures
     * dispersion of values around their mean. Higher values indicate greater
     * dispersion; 0 means constant input.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $\mathrm{VAR} = \frac{1}{n}\sum x_i^2 - \left(\frac{1}{n}\sum x_i\right)^2$, over the last $n$ = optInTimePeriod values (population, divides by $n$).
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/var">ta-lib.org/functions/var</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Computes population variance (divides by the period), not the sample variance (n-1) used by some definitions.</li>
@@ -368,7 +367,8 @@
     * @param optInTimePeriod Window length for the variance (default 5; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Deviation count accepted by the API but never used in
-    *        the computation (default 1; {@code -4e37} selects the default).
+    *        the computation (default 1; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param outReal Rolling population variance. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -412,10 +412,8 @@
     * Rolling population variance of a real series over a given period. Measures
     * dispersion of values around their mean. Higher values indicate greater
     * dispersion; 0 means constant input.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $\mathrm{VAR} = \frac{1}{n}\sum x_i^2 - \left(\frac{1}{n}\sum x_i\right)^2$, over the last $n$ = optInTimePeriod values (population, divides by $n$).
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/var">ta-lib.org/functions/var</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Computes population variance (divides by the period), not the sample variance (n-1) used by some definitions.</li>
@@ -436,7 +434,8 @@
     * @param optInTimePeriod Window length for the variance (default 5; range
     *        1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Deviation count accepted by the API but never used in
-    *        the computation (default 1; {@code -4e37} selects the default).
+    *        the computation (default 1; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param outReal Rolling population variance. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -493,26 +492,26 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class VarStream {
-      Core core;
-      int optInTimePeriod;
-      double optInNbDev;
-      double shift;
-      double periodTotal1;
-      double periodTotal2;
-      double invPeriod;
-      int trailingIdx;
-      int nbInitialElementNeeded;
-      int barsSinceReseed;
-      int j;
-      int windowStart;
-      int i;
-      int xMask;
-      double[] x_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInNbDev;
+      private double shift;
+      private double periodTotal1;
+      private double periodTotal2;
+      private double invPeriod;
+      private int trailingIdx;
+      private int nbInitialElementNeeded;
+      private int barsSinceReseed;
+      private int j;
+      private int windowStart;
+      private int i;
+      private int xMask;
+      private double[] x_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      VarStream( Core core ) { this.core = core; }
+      private VarStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -524,6 +523,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -534,10 +536,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VAR advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      VarStream( VarStream other ) {
+      private VarStream( VarStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInNbDev = other.optInNbDev;
@@ -560,7 +570,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -572,12 +581,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VAR update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("VAR update: BadParam", RetCode.BadParam);
          core.varStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -586,9 +601,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -599,7 +615,6 @@
          double variance = 0.0;
          int barsSinceReseed = sp.barsSinceReseed;
          double cur_outReal = 0.0;
-         int i = sp.i;
          int j = sp.j;
          double periodTotal1 = sp.periodTotal1;
          double periodTotal2 = sp.periodTotal2;
@@ -608,17 +623,10 @@
          int windowStart = sp.windowStart;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( i >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            i -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            j -= rebaseShift;
-            windowStart -= rebaseShift;
-         }
-         pkSlot0 = i & sp.xMask;
+         pkSlot0 = sp.i & sp.xMask;
          pkVal0 = inReal;
          /* Add the incoming value, measured against the shift. */
-         tempReal = (((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0) - shift;
+         tempReal = (((sp.i & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.i & sp.xMask] : pkVal0) - shift;
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
@@ -646,15 +654,15 @@
          barsSinceReseed -= 1;
          if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * sp.optInTimePeriod;
-            windowStart = i - sp.nbInitialElementNeeded;
+            windowStart = sp.i - sp.nbInitialElementNeeded;
             tempReal = 0.0;
-            for( j = windowStart; j <= i; j += 1 ) {
+            for( j = windowStart; j <= sp.i; j += 1 ) {
                tempReal += ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
             }
             shift = tempReal * sp.invPeriod;
             periodTotal1 = 0.0;
             periodTotal2 = 0.0;
-            for( j = windowStart; j <= i; j += 1 ) {
+            for( j = windowStart; j <= sp.i; j += 1 ) {
                tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
                periodTotal1 += tempReal;
                tempReal *= tempReal;
@@ -752,18 +760,11 @@
          return new VarStream(this);
       }
    }
-   void varStepImpl( VarStream sp, double inReal )
+   private void varStepImpl( VarStream sp, double inReal )
    {
       double tempReal = 0.0;
       double meanValue1 = 0.0;
       double variance = 0.0;
-      if( sp.i >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.i -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.j -= rebaseShift;
-         sp.windowStart -= rebaseShift;
-      }
       sp.x_inReal[sp.i & sp.xMask] = inReal;
       /* Add the incoming value, measured against the shift. */
       tempReal = sp.x_inReal[sp.i & sp.xMask] - sp.shift;
@@ -1137,8 +1138,8 @@
     * <p>The history must hold at least {@code VAR_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

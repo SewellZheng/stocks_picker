@@ -219,14 +219,12 @@
     * further it runs from its anchor. It stays within the range of the typical
     * prices it averages, but over a long trending range it can sit far from the
     * current price.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * TP_t = ( High_t + Low_t + Close_t ) / 3; VWAP_t = ( Σ TP · Volume ) / ( Σ Volume ), both sums running from the first bar of the range
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/vwap">ta-lib.org/functions/vwap</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The sums run from the first bar of the range and are never reset. Charting packages anchor VWAP to a trading session and restart it at each session boundary; no TA-Lib function takes a timestamp or a session boundary, so the anchor is the range the caller asks for — pass one session's bars to get that session's VWAP. This is how AD and OBV, the other cumulative volume functions, are already used across sessions.</li>
-    * <li>Volume is expected to be non-negative. A zero-volume bar carries no weight, so one occurring after volume has traded leaves the average exactly where it was. Before *any* volume has traded there are no weights at all and the weighted mean is undefined; those bars carry the previous value forward, which is 0 until the first bar with volume. A successful call never emits NaN or ±Inf. Other implementations differ here: pandas-ta-classic divides through and emits NaN, and trading-signals emits no value for the bar at all.</li>
+    * <li>Volume is expected to be non-negative. A zero-volume bar carries no weight, so one occurring after volume has traded leaves the average exactly where it was. Before <i>any</i> volume has traded there are no weights at all and the weighted mean is undefined; those bars carry the previous value forward, which is 0 until the first bar with volume. A successful call never emits NaN or ±Inf. Other implementations differ here: pandas-ta-classic divides through and emits NaN, and trading-signals emits no value for the bar at all.</li>
     * <li>A bar whose price or volume is not a finite number cannot be weighted, so it is left out of the average entirely and repeats the previous value. It is skipped, not absorbed: the running average stays usable and resumes on the next bar that can be weighted, rather than being held at one stale value for the remainder of the range.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -300,14 +298,12 @@
     * further it runs from its anchor. It stays within the range of the typical
     * prices it averages, but over a long trending range it can sit far from the
     * current price.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * TP_t = ( High_t + Low_t + Close_t ) / 3; VWAP_t = ( Σ TP · Volume ) / ( Σ Volume ), both sums running from the first bar of the range
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/vwap">ta-lib.org/functions/vwap</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The sums run from the first bar of the range and are never reset. Charting packages anchor VWAP to a trading session and restart it at each session boundary; no TA-Lib function takes a timestamp or a session boundary, so the anchor is the range the caller asks for — pass one session's bars to get that session's VWAP. This is how AD and OBV, the other cumulative volume functions, are already used across sessions.</li>
-    * <li>Volume is expected to be non-negative. A zero-volume bar carries no weight, so one occurring after volume has traded leaves the average exactly where it was. Before *any* volume has traded there are no weights at all and the weighted mean is undefined; those bars carry the previous value forward, which is 0 until the first bar with volume. A successful call never emits NaN or ±Inf. Other implementations differ here: pandas-ta-classic divides through and emits NaN, and trading-signals emits no value for the bar at all.</li>
+    * <li>Volume is expected to be non-negative. A zero-volume bar carries no weight, so one occurring after volume has traded leaves the average exactly where it was. Before <i>any</i> volume has traded there are no weights at all and the weighted mean is undefined; those bars carry the previous value forward, which is 0 until the first bar with volume. A successful call never emits NaN or ±Inf. Other implementations differ here: pandas-ta-classic divides through and emits NaN, and trading-signals emits no value for the bar at all.</li>
     * <li>A bar whose price or volume is not a finite number cannot be weighted, so it is left out of the average entirely and repeats the previous value. It is skipped, not absorbed: the running average stays usable and resumes on the next bar that can be weighted, rather than being held at one stale value for the remainder of the range.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -388,15 +384,15 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class VwapStream {
-      Core core;
-      double sumPV;
-      double sumV;
-      double vwap;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double sumPV;
+      private double sumV;
+      private double vwap;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      VwapStream( Core core ) { this.core = core; }
+      private VwapStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -408,6 +404,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -418,10 +417,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VWAP advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      VwapStream( VwapStream other ) {
+      private VwapStream( VwapStream other ) {
          this.core = other.core;
          this.sumPV = other.sumPV;
          this.sumV = other.sumV;
@@ -433,7 +440,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -445,12 +451,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VWAP update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("VWAP update: BadParam", RetCode.BadParam);
          core.vwapStepImpl(this, inHigh, inLow, inClose, inVolume);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -459,9 +471,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
@@ -588,7 +601,7 @@
          return new VwapStream(this);
       }
    }
-   void vwapStepImpl( VwapStream sp, double inHigh, double inLow, double inClose, double inVolume )
+   private void vwapStepImpl( VwapStream sp, double inHigh, double inLow, double inClose, double inVolume )
    {
       double typPrice = 0.0;
       double volume = 0.0;
@@ -862,9 +875,7 @@
     * to {@link Core#VWAP} at that bar.
     * <p>The history must hold at least {@code VWAP_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

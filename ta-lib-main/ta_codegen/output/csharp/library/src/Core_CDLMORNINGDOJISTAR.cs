@@ -66,13 +66,14 @@ public partial class Core
    /// </remarks>
    /// <param name="optInPenetration">Fraction of the 1st candle's real body the 3rd close must exceed above
    /// close[i-2]; larger values demand deeper penetration into the black body
-   /// (default 0.3; minimum 0; <c>-4e37</c> selects the default).</param>
+   /// (default 0.3; minimum 0; <see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int CDLMORNINGDOJISTAR_Lookback( double optInPenetration )
    {
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 3e-1;
-      } else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) ) {
+      } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
          return -1;
       }
       int BodyDoji_rangeType = (int)this.candleSettings[(int)CandleSettingType.BodyDoji].rangeType;
@@ -124,9 +125,9 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 3e-1;
-      } else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) ) {
+      } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
@@ -252,9 +253,9 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 3e-1;
-      } else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) ) {
+      } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outInteger).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
@@ -318,6 +319,10 @@ public partial class Core
    /// which this function does not verify.
    /// </summary>
    /// <remarks>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/cdlmorningdojistar">ta-lib.org/functions/cdlmorningdojistar</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The gap-down is measured between the candles' real bodies, not between their high/low ranges.</description></item>
    /// <item><description>A prior downtrend is not verified.</description></item>
@@ -338,7 +343,8 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="optInPenetration">Fraction of the 1st candle's real body the 3rd close must exceed above
    /// close[i-2]; larger values demand deeper penetration into the black body
-   /// (default 0.3; minimum 0; <c>-4e37</c> selects the default).</param>
+   /// (default 0.3; minimum 0; <see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <param name="outInteger">+100 when the pattern is detected, 0 otherwise. Always bullish; never
    /// emits -100. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -390,6 +396,10 @@ public partial class Core
    /// which this function does not verify.
    /// </summary>
    /// <remarks>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/cdlmorningdojistar">ta-lib.org/functions/cdlmorningdojistar</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The gap-down is measured between the candles' real bodies, not between their high/low ranges.</description></item>
    /// <item><description>A prior downtrend is not verified.</description></item>
@@ -416,7 +426,8 @@ public partial class Core
    /// <param name="inClose">Close price of each bar.</param>
    /// <param name="optInPenetration">Fraction of the 1st candle's real body the 3rd close must exceed above
    /// close[i-2]; larger values demand deeper penetration into the black body
-   /// (default 0.3; minimum 0; <c>-4e37</c> selects the default).</param>
+   /// (default 0.3; minimum 0; <see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <param name="outInteger">+100 when the pattern is detected, 0 otherwise. Always bullish; never
    /// emits -100. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -435,8 +446,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange CDLMORNINGDOJISTAR( int startIdx,
                                        int endIdx,
                                        ReadOnlySpan<float> inOpen,
@@ -526,6 +539,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -536,10 +551,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("CDLMORNINGDOJISTAR", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal CdlmorningdojistarStream( CdlmorningdojistarStream other )
@@ -595,6 +616,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inOpen">This bar's open price.</param>
       /// <param name="inHigh">This bar's high price.</param>
@@ -603,9 +628,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public int Update( double inOpen, double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("CDLMORNINGDOJISTAR", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("CDLMORNINGDOJISTAR", "update", RetCode.BadParam);
          core.CdlmorningdojistarStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outInteger;
       }
 
@@ -615,15 +642,16 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inOpen">This bar's open price.</param>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public int Peek( double inOpen, double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("CDLMORNINGDOJISTAR", "peek", RetCode.BadParam);
@@ -757,9 +785,9 @@ public partial class Core
       if( inHigh.Length != inOpen.Length || inLow.Length != inOpen.Length || inClose.Length != inOpen.Length ) {
          return RetCode.BadParam;
       }
-      if( optInPenetration == TA_REAL_DEFAULT ) {
+      if( optInPenetration == REAL_DEFAULT ) {
          optInPenetration = 3e-1;
-      } else if( !(optInPenetration >= 0e0 && optInPenetration <= TA_REAL_MAX) ) {
+      } else if( !(optInPenetration >= 0e0 && optInPenetration <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
@@ -960,7 +988,8 @@ public partial class Core
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="optInPenetration">As in the batch call; see <see cref="CDLMORNINGDOJISTAR_Lookback"/> for
-   /// its default and range (<c>-4e37</c> selects the default).</param>
+   /// its default and range (<see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CDLMORNINGDOJISTAR_Lookback(...) + 1</c>
    /// bars.</exception>
@@ -1003,7 +1032,8 @@ public partial class Core
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="optInPenetration">As in the batch call; see <see cref="CDLMORNINGDOJISTAR_Lookback"/> for
-   /// its default and range (<c>-4e37</c> selects the default).</param>
+   /// its default and range (<see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <param name="outInteger">+100 when the pattern is detected, 0 otherwise. Always bullish; never
    /// emits -100. Must hold at least <c>historyLen -
    /// CDLMORNINGDOJISTAR_Lookback(...)</c> values.</param>

@@ -236,11 +236,8 @@
    /**
     * Returns the absolute input indices of the lowest and highest values within
     * each rolling window of optInTimePeriod bars. Index variant of MINMAX.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
-    * outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/minmaxindex">ta-lib.org/functions/minmaxindex</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</li>
@@ -305,11 +302,8 @@
    /**
     * Returns the absolute input indices of the lowest and highest values within
     * each rolling window of optInTimePeriod bars. Index variant of MINMAX.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
-    * outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/minmaxindex">ta-lib.org/functions/minmaxindex</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</li>
@@ -391,23 +385,23 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MinmaxindexStream {
-      Core core;
-      int optInTimePeriod;
-      double highest;
-      double lowest;
-      int trailingIdx;
-      int highestIdx;
-      int lowestIdx;
-      int i;
-      int today;
-      int xMask;
-      double[] x_inReal;
-      int cur_outMinIdx;
-      int cur_outMaxIdx;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double highest;
+      private double lowest;
+      private int trailingIdx;
+      private int highestIdx;
+      private int lowestIdx;
+      private int i;
+      private int today;
+      private int xMask;
+      private double[] x_inReal;
+      private int cur_outMinIdx;
+      private int cur_outMaxIdx;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MinmaxindexStream( Core core ) { this.core = core; }
+      private MinmaxindexStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -419,6 +413,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -429,10 +426,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MINMAXINDEX advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MinmaxindexStream( MinmaxindexStream other ) {
+      private MinmaxindexStream( MinmaxindexStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.highest = other.highest;
@@ -452,7 +457,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -464,13 +468,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, MinmaxindexOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MINMAXINDEX update", RetCode.OutOfRangeEndIndex);
          requireArgument("MINMAXINDEX update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MINMAXINDEX update: BadParam", RetCode.BadParam);
          core.minmaxindexStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.minIdx = this.cur_outMinIdx;
          out.maxIdx = this.cur_outMaxIdx;
       }
@@ -480,9 +490,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MinmaxindexOut out ) {
          requireArgument("MINMAXINDEX peek", "out", out);
@@ -498,27 +509,17 @@
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inReal;
-         tmpHigh = ((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0;
+         tmpHigh = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0;
          tmpLow = tmpHigh;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpHigh = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmpHigh > highest ) {
                   highestIdx = i;
@@ -526,14 +527,14 @@
                }
             }
          } else if( tmpHigh >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmpHigh;
          }
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[lowestIdx & sp.xMask] : pkVal0;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpLow = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmpLow < lowest ) {
                   lowestIdx = i;
@@ -541,7 +542,7 @@
                }
             }
          } else if( tmpLow <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmpLow;
          }
          cur_outMaxIdx = highestIdx;
@@ -554,7 +555,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( MinmaxindexOut out ) {
          requireArgument("MINMAXINDEX value", "out", out);
@@ -600,18 +601,10 @@
       /** Absolute index (into inReal) of the window maximum. */
       public int maxIdx;
    }
-   void minmaxindexStepImpl( MinmaxindexStream sp, double inReal )
+   private void minmaxindexStepImpl( MinmaxindexStream sp, double inReal )
    {
       double tmpHigh = 0.0;
       double tmpLow = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
       tmpHigh = sp.x_inReal[sp.today & sp.xMask];
       tmpLow = tmpHigh;
@@ -827,8 +820,8 @@
     * <p>The history must hold at least {@code MINMAXINDEX_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

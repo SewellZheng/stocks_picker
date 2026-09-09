@@ -474,23 +474,33 @@ fn assert_nullable_stores_are_guardable(func: &FuncDef, nullable: &[String]) {
 /// One C# span-overlap term, shared by the batch (`csharp.rs`) and streaming
 /// (`csharp_stream.rs`) aliasing guards.
 ///
-/// Same-element-type pair: `Span<T>.Overlaps` directly. Cross-typed pair (a
-/// `Span<double>` output against a `Span<int>` output, or against a real
-/// input): `Overlaps` is not defined across element types, but a caller CAN
-/// place the two on the same backing memory (`MemoryMarshal.Cast`, or any
-/// other reinterpretation), so compare the byte ranges instead —
-/// `MemoryMarshal.AsBytes` is safe code for any unmanaged `T` and needs no
-/// `unsafe` block in this project. SUPERTREND is the corpus's only mixed-type
-/// output pair today.
+/// `a_ty` / `b_ty` are C# ELEMENT types (`double`, `float`, `int`), not a
+/// signedness or an is-integer flag: the float overload pairs a `float` input
+/// with a `double` output, and nothing narrower can tell that pair from a
+/// same-typed one.
+///
+/// Same element type: `Span<T>.Overlaps` directly. Different: `Overlaps` is not
+/// defined across element types, but a caller CAN place the two on one backing
+/// buffer (`MemoryMarshal.Cast`, or any other reinterpretation), so compare the
+/// byte ranges instead — `MemoryMarshal.AsBytes` is safe code for any unmanaged
+/// `T` and needs no `unsafe` block here. Differing WIDTH is no barrier either:
+/// a `Span<float>` and a `Span<double>` over one `byte[]` overlap, which is the
+/// premise that made this skippable and was wrong twice (#386).
 ///
 /// `allow_identity` carves out the exact-same-span case (`a == b`) from the
 /// same-type rejection: legitimate for an output computing in place over one
 /// of its inputs (BBANDS-style scratch election), never legitimate between
-/// two outputs, and moot on the cross-type arm — a `Span<int>` and a
-/// `Span<double>` can never be the same span object to begin with, so the
-/// carve-out would be dead code there.
-pub(crate) fn csharp_overlap_expr(a: &str, a_int: bool, b: &str, b_int: bool, allow_identity: bool) -> String {
-    if a_int == b_int {
+/// two outputs, and moot on the cross-type arm — two spans of different element
+/// type can never be the same span object to begin with, so the carve-out would
+/// be dead code there.
+pub(crate) fn csharp_overlap_expr(
+    a: &str,
+    a_ty: &str,
+    b: &str,
+    b_ty: &str,
+    allow_identity: bool,
+) -> String {
+    if a_ty == b_ty {
         if allow_identity {
             format!("({a}.Overlaps({b}) && {a} != {b})")
         } else {
@@ -504,9 +514,127 @@ pub(crate) fn csharp_overlap_expr(a: &str, a_int: bool, b: &str, b_int: bool, al
     }
 }
 
+// ---------------------------------------------------------------------------
+// Markdown emphasis, for the doc targets that render markup
+// ---------------------------------------------------------------------------
+
+/// True when `chars[i..]` opens a run of exactly `len` asterisks — so a lookup
+/// for `*` never matches half of a `**`.
+#[must_use]
+pub(crate) fn asterisks_at(chars: &[char], i: usize, len: usize) -> bool {
+    if chars.len() < i + len || !chars[i..i + len].iter().all(|&c| c == '*') {
+        return false;
+    }
+    chars.get(i + len) != Some(&'*')
+}
+
+/// Whether a `len`-asterisk run opened at `from` ever closes. Code spans are
+/// skipped: an asterisk between backticks is source text, so it can neither
+/// close nor open emphasis.
+fn emphasis_closes(chars: &[char], from: usize, len: usize) -> bool {
+    let mut in_code = false;
+    let mut i = from;
+    while i < chars.len() {
+        if chars[i] == '`' {
+            in_code = !in_code;
+            i += 1;
+            continue;
+        }
+        if !in_code && asterisks_at(chars, i, len) && i > from && !chars[i - 1].is_whitespace() {
+            return true;
+        }
+        i += 1;
+    }
+    false
+}
+
+/// The delimiter length of the Markdown emphasis run opening at `chars[i]` — 2
+/// for `**bold**`, 1 for `*italic*` — or `None` when this asterisk is prose.
+///
+/// The canonical `.md` files are Markdown, and the Rust doc target renders them
+/// as such. The HTML and XML targets do not, so each converts what it can: this
+/// is the one place that decides *what counts*, so the two cannot disagree about
+/// it. Each caller supplies its own tags.
+///
+/// Recognized only when the run pairs, only outside a code span, and only at a
+/// boundary that flanks non-space without splitting a word. An asterisk failing
+/// any of those is prose: the corpus multiplies with it (`factor = 4*ATR`) and
+/// names parameters with it (`optInROC*Period`), and neither is emphasis.
+///
+/// Formulas never come through the escapers — every backend renders them as
+/// preformatted text through its own raw escaper, where `*` is math.
+#[must_use]
+pub(crate) fn emphasis_open(chars: &[char], i: usize) -> Option<usize> {
+    if chars.get(i) != Some(&'*') {
+        return None;
+    }
+    let len = if asterisks_at(chars, i, 2) { 2 } else { 1 };
+    if !asterisks_at(chars, i, len) {
+        return None; // a run of three or more: not emphasis the corpus writes
+    }
+    let splits_word = len == 1 && i > 0 && chars[i - 1].is_alphanumeric();
+    // An asterisk immediately after another is the tail of a run already
+    // accounted for — the second `*` of `**bold**`, which reads as a lone
+    // italic opener when asked about on its own. The escapers consume both at
+    // once and never ask, but the answer must not depend on that: a helper two
+    // callers share has to give the same reading at every position.
+    let continues_run = i > 0 && chars[i - 1] == '*';
+    let flanks_text = chars.get(i + len).is_some_and(|n| !n.is_whitespace());
+    (!splits_word && !continues_run && flanks_text && emphasis_closes(chars, i + len, len))
+        .then_some(len)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What `emphasis_open` answers, as the escapers ask it: the delimiter
+    /// length at each `*`, or `None`.
+    fn opens(text: &str) -> Vec<(usize, Option<usize>)> {
+        let chars: Vec<char> = text.chars().collect();
+        chars
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| **c == '*')
+            .map(|(i, _)| (i, emphasis_open(&chars, i)))
+            .collect()
+    }
+
+    #[test]
+    fn bold_and_italic_are_recognized() {
+        // "the **sum** of" — the opener answers 2, the closer is not an opener.
+        assert_eq!(opens("the **sum** of"), vec![(4, Some(2)), (5, None), (9, None), (10, None)]);
+        assert_eq!(opens("travels *within* a"), vec![(8, Some(1)), (15, None)]);
+    }
+
+    /// An asterisk in a code span is the author's text. Nothing else in the
+    /// corpus asserts this, and the natural over-fix — convert every `*` —
+    /// would rewrite parameter names inside `{@code ...}`.
+    #[test]
+    fn a_code_span_is_not_emphasis() {
+        assert_eq!(opens("`optInROC*Period` back"), vec![(9, None)]);
+        assert_eq!(opens("`a * b` and `c * d`"), vec![(3, None), (15, None)]);
+    }
+
+    /// Each pairing rule in the direction that would corrupt prose if the
+    /// scanner were greedier.
+    #[test]
+    fn unpaired_and_intraword_asterisks_are_prose() {
+        assert_eq!(opens("factor = 4*ATR"), vec![(10, None)]);
+        assert_eq!(opens("a lone * asterisk"), vec![(7, None)]);
+        assert_eq!(opens("opens *but never closes"), vec![(6, None)]);
+        assert_eq!(opens("4 * 5 = 20"), vec![(2, None)]);
+    }
+
+    /// A `*` closer may not be half of a `**`, or `**bold**` reads as an italic
+    /// followed by a stray asterisk.
+    #[test]
+    fn a_bold_run_is_not_two_italics() {
+        let o = opens("**a** and *b*");
+        assert_eq!(o[0], (0, Some(2)));
+        assert_eq!(o[1], (1, None));
+        assert_eq!(o.last(), Some(&(12, None)));
+    }
 
     /// The sentinels above are a copy of `include/ta_defs.h`, which is hand-written
     /// public ABI. Nothing else notices when the two drift: a wrong value silently

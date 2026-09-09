@@ -244,15 +244,12 @@
    }
    /**
     * Elder Ray Index: Alexander Elder's Bull Power / Bear Power pair from
-    * *Trading for a Living* (1993) — how far the bar's high and low sit from an
-    * EMA of the close. Bulls strong enough to push the high above the average
-    * read as positive Bull Power; bears dragging the low below it read as
-    * negative Bear Power.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * `Bull Power = High − EMA(Close, n)` and `Bear Power = Low − EMA(Close, n)`, both lines against the **same** EMA. Bull ≥ Bear on every bar since high ≥ low. TradingView's built-in *Bull Bear Power* — which its own support page calls "otherwise known as the Elder-Ray Index" — plots only the sum of the two, not the pair; StockCharts, TC2000 and pandas-ta all ship the two lines.
-    * Because the underlying average is an [`EMA`](/functions/ema), ERI inherits its unstable period: the warm-up consumes `TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)` extra bars, exactly as `EMA` itself does.
-    * }</pre>
+    * <i>Trading for a Living</i> (1993) — how far the bar's high and low sit
+    * from an EMA of the close. Bulls strong enough to push the high above the
+    * average read as positive Bull Power; bears dragging the low below it read
+    * as negative Bear Power.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/eri">ta-lib.org/functions/eri</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>ERI is a cancelling difference: near the zero crossings that carry its signal, tiny EMA discrepancies are amplified without bound in relative terms. Compare against external values with an absolute tolerance.</li>
@@ -321,15 +318,12 @@
    }
    /**
     * Elder Ray Index: Alexander Elder's Bull Power / Bear Power pair from
-    * *Trading for a Living* (1993) — how far the bar's high and low sit from an
-    * EMA of the close. Bulls strong enough to push the high above the average
-    * read as positive Bull Power; bears dragging the low below it read as
-    * negative Bear Power.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * `Bull Power = High − EMA(Close, n)` and `Bear Power = Low − EMA(Close, n)`, both lines against the **same** EMA. Bull ≥ Bear on every bar since high ≥ low. TradingView's built-in *Bull Bear Power* — which its own support page calls "otherwise known as the Elder-Ray Index" — plots only the sum of the two, not the pair; StockCharts, TC2000 and pandas-ta all ship the two lines.
-    * Because the underlying average is an [`EMA`](/functions/ema), ERI inherits its unstable period: the warm-up consumes `TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)` extra bars, exactly as `EMA` itself does.
-    * }</pre>
+    * <i>Trading for a Living</i> (1993) — how far the bar's high and low sit
+    * from an EMA of the close. Bulls strong enough to push the high above the
+    * average read as positive Bull Power; bears dragging the low below it read
+    * as negative Bear Power.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/eri">ta-lib.org/functions/eri</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>ERI is a cancelling difference: near the zero crossings that carry its signal, tiny EMA discrepancies are amplified without bound in relative terms. Compare against external values with an absolute tolerance.</li>
@@ -416,16 +410,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class EriStream {
-      Core core;
-      int optInTimePeriod;
-      double prevMA;
-      double k;
-      double cur_outBullPower;
-      double cur_outBearPower;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double prevMA;
+      private double k;
+      private double cur_outBullPower;
+      private double cur_outBearPower;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      EriStream( Core core ) { this.core = core; }
+      private EriStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -437,6 +431,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -447,10 +444,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("ERI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      EriStream( EriStream other ) {
+      private EriStream( EriStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevMA = other.prevMA;
@@ -463,7 +468,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -475,13 +479,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, EriOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("ERI update", RetCode.OutOfRangeEndIndex);
          requireArgument("ERI update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("ERI update: BadParam", RetCode.BadParam);
          core.eriStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.bullPower = this.cur_outBullPower;
          out.bearPower = this.cur_outBearPower;
       }
@@ -491,9 +501,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, EriOut out ) {
          requireArgument("ERI peek", "out", out);
@@ -529,7 +540,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( EriOut out ) {
          requireArgument("ERI value", "out", out);
@@ -575,7 +586,7 @@
       /** Low minus the EMA of close. */
       public double bearPower;
    }
-   void eriStepImpl( EriStream sp, double inHigh, double inLow, double inClose )
+   private void eriStepImpl( EriStream sp, double inHigh, double inLow, double inClose )
    {
       if( sp.optInTimePeriod == 1 ) {
          double tempReal = 0.0;
@@ -810,8 +821,8 @@
     * <p>The history must hold at least {@code ERI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

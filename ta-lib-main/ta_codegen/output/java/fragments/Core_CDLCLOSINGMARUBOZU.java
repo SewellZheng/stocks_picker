@@ -200,13 +200,11 @@
     * short shadow, so the close sits at the candle's extreme. A strong
     * directional bar, not a defined reversal/continuation signal — white is
     * bullish, black is bearish.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * One candle. Requires: (1) long real body: real body > the BodyLong average; AND (2) very short shadow at the closing end: if white (close>=open) upper shadow < the ShadowVeryShort average [close at/near high]; if black (close<open) lower shadow < the ShadowVeryShort average [close at/near low].
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlclosingmarubozu">ta-lib.org/functions/cdlclosingmarubozu</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Bulkowski's testing found Closing Marubozu continues in its expected direction only marginally more than chance — 52% for the black variant — which he calls "near random." ([thepatternsite.com](https://thepatternsite.com/CloseBlkMarubozu.html))</li>
+    * <li>Bulkowski's testing found Closing Marubozu continues in its expected direction only marginally more than chance — 52% for the black variant — which he calls "near random." (<a href="https://thepatternsite.com/CloseBlkMarubozu.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -271,13 +269,11 @@
     * short shadow, so the close sits at the candle's extreme. A strong
     * directional bar, not a defined reversal/continuation signal — white is
     * bullish, black is bearish.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * One candle. Requires: (1) long real body: real body > the BodyLong average; AND (2) very short shadow at the closing end: if white (close>=open) upper shadow < the ShadowVeryShort average [close at/near high]; if black (close<open) lower shadow < the ShadowVeryShort average [close at/near low].
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlclosingmarubozu">ta-lib.org/functions/cdlclosingmarubozu</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Bulkowski's testing found Closing Marubozu continues in its expected direction only marginally more than chance — 52% for the black variant — which he calls "near random." ([thepatternsite.com](https://thepatternsite.com/CloseBlkMarubozu.html))</li>
+    * <li>Bulkowski's testing found Closing Marubozu continues in its expected direction only marginally more than chance — 52% for the black variant — which he calls "near random." (<a href="https://thepatternsite.com/CloseBlkMarubozu.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -357,26 +353,26 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CdlclosingmarubozuStream {
-      Core core;
-      double BodyLongPeriodTotal;
-      double ShadowVeryShortPeriodTotal;
-      int ringPos_BodyLongTrailingIdx;
-      int ringCap_BodyLongTrailingIdx;
-      double[] ring_BodyLongTrailingIdx_derived;
-      int ringPos_ShadowVeryShortTrailingIdx;
-      int ringCap_ShadowVeryShortTrailingIdx;
-      double[] ring_ShadowVeryShortTrailingIdx_derived;
-      int cs_BodyLong_rangeType;
-      int cs_BodyLong_avgPeriod;
-      double cs_BodyLong_factor;
-      int cs_ShadowVeryShort_rangeType;
-      int cs_ShadowVeryShort_avgPeriod;
-      double cs_ShadowVeryShort_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double BodyLongPeriodTotal;
+      private double ShadowVeryShortPeriodTotal;
+      private int ringPos_BodyLongTrailingIdx;
+      private int ringCap_BodyLongTrailingIdx;
+      private double[] ring_BodyLongTrailingIdx_derived;
+      private int ringPos_ShadowVeryShortTrailingIdx;
+      private int ringCap_ShadowVeryShortTrailingIdx;
+      private double[] ring_ShadowVeryShortTrailingIdx_derived;
+      private int cs_BodyLong_rangeType;
+      private int cs_BodyLong_avgPeriod;
+      private double cs_BodyLong_factor;
+      private int cs_ShadowVeryShort_rangeType;
+      private int cs_ShadowVeryShort_avgPeriod;
+      private double cs_ShadowVeryShort_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CdlclosingmarubozuStream( Core core ) { this.core = core; }
+      private CdlclosingmarubozuStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -388,6 +384,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -398,10 +397,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLCLOSINGMARUBOZU advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CdlclosingmarubozuStream( CdlclosingmarubozuStream other ) {
+      private CdlclosingmarubozuStream( CdlclosingmarubozuStream other ) {
          this.core = other.core;
          this.BodyLongPeriodTotal = other.BodyLongPeriodTotal;
          this.ShadowVeryShortPeriodTotal = other.ShadowVeryShortPeriodTotal;
@@ -424,7 +431,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -436,12 +442,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLCLOSINGMARUBOZU update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLCLOSINGMARUBOZU update: BadParam", RetCode.BadParam);
          core.cdlclosingmarubozuStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -450,9 +462,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -504,7 +517,7 @@
          return new CdlclosingmarubozuStream(this);
       }
    }
-   void cdlclosingmarubozuStepImpl( CdlclosingmarubozuStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdlclosingmarubozuStepImpl( CdlclosingmarubozuStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
       int BodyLong_avgPeriod = sp.cs_BodyLong_avgPeriod;
@@ -719,9 +732,7 @@
     * to {@link Core#CDLCLOSINGMARUBOZU} at that bar.
     * <p>The history must hold at least {@code CDLCLOSINGMARUBOZU_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -369,10 +369,8 @@
     * Midpoint over a period: the average of the highest and lowest input values
     * within the lookback window. A single-series overlap smoother (use MIDPRICE
     * for separate high/low price bars).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * MIDPOINT = (Highest(inReal, period) + Lowest(inReal, period)) / 2
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/midpoint">ta-lib.org/functions/midpoint</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -428,10 +426,8 @@
     * Midpoint over a period: the average of the highest and lowest input values
     * within the lookback window. A single-series overlap smoother (use MIDPRICE
     * for separate high/low price bars).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * MIDPOINT = (Highest(inReal, period) + Lowest(inReal, period)) / 2
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/midpoint">ta-lib.org/functions/midpoint</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -505,22 +501,22 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MidpointStream {
-      Core core;
-      int optInTimePeriod;
-      double lowest;
-      double highest;
-      int trailingIdx;
-      int lowestIdx;
-      int highestIdx;
-      int i;
-      int today;
-      int xMask;
-      double[] x_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double lowest;
+      private double highest;
+      private int trailingIdx;
+      private int lowestIdx;
+      private int highestIdx;
+      private int i;
+      private int today;
+      private int xMask;
+      private double[] x_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MidpointStream( Core core ) { this.core = core; }
+      private MidpointStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -532,6 +528,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -542,10 +541,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MIDPOINT advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MidpointStream( MidpointStream other ) {
+      private MidpointStream( MidpointStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.lowest = other.lowest;
@@ -564,7 +571,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -576,12 +582,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MIDPOINT update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MIDPOINT update: BadParam", RetCode.BadParam);
          core.midpointStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -590,9 +602,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -606,27 +619,17 @@
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inReal;
-         tmpHigh = ((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0;
+         tmpHigh = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0;
          tmpLow = tmpHigh;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpHigh = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmpHigh > highest ) {
                   highestIdx = i;
@@ -634,14 +637,14 @@
                }
             }
          } else if( tmpHigh >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmpHigh;
          }
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[lowestIdx & sp.xMask] : pkVal0;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpLow = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmpLow < lowest ) {
                   lowestIdx = i;
@@ -649,7 +652,7 @@
                }
             }
          } else if( tmpLow <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmpLow;
          }
          cur_outReal = (highest + lowest) / 2.0;
@@ -682,18 +685,10 @@
          return new MidpointStream(this);
       }
    }
-   void midpointStepImpl( MidpointStream sp, double inReal )
+   private void midpointStepImpl( MidpointStream sp, double inReal )
    {
       double tmpLow = 0.0;
       double tmpHigh = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
       tmpHigh = sp.x_inReal[sp.today & sp.xMask];
       tmpLow = tmpHigh;
@@ -928,8 +923,8 @@
     * <p>The history must hold at least {@code MIDPOINT_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

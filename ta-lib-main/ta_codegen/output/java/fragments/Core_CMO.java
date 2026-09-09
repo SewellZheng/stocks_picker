@@ -324,10 +324,8 @@
     * average up-moves and down-moves. Identical to RSI except the numerator
     * uses (gain-loss) instead of gain. Bounded in [-100,+100]; positive = net
     * upward momentum, negative = net downward.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * d = P[t]-P[t-1]; over the initial period accumulate gain = sum of positive d, loss = sum of -d for negative d. Wilder-smooth each: prevGain = (prevGain*(period-1) + gain_today)/period (same for loss). CMO = 100 * (prevGain-prevLoss)/(prevGain+prevLoss); 0 when prevGain+prevLoss == 0.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cmo">ta-lib.org/functions/cmo</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Gains and losses are smoothed with Wilder's method (as in RSI) rather than the simple period sums of Chande's original definition.</li>
@@ -386,10 +384,8 @@
     * average up-moves and down-moves. Identical to RSI except the numerator
     * uses (gain-loss) instead of gain. Bounded in [-100,+100]; positive = net
     * upward momentum, negative = net downward.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * d = P[t]-P[t-1]; over the initial period accumulate gain = sum of positive d, loss = sum of -d for negative d. Wilder-smooth each: prevGain = (prevGain*(period-1) + gain_today)/period (same for loss). CMO = 100 * (prevGain-prevLoss)/(prevGain+prevLoss); 0 when prevGain+prevLoss == 0.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cmo">ta-lib.org/functions/cmo</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Gains and losses are smoothed with Wilder's method (as in RSI) rather than the simple period sums of Chande's original definition.</li>
@@ -463,16 +459,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CmoStream {
-      Core core;
-      int optInTimePeriod;
-      double prevGain;
-      double prevLoss;
-      double prevValue;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double prevGain;
+      private double prevLoss;
+      private double prevValue;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CmoStream( Core core ) { this.core = core; }
+      private CmoStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -484,6 +480,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -494,10 +493,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CMO advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CmoStream( CmoStream other ) {
+      private CmoStream( CmoStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevGain = other.prevGain;
@@ -510,7 +517,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -522,12 +528,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CMO update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("CMO update: BadParam", RetCode.BadParam);
          core.cmoStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -536,9 +548,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -601,7 +614,7 @@
          return new CmoStream(this);
       }
    }
-   void cmoStepImpl( CmoStream sp, double inReal )
+   private void cmoStepImpl( CmoStream sp, double inReal )
    {
       double tempValue1 = 0.0;
       double tempValue2 = 0.0;
@@ -848,8 +861,8 @@
     * <p>The history must hold at least {@code CMO_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

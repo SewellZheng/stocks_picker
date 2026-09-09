@@ -20,8 +20,8 @@
     * output.
     *
     * @param optInPenetration Max fraction of the 1st white body the reaction
-    *        days (3rd, 4th) may penetrate (default 0.5; minimum 0; {@code -4e37}
-    *        selects the default).
+    *        days (3rd, 4th) may penetrate (default 0.5; minimum 0;
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int CDLMATHOLD_Lookback( double optInPenetration )
@@ -256,11 +256,13 @@
     * hold within the first body, and a final white candle closing above the
     * reaction days' highs. Signals continuation of the prior uptrend. Hit =
     * bullish continuation of the existing uptrend.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlmathold">ta-lib.org/functions/cdlmathold</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</li>
     * <li>The continuation reading assumes a prior uptrend, which is not verified.</li>
-    * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." ([thepatternsite.com](https://thepatternsite.com/MatHold.html))</li>
+    * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -275,8 +277,8 @@
     * @param inLow Low price of each bar.
     * @param inClose Close price of each bar.
     * @param optInPenetration Max fraction of the 1st white body the reaction
-    *        days (3rd, 4th) may penetrate (default 0.5; minimum 0; {@code -4e37}
-    *        selects the default).
+    *        days (3rd, 4th) may penetrate (default 0.5; minimum 0;
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outInteger +100 when the bullish Mat Hold is detected, 0 otherwise.
     *        Never emits -100. Must hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -328,11 +330,13 @@
     * hold within the first body, and a final white candle closing above the
     * reaction days' highs. Signals continuation of the prior uptrend. Hit =
     * bullish continuation of the existing uptrend.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlmathold">ta-lib.org/functions/cdlmathold</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The colors of the third and fourth (reaction) candles are not checked, although they are classically black.</li>
     * <li>The continuation reading assumes a prior uptrend, which is not verified.</li>
-    * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." ([thepatternsite.com](https://thepatternsite.com/MatHold.html))</li>
+    * <li>Bulkowski's own dataset contains only 52 Mat Hold occurrences out of 4.7 million candle lines; he explicitly warns the 78% continuation rate he measured "will likely be wrong or at least subject to large change as additional samples become available." (<a href="https://thepatternsite.com/MatHold.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -350,8 +354,8 @@
     * @param inLow Low price of each bar.
     * @param inClose Close price of each bar.
     * @param optInPenetration Max fraction of the 1st white body the reaction
-    *        days (3rd, 4th) may penetrate (default 0.5; minimum 0; {@code -4e37}
-    *        selects the default).
+    *        days (3rd, 4th) may penetrate (default 0.5; minimum 0;
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outInteger +100 when the bullish Mat Hold is detected, 0 otherwise.
     *        Never emits -100. Must hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -414,44 +418,44 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CdlmatholdStream {
-      Core core;
-      double optInPenetration;
-      double[] BodyPeriodTotal;
-      double lag1_inOpen;
-      double lag2_inOpen;
-      double lag3_inOpen;
-      double lag4_inOpen;
-      double lag1_inHigh;
-      double lag2_inHigh;
-      double lag3_inHigh;
-      double lag4_inHigh;
-      double lag1_inLow;
-      double lag2_inLow;
-      double lag3_inLow;
-      double lag4_inLow;
-      double lag1_inClose;
-      double lag2_inClose;
-      double lag3_inClose;
-      double lag4_inClose;
-      int ringPos_BodyLongTrailingIdx;
-      int ringCap_BodyLongTrailingIdx;
-      int ringLag_BodyLongTrailingIdx;
-      double[] ring_BodyLongTrailingIdx_derived;
-      int ringPos_BodyShortTrailingIdx;
-      int ringCap_BodyShortTrailingIdx;
-      int ringLag_BodyShortTrailingIdx;
-      double[] ring_BodyShortTrailingIdx_derived;
-      int cs_BodyLong_rangeType;
-      int cs_BodyLong_avgPeriod;
-      double cs_BodyLong_factor;
-      int cs_BodyShort_rangeType;
-      int cs_BodyShort_avgPeriod;
-      double cs_BodyShort_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double optInPenetration;
+      private double[] BodyPeriodTotal;
+      private double lag1_inOpen;
+      private double lag2_inOpen;
+      private double lag3_inOpen;
+      private double lag4_inOpen;
+      private double lag1_inHigh;
+      private double lag2_inHigh;
+      private double lag3_inHigh;
+      private double lag4_inHigh;
+      private double lag1_inLow;
+      private double lag2_inLow;
+      private double lag3_inLow;
+      private double lag4_inLow;
+      private double lag1_inClose;
+      private double lag2_inClose;
+      private double lag3_inClose;
+      private double lag4_inClose;
+      private int ringPos_BodyLongTrailingIdx;
+      private int ringCap_BodyLongTrailingIdx;
+      private int ringLag_BodyLongTrailingIdx;
+      private double[] ring_BodyLongTrailingIdx_derived;
+      private int ringPos_BodyShortTrailingIdx;
+      private int ringCap_BodyShortTrailingIdx;
+      private int ringLag_BodyShortTrailingIdx;
+      private double[] ring_BodyShortTrailingIdx_derived;
+      private int cs_BodyLong_rangeType;
+      private int cs_BodyLong_avgPeriod;
+      private double cs_BodyLong_factor;
+      private int cs_BodyShort_rangeType;
+      private int cs_BodyShort_avgPeriod;
+      private double cs_BodyShort_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CdlmatholdStream( Core core ) { this.core = core; }
+      private CdlmatholdStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -463,6 +467,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -473,10 +480,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLMATHOLD advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CdlmatholdStream( CdlmatholdStream other ) {
+      private CdlmatholdStream( CdlmatholdStream other ) {
          this.core = other.core;
          this.optInPenetration = other.optInPenetration;
          this.BodyPeriodTotal = other.BodyPeriodTotal.clone();
@@ -517,7 +532,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -529,12 +543,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLMATHOLD update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLMATHOLD update: BadParam", RetCode.BadParam);
          core.cdlmatholdStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -543,9 +563,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -608,7 +629,7 @@
          return new CdlmatholdStream(this);
       }
    }
-   void cdlmatholdStepImpl( CdlmatholdStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdlmatholdStepImpl( CdlmatholdStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int totIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
@@ -900,8 +921,8 @@
     * <p>The history must hold at least {@code CDLMATHOLD_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Core#REAL_DEFAULT} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

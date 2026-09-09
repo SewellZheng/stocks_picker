@@ -484,6 +484,9 @@ public partial class Core
       if( outSMI.Overlaps(outSMISignal) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSMI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSMI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSMI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSMISignal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSMISignal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSMISignal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         return RetCode.BadParam ;
+      }
       lookbackTotal = SMI_Lookback(optInTimePeriod, optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -658,7 +661,7 @@ public partial class Core
    }
    /// <summary>
    /// Stochastic Momentum Index: where the close sits relative to the
-   /// **midpoint** of the recent high/low range, double-smoothed. Lane's
+   /// <b>midpoint</b> of the recent high/low range, double-smoothed. Lane's
    /// stochastic measures the close against the bottom of the range; Blau
    /// measures it against the middle, then smooths numerator and denominator
    /// separately with two exponential averages before dividing, which is what
@@ -669,13 +672,10 @@ public partial class Core
    /// signal line are the usual trade trigger.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// HH = MAX(high, timePeriod);  LL = MIN(low, timePeriod)
-   /// num = close - 0.5 * (HH + LL);  den = HH - LL
-   /// SMI = 100 * EMA(EMA(num, slowPeriod), fastPeriod) / (0.5 * EMA(EMA(den, slowPeriod), fastPeriod))
-   /// Signal = EMA(SMI, signalPeriod)
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/smi">ta-lib.org/functions/smi</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.</description></item>
    /// <item><description>Each exponential average is seeded with a simple average of its own first inputs, the same seeding TA-Lib's EMA uses, so the first published values converge toward an unlimited-history result rather than reproducing it exactly. <c>TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)</c> discards more of that warm-up. Implementations seeding from a single first sample — Tulip and TradingView among them — differ over the transient and agree once it decays.</description></item>
@@ -752,7 +752,7 @@ public partial class Core
    }
    /// <summary>
    /// Stochastic Momentum Index: where the close sits relative to the
-   /// **midpoint** of the recent high/low range, double-smoothed. Lane's
+   /// <b>midpoint</b> of the recent high/low range, double-smoothed. Lane's
    /// stochastic measures the close against the bottom of the range; Blau
    /// measures it against the middle, then smooths numerator and denominator
    /// separately with two exponential averages before dividing, which is what
@@ -763,13 +763,10 @@ public partial class Core
    /// signal line are the usual trade trigger.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// HH = MAX(high, timePeriod);  LL = MIN(low, timePeriod)
-   /// num = close - 0.5 * (HH + LL);  den = HH - LL
-   /// SMI = 100 * EMA(EMA(num, slowPeriod), fastPeriod) / (0.5 * EMA(EMA(den, slowPeriod), fastPeriod))
-   /// Signal = EMA(SMI, signalPeriod)
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/smi">ta-lib.org/functions/smi</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.</description></item>
    /// <item><description>Each exponential average is seeded with a simple average of its own first inputs, the same seeding TA-Lib's EMA uses, so the first published values converge toward an unlimited-history result rather than reproducing it exactly. <c>TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)</c> discards more of that warm-up. Implementations seeding from a single first sample — Tulip and TradingView among them — differ over the transient and agree once it decays.</description></item>
@@ -822,8 +819,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange SMI( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inHigh,
@@ -923,6 +922,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -933,10 +934,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("SMI", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal SmiStream( SmiStream other )
@@ -986,6 +993,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -993,9 +1004,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public SmiValue Update( double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("SMI", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("SMI", "update", RetCode.BadParam);
          core.SmiStepImpl(this, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new SmiValue(cur_outSMI, cur_outSMISignal);
       }
 
@@ -1005,14 +1018,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public SmiValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("SMI", "peek", RetCode.BadParam);
@@ -1034,35 +1048,25 @@ public partial class Core
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
          double prevSignal = sp.prevSignal;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
          int pkSlot2 = -1;
          double pkVal2 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inHigh;
-         pkSlot1 = today & sp.xMask;
+         pkSlot1 = sp.today & sp.xMask;
          pkVal1 = inLow;
-         pkSlot2 = today & sp.xMask;
+         pkSlot2 = sp.today & sp.xMask;
          pkVal2 = inClose;
          /* Set the lowest low */
-         tmp = ((today & sp.xMask) != pkSlot1) ? sp.x_inLow[today & sp.xMask] : pkVal1;
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot1) ? sp.x_inLow[sp.today & sp.xMask] : pkVal1;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot1) ? sp.x_inLow[lowestIdx & sp.xMask] : pkVal1;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot1) ? sp.x_inLow[i & sp.xMask] : pkVal1;
                if( tmp < lowest ) {
                   lowestIdx = i;
@@ -1070,16 +1074,16 @@ public partial class Core
                }
             }
          } else if( tmp <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmp;
          }
          /* Set the highest high */
-         tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inHigh[sp.today & sp.xMask] : pkVal0;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inHigh[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot0) ? sp.x_inHigh[i & sp.xMask] : pkVal0;
                if( tmp > highest ) {
                   highestIdx = i;
@@ -1087,11 +1091,11 @@ public partial class Core
                }
             }
          } else if( tmp >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmp;
          }
          den = highest - lowest;
-         num = (((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - (highest + lowest) * 0.5;
+         num = (((sp.today & sp.xMask) != pkSlot2) ? sp.x_inClose[sp.today & sp.xMask] : pkVal2) - (highest + lowest) * 0.5;
          emaSlowNum = Math.FusedMultiplyAdd(num - emaSlowNum, sp.kSlow, emaSlowNum);
          emaSlowDen = Math.FusedMultiplyAdd(den - emaSlowDen, sp.kSlow, emaSlowDen);
          emaFastNum = Math.FusedMultiplyAdd(emaSlowNum - emaFastNum, sp.kFast, emaFastNum);
@@ -1143,14 +1147,6 @@ public partial class Core
       double den = 0.0;
       double halfDen = 0.0;
       double smiValue = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inHigh[sp.today & sp.xMask] = inHigh;
       sp.x_inLow[sp.today & sp.xMask] = inLow;
       sp.x_inClose[sp.today & sp.xMask] = inClose;

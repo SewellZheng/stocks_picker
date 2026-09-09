@@ -328,6 +328,9 @@ public partial class Core
       if( outPlusVI.Overlaps(outMinusVI) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outPlusVI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outPlusVI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outPlusVI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outMinusVI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outMinusVI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outMinusVI).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         return RetCode.BadParam ;
+      }
       lookbackTotal = VORTEX_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -426,21 +429,20 @@ public partial class Core
    }
    /// <summary>
    /// Vortex Indicator: Etienne Botes and Douglas Siepman's two-line trend
-   /// indicator (*Technical Analysis of Stocks &amp; Commodities* 28:1, January
-   /// 2010). Positive and negative "vortex movement" — the reach from today's
-   /// high to yesterday's low and from today's low to yesterday's high — each
-   /// summed over the period and normalized by the summed true range. A +VI line
-   /// crossing above −VI is the bullish signal the authors describe; the two
-   /// lines are conventionally plotted together.
+   /// indicator (<i>Technical Analysis of Stocks &amp; Commodities</i> 28:1,
+   /// January 2010). Positive and negative "vortex movement" — the reach from
+   /// today's high to yesterday's low and from today's low to yesterday's high —
+   /// each summed over the period and normalized by the summed true range. A +VI
+   /// line crossing above −VI is the bullish signal the authors describe; the
+   /// two lines are conventionally plotted together.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// Per bar, `TR[i] = max(H[i]−L[i], |C[i−1]−H[i]|, |C[i−1]−L[i]|)` (exactly [`TRANGE`](/functions/trange)), `VMP[i] = |H[i] − L[i−1]|` and `VMM[i] = |L[i] − H[i−1]|`. Then `+VI = SUM(VMP, n) / SUM(TR, n)` and `−VI = SUM(VMM, n) / SUM(TR, n)`.
-   /// No smoothing, no recursion, no seeding — three rolling sums over per-bar terms. Every source (the original TASC article, StockCharts, Wikipedia, TradingView) states the identical formula; the only cross-source difference is the suggested period (14 vs Wikipedia's worked 21). A window whose every bar is flat sums the true range to zero; both lines then emit 0.0, the convention the external implementations share.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/vortex">ta-lib.org/functions/vortex</see>.
+   /// </para>
    /// <list type="bullet">
-   /// <item><description>Bar 0 has no term (all three need a prior bar) and is consumed exactly as [<c>TRANGE</c>](/functions/trange) consumes it, so the first output sits at index <c>optInTimePeriod</c>, not <c>optInTimePeriod − 1</c>.</description></item>
+   /// <item><description>Bar 0 has no term (all three need a prior bar) and is consumed exactly as <see href="https://ta-lib.org/functions/trange"><c>TRANGE</c></see> consumes it, so the first output sits at index <c>optInTimePeriod</c>, not <c>optInTimePeriod − 1</c>.</description></item>
    /// <item><description>Not start-dependent: each output depends only on the finite trailing window. No unstable period.</description></item>
    /// </list>
    /// <para>
@@ -505,21 +507,20 @@ public partial class Core
    }
    /// <summary>
    /// Vortex Indicator: Etienne Botes and Douglas Siepman's two-line trend
-   /// indicator (*Technical Analysis of Stocks &amp; Commodities* 28:1, January
-   /// 2010). Positive and negative "vortex movement" — the reach from today's
-   /// high to yesterday's low and from today's low to yesterday's high — each
-   /// summed over the period and normalized by the summed true range. A +VI line
-   /// crossing above −VI is the bullish signal the authors describe; the two
-   /// lines are conventionally plotted together.
+   /// indicator (<i>Technical Analysis of Stocks &amp; Commodities</i> 28:1,
+   /// January 2010). Positive and negative "vortex movement" — the reach from
+   /// today's high to yesterday's low and from today's low to yesterday's high —
+   /// each summed over the period and normalized by the summed true range. A +VI
+   /// line crossing above −VI is the bullish signal the authors describe; the
+   /// two lines are conventionally plotted together.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// Per bar, `TR[i] = max(H[i]−L[i], |C[i−1]−H[i]|, |C[i−1]−L[i]|)` (exactly [`TRANGE`](/functions/trange)), `VMP[i] = |H[i] − L[i−1]|` and `VMM[i] = |L[i] − H[i−1]|`. Then `+VI = SUM(VMP, n) / SUM(TR, n)` and `−VI = SUM(VMM, n) / SUM(TR, n)`.
-   /// No smoothing, no recursion, no seeding — three rolling sums over per-bar terms. Every source (the original TASC article, StockCharts, Wikipedia, TradingView) states the identical formula; the only cross-source difference is the suggested period (14 vs Wikipedia's worked 21). A window whose every bar is flat sums the true range to zero; both lines then emit 0.0, the convention the external implementations share.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/vortex">ta-lib.org/functions/vortex</see>.
+   /// </para>
    /// <list type="bullet">
-   /// <item><description>Bar 0 has no term (all three need a prior bar) and is consumed exactly as [<c>TRANGE</c>](/functions/trange) consumes it, so the first output sits at index <c>optInTimePeriod</c>, not <c>optInTimePeriod − 1</c>.</description></item>
+   /// <item><description>Bar 0 has no term (all three need a prior bar) and is consumed exactly as <see href="https://ta-lib.org/functions/trange"><c>TRANGE</c></see> consumes it, so the first output sits at index <c>optInTimePeriod</c>, not <c>optInTimePeriod − 1</c>.</description></item>
    /// <item><description>Not start-dependent: each output depends only on the finite trailing window. No unstable period.</description></item>
    /// </list>
    /// <para>
@@ -563,8 +564,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange VORTEX( int startIdx,
                            int endIdx,
                            ReadOnlySpan<float> inHigh,
@@ -652,6 +655,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -662,10 +667,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("VORTEX", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal VortexStream( VortexStream other )
@@ -706,6 +717,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -713,9 +728,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public VortexValue Update( double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("VORTEX", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("VORTEX", "update", RetCode.BadParam);
          core.VortexStepImpl(this, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new VortexValue(cur_outPlusVI, cur_outMinusVI);
       }
 
@@ -725,14 +742,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public VortexValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("VORTEX", "peek", RetCode.BadParam);

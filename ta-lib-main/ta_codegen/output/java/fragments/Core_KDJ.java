@@ -218,13 +218,8 @@
     * which is the smoother the original formula language specifies; selecting a
     * simple moving average for both reproduces the classic Slow Stochastic with
     * a J line attached.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * RSV = 100*(Close - LL_n)/(HH_n - LL_n), n = FastK_Period (LL/HH = lowest low / highest high over n)
-    * K = MA(RSV, SlowK_Period, SlowK_MAType)
-    * D = MA(K, SlowD_Period, SlowD_MAType)
-    * J = 3*K - 2*D
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/kdj">ta-lib.org/functions/kdj</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The default smoothing is Wilder's moving average. The originating 通达信 (Tongdaxin) formula language writes each stage as {@code SMA(X, N, 1)}, a recurrence with weight 1/N on the new value, which is Wilder's smoothing under another name — not a simple average.</li>
@@ -328,13 +323,8 @@
     * which is the smoother the original formula language specifies; selecting a
     * simple moving average for both reproduces the classic Slow Stochastic with
     * a J line attached.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * RSV = 100*(Close - LL_n)/(HH_n - LL_n), n = FastK_Period (LL/HH = lowest low / highest high over n)
-    * K = MA(RSV, SlowK_Period, SlowK_MAType)
-    * D = MA(K, SlowD_Period, SlowD_MAType)
-    * J = 3*K - 2*D
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/kdj">ta-lib.org/functions/kdj</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The default smoothing is Wilder's moving average. The originating 通达信 (Tongdaxin) formula language writes each stage as {@code SMA(X, N, 1)}, a recurrence with weight 1/N on the new value, which is Wilder's smoothing under another name — not a simple average.</li>
@@ -448,20 +438,20 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class KdjStream {
-      Core core;
-      int optInFastK_Period;
-      int optInSlowK_Period;
-      MAType optInSlowK_MAType;
-      int optInSlowD_Period;
-      MAType optInSlowD_MAType;
-      double cur_outK;
-      double cur_outD;
-      double cur_outJ;
-      StochStream sub0;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInFastK_Period;
+      private int optInSlowK_Period;
+      private MAType optInSlowK_MAType;
+      private int optInSlowD_Period;
+      private MAType optInSlowD_MAType;
+      private double cur_outK;
+      private double cur_outD;
+      private double cur_outJ;
+      private StochStream sub0;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      KdjStream( Core core ) { this.core = core; }
+      private KdjStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -473,6 +463,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -483,10 +476,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("KDJ advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      KdjStream( KdjStream other ) {
+      private KdjStream( KdjStream other ) {
          this.core = other.core;
          this.optInFastK_Period = other.optInFastK_Period;
          this.optInSlowK_Period = other.optInSlowK_Period;
@@ -503,7 +504,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -515,13 +515,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, KdjOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("KDJ update", RetCode.OutOfRangeEndIndex);
          requireArgument("KDJ update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("KDJ update: BadParam", RetCode.BadParam);
          core.kdjStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.k = this.cur_outK;
          out.d = this.cur_outD;
          out.j = this.cur_outJ;
@@ -532,10 +538,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, KdjOut out ) {
          requireArgument("KDJ peek", "out", out);
@@ -563,7 +569,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( KdjOut out ) {
          requireArgument("KDJ value", "out", out);
@@ -612,7 +618,7 @@
       /** Divergence line, three parts K less two parts D. */
       public double j;
    }
-   void kdjStepImpl( KdjStream sp, double inHigh, double inLow, double inClose )
+   private void kdjStepImpl( KdjStream sp, double inHigh, double inLow, double inClose )
    {
       double cur_outK = 0.0;
       double cur_outD = 0.0;
@@ -766,8 +772,8 @@
     * <p>The history must hold at least {@code KDJ_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

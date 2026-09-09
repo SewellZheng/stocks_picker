@@ -195,14 +195,12 @@
     * Single-candle doji (open ~ close) with at least one long shadow. Signals
     * market indecision, not a directional bias. Marks indecision/uncertainty;
     * not inherently bullish or bearish despite the positive sign.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * One candle. Hit when: real body <= BodyDoji average (doji body) AND (lower shadow > ShadowLong average OR upper shadow > ShadowLong average), i.e. at least one long shadow.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdllongleggeddoji">ta-lib.org/functions/cdllongleggeddoji</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Only one long shadow (upper or lower) is required, whereas the classic pattern shows both long upper and lower shadows.</li>
-    * <li>Bulkowski's testing found this continues in the direction of the prior trend only 51% of the time — statistically random — and ranks 37th of 103 patterns overall; in his words, "it means nothing." ([thepatternsite.com](https://thepatternsite.com/LongLegDoji.html))</li>
+    * <li>Bulkowski's testing found this continues in the direction of the prior trend only 51% of the time — statistically random — and ranks 37th of 103 patterns overall; in his words, "it means nothing." (<a href="https://thepatternsite.com/LongLegDoji.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -267,14 +265,12 @@
     * Single-candle doji (open ~ close) with at least one long shadow. Signals
     * market indecision, not a directional bias. Marks indecision/uncertainty;
     * not inherently bullish or bearish despite the positive sign.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * One candle. Hit when: real body <= BodyDoji average (doji body) AND (lower shadow > ShadowLong average OR upper shadow > ShadowLong average), i.e. at least one long shadow.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdllongleggeddoji">ta-lib.org/functions/cdllongleggeddoji</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Only one long shadow (upper or lower) is required, whereas the classic pattern shows both long upper and lower shadows.</li>
-    * <li>Bulkowski's testing found this continues in the direction of the prior trend only 51% of the time — statistically random — and ranks 37th of 103 patterns overall; in his words, "it means nothing." ([thepatternsite.com](https://thepatternsite.com/LongLegDoji.html))</li>
+    * <li>Bulkowski's testing found this continues in the direction of the prior trend only 51% of the time — statistically random — and ranks 37th of 103 patterns overall; in his words, "it means nothing." (<a href="https://thepatternsite.com/LongLegDoji.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -355,26 +351,26 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CdllongleggeddojiStream {
-      Core core;
-      double BodyDojiPeriodTotal;
-      double ShadowLongPeriodTotal;
-      int ringPos_BodyDojiTrailingIdx;
-      int ringCap_BodyDojiTrailingIdx;
-      double[] ring_BodyDojiTrailingIdx_derived;
-      int ringPos_ShadowLongTrailingIdx;
-      int ringCap_ShadowLongTrailingIdx;
-      double[] ring_ShadowLongTrailingIdx_derived;
-      int cs_BodyDoji_rangeType;
-      int cs_BodyDoji_avgPeriod;
-      double cs_BodyDoji_factor;
-      int cs_ShadowLong_rangeType;
-      int cs_ShadowLong_avgPeriod;
-      double cs_ShadowLong_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double BodyDojiPeriodTotal;
+      private double ShadowLongPeriodTotal;
+      private int ringPos_BodyDojiTrailingIdx;
+      private int ringCap_BodyDojiTrailingIdx;
+      private double[] ring_BodyDojiTrailingIdx_derived;
+      private int ringPos_ShadowLongTrailingIdx;
+      private int ringCap_ShadowLongTrailingIdx;
+      private double[] ring_ShadowLongTrailingIdx_derived;
+      private int cs_BodyDoji_rangeType;
+      private int cs_BodyDoji_avgPeriod;
+      private double cs_BodyDoji_factor;
+      private int cs_ShadowLong_rangeType;
+      private int cs_ShadowLong_avgPeriod;
+      private double cs_ShadowLong_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CdllongleggeddojiStream( Core core ) { this.core = core; }
+      private CdllongleggeddojiStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -386,6 +382,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -396,10 +395,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLLONGLEGGEDDOJI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CdllongleggeddojiStream( CdllongleggeddojiStream other ) {
+      private CdllongleggeddojiStream( CdllongleggeddojiStream other ) {
          this.core = other.core;
          this.BodyDojiPeriodTotal = other.BodyDojiPeriodTotal;
          this.ShadowLongPeriodTotal = other.ShadowLongPeriodTotal;
@@ -422,7 +429,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -434,12 +440,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLLONGLEGGEDDOJI update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLLONGLEGGEDDOJI update: BadParam", RetCode.BadParam);
          core.cdllongleggeddojiStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -448,9 +460,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -497,7 +510,7 @@
          return new CdllongleggeddojiStream(this);
       }
    }
-   void cdllongleggeddojiStepImpl( CdllongleggeddojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdllongleggeddojiStepImpl( CdllongleggeddojiStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
@@ -703,9 +716,7 @@
     * to {@link Core#CDLLONGLEGGEDDOJI} at that bar.
     * <p>The history must hold at least {@code CDLLONGLEGGEDDOJI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

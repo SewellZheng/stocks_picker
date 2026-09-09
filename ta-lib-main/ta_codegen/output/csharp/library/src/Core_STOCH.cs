@@ -447,6 +447,9 @@ public partial class Core
       if( outSlowK.Overlaps(outSlowD) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outSlowD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         return RetCode.BadParam ;
+      }
       i = 0;
       lookbackK = optInFastK_Period - 1;
       lookbackKSlow = MA_Lookback(optInSlowK_Period, optInSlowK_MAType);
@@ -535,12 +538,10 @@ public partial class Core
    /// crossing %D signals momentum shifts.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// FastK = 100*(Close - LL_n)/(HH_n - LL_n), n = FastK_Period (LL/HH = lowest low / highest high over n)
-   /// SlowK = MA(FastK, SlowK_Period, SlowK_MAType)
-   /// SlowD = MA(SlowK, SlowD_Period, SlowD_MAType)
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/stoch">ta-lib.org/functions/stoch</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>When the high-low range over the window is zero, the raw stochastic is set to 0 instead of being undefined.</description></item>
    /// </list>
@@ -627,12 +628,10 @@ public partial class Core
    /// crossing %D signals momentum shifts.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// FastK = 100*(Close - LL_n)/(HH_n - LL_n), n = FastK_Period (LL/HH = lowest low / highest high over n)
-   /// SlowK = MA(FastK, SlowK_Period, SlowK_MAType)
-   /// SlowD = MA(SlowK, SlowD_Period, SlowD_MAType)
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/stoch">ta-lib.org/functions/stoch</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>When the high-low range over the window is zero, the raw stochastic is set to 0 instead of being undefined.</description></item>
    /// </list>
@@ -689,8 +688,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange STOCH( int startIdx,
                           int endIdx,
                           ReadOnlySpan<float> inHigh,
@@ -786,6 +787,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -796,10 +799,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("STOCH", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal StochStream( StochStream other )
@@ -844,6 +853,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -851,9 +864,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public StochValue Update( double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("STOCH", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("STOCH", "update", RetCode.BadParam);
          core.StochStepImpl(this, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new StochValue(cur_outSlowK, cur_outSlowD);
       }
 
@@ -863,14 +878,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public StochValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("STOCH", "peek", RetCode.BadParam);
@@ -884,35 +900,25 @@ public partial class Core
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
          int pkSlot2 = -1;
          double pkVal2 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inHigh;
-         pkSlot1 = today & sp.xMask;
+         pkSlot1 = sp.today & sp.xMask;
          pkVal1 = inLow;
-         pkSlot2 = today & sp.xMask;
+         pkSlot2 = sp.today & sp.xMask;
          pkVal2 = inClose;
          /* Set the lowest low */
-         tmp = ((today & sp.xMask) != pkSlot1) ? sp.x_inLow[today & sp.xMask] : pkVal1;
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot1) ? sp.x_inLow[sp.today & sp.xMask] : pkVal1;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot1) ? sp.x_inLow[lowestIdx & sp.xMask] : pkVal1;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot1) ? sp.x_inLow[i & sp.xMask] : pkVal1;
                if( tmp < lowest ) {
                   lowestIdx = i;
@@ -920,16 +926,16 @@ public partial class Core
                }
             }
          } else if( tmp <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmp;
          }
          /* Set the highest high */
-         tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inHigh[sp.today & sp.xMask] : pkVal0;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inHigh[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot0) ? sp.x_inHigh[i & sp.xMask] : pkVal0;
                if( tmp > highest ) {
                   highestIdx = i;
@@ -937,7 +943,7 @@ public partial class Core
                }
             }
          } else if( tmp >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmp;
          }
          /* Divide by the range itself and scale after: the guard has to test the
@@ -951,7 +957,7 @@ public partial class Core
           * [0,100] noise (issue #107 / STOCHRSI).
           */
          if( !(Math.Abs(highest - lowest) <= 0.00000000000001 * (Math.Abs(highest) + Math.Abs(lowest))) ) {
-            cur_tempBuffer = ((((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - lowest) / (highest - lowest) * 100.0;
+            cur_tempBuffer = ((((sp.today & sp.xMask) != pkSlot2) ? sp.x_inClose[sp.today & sp.xMask] : pkVal2) - lowest) / (highest - lowest) * 100.0;
          } else {
             cur_tempBuffer = 0.0;
          }
@@ -984,14 +990,6 @@ public partial class Core
       double tmp = 0.0;
       double cur_tempBuffer = 0.0;
       double cur_outSlowD = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inHigh[sp.today & sp.xMask] = inHigh;
       sp.x_inLow[sp.today & sp.xMask] = inLow;
       sp.x_inClose[sp.today & sp.xMask] = inClose;
@@ -1394,11 +1392,11 @@ public partial class Core
    /// <param name="optInSlowK_Period">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <param name="optInSlowD_Period">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>STOCH_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
@@ -1439,11 +1437,11 @@ public partial class Core
    /// <param name="optInSlowK_Period">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <param name="optInSlowD_Period">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">As in the batch call; see <see cref="STOCH_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <param name="outSlowK">Raw FastK smoothed by SlowK_Period MA. Must hold at least <c>historyLen -
    /// STOCH_Lookback(...)</c> values.</param>
    /// <param name="outSlowD">Signal line: SlowK smoothed by SlowD_Period MA. Must hold at least

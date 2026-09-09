@@ -36,20 +36,20 @@ double[] history = /* ...your closing prices... */;
 Core.SmaStream s = core.SmaOpen(history, 30);  // Value starts at the last history bar
 
 // Each time a bar closes:
-double v = s.Update(newClose);                   // throws only on a non-finite bar
+double v = s.Update(newClose);                   // throws on a non-finite bar, or past MAX_INDEX
 
 // Intra-bar, on the not-yet-closed bar (repeat as the price ticks):
 double provisional = s.Peek(formingClose);       // state left unchanged
 ```
 
-`Open` returns the stream directly; its `Value` starts at the last history bar's value. After a successful `Open`, the only thing `Update` and `Peek` reject is invalid input such as NaN or ±Inf. A rejection changes nothing at all — no state, no value, and no range. To count a rejected bar rather than re-feed it, call `Advance()`; `Value` then answers the value(s) at the last bar the stream counted (see [Utility Calls](#utility-calls)).
+`Open` returns the stream directly; its `Value` starts at the last history bar's value. After a successful `Open`, what `Update` and `Peek` reject is invalid input such as NaN or ±Inf; `Update` also rejects a bar past `Core.MAX_INDEX`, the last index the batch API addresses. A rejection changes nothing at all — no state, no value, and no range. To count a rejected bar rather than re-feed it, call `Advance()`; `Value` then answers the value(s) at the last bar the stream counted (see [Utility Calls](#utility-calls)).
 
 ## Rules
 
 - **Warm-up.** `Open` succeeds only if `history.Length >= <NAME>_Lookback(params) + 1` — with fewer bars there is no defined value yet. Too little history throws `InsufficientHistoryException` (see [Error model](#error-model)). After `Open`, the history can be discarded — the stream keeps everything it needs.
 - **Closed vs forming bar.** `Update` commits state irreversibly, so use it only for **closed** bars. `Peek` returns exactly the value the next `Update` would, without committing — call it as often as the forming bar ticks. `Value` re-reads the last committed value without recomputing.
-- **Parameters are fixed at `Open`.** Changing a parameter means a new stream. [Unstable period](/api/#numerical_stability) and [candle settings](/api/#candle_settings) are read from the owning `Core` at `Open`. Since `Core` is immutable they cannot change underneath a live stream — to stream with different settings, build a new `Core` and open from that.
-- **Threads.** A stream is single-writer — `Update`, `Peek`, `Value` and `Clone()` must not race with an `Update` on the same stream. With no concurrent `Update`, `Peek`/`Value`/`Clone()` never write the stream and may run concurrently. Distinct streams (a `Clone()` result included) are fully independent.
+- **Parameters are fixed at `Open`.** Changing a parameter means a new stream. [Unstable period](/api/csharp/#numerical_stability) and [candle settings](/api/csharp/#candle_settings) are read from the owning `Core` at `Open`. Since `Core` is immutable they cannot change underneath a live stream — to stream with different settings, build a new `Core` and open from that.
+- **Threads.** A stream is single-writer: `Update` must not race with any other call on the same stream. Processing forks are possible by cloning the stream, and each clone becomes fully independent and can be updated concurrently.
 - **Spans, not arrays.** Series parameters are `ReadOnlySpan<double>` in and `Span<double>` out, so a warm-up window can be a slice of a larger buffer with no copy. Arrays convert implicitly, so `SmaOpen(history, 30)` on a `double[]` is unchanged. Because a span is never null, a null history arrives as an empty span and is rejected as one.
 - **Not serializable.** The constructors are `internal`, so no partially built stream can be minted or deserialized. To checkpoint, retain the history and re-open — the result is bit-identical by contract.
 
@@ -99,7 +99,7 @@ The output arguments are the batch call's, in the same order. An output may not 
 | `stream.Value` | any time | the value(s) at the last bar the stream counted, without recomputing |
 | `stream.Clone()` | any time | an independent fork of the stream, at the same bar |
 | `stream.OutRange` | any time | the bars the stream has an output for — the batch range over the same bars |
-| `stream.Advance()` | after a bar you will not feed | counts that bar and nothing else |
+| `stream.Advance()` | after a bar you will not feed | advances the range without affecting any other internal state of the stream |
 
 ```csharp
 Core.SmaStream s = core.SmaOpen(history, 30);
@@ -110,44 +110,21 @@ OutRange r = s.OutRange;            // the bars s has an output for
 s.Advance();                        // a bar you skipped, counted
 ```
 
-`Value` hands back what `Open` or the last `Update` already gave you: it recomputes
-nothing and takes no bar. A single-output function returns `double`; a multi-output
-one returns its `<Name>Value` readonly record struct, so all its outputs come back
-at once. `Open` seeds it, an accepted bar replaces it, and a bar you skip with
-`Advance()` holds it — a held value is that bar's output — while `Peek` and a
-rejected bar leave it alone. So it always names the bar `OutRange` reports.
-
-`Clone()` gives a second, independent stream at the same bar: arrays are copied and
-sub-streams cloned recursively, and the fork carries the value and the range
-verbatim. The `Core` reference is shared, because a `Core` is immutable for a
-stream's lifetime. It is a typed `Clone()`, deliberately not `ICloneable` — that
-interface returns `object` and leaves deep-versus-shallow unsaid, and this is
-neither. It is the only way to fork a live stream — the warm-up history is gone
-once `Open` returns — and it is what makes `Value` worth having, since a fork has
-no call that handed you its value.
-
-`OutRange` reports the bars the stream has an output for: `(lookback,
-historyLen - lookback)` at `Open`, then one more for every bar `Update` accepts. A
-rejected `Update` adds nothing, and neither does `Peek`.
-
-`Advance()` counts a bar the stream was never fed — one an `Update` rejected and
-that will not be re-fed, or a session with no print. It moves the range by one and
-nothing else: the state is untouched and `Value` keeps answering the previous
-output, which is that bar's output. Without it two streams on one feed drift a bar
-apart the moment one of them skips, so decide at the rejection: re-feed the bar
-with the corrected value, or count it here.
+`Clone()` is a typed `Clone()`, deliberately not `ICloneable` — that interface
+returns `object` and leaves deep-versus-shallow unsaid, and this is neither.
 
 See [Rules](#rules) for when concurrent reads of these are safe.
 
 ## Error model
 
-`Open` and `OpenAndFill` throw. After a successful open the only thing `Update` and `Peek` reject is invalid input such as NaN or ±Inf. A rejection changes nothing at all — no state, no value, and no range; to count a rejected bar rather than re-feed it, call `Advance()`. `Value`, `Clone()`, `OutRange` and `Advance()` never throw.
+`Open` and `OpenAndFill` throw. After a successful open, `Update` and `Peek` reject invalid input such as NaN or ±Inf, and `Update` also rejects a bar past `Core.MAX_INDEX`. A rejection changes nothing at all — no state, no value, and no range; to count a rejected bar rather than re-feed it, call `Advance()`. `Value`, `Clone()` and `OutRange` never throw; `Advance()` throws only at the `MAX_INDEX` ceiling.
 
 | Condition | Exception |
 |---|---|
 | Fewer than `lookback + 1` history bars | `InsufficientHistoryException` |
 | An optional parameter outside its documented range | `ArgumentException` |
 | A non-finite bar (NaN or ±Inf), or a non-finite real parameter | `ArgumentException` |
+| A bar past `Core.MAX_INDEX` — from `Update` or `Advance`; `Peek` counts no bar and is not subject to it | `ArgumentException` carrying `RetCode.OutOfRangeEndIndex`. It does not clear: open a new stream on a shorter history. |
 
 `InsufficientHistoryException` derives from `ArgumentException`, so you can catch it specifically — it is the one routine, data-dependent rejection — or catch every open failure uniformly. Messages carry a stable `"<NAME> open: "` prefix, and it is always the *called* function's name: `core.MaOpen(...)` rejecting reports `MA open:`, never the name of whatever moving average it delegates to.
 
@@ -155,7 +132,7 @@ Insufficient history is knowable in advance, so it need not be exceptional in yo
 
 ## Absolute-index outputs
 
-`MININDEX`, `MAXINDEX` and `MINMAXINDEX` report bar indices. In the streaming tier those count bars fed to the stream rather than positions in an array, and the basis is shifted once that count passes 2^30 — so treat an index as a position within the current window, not as an identifier to store and compare against one read much later.
+`MININDEX`, `MAXINDEX` and `MINMAXINDEX` report bar indices. In the streaming tier those count bars fed to the stream rather than positions in an array — so treat an index as a position within this handle's own window, not as one you can compare against an index a different handle reported.
 
 ## Discovering streamable functions
 

@@ -517,7 +517,7 @@ fn emit_loop_shape(
         counter,
     );
     emit_open_and_fill_internal_wrapper(o, func, true);
-    emit_open_wrappers(o, func, true);
+    emit_open_wrappers(o, func, true, enums);
 }
 
 /// Prefix every non-empty line of `s` with `extra` spaces — cosmetic re-indent
@@ -692,36 +692,10 @@ fn flush_word(line: &mut String, word: &mut String, out: &mut Vec<String>, width
     word.clear();
 }
 
-/// Canonical prose → XML-doc-safe text: `&`/`<`/`>` become entities (CS1570
-/// otherwise) and backtick spans become `<c>...</c>`. The batch tier's `csdoc`
-/// is private to `csharp_doc`, and this emitter may not reach into it.
-fn csdoc(text: &str) -> String {
-    let mut out = String::new();
-    let mut in_code = false;
-    for c in text.chars() {
-        match c {
-            '`' => {
-                out.push_str(if in_code { "</c>" } else { "<c>" });
-                in_code = !in_code;
-            }
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '\n' => out.push(' '),
-            _ => out.push(c),
-        }
-    }
-    if in_code {
-        // Unbalanced backtick in the source — close it rather than emit bad XML.
-        out.push_str("</c>");
-    }
-    out
-}
-
 /// Prose for one bar/history input, mirroring the batch tier's fallbacks.
 fn input_desc(name: &str, doc: &DocDef) -> String {
     if let Some((_, desc)) = doc.inputs.iter().find(|(n, _)| n == name) {
-        return super::doc_meta::ensure_period(&csdoc(desc));
+        return super::doc_meta::ensure_period(&super::csharp_doc::csdoc(desc));
     }
     match name {
         "inOpen" => "Open price per bar.",
@@ -772,10 +746,16 @@ fn bar_param_desc(name: &str) -> String {
 /// Prose for one optional parameter on a stream opener. The batch tier's full
 /// default/range machinery is private to `csharp_doc`, so the opener points at
 /// the batch call rather than restating it — one place for the numbers.
-fn opt_param_desc(base: &str, opt: &OptInput) -> String {
-    let sentinel = match opt.param_type {
-        ParamType::Real => "<c>-4e37</c>",
-        _ => "<c>int.MinValue</c>",
+fn opt_param_desc(base: &str, opt: &OptInput, enums: &HashMap<String, EnumDef>) -> String {
+    // The sentinel a caller can TYPE at this parameter. An enum takes the member
+    // rather than the integer, which needs a cast here.
+    let sentinel = match &opt.param_type {
+        ParamType::Real => "<see cref=\"Core.REAL_DEFAULT\"/>".to_string(),
+        ParamType::Enum(name) => match super::common::enum_default_variant(enums, name) {
+            Some(v) => format!("<c>{name}.{}</c>", v.name),
+            None => format!("<c>({name})int.MinValue</c>"),
+        },
+        _ => "<c>int.MinValue</c>".to_string(),
     };
     format!(
         "As in the batch call; see <see cref=\"{base}_Lookback\"/> for its default \
@@ -860,16 +840,13 @@ fn emit_handle_class_with_members(
     );
     // Absolute-index outputs need a streaming-specific caveat the batch prose
     // cannot carry: batch describes them as an index INTO the input array, and
-    // in this tier there is no array — the bar argument is a scalar. The basis
-    // is also rebased once the bar count passes 2^30, so the value is a window
-    // position, never a durable bar id.
+    // in this tier there is no array — the bar argument is a scalar.
     if has_absolute_index_output(func) {
         d.para(
             "This indicator reports absolute bar indices. In the streaming tier they \
-             count bars fed to this stream rather than positions in an array, and the \
-             basis is shifted once that count passes 2^30 — so treat an index as a \
-             position within the current window, not as an identifier you can store \
-             and compare against one read much later.",
+             count bars fed to this stream rather than positions in an array — so treat \
+             an index as a position within this handle's own window, not as one you can \
+             compare against an index a different handle reported.",
         );
     }
     d.close("remarks");
@@ -909,6 +886,10 @@ fn emit_handle_class_with_members(
          <c>Open</c> hands back only the last value, a subset of this range, because the \
          caller chose not to take the fill."
     ));
+    d.para(
+        "The last bar it can reach is <see cref=\"Core.MAX_INDEX\"/>; past that \
+         <c>Update</c> and <c>Advance</c> throw.",
+    );
     d.close("remarks");
     o.push('\n');
     o.push_str(&d.render(6));
@@ -932,11 +913,18 @@ fn emit_handle_class_with_members(
          that will not be re-fed, or a session with no print. Without it two handles on \
          one feed drift a bar apart when only one of them skips.",
     );
+    d.para(
+        "Throws <see cref=\"System.ArgumentException\"/> once <see cref=\"OutRange\"/> has \
+         reached bar <see cref=\"Core.MAX_INDEX\"/>, the last one the batch tier can \
+         address and the last this handle will count. <c>Update</c> throws the same \
+         there.",
+    );
     d.close("remarks");
     o.push('\n');
     o.push_str(&d.render(6));
     let _ = writeln!(o, "      public void Advance()");
     let _ = writeln!(o, "      {{");
+    o.push_str(&out_range_ceiling_guard(func, "         ", "advance"));
     o.push_str(&advance_out_range("         "));
     let _ = writeln!(o, "      }}");
 
@@ -1040,14 +1028,29 @@ fn fresh_value_expr(func: &FuncDef, handle_var: &str) -> String {
     }
 }
 
-/// The handle's produced-bar count, bumped by one.
+/// Rule U4 — the opener's index-pair check read on a live handle, one bar at a
+/// time (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle
+/// cannot answer it before its parent).
 ///
-/// Saturating: nothing bounds how many bars a live stream is fed, and past
-/// `MAX_INDEX` the count has left the batch index domain anyway. Every entry
-/// point that advances renders it from here, so the guard cannot drift between
-/// them.
+/// `>` and not `>=`: an opener may legally take `MAX_INDEX + 1` bars (rule S2),
+/// so a handle can be born holding the last bar in the domain and it is the NEXT
+/// one that has nowhere to go.
+///
+/// Through `Core.StreamFailure` like every other rejection at this tier, so the
+/// prefix and the type match the open rejections exactly.
+fn out_range_ceiling_guard(func: &FuncDef, indent: &str, what: &str) -> String {
+    let n = base_name(func);
+    format!(
+        "{indent}if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )\n\
+         {indent}   throw Core.StreamFailure(\"{n}\", \"{what}\", RetCode.OutOfRangeEndIndex);\n"
+    )
+}
+
+/// The handle's produced-bar count, bumped by one. Unconditional: every entry
+/// point that reaches it has already answered [`out_range_ceiling_guard`], which
+/// is what bounds the count.
 fn advance_out_range(indent: &str) -> String {
-    format!("{indent}if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;\n")
+    format!("{indent}outRangeCount++;\n")
 }
 
 /// The per-bar finite-input rejection for `Update`/`Peek`: one `double.IsFinite`
@@ -1108,6 +1111,11 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
          on whatever it is given: a handle retains its state, so a single non-finite bar \
          would poison every later value it produces.",
     );
+    d.para(
+        "Throws <see cref=\"System.ArgumentException\"/> once <see cref=\"OutRange\"/> has \
+         reached bar <see cref=\"Core.MAX_INDEX\"/>, which no re-feed clears: the handle \
+         has run out of index domain and only a shorter history can start a new one.",
+    );
     d.close("remarks");
     for input in &inputs {
         d.param(input, &bar_param_desc(input));
@@ -1117,6 +1125,7 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
     o.push_str(&d.render(6));
     let _ = writeln!(o, "      public {vt} Update( {sig_bars} )");
     let _ = writeln!(o, "      {{");
+    o.push_str(&out_range_ceiling_guard(func, "         ", "update"));
     o.push_str(&finite_bar_check(func, "         ", "update"));
     let _ = writeln!(o, "         core.{base}StepImpl(this, {fwd_bars});");
     // The accepted bar's own bump; a rejected bar is not counted at all.
@@ -1140,30 +1149,16 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
          return — the same transition, with every store it would make carried in a local \
          instead. Never writes this handle, so peeks may run concurrently with each other.",
     );
-    // Conditional, because a frame that still has to copy an accumulator — no
-    // shipped one does — allocates per call, and the unconditional claim would
-    // be false for it. The flat-in-period cost, the claim the frame exists to
-    // keep, holds either way and is what both sentences lead with.
-    if frame.is_some_and(|f| f.contains("Array.Copy(")) {
-        d.para(
-            "It copies no buffer: the frame runs against this handle, reading its buffers \
-             and holding what the step would commit in locals, so the cost does not grow \
-             with the period. It does copy this indicator's fixed-size per-bar \
-             accumulators — a few elements, a count fixed by the indicator and not by the \
-             period — so <c>Peek</c> allocates a small bounded amount per call.",
-        );
-    } else {
-        d.para(
-            "It copies nothing: the frame runs against this handle, reading its buffers and \
-             holding what the step would commit in locals. The cost does not grow with the \
-             period, and <c>Peek</c> never allocates.",
-        );
-    }
+    d.para("Its cost does not grow with the period.");
+    d.para(
+        "It counts no bar, so it keeps answering past the <see cref=\"Core.MAX_INDEX\"/> \
+         ceiling <c>Update</c> stops at.",
+    );
     d.close("remarks");
     for input in &inputs {
         d.param(input, &bar_param_desc(input));
     }
-    d.returns("What <see cref=\"Update\"/> would return for this bar.");
+    d.returns("The value <see cref=\"Update\"/> would return for this bar, when it takes it.");
     o.push('\n');
     o.push_str(&d.render(6));
     let _ = writeln!(o, "      public {vt} Peek( {sig_bars} )");
@@ -1479,16 +1474,8 @@ fn peek_frame_arm_named(
     let pad = " ".repeat(indent);
     let transition = streaming::build_transition(model, names).ok()?;
     let pt = streaming::peek_transition_widest(model, names, &transition, None).ok()?;
-    // The extrema rebase moves the cursor before the first store, so its
-    // targets localize with the transition's own.
-    let mut rebased: Vec<String> = Vec::new();
-    if let Some(ex) = model.extrema() {
-        rebased.push(model.cursor.clone());
-        rebased.push(ex.trailing.clone());
-        rebased.extend(ex.index_vars.iter().cloned());
-    }
     let bufs = streaming::transition_buffers(model, names);
-    let (locals, body_ir) = localize_state_writes(func, &pt.body, &rebased, &bufs)?;
+    let (locals, body_ir) = localize_state_writes(func, &pt.body, &[], &bufs)?;
     // The transition's own early exit — the param-degenerate identity
     // short-circuit — is valueless, because a step returns `void`. Inline in
     // `Peek` it exits a method that answers a value.
@@ -1541,15 +1528,6 @@ fn peek_frame_arm_named(
     for t in &pt.slot_temps {
         let _ = writeln!(out, "{pad}int {t} = 0;");
     }
-    if let Some(ex) = model.extrema() {
-        let inner = " ".repeat(indent + 3);
-        let _ = writeln!(out, "{pad}if( {} >= 1073741824 ) {{", model.cursor);
-        let _ = writeln!(out, "{inner}int rebaseShift = {} & ~sp.xMask;", ex.trailing);
-        for v in &rebased {
-            let _ = writeln!(out, "{inner}{v} -= rebaseShift;");
-        }
-        let _ = writeln!(out, "{pad}}}");
-    }
     for s in step_settings {
         let _ = writeln!(out, "{pad}int {s}_rangeType = sp.cs_{s}_rangeType;");
         let _ = writeln!(out, "{pad}int {s}_avgPeriod = sp.cs_{s}_avgPeriod;");
@@ -1598,8 +1576,8 @@ fn emit_step_sig(o: &mut String, func: &FuncDef) {
     let _ = writeln!(o, "   {{");
 }
 
-/// One model's per-bar step body at a given indent: temp decls, the extrema
-/// rebase, the candle-snapshot unpacking, and the rendered transition.
+/// One model's per-bar step body at a given indent: temp decls, the
+/// candle-snapshot unpacking, and the rendered transition.
 #[allow(clippy::too_many_arguments)]
 fn emit_step_body(
     o: &mut String,
@@ -1618,7 +1596,6 @@ fn emit_step_body(
         let (cty, default) = field_type_and_default(ty);
         let _ = writeln!(o, "{pad}{cty} {name} = {default};");
     }
-    emit_extrema_rebase(o, model, indent);
     // Candle settings from the open-time snapshot (never the live table). The
     // local NAMES are load-bearing: `fma::expr_is_float_typed` types an operand
     // float by the `_factor` SUFFIX, and these three are emitted as text, never
@@ -1658,23 +1635,6 @@ fn emit_identity_step_branch(
     }
 }
 
-/// Extrema automatons carry batch-absolute int indices; rebase them by a
-/// multiple of the physical ring size long before `int.MaxValue` (mirrors C
-/// verbatim — index differences and `& xMask` slots are invariant).
-fn emit_extrema_rebase(o: &mut String, model: &StreamModel, indent: usize) {
-    if let Some(ex) = model.extrema() {
-        let pad = " ".repeat(indent);
-        let inner = " ".repeat(indent + 3);
-        let mut vars: Vec<String> = vec![model.cursor.clone(), ex.trailing.clone()];
-        vars.extend(ex.index_vars.iter().cloned());
-        let _ = writeln!(o, "{pad}if( sp.{} >= 1073741824 ) {{", model.cursor);
-        let _ = writeln!(o, "{inner}int rebaseShift = sp.{} & ~sp.xMask;", ex.trailing);
-        for v in &vars {
-            let _ = writeln!(o, "{inner}sp.{v} -= rebaseShift;");
-        }
-        let _ = writeln!(o, "{pad}}}");
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Open transcription
@@ -1706,18 +1666,14 @@ fn alias_condition(func: &FuncDef, inputs: &[String]) -> Option<String> {
         for input in inputs {
             // Every declared input is a real series, so a mismatch here is
             // exactly the int-output-vs-real-input case.
-            pairs.push(super::common::csharp_overlap_expr(out, out_int, input, false, false));
+            let out_ty = if out_int { "int" } else { "double" };
+            pairs.push(super::common::csharp_overlap_expr(out, out_ty, input, "double", false));
         }
     }
     for i in 0..outs.len() {
         for b in &outs[i + 1..] {
-            pairs.push(super::common::csharp_overlap_expr(
-                outs[i],
-                out_is_int(func, outs[i]),
-                b,
-                out_is_int(func, b),
-                false,
-            ));
+            let ty = |o: &str| if out_is_int(func, o) { "int" } else { "double" };
+            pairs.push(super::common::csharp_overlap_expr(outs[i], ty(outs[i]), b, ty(b), false));
         }
     }
     if pairs.is_empty() { None } else { Some(pairs.join(" || ")) }
@@ -2721,7 +2677,12 @@ fn public_open_fill_capacity(func: &FuncDef, n: &str, history: &str) -> String {
 /// anchored fill seam reachable for every function rather than only the sixteen
 /// something composes over. Mirrors `java_stream::emit_open_wrappers`.
 #[allow(clippy::too_many_lines)]
-fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
+fn emit_open_wrappers(
+    o: &mut String,
+    func: &FuncDef,
+    merged: bool,
+    enums: &HashMap<String, EnumDef>,
+) {
     // `base` stays the raw verbatim name: it feeds `_Lookback` references and
     // `opt_param_desc`, both pointing at the unchanged batch tier (issue #278
     // is streaming-only). `cbase` is the PascalCase form for this file's own
@@ -2822,18 +2783,32 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         );
     }
     for p in &func.optional_inputs {
-        d.param(&p.name, &opt_param_desc(&base, p));
+        d.param(&p.name, &opt_param_desc(&base, p, enums));
     }
     d.returns("The open stream handle.");
     d.exception(
         "InsufficientHistoryException",
         &format!("The history holds fewer than <c>{base}_Lookback(...) + 1</c> bars."),
     );
-    d.exception(
-        "System.ArgumentException",
-        "An optional parameter is outside its documented range, or the input series have \
-         different lengths.",
-    );
+    // Built from the same two facts the guards are: a function with no optional
+    // parameter and one input span can raise neither cause.
+    let mut causes: Vec<&str> = Vec::new();
+    if !func.optional_inputs.is_empty() {
+        causes.push("an optional parameter is outside its documented range");
+    }
+    if streaming::input_array_names(func).len() > 1 {
+        causes.push("the input series have different lengths");
+    }
+    if let Some((first, rest)) = causes.split_first() {
+        let mut text = (*first).to_string();
+        text[..1].make_ascii_uppercase();
+        for c in rest {
+            text.push_str(", or ");
+            text.push_str(c);
+        }
+        text.push('.');
+        d.exception("System.ArgumentException", &text);
+    }
     d.exception(
         "System.ArgumentOutOfRangeException",
         "The history is empty — which is what a null array becomes, since a span cannot be \
@@ -2905,7 +2880,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
         );
     }
     for p in &func.optional_inputs {
-        d.param(&p.name, &opt_param_desc(&base, p));
+        d.param(&p.name, &opt_param_desc(&base, p, enums));
     }
     for out in &func.outputs {
         d.param(
@@ -3207,7 +3182,7 @@ fn emit_dual_mode(
     }
     emit_open_and_fill_internal_wrapper(o, func, true);
 
-    emit_open_wrappers(o, func, true);
+    emit_open_wrappers(o, func, true, enums);
 }
 
 // ---------------------------------------------------------------------------
@@ -3553,7 +3528,7 @@ fn emit_dispatch(
         let _ = writeln!(o, "   }}");
     }
 
-    emit_open_wrappers(o, func, false);
+    emit_open_wrappers(o, func, false, enums);
     emit_open_and_fill_internal_wrapper(o, func, false);
 }
 
@@ -3762,7 +3737,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "      return RetCode.Success;");
     let _ = writeln!(o, "   }}");
 
-    emit_open_wrappers(o, func, false);
+    emit_open_wrappers(o, func, false, enums);
 }
 
 // ---------------------------------------------------------------------------
@@ -4048,7 +4023,6 @@ fn emit_composed_step(
                 counter, indent, &declared,
             )?);
         } else {
-            emit_extrema_rebase(o, model, indent);
             // Same load-bearing local names as the loop tier — `fma::expr_is_float_typed`
             // types an operand float by the `_factor` SUFFIX and these are emitted
             // as text, never as IR VarDecls.
@@ -4563,5 +4537,5 @@ fn emit_composed(
         o, func, cp, &step_settings, stream_fma, &outputs, enums, registry, helpers, counter,
     );
     emit_open_and_fill_internal_wrapper(o, func, true);
-    emit_open_wrappers(o, func, true);
+    emit_open_wrappers(o, func, true, enums);
 }

@@ -250,6 +250,9 @@ public partial class Core
       if( outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealUpperBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealUpperBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealMiddleBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealMiddleBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealLowerBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealLowerBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
+         return RetCode.BadParam ;
+      }
       nbInitialElementNeeded = optInTimePeriod - 1;
       if( startIdx < nbInitialElementNeeded ) {
          startIdx = nbInitialElementNeeded;
@@ -319,16 +322,13 @@ public partial class Core
    /// weeks and sells a break below their low.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// Window = the optInTimePeriod bars ending at the current bar
-   /// Upper  = Highest High of Window
-   /// Lower  = Lowest  Low  of Window
-   /// Middle = (Upper + Lower) / 2
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/donchian">ta-lib.org/functions/donchian</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The window includes the current bar, matching TradingView (<c>ta.highest</c>/<c>ta.lowest</c>), NinjaTrader, ta4j, pandas-ta and every other library that ships Donchian Channels.</description></item>
-   /// <item><description>A breakout rule compares the current bar against the **previous** bar's band — <c>High[t] &gt; Upper[t-1]</c> — which is where the one-bar offset belongs. Reading <c>Upper[t]</c> against <c>High[t]</c> can never signal, because <c>High[t]</c> is inside the window that produced it.</description></item>
+   /// <item><description>A breakout rule compares the current bar against the <b>previous</b> bar's band — <c>High[t] &gt; Upper[t-1]</c> — which is where the one-bar offset belongs. Reading <c>Upper[t]</c> against <c>High[t]</c> can never signal, because <c>High[t]</c> is inside the window that produced it.</description></item>
    /// <item><description>Upper, Middle and Lower are bit-identical to <c>MAX(high, N)</c>, <c>MIDPRICE(N)</c> and <c>MIN(low, N)</c>. DONCHIAN computes all three in one pass under the name users look for.</description></item>
    /// <item><description>The middle line is the channel midpoint, not a moving average of price.</description></item>
    /// <item><description>No smoothing or recursion is involved, so there is no unstable period: outputs are exact from the first bar.</description></item>
@@ -403,16 +403,13 @@ public partial class Core
    /// weeks and sells a break below their low.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// Window = the optInTimePeriod bars ending at the current bar
-   /// Upper  = Highest High of Window
-   /// Lower  = Lowest  Low  of Window
-   /// Middle = (Upper + Lower) / 2
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/donchian">ta-lib.org/functions/donchian</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The window includes the current bar, matching TradingView (<c>ta.highest</c>/<c>ta.lowest</c>), NinjaTrader, ta4j, pandas-ta and every other library that ships Donchian Channels.</description></item>
-   /// <item><description>A breakout rule compares the current bar against the **previous** bar's band — <c>High[t] &gt; Upper[t-1]</c> — which is where the one-bar offset belongs. Reading <c>Upper[t]</c> against <c>High[t]</c> can never signal, because <c>High[t]</c> is inside the window that produced it.</description></item>
+   /// <item><description>A breakout rule compares the current bar against the <b>previous</b> bar's band — <c>High[t] &gt; Upper[t-1]</c> — which is where the one-bar offset belongs. Reading <c>Upper[t]</c> against <c>High[t]</c> can never signal, because <c>High[t]</c> is inside the window that produced it.</description></item>
    /// <item><description>Upper, Middle and Lower are bit-identical to <c>MAX(high, N)</c>, <c>MIDPRICE(N)</c> and <c>MIN(low, N)</c>. DONCHIAN computes all three in one pass under the name users look for.</description></item>
    /// <item><description>The middle line is the channel midpoint, not a moving average of price.</description></item>
    /// <item><description>No smoothing or recursion is involved, so there is no unstable period: outputs are exact from the first bar.</description></item>
@@ -459,8 +456,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange DONCHIAN( int startIdx,
                              int endIdx,
                              ReadOnlySpan<float> inHigh,
@@ -547,6 +546,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -557,10 +558,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("DONCHIAN", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal DonchianStream( DonchianStream other )
@@ -598,15 +605,21 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <returns>The value at the bar just committed.</returns>
       public DonchianValue Update( double inHigh, double inLow )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("DONCHIAN", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("DONCHIAN", "update", RetCode.BadParam);
          core.DonchianStepImpl(this, inHigh, inLow);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new DonchianValue(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
       }
 
@@ -616,13 +629,14 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public DonchianValue Peek( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("DONCHIAN", "peek", RetCode.BadParam);
@@ -637,31 +651,21 @@ public partial class Core
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inHigh;
-         pkSlot1 = today & sp.xMask;
+         pkSlot1 = sp.today & sp.xMask;
          pkVal1 = inLow;
-         tmpHigh = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
-         tmpLow = ((today & sp.xMask) != pkSlot1) ? sp.x_inLow[today & sp.xMask] : pkVal1;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         tmpHigh = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inHigh[sp.today & sp.xMask] : pkVal0;
+         tmpLow = ((sp.today & sp.xMask) != pkSlot1) ? sp.x_inLow[sp.today & sp.xMask] : pkVal1;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inHigh[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpHigh = ((i & sp.xMask) != pkSlot0) ? sp.x_inHigh[i & sp.xMask] : pkVal0;
                if( tmpHigh > highest ) {
                   highestIdx = i;
@@ -669,14 +673,14 @@ public partial class Core
                }
             }
          } else if( tmpHigh >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmpHigh;
          }
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot1) ? sp.x_inLow[lowestIdx & sp.xMask] : pkVal1;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpLow = ((i & sp.xMask) != pkSlot1) ? sp.x_inLow[i & sp.xMask] : pkVal1;
                if( tmpLow < lowest ) {
                   lowestIdx = i;
@@ -684,7 +688,7 @@ public partial class Core
                }
             }
          } else if( tmpLow <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmpLow;
          }
          cur_outRealUpperBand = highest;
@@ -714,14 +718,6 @@ public partial class Core
    {
       double tmpLow = 0.0;
       double tmpHigh = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inHigh[sp.today & sp.xMask] = inHigh;
       sp.x_inLow[sp.today & sp.xMask] = inLow;
       tmpHigh = sp.x_inHigh[sp.today & sp.xMask];

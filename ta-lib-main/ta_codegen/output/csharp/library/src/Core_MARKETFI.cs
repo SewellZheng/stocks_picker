@@ -149,6 +149,9 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inVolume)) ) {
+         return RetCode.BadParam ;
+      }
       outIdx = 0;
       for( i = startIdx; i <= endIdx; i += 1 ) {
          if( (double)inVolume[i] != 0.0 ) {
@@ -162,7 +165,7 @@ public partial class Core
       return RetCode.Success ;
    }
    /// <summary>
-   /// Bill Williams' Market Facilitation Index (*Trading Chaos*, 1995): the
+   /// Bill Williams' Market Facilitation Index (<i>Trading Chaos</i>, 1995): the
    /// price range a bar travelled per unit of volume traded — how much movement
    /// the market "facilitated" per tick. A rising index on rising volume is read
    /// as a move the market is absorbing; a rising index on falling volume as one
@@ -175,11 +178,10 @@ public partial class Core
    /// not part of it; <c>outReal</c> is the scalar only.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// MARKETFI_t = (high_t - low_t) / volume_t
-   /// A bar with zero volume reports 0 rather than dividing: it facilitated no movement, and a successful call never emits NaN or ±Inf.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/marketfi">ta-lib.org/functions/marketfi</see>.
+   /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
@@ -234,7 +236,7 @@ public partial class Core
       return new OutRange(outBegIdx, outNBElement);
    }
    /// <summary>
-   /// Bill Williams' Market Facilitation Index (*Trading Chaos*, 1995): the
+   /// Bill Williams' Market Facilitation Index (<i>Trading Chaos</i>, 1995): the
    /// price range a bar travelled per unit of volume traded — how much movement
    /// the market "facilitated" per tick. A rising index on rising volume is read
    /// as a move the market is absorbing; a rising index on falling volume as one
@@ -247,11 +249,10 @@ public partial class Core
    /// not part of it; <c>outReal</c> is the scalar only.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// MARKETFI_t = (high_t - low_t) / volume_t
-   /// A bar with zero volume reports 0 rather than dividing: it facilitated no movement, and a successful call never emits NaN or ±Inf.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/marketfi">ta-lib.org/functions/marketfi</see>.
+   /// </para>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
    /// <c>double</c> as they are read and all arithmetic is performed in
@@ -289,8 +290,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange MARKETFI( int startIdx,
                              int endIdx,
                              ReadOnlySpan<float> inHigh,
@@ -347,6 +350,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -357,10 +362,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("MARKETFI", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal MarketfiStream( MarketfiStream other )
@@ -383,6 +394,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -390,9 +405,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow, double inVolume )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("MARKETFI", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MARKETFI", "update", RetCode.BadParam);
          core.MarketfiStepImpl(this, inHigh, inLow, inVolume);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -402,14 +419,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inVolume">This bar's volume.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inHigh, double inLow, double inVolume )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inVolume) ) throw Core.StreamFailure("MARKETFI", "peek", RetCode.BadParam);
@@ -570,8 +588,7 @@ public partial class Core
    /// <param name="inVolume">Volume of each bar. The warm-up history, oldest bar first.</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MARKETFI_Lookback(...) + 1</c> bars.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
-   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
    /// the two index faults an opener can have (rules S1 and S2).</exception>

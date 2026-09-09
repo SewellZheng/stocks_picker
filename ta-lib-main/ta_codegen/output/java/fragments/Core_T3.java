@@ -37,7 +37,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInVFactor Volume factor weighting the coefficients (0 = plain
     *        triple EMA, higher = more DEMA-like sharpening) (default 0.7; range 0..1;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int T3_Lookback( int optInTimePeriod, double optInVFactor )
@@ -369,12 +369,8 @@
     * Tillson's T3: a low-lag moving average built from six chained EMAs,
     * combined via volume-factor-weighted coefficients. Not the same as EMA3,
     * despite both being called "triple EMA".
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * k = 2/(period+1); e1=EMA(x), e2=EMA(e1), ... e6=EMA(e5) (six chained EMAs).
-    * v = vFactor: c1 = -v^3; c2 = 3(v^2 - c1); c3 = -6v^2 - 3(v - c1); c4 = 1 + 3v - c1 + 3v^2.
-    * T3 = c1*e6 + c2*e5 + c3*e4 + c4*e3
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/t3">ta-lib.org/functions/t3</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
@@ -392,7 +388,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInVFactor Volume factor weighting the coefficients (0 = plain
     *        triple EMA, higher = more DEMA-like sharpening) (default 0.7; range 0..1;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal T3 smoothed line. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -439,12 +435,8 @@
     * Tillson's T3: a low-lag moving average built from six chained EMAs,
     * combined via volume-factor-weighted coefficients. Not the same as EMA3,
     * despite both being called "triple EMA".
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * k = 2/(period+1); e1=EMA(x), e2=EMA(e1), ... e6=EMA(e5) (six chained EMAs).
-    * v = vFactor: c1 = -v^3; c2 = 3(v^2 - c1); c3 = -6v^2 - 3(v - c1); c4 = 1 + 3v - c1 + 3v^2.
-    * T3 = c1*e6 + c2*e5 + c3*e4 + c4*e3
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/t3">ta-lib.org/functions/t3</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</li>
@@ -465,7 +457,7 @@
     *        range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInVFactor Volume factor weighting the coefficients (0 = plain
     *        triple EMA, higher = more DEMA-like sharpening) (default 0.7; range 0..1;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal T3 smoothed line. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -525,26 +517,26 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class T3Stream {
-      Core core;
-      int optInTimePeriod;
-      double optInVFactor;
-      double k;
-      double one_minus_k;
-      double e1;
-      double e2;
-      double e3;
-      double e4;
-      double e5;
-      double e6;
-      double c1;
-      double c2;
-      double c3;
-      double c4;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInVFactor;
+      private double k;
+      private double one_minus_k;
+      private double e1;
+      private double e2;
+      private double e3;
+      private double e4;
+      private double e5;
+      private double e6;
+      private double c1;
+      private double c2;
+      private double c3;
+      private double c4;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      T3Stream( Core core ) { this.core = core; }
+      private T3Stream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -556,6 +548,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -566,10 +561,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("T3 advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      T3Stream( T3Stream other ) {
+      private T3Stream( T3Stream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInVFactor = other.optInVFactor;
@@ -592,7 +595,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -604,12 +606,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("T3 update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("T3 update: BadParam", RetCode.BadParam);
          core.t3StepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -618,9 +626,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -673,7 +682,7 @@
          return new T3Stream(this);
       }
    }
-   void t3StepImpl( T3Stream sp, double inReal )
+   private void t3StepImpl( T3Stream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -939,8 +948,8 @@
     * <p>The history must hold at least {@code T3_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

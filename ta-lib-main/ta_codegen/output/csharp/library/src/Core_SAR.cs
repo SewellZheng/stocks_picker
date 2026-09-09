@@ -69,20 +69,20 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <param name="optInAcceleration">Step added to the acceleration factor on each new extreme point (default
-   /// 0.02; minimum 0; <c>-4e37</c> selects the default).</param>
-   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// 0.02; minimum 0; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int SAR_Lookback( double optInAcceleration, double optInMaximum )
    {
-      if( optInAcceleration == TA_REAL_DEFAULT ) {
+      if( optInAcceleration == REAL_DEFAULT ) {
          optInAcceleration = 2e-2;
-      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) ) {
+      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= REAL_MAX) ) {
          return -1;
       }
-      if( optInMaximum == TA_REAL_DEFAULT ) {
+      if( optInMaximum == REAL_DEFAULT ) {
          optInMaximum = 2e-1;
-      } else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) ) {
+      } else if( !(optInMaximum >= 0e0 && optInMaximum <= REAL_MAX) ) {
          return -1;
       }
       /* SAR always sacrify one price bar to establish the
@@ -122,14 +122,14 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInAcceleration == TA_REAL_DEFAULT ) {
+      if( optInAcceleration == REAL_DEFAULT ) {
          optInAcceleration = 2e-2;
-      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) ) {
+      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInMaximum == TA_REAL_DEFAULT ) {
+      if( optInMaximum == REAL_DEFAULT ) {
          optInMaximum = 2e-1;
-      } else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) ) {
+      } else if( !(optInMaximum >= 0e0 && optInMaximum <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) ) {
@@ -380,15 +380,18 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInAcceleration == TA_REAL_DEFAULT ) {
+      if( optInAcceleration == REAL_DEFAULT ) {
          optInAcceleration = 2e-2;
-      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) ) {
+      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInMaximum == TA_REAL_DEFAULT ) {
+      if( optInMaximum == REAL_DEFAULT ) {
          optInMaximum = 2e-1;
-      } else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) ) {
+      } else if( !(optInMaximum >= 0e0 && optInMaximum <= REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
+         return RetCode.BadParam ;
       }
       if( startIdx < 1 ) {
          startIdx = 1;
@@ -516,12 +519,10 @@ public partial class Core
    /// above price = downtrend (short). Price crossing SAR flips direction.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// SAR_next = SAR + af * (EP - SAR)
-   /// EP = extreme point (highest high in long / lowest low in short); af starts at Acceleration, += Acceleration each new EP, capped at Maximum.
-   /// On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped each bar so it does not penetrate the prior/current bar's range.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/sar">ta-lib.org/functions/sar</see>.
+   /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
@@ -535,9 +536,9 @@ public partial class Core
    /// <param name="inHigh">High price of each bar.</param>
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="optInAcceleration">Step added to the acceleration factor on each new extreme point (default
-   /// 0.02; minimum 0; <c>-4e37</c> selects the default).</param>
-   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// 0.02; minimum 0; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">Parabolic SAR stop/reverse level per bar. Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -585,12 +586,10 @@ public partial class Core
    /// above price = downtrend (short). Price crossing SAR flips direction.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// SAR_next = SAR + af * (EP - SAR)
-   /// EP = extreme point (highest high in long / lowest low in short); af starts at Acceleration, += Acceleration each new EP, capped at Maximum.
-   /// On penetration: reverse, SAR := prior EP, reset af = Acceleration. SAR clamped each bar so it does not penetrate the prior/current bar's range.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/sar">ta-lib.org/functions/sar</see>.
+   /// </para>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
    /// <c>double</c> as they are read and all arithmetic is performed in
@@ -610,9 +609,9 @@ public partial class Core
    /// <param name="inHigh">High price of each bar.</param>
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="optInAcceleration">Step added to the acceleration factor on each new extreme point (default
-   /// 0.02; minimum 0; <c>-4e37</c> selects the default).</param>
-   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// 0.02; minimum 0; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInMaximum">Ceiling on the acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">Parabolic SAR stop/reverse level per bar. Must hold at least <c>endIdx -
    /// startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -631,8 +630,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange SAR( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inHigh,
@@ -697,6 +698,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -707,10 +710,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("SAR", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal SarStream( SarStream other )
@@ -741,15 +750,21 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("SAR", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("SAR", "update", RetCode.BadParam);
          core.SarStepImpl(this, inHigh, inLow);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -759,13 +774,14 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("SAR", "peek", RetCode.BadParam);
@@ -1059,14 +1075,14 @@ public partial class Core
       if( inLow.Length != inHigh.Length ) {
          return RetCode.BadParam;
       }
-      if( optInAcceleration == TA_REAL_DEFAULT ) {
+      if( optInAcceleration == REAL_DEFAULT ) {
          optInAcceleration = 2e-2;
-      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= TA_REAL_MAX) ) {
+      } else if( !(optInAcceleration >= 0e0 && optInAcceleration <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInMaximum == TA_REAL_DEFAULT ) {
+      if( optInMaximum == REAL_DEFAULT ) {
          optInMaximum = 2e-1;
-      } else if( !(optInMaximum >= 0e0 && optInMaximum <= TA_REAL_MAX) ) {
+      } else if( !(optInMaximum >= 0e0 && optInMaximum <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
@@ -1337,9 +1353,9 @@ public partial class Core
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="optInAcceleration">As in the batch call; see <see cref="SAR_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInMaximum">As in the batch call; see <see cref="SAR_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SAR_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
@@ -1373,9 +1389,9 @@ public partial class Core
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="optInAcceleration">As in the batch call; see <see cref="SAR_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInMaximum">As in the batch call; see <see cref="SAR_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">Parabolic SAR stop/reverse level per bar. Must hold at least <c>historyLen
    /// - SAR_Lookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>

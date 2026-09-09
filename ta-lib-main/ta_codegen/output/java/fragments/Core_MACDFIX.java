@@ -342,12 +342,8 @@
     * MACD with the fast/slow EMAs fixed to the classic 12/26 periods (with the
     * classic fixed smoothing factors 0.15 and 0.075), exposing only the signal
     * period. Signal-line crossovers and histogram sign flag momentum shifts.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * MACD = EMA_12 - EMA_26   (fixed k: 0.15 for 12, 0.075 for 26)
-    * Signal = EMA(MACD, signalPeriod),  k = 2/(signalPeriod+1)
-    * Hist = MACD - Signal
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/macdfix">ta-lib.org/functions/macdfix</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and the histogram is zero. Before 0.6.5 this parameter value produced misaligned output (issues #48/#59).</li>
@@ -416,12 +412,8 @@
     * MACD with the fast/slow EMAs fixed to the classic 12/26 periods (with the
     * classic fixed smoothing factors 0.15 and 0.075), exposing only the signal
     * period. Signal-line crossovers and histogram sign flag momentum shifts.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * MACD = EMA_12 - EMA_26   (fixed k: 0.15 for 12, 0.075 for 26)
-    * Signal = EMA(MACD, signalPeriod),  k = 2/(signalPeriod+1)
-    * Hist = MACD - Signal
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/macdfix">ta-lib.org/functions/macdfix</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A signal period of 1 disables signal-line smoothing: the signal equals the MACD line and the histogram is zero. Before 0.6.5 this parameter value produced misaligned output (issues #48/#59).</li>
@@ -506,21 +498,21 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MacdfixStream {
-      Core core;
-      int optInSignalPeriod;
-      double prevFast;
-      double prevSlow;
-      double prevSignal;
-      double slowK;
-      double fastK;
-      double signalK;
-      double cur_outMACD;
-      double cur_outMACDSignal;
-      double cur_outMACDHist;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInSignalPeriod;
+      private double prevFast;
+      private double prevSlow;
+      private double prevSignal;
+      private double slowK;
+      private double fastK;
+      private double signalK;
+      private double cur_outMACD;
+      private double cur_outMACDSignal;
+      private double cur_outMACDHist;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MacdfixStream( Core core ) { this.core = core; }
+      private MacdfixStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -532,6 +524,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -542,10 +537,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MACDFIX advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MacdfixStream( MacdfixStream other ) {
+      private MacdfixStream( MacdfixStream other ) {
          this.core = other.core;
          this.optInSignalPeriod = other.optInSignalPeriod;
          this.prevFast = other.prevFast;
@@ -563,7 +566,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -575,13 +577,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, MacdfixOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MACDFIX update", RetCode.OutOfRangeEndIndex);
          requireArgument("MACDFIX update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MACDFIX update: BadParam", RetCode.BadParam);
          core.macdfixStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.macd = this.cur_outMACD;
          out.macdSignal = this.cur_outMACDSignal;
          out.macdHist = this.cur_outMACDHist;
@@ -592,9 +600,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MacdfixOut out ) {
          requireArgument("MACDFIX peek", "out", out);
@@ -630,7 +639,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( MacdfixOut out ) {
          requireArgument("MACDFIX value", "out", out);
@@ -679,7 +688,7 @@
       /** MACD minus signal. */
       public double macdHist;
    }
-   void macdfixStepImpl( MacdfixStream sp, double inReal )
+   private void macdfixStepImpl( MacdfixStream sp, double inReal )
    {
       double macdValue = 0.0;
       double tempReal = 0.0;
@@ -927,8 +936,8 @@
     * <p>The history must hold at least {@code MACDFIX_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

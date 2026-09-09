@@ -68,8 +68,8 @@ public partial class Core
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInATRPeriod">Smoothing period of the Average True Range (default 10; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="optInNbDev">Multiplier applied to the Average True Range (default 2; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <param name="optInNbDev">Multiplier applied to the Average True Range (default 2;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int KC_Lookback( int optInTimePeriod, int optInATRPeriod, double optInNbDev )
    {
@@ -83,9 +83,9 @@ public partial class Core
       } else if( optInATRPeriod < 1 || optInATRPeriod > 100000 ) {
          return -1;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 2e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return -1;
       }
       int emaLookback = 0;
@@ -145,9 +145,9 @@ public partial class Core
       } else if( optInATRPeriod < 1 || optInATRPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 2e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
@@ -253,12 +253,15 @@ public partial class Core
       } else if( optInATRPeriod < 1 || optInATRPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 2e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( outRealUpperBand.Overlaps(outRealMiddleBand) || outRealUpperBand.Overlaps(outRealLowerBand) || outRealMiddleBand.Overlaps(outRealLowerBand) ) {
+         return RetCode.BadParam ;
+      }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealUpperBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealUpperBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealUpperBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealMiddleBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealMiddleBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealMiddleBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealLowerBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealLowerBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outRealLowerBand).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
          return RetCode.BadParam ;
       }
       emaLookback = EMA_Lookback(optInTimePeriod);
@@ -307,14 +310,10 @@ public partial class Core
    /// quiet ones.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// TP = (High + Low + Close) / 3
-   /// Middle = EMA(TP, N)
-   /// Band = ATR(M)
-   /// Upper = Middle + Deviations * Band
-   /// Lower = Middle - Deviations * Band
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/kc">ta-lib.org/functions/kc</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>Several incompatible indicators are published under the name "Keltner Channel", disagreeing by percent rather than by rounding. This is the typical-price centre line with a Wilder-smoothed Average True Range band, the form implemented by TTR and ta4j.</description></item>
    /// <item><description>Chester Keltner's 1960 original smooths the typical price with a simple moving average and takes the band from the plain daily range; the widely charted modern variant centres on the close instead. Expect a visible difference against a package plotting either.</description></item>
@@ -338,8 +337,8 @@ public partial class Core
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInATRPeriod">Smoothing period of the Average True Range (default 10; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="optInNbDev">Multiplier applied to the Average True Range (default 2; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <param name="optInNbDev">Multiplier applied to the Average True Range (default 2;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outRealUpperBand">Centre line plus the scaled Average True Range. Must hold at least
    /// <c>endIdx - startIdx + 1</c> values.</param>
    /// <param name="outRealMiddleBand">Exponential moving average of the typical price. Must hold at least
@@ -399,14 +398,10 @@ public partial class Core
    /// quiet ones.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// TP = (High + Low + Close) / 3
-   /// Middle = EMA(TP, N)
-   /// Band = ATR(M)
-   /// Upper = Middle + Deviations * Band
-   /// Lower = Middle - Deviations * Band
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/kc">ta-lib.org/functions/kc</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>Several incompatible indicators are published under the name "Keltner Channel", disagreeing by percent rather than by rounding. This is the typical-price centre line with a Wilder-smoothed Average True Range band, the form implemented by TTR and ta4j.</description></item>
    /// <item><description>Chester Keltner's 1960 original smooths the typical price with a simple moving average and takes the band from the plain daily range; the widely charted modern variant centres on the close instead. Expect a visible difference against a package plotting either.</description></item>
@@ -436,8 +431,8 @@ public partial class Core
    /// 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInATRPeriod">Smoothing period of the Average True Range (default 10; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
-   /// <param name="optInNbDev">Multiplier applied to the Average True Range (default 2; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <param name="optInNbDev">Multiplier applied to the Average True Range (default 2;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outRealUpperBand">Centre line plus the scaled Average True Range. Must hold at least
    /// <c>endIdx - startIdx + 1</c> values.</param>
    /// <param name="outRealMiddleBand">Exponential moving average of the typical price. Must hold at least
@@ -460,8 +455,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange KC( int startIdx,
                        int endIdx,
                        ReadOnlySpan<float> inHigh,
@@ -547,6 +544,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -557,10 +556,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("KC", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal KcStream( KcStream other )
@@ -591,6 +596,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -598,9 +607,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public KcValue Update( double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("KC", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("KC", "update", RetCode.BadParam);
          core.KcStepImpl(this, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new KcValue(cur_outRealUpperBand, cur_outRealMiddleBand, cur_outRealLowerBand);
       }
 
@@ -610,14 +621,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public KcValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("KC", "peek", RetCode.BadParam);
@@ -717,9 +729,9 @@ public partial class Core
       } else if( optInATRPeriod < 1 || optInATRPeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 2e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
@@ -849,7 +861,7 @@ public partial class Core
    /// <param name="optInATRPeriod">As in the batch call; see <see cref="KC_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">As in the batch call; see <see cref="KC_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>KC_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
@@ -890,7 +902,7 @@ public partial class Core
    /// <param name="optInATRPeriod">As in the batch call; see <see cref="KC_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">As in the batch call; see <see cref="KC_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outRealUpperBand">Centre line plus the scaled Average True Range. Must hold at least
    /// <c>historyLen - KC_Lookback(...)</c> values.</param>
    /// <param name="outRealMiddleBand">Exponential moving average of the typical price. Must hold at least

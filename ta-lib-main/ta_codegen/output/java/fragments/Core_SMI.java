@@ -609,7 +609,7 @@
    }
    /**
     * Stochastic Momentum Index: where the close sits relative to the
-    * **midpoint** of the recent high/low range, double-smoothed. Lane's
+    * <b>midpoint</b> of the recent high/low range, double-smoothed. Lane's
     * stochastic measures the close against the bottom of the range; Blau
     * measures it against the middle, then smooths numerator and denominator
     * separately with two exponential averages before dividing, which is what
@@ -618,13 +618,8 @@
     * the close is above the midpoint of its range, negative below. Extreme
     * readings mark overbought and oversold conditions, and crossings of the
     * signal line are the usual trade trigger.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * HH = MAX(high, timePeriod);  LL = MIN(low, timePeriod)
-    * num = close - 0.5 * (HH + LL);  den = HH - LL
-    * SMI = 100 * EMA(EMA(num, slowPeriod), fastPeriod) / (0.5 * EMA(EMA(den, slowPeriod), fastPeriod))
-    * Signal = EMA(SMI, signalPeriod)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/smi">ta-lib.org/functions/smi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.</li>
@@ -706,7 +701,7 @@
    }
    /**
     * Stochastic Momentum Index: where the close sits relative to the
-    * **midpoint** of the recent high/low range, double-smoothed. Lane's
+    * <b>midpoint</b> of the recent high/low range, double-smoothed. Lane's
     * stochastic measures the close against the bottom of the range; Blau
     * measures it against the middle, then smooths numerator and denominator
     * separately with two exponential averages before dividing, which is what
@@ -715,13 +710,8 @@
     * the close is above the midpoint of its range, negative below. Extreme
     * readings mark overbought and oversold conditions, and crossings of the
     * signal line are the usual trade trigger.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * HH = MAX(high, timePeriod);  LL = MIN(low, timePeriod)
-    * num = close - 0.5 * (HH + LL);  den = HH - LL
-    * SMI = 100 * EMA(EMA(num, slowPeriod), fastPeriod) / (0.5 * EMA(EMA(den, slowPeriod), fastPeriod))
-    * Signal = EMA(SMI, signalPeriod)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/smi">ta-lib.org/functions/smi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A window whose bars are all flat (every high equal to its low) leaves both the numerator and the denominator at zero. Rather than divide, SMI emits 0 there — the same convention as CCI and IMI. Some implementations divide unguarded and return a non-finite value.</li>
@@ -821,36 +811,36 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class SmiStream {
-      Core core;
-      int optInTimePeriod;
-      int optInFastPeriod;
-      int optInSlowPeriod;
-      int optInSignalPeriod;
-      double kSlow;
-      double kFast;
-      double kSignal;
-      double highest;
-      double lowest;
-      double emaSlowNum;
-      double emaSlowDen;
-      double emaFastNum;
-      double emaFastDen;
-      double prevSignal;
-      int trailingIdx;
-      int highestIdx;
-      int lowestIdx;
-      int i;
-      int today;
-      int xMask;
-      double[] x_inHigh;
-      double[] x_inLow;
-      double[] x_inClose;
-      double cur_outSMI;
-      double cur_outSMISignal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int optInFastPeriod;
+      private int optInSlowPeriod;
+      private int optInSignalPeriod;
+      private double kSlow;
+      private double kFast;
+      private double kSignal;
+      private double highest;
+      private double lowest;
+      private double emaSlowNum;
+      private double emaSlowDen;
+      private double emaFastNum;
+      private double emaFastDen;
+      private double prevSignal;
+      private int trailingIdx;
+      private int highestIdx;
+      private int lowestIdx;
+      private int i;
+      private int today;
+      private int xMask;
+      private double[] x_inHigh;
+      private double[] x_inLow;
+      private double[] x_inClose;
+      private double cur_outSMI;
+      private double cur_outSMISignal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      SmiStream( Core core ) { this.core = core; }
+      private SmiStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -862,6 +852,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -872,10 +865,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("SMI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      SmiStream( SmiStream other ) {
+      private SmiStream( SmiStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInFastPeriod = other.optInFastPeriod;
@@ -908,7 +909,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -920,13 +920,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, SmiOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("SMI update", RetCode.OutOfRangeEndIndex);
          requireArgument("SMI update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("SMI update: BadParam", RetCode.BadParam);
          core.smiStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.smi = this.cur_outSMI;
          out.smiSignal = this.cur_outSMISignal;
       }
@@ -936,9 +942,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, SmiOut out ) {
          requireArgument("SMI peek", "out", out);
@@ -962,35 +969,25 @@
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
          double prevSignal = sp.prevSignal;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
          int pkSlot2 = -1;
          double pkVal2 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inHigh;
-         pkSlot1 = today & sp.xMask;
+         pkSlot1 = sp.today & sp.xMask;
          pkVal1 = inLow;
-         pkSlot2 = today & sp.xMask;
+         pkSlot2 = sp.today & sp.xMask;
          pkVal2 = inClose;
          /* Set the lowest low */
-         tmp = ((today & sp.xMask) != pkSlot1) ? sp.x_inLow[today & sp.xMask] : pkVal1;
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot1) ? sp.x_inLow[sp.today & sp.xMask] : pkVal1;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot1) ? sp.x_inLow[lowestIdx & sp.xMask] : pkVal1;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot1) ? sp.x_inLow[i & sp.xMask] : pkVal1;
                if( tmp < lowest ) {
                   lowestIdx = i;
@@ -998,16 +995,16 @@
                }
             }
          } else if( tmp <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmp;
          }
          /* Set the highest high */
-         tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inHigh[sp.today & sp.xMask] : pkVal0;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inHigh[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot0) ? sp.x_inHigh[i & sp.xMask] : pkVal0;
                if( tmp > highest ) {
                   highestIdx = i;
@@ -1015,11 +1012,11 @@
                }
             }
          } else if( tmp >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmp;
          }
          den = highest - lowest;
-         num = (((today & sp.xMask) != pkSlot2) ? sp.x_inClose[today & sp.xMask] : pkVal2) - (highest + lowest) * 0.5;
+         num = (((sp.today & sp.xMask) != pkSlot2) ? sp.x_inClose[sp.today & sp.xMask] : pkVal2) - (highest + lowest) * 0.5;
          emaSlowNum = Math.fma(num - emaSlowNum, sp.kSlow, emaSlowNum);
          emaSlowDen = Math.fma(den - emaSlowDen, sp.kSlow, emaSlowDen);
          emaFastNum = Math.fma(emaSlowNum - emaFastNum, sp.kFast, emaFastNum);
@@ -1052,7 +1049,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( SmiOut out ) {
          requireArgument("SMI value", "out", out);
@@ -1098,21 +1095,13 @@
       /** Exponential average of the SMI line. */
       public double smiSignal;
    }
-   void smiStepImpl( SmiStream sp, double inHigh, double inLow, double inClose )
+   private void smiStepImpl( SmiStream sp, double inHigh, double inLow, double inClose )
    {
       double tmp = 0.0;
       double num = 0.0;
       double den = 0.0;
       double halfDen = 0.0;
       double smiValue = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inHigh[sp.today & sp.xMask] = inHigh;
       sp.x_inLow[sp.today & sp.xMask] = inLow;
       sp.x_inClose[sp.today & sp.xMask] = inClose;
@@ -1558,8 +1547,8 @@
     * <p>The history must hold at least {@code SMI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

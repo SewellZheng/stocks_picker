@@ -132,6 +132,9 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
+         return RetCode.BadParam ;
+      }
       total = 0.0;
       for( i = startIdx, outIdx = 0; i <= endIdx; i += 1, outIdx += 1 ) {
          total += (double)inReal[i];
@@ -148,17 +151,15 @@ public partial class Core
    /// the A/D Line is <c>CUMSUM(SUB(advances, declines))</c>, the A/D Volume
    /// Line is <c>CUMSUM(SUB(advancingVolume, decliningVolume))</c>, and the
    /// McClellan Summation Index is <c>CUMSUM</c> of the McClellan Oscillator.
-   /// [<c>SUM</c>](/functions/sum) is a *rolling window* over
-   /// <c>optInTimePeriod</c> bars; <c>CUMSUM</c> has no window — every bar since
-   /// the anchor contributes.
+   /// <see href="https://ta-lib.org/functions/sum"><c>SUM</c></see> is a
+   /// <i>rolling window</i> over <c>optInTimePeriod</c> bars; <c>CUMSUM</c> has
+   /// no window — every bar since the anchor contributes.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// `out[j] = inReal[startIdx] + inReal[startIdx+1] + … + inReal[startIdx+j]`
-   /// Left-to-right in one double, no compensation — the same plain `+=` convention the shipped accumulators (`AD`, `OBV`) use.
-   /// **The accumulator re-seeds at the anchor.** `CUMSUM(3, 7, x)` starts its total at `x[3]`; it does not warm up from `x[0]`. This is the published contract of the indicators built on it (StockCharts: only the A/D Line's *shape* carries meaning, the first value is "simply Net Advances for one period") and the convention of every shipped path-dependent function. The `path_dependent` flag declares exactly this class.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/cumsum">ta-lib.org/functions/cumsum</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>Lookback 0: <c>outBegIdx = startIdx</c>, one output per input bar. Streaming state is a single accumulator, so a peek commits nothing by construction.</description></item>
    /// <item><description>The sum is uncompensated. A Kahan or Neumaier variant would diverge from <c>AD</c>'s own convention, which this follows.</description></item>
@@ -217,17 +218,15 @@ public partial class Core
    /// the A/D Line is <c>CUMSUM(SUB(advances, declines))</c>, the A/D Volume
    /// Line is <c>CUMSUM(SUB(advancingVolume, decliningVolume))</c>, and the
    /// McClellan Summation Index is <c>CUMSUM</c> of the McClellan Oscillator.
-   /// [<c>SUM</c>](/functions/sum) is a *rolling window* over
-   /// <c>optInTimePeriod</c> bars; <c>CUMSUM</c> has no window — every bar since
-   /// the anchor contributes.
+   /// <see href="https://ta-lib.org/functions/sum"><c>SUM</c></see> is a
+   /// <i>rolling window</i> over <c>optInTimePeriod</c> bars; <c>CUMSUM</c> has
+   /// no window — every bar since the anchor contributes.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// `out[j] = inReal[startIdx] + inReal[startIdx+1] + … + inReal[startIdx+j]`
-   /// Left-to-right in one double, no compensation — the same plain `+=` convention the shipped accumulators (`AD`, `OBV`) use.
-   /// **The accumulator re-seeds at the anchor.** `CUMSUM(3, 7, x)` starts its total at `x[3]`; it does not warm up from `x[0]`. This is the published contract of the indicators built on it (StockCharts: only the A/D Line's *shape* carries meaning, the first value is "simply Net Advances for one period") and the convention of every shipped path-dependent function. The `path_dependent` flag declares exactly this class.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/cumsum">ta-lib.org/functions/cumsum</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>Lookback 0: <c>outBegIdx = startIdx</c>, one output per input bar. Streaming state is a single accumulator, so a peek commits nothing by construction.</description></item>
    /// <item><description>The sum is uncompensated. A Kahan or Neumaier variant would diverge from <c>AD</c>'s own convention, which this follows.</description></item>
@@ -267,8 +266,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange CUMSUM( int startIdx,
                            int endIdx,
                            ReadOnlySpan<float> inReal,
@@ -322,6 +323,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -332,10 +335,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("CUMSUM", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal CumsumStream( CumsumStream other )
@@ -359,14 +368,20 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("CUMSUM", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("CUMSUM", "update", RetCode.BadParam);
          core.CumsumStepImpl(this, inReal);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -376,12 +391,13 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("CUMSUM", "peek", RetCode.BadParam);
@@ -503,8 +519,6 @@ public partial class Core
    /// The warm-up history, oldest bar first.</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>CUMSUM_Lookback(...) + 1</c> bars.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
-   /// have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
    /// the two index faults an opener can have (rules S1 and S2).</exception>

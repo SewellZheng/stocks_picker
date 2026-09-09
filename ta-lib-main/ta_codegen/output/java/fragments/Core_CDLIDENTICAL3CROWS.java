@@ -237,6 +237,8 @@
     * candles, each with a very short (or no) lower shadow, where each candle
     * after the first opens at or very near the prior candle's close. A hit
     * signals a bearish reversal (pattern is always bearish).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlidentical3crows">ta-lib.org/functions/cdlidentical3crows</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding uptrend that the bearish reversal classically assumes.</li>
@@ -304,6 +306,8 @@
     * candles, each with a very short (or no) lower shadow, where each candle
     * after the first opens at or very near the prior candle's close. A hit
     * signals a bearish reversal (pattern is always bearish).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlidentical3crows">ta-lib.org/functions/cdlidentical3crows</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the preceding uptrend that the bearish reversal classically assumes.</li>
@@ -386,36 +390,36 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class Cdlidentical3crowsStream {
-      Core core;
-      double[] ShadowVeryShortPeriodTotal;
-      double[] EqualPeriodTotal;
-      double lag1_inOpen;
-      double lag2_inOpen;
-      double lag1_inHigh;
-      double lag2_inHigh;
-      double lag1_inLow;
-      double lag2_inLow;
-      double lag1_inClose;
-      double lag2_inClose;
-      int ringPos_EqualTrailingIdx;
-      int ringCap_EqualTrailingIdx;
-      int ringLag_EqualTrailingIdx;
-      double[] ring_EqualTrailingIdx_derived;
-      int ringPos_ShadowVeryShortTrailingIdx;
-      int ringCap_ShadowVeryShortTrailingIdx;
-      int ringLag_ShadowVeryShortTrailingIdx;
-      double[] ring_ShadowVeryShortTrailingIdx_derived;
-      int cs_Equal_rangeType;
-      int cs_Equal_avgPeriod;
-      double cs_Equal_factor;
-      int cs_ShadowVeryShort_rangeType;
-      int cs_ShadowVeryShort_avgPeriod;
-      double cs_ShadowVeryShort_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double[] ShadowVeryShortPeriodTotal;
+      private double[] EqualPeriodTotal;
+      private double lag1_inOpen;
+      private double lag2_inOpen;
+      private double lag1_inHigh;
+      private double lag2_inHigh;
+      private double lag1_inLow;
+      private double lag2_inLow;
+      private double lag1_inClose;
+      private double lag2_inClose;
+      private int ringPos_EqualTrailingIdx;
+      private int ringCap_EqualTrailingIdx;
+      private int ringLag_EqualTrailingIdx;
+      private double[] ring_EqualTrailingIdx_derived;
+      private int ringPos_ShadowVeryShortTrailingIdx;
+      private int ringCap_ShadowVeryShortTrailingIdx;
+      private int ringLag_ShadowVeryShortTrailingIdx;
+      private double[] ring_ShadowVeryShortTrailingIdx_derived;
+      private int cs_Equal_rangeType;
+      private int cs_Equal_avgPeriod;
+      private double cs_Equal_factor;
+      private int cs_ShadowVeryShort_rangeType;
+      private int cs_ShadowVeryShort_avgPeriod;
+      private double cs_ShadowVeryShort_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      Cdlidentical3crowsStream( Core core ) { this.core = core; }
+      private Cdlidentical3crowsStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -427,6 +431,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -437,10 +444,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLIDENTICAL3CROWS advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      Cdlidentical3crowsStream( Cdlidentical3crowsStream other ) {
+      private Cdlidentical3crowsStream( Cdlidentical3crowsStream other ) {
          this.core = other.core;
          this.ShadowVeryShortPeriodTotal = other.ShadowVeryShortPeriodTotal.clone();
          this.EqualPeriodTotal = other.EqualPeriodTotal.clone();
@@ -473,7 +488,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -485,12 +499,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLIDENTICAL3CROWS update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLIDENTICAL3CROWS update: BadParam", RetCode.BadParam);
          core.cdlidentical3crowsStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -499,9 +519,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -560,7 +581,7 @@
          return new Cdlidentical3crowsStream(this);
       }
    }
-   void cdlidentical3crowsStepImpl( Cdlidentical3crowsStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdlidentical3crowsStepImpl( Cdlidentical3crowsStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int totIdx = 0;
       int Equal_rangeType = sp.cs_Equal_rangeType;
@@ -825,9 +846,7 @@
     * to {@link Core#CDLIDENTICAL3CROWS} at that bar.
     * <p>The history must hold at least {@code CDLIDENTICAL3CROWS_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

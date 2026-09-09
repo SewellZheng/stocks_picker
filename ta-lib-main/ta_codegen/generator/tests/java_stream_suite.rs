@@ -52,7 +52,7 @@ fn java_stream_section(name: &str) -> String {
     let (func, enums) = load_indicator(name);
     assert!(func.streaming, "{name}: yaml must carry the stream flag");
     let registry = Registry::from_dir(&input_dir());
-    let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+    let helpers = HelperRegistry::from_dir(&input_dir());
     let full = backends::java::generate(&func, &enums, &registry, &helpers);
     let start = full
         .find("/**** Streaming API *****/")
@@ -67,11 +67,10 @@ fn java_stream_section(name: &str) -> String {
 #[test]
 fn test_java_sma_ring_stream_section() {
     let s = java_stream_section("sma");
-    // Nested handle class shape: package-private fields, no public ctor.
     assert!(s.contains("public static final class SmaStream {"));
-    assert!(s.contains("Core core;"));
-    assert!(s.contains("double[] ring_trailingIdx_inReal;"));
-    assert!(s.contains("int ringPos_trailingIdx;"));
+    assert!(s.contains("private Core core;"));
+    assert!(s.contains("private double[] ring_trailingIdx_inReal;"));
+    assert!(s.contains("private int ringPos_trailingIdx;"));
     assert!(!s.contains("public SmaStream("), "handle ctors stay non-public");
     // Deep-copy constructor clones the ring array.
     assert!(s.contains("this.ring_trailingIdx_inReal = other.ring_trailingIdx_inReal.clone();"));
@@ -98,8 +97,7 @@ fn test_java_sma_ring_stream_section() {
     // type or visibility drifts.
     assert!(s.contains("@Override\n      public SmaStream clone()"), "clone() is an @Override");
     assert!(!s.contains("implements Cloneable"), "no Cloneable: the body is a copy constructor");
-    // Step is a package-private Core method writing the cur_ field.
-    assert!(s.contains("void smaStepImpl( SmaStream sp, double inReal )"));
+    assert!(s.contains("private void smaStepImpl( SmaStream sp, double inReal )"));
     assert!(s.contains("sp.cur_outReal ="));
     // Open body: the early-success no-data guard maps to InsufficientHistory,
     // which the wrapper types. It used to BORROW OutOfRangeEndIndex in band,
@@ -122,8 +120,8 @@ fn test_java_sma_ring_stream_section() {
     // The range rides on the handle instead of a pair of out-params, and it is
     // the whole produced range, not one call's fill (#241): seeded by EVERY
     // opener — the plain one included, which wrote nothing before — and extended
-    // by each committed bar. The accessor builds the record, so `update` keeps
-    // its "never allocates handle state" promise.
+    // by each committed bar. The accessor builds the record rather than the
+    // handle holding one.
     assert!(s.contains("int outRangeBegIdx;") && s.contains("int outRangeCount;"));
     assert!(s.contains(
         "public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }"
@@ -143,8 +141,8 @@ fn test_java_sma_ring_stream_section() {
         "the plain open reads the range back off the numerics it just ran:\n{scalar}"
     );
     assert!(
-        s.contains("if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;"),
-        "update advances the count, saturating"
+        s.contains("this.outRangeCount++;"),
+        "update advances the count"
     );
     // The copy constructor carries it — the one path left that copies a handle,
     // now that peek runs a frame instead of restoring a scratch.
@@ -274,7 +272,7 @@ fn test_java_midprice_stream_uses_the_declared_alternate() {
 fn test_java_ma_dispatch() {
     let s = java_stream_section("ma");
     // Tagged handle: Object sub, null on the identity path.
-    assert!(s.contains("Object sub;"));
+    assert!(s.contains("private Object sub;"));
     // The copy constructor and the step switch derive from the SAME arm table
     // (design-review obligation): every MAType naming a function appears in both.
     for label in [
@@ -313,7 +311,7 @@ fn test_java_ma_dispatch() {
 #[test]
 fn test_java_mavp_period_bank() {
     let s = java_stream_section("mavp");
-    assert!(s.contains("MaStream[] bank;"));
+    assert!(s.contains("private MaStream[] bank;"));
     // T1 deep-copy trap (design review): the bank must copy ELEMENT-WISE —
     // Object-array clone() would alias sub-streams and corrupt peek.
     assert!(s.contains("this.bank[bankIdx] = new MaStream(other.bank[bankIdx]);"));
@@ -405,7 +403,7 @@ fn test_java_composed_sub_open_elides_only_whole_array_copies() {
     // genuine sub-ranges are still there (a blanket elision would pass the
     // first half alone).
     let registry = Registry::from_dir(&input_dir());
-    let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+    let helpers = HelperRegistry::from_dir(&input_dir());
     let enums = parser::enums::load_enums(&input_dir().join("enums.yaml"));
     let mut retained = 0usize;
     for entry in std::fs::read_dir(input_dir()).expect("input dir") {
@@ -461,48 +459,70 @@ fn test_java_adxr_sub_lag_ring() {
 // Emit ratchet
 // ---------------------------------------------------------------------------
 
-/// Every YAML stream-flagged function emits a Java stream section — the
-/// terminal count is floored (the Rust suite's discovery-floor pattern) so a
-/// silently-skipped tier, or a parser regression dropping `stream` flags, can
-/// never read as green (the server set-parity gate is the runtime twin). A
-/// floor rather than an exact pin: adding a stream function must not fail
-/// this suite.
+/// Every stream-flagged function emits a Java stream section — the sweep names
+/// the first that does not.
+///
+/// Two vacuities, and neither assertion closes the other's. The CORPUS axis is
+/// a floor: a tree that lost most of its YAML must not pass by sweeping three
+/// functions. The PARSER axis is an identity against a count taken WITHOUT
+/// `parse_yaml`, because a regression that stopped setting the flag shrinks the
+/// sweep and both sides of a floor together.
 #[test]
 fn test_java_stream_emit_ratchet() {
     let registry = Registry::from_dir(&input_dir());
-    let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+    let helpers = HelperRegistry::from_dir(&input_dir());
     let enums = parser::enums::load_enums(&input_dir().join("enums.yaml"));
-    let mut emitted = 0usize;
     let mut total = 0usize;
+    for name in streaming_indicators() {
+        let dir = input_dir().join(&name);
+        let mut func = parser::yaml::parse_yaml(&dir.join(format!("{name}.yaml")));
+        total += 1;
+        let parsed = parser::c_source::parse_c_source(&dir.join(format!("{name}.c")));
+        parser::c_source::wire_parsed_source(&mut func, &parsed);
+        let out = backends::java::generate(&func, &enums, &registry, &helpers);
+        assert!(
+            out.contains("/**** Streaming API *****/"),
+            "{name}: declared streamable but no Java stream section"
+        );
+    }
+
+    let declared = stream_flagged_yaml_count();
+    assert!(declared >= 200, "only {declared} stream-flagged yaml(s) — the corpus shrank");
+    assert_eq!(
+        total, declared,
+        "sweep saw {total} stream-flagged function(s), the yaml declares {declared} — the \
+         flag was dropped on the way through parse_yaml, leaving this suite over a smaller \
+         corpus and calling it clean"
+    );
+}
+
+/// The stream-flagged corpus counted without `parse_yaml`, so it cannot move
+/// with the mapping it is checking. Untyped rather than scanned as text: the
+/// flag list is valid YAML in several shapes, and recognising fewer would red
+/// this suite on an indicator's authoring STYLE.
+fn stream_flagged_yaml_count() -> usize {
+    let mut n = 0usize;
     for entry in std::fs::read_dir(input_dir()).expect("input dir") {
         let dir = entry.expect("entry").path();
         if !dir.is_dir() {
             continue;
         }
         let name = dir.file_name().unwrap().to_string_lossy().to_string();
-        let yaml = dir.join(format!("{name}.yaml"));
-        if !yaml.exists() {
+        let Ok(text) = std::fs::read_to_string(dir.join(format!("{name}.yaml"))) else {
             continue;
-        }
-        let mut func = parser::yaml::parse_yaml(&yaml);
-        if !func.streaming {
-            continue;
-        }
-        total += 1;
-        let parsed = parser::c_source::parse_c_source(&dir.join(format!("{name}.c")));
-        parser::c_source::wire_parsed_source(&mut func, &parsed);
-        let out = backends::java::generate(&func, &enums, &registry, &helpers);
-        if out.contains("/**** Streaming API *****/") {
-            emitted += 1;
-        } else {
-            panic!("{name}: declared streamable but no Java stream section");
+        };
+        let doc: serde_yaml::Value = serde_yaml::from_str(&text)
+            .unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+        let flags = &doc["flags"];
+        let flagged = flags.as_str() == Some("stream")
+            || flags
+                .as_sequence()
+                .is_some_and(|v| v.iter().any(|f| f.as_str() == Some("stream")));
+        if flagged {
+            n += 1;
         }
     }
-    assert_eq!(emitted, total);
-    assert!(
-        emitted >= 168,
-        "Java stream emit count fell below the 168 floor — a tier or `stream` flag was silently dropped (raise the floor deliberately as the family grows)"
-    );
+    n
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +693,7 @@ fn accumulator_fields(section: &str, batch: &str) -> BTreeSet<String> {
             continue;
         }
         let Some(d) = line.trim().strip_suffix(';') else { continue };
+        let Some(d) = d.strip_prefix("private ") else { continue };
         let Some((ty, name)) = d.split_once(' ') else { continue };
         if !ty.ends_with("[]") || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
             continue;
@@ -694,12 +715,13 @@ fn accumulator_fields(section: &str, batch: &str) -> BTreeSet<String> {
 /// flat-in-period cost the frame is for.
 #[test]
 fn no_java_peek_copies_the_handle() {
-    /// The handle's own fields: a two-token declaration at the class's own
-    /// indent (`      double[] ring_x;`).
+    /// The handle's own fields: a declaration at the class's own indent
+    /// (`      private double[] ring_x;`).
     fn handle_fields(s: &str) -> BTreeSet<String> {
         s.lines()
             .filter(|l| l.starts_with("      ") && !l.starts_with("       "))
             .filter_map(|l| l.trim().strip_suffix(';'))
+            .filter_map(|d| d.strip_prefix("private "))
             .filter_map(|d| d.split_once(' '))
             .filter(|(_, n)| {
                 !n.is_empty() && n.chars().all(|c| c.is_alphanumeric() || c == '_')
@@ -722,10 +744,18 @@ fn no_java_peek_copies_the_handle() {
     fn write_targets(line: &str) -> Vec<(&str, bool)> {
         /// The trailing name of `lhs`: `x` / `sp.x` / `x[i]` -> the name.
         fn name_of(lhs: &str) -> Option<&str> {
+            let lhs = lhs.trim();
+            // A subscript holds spaces of its own — `sp.x[sp.today & sp.xMask]`
+            // is the extrema tiers' store — so the last SPACE-separated token
+            // is part of the index there, not the name.
+            if lhs.ends_with(']') {
+                let n = ident_before(lhs, lhs.len());
+                return (!n.is_empty()).then_some(n);
+            }
             // The declared name is the LAST token; strip its subscript there,
             // not over the whole left side — `double[] x = ...` carries a `[`
             // in the TYPE, and cutting at it would name the type instead.
-            let last = lhs.trim().rsplit(' ').next()?;
+            let last = lhs.rsplit(' ').next()?;
             let last = last.split_once('[').map_or(last, |(h, _)| h);
             (!last.is_empty() && last.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
                 .then_some(last)
@@ -803,8 +833,11 @@ fn no_java_peek_copies_the_handle() {
             let lhs = &l[..eq];
             let compound = lhs.ends_with(OPS);
             let lhs = lhs.trim_end_matches(OPS);
-            // A declaration is `<type> <name> =`; a compound store never one.
-            let declares = !compound && lhs.trim().split(' ').count() > 1;
+            // A declaration is `<type> <name> =`; neither a compound store nor
+            // a subscripted target is ever one.
+            let declares = !compound
+                && !lhs.trim().ends_with(']')
+                && lhs.trim().split(' ').count() > 1;
             out.extend(name_of(lhs).map(|n| (n, declares)));
         }
 
@@ -837,7 +870,7 @@ fn no_java_peek_copies_the_handle() {
     for name in streaming_indicators() {
         let (func, enums) = load_indicator(&name);
         let registry = Registry::from_dir(&input_dir());
-        let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+        let helpers = HelperRegistry::from_dir(&input_dir());
         let batch = backends::java::generate(&func, &enums, &registry, &helpers);
         let s = java_stream_section(&name);
         let Some(at) = s.find(" peek( ") else { continue };
@@ -905,12 +938,8 @@ fn no_java_peek_copies_the_handle() {
             // ONE copy is contract-legal, and only one: a FIXED-SIZE
             // accumulator, an array the batch body declares with a literal
             // dimension. The frame's job is that its cost not grow with the
-            // period, and such a copy cannot -- which is what `peek`'s own
-            // javadoc already promises the caller ("a small bounded amount per
-            // call, a size fixed by the indicator, never by the period"), and
-            // what the C# twin's doc comment has always claimed. Read off the
-            // emitted declaration, never a name list, so a period-sized buffer
-            // can never qualify.
+            // period, and such a copy cannot. Read off the emitted declaration,
+            // never a name list, so a period-sized buffer can never qualify.
             //
             // It stays an offender for a SHIPPED function even so. The emitter
             // reaches the copy only where it cannot shadow the write in place

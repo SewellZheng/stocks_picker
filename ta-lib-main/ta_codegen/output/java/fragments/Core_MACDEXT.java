@@ -370,13 +370,8 @@
     * user-selectable MA type. Outputs the MACD line, its signal line, and their
     * difference (histogram). Hist sign change (MACD crossing its signal line)
     * flags momentum shifts.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * MACD = MA_fast(inReal) - MA_slow(inReal)
-    * Signal = MA_signal(MACD)
-    * Hist = MACD - Signal
-    * (each MA_* uses its own MA type and period)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/macdext">ta-lib.org/functions/macdext</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>If the slow period is set smaller than the fast period, the fast and slow periods and their MA types are swapped so the slow moving average is always the longer one.</li>
@@ -474,13 +469,8 @@
     * user-selectable MA type. Outputs the MACD line, its signal line, and their
     * difference (histogram). Hist sign change (MACD crossing its signal line)
     * flags momentum shifts.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * MACD = MA_fast(inReal) - MA_slow(inReal)
-    * Signal = MA_signal(MACD)
-    * Hist = MACD - Signal
-    * (each MA_* uses its own MA type and period)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/macdext">ta-lib.org/functions/macdext</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>If the slow period is set smaller than the fast period, the fast and slow periods and their MA types are swapped so the slow moving average is always the longer one.</li>
@@ -593,23 +583,23 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MacdextStream {
-      Core core;
-      int optInFastPeriod;
-      MAType optInFastMAType;
-      int optInSlowPeriod;
-      MAType optInSlowMAType;
-      int optInSignalPeriod;
-      MAType optInSignalMAType;
-      double cur_outMACD;
-      double cur_outMACDSignal;
-      double cur_outMACDHist;
-      MaStream sub0;
-      MaStream sub1;
-      MaStream sub2;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInFastPeriod;
+      private MAType optInFastMAType;
+      private int optInSlowPeriod;
+      private MAType optInSlowMAType;
+      private int optInSignalPeriod;
+      private MAType optInSignalMAType;
+      private double cur_outMACD;
+      private double cur_outMACDSignal;
+      private double cur_outMACDHist;
+      private MaStream sub0;
+      private MaStream sub1;
+      private MaStream sub2;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MacdextStream( Core core ) { this.core = core; }
+      private MacdextStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -621,6 +611,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -631,10 +624,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MACDEXT advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MacdextStream( MacdextStream other ) {
+      private MacdextStream( MacdextStream other ) {
          this.core = other.core;
          this.optInFastPeriod = other.optInFastPeriod;
          this.optInFastMAType = other.optInFastMAType;
@@ -654,7 +655,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -666,13 +666,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, MacdextOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MACDEXT update", RetCode.OutOfRangeEndIndex);
          requireArgument("MACDEXT update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MACDEXT update: BadParam", RetCode.BadParam);
          core.macdextStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.macd = this.cur_outMACD;
          out.macdSignal = this.cur_outMACDSignal;
          out.macdHist = this.cur_outMACDHist;
@@ -683,9 +689,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MacdextOut out ) {
          requireArgument("MACDEXT peek", "out", out);
@@ -715,7 +722,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( MacdextOut out ) {
          requireArgument("MACDEXT value", "out", out);
@@ -764,7 +771,7 @@
       /** Histogram: MACD minus signal. */
       public double macdHist;
    }
-   void macdextStepImpl( MacdextStream sp, double inReal )
+   private void macdextStepImpl( MacdextStream sp, double inReal )
    {
       double cur_slowMABuffer = 0.0;
       double cur_fastMABuffer = 0.0;
@@ -988,8 +995,8 @@
     * <p>The history must hold at least {@code MACDEXT_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

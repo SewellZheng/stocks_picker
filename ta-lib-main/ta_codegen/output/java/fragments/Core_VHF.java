@@ -188,15 +188,12 @@
     * range a window covered divided by the path it actually travelled. Bounded
     * in [0,1]. Values near 1 mean the market covered most of its path in one
     * direction (trending); values near 0 mean it retraced repeatedly and went
-    * nowhere (choppy). Like ADX it measures trend *strength*, not direction,
-    * but it uses no smoothing and carries no recursion. A common use is regime
-    * selection: run trend-following logic while VHF is high, oscillator logic
-    * while it is low.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * num = MAX(C[t-optInTimePeriod+1..t]) - MIN(C[t-optInTimePeriod+1..t]), the range spanned by the `optInTimePeriod` most recent closes. den = SUM( |C[j] - C[j-1]| ) for j = t-optInTimePeriod+1 .. t, the total absolute movement over the same number of changes, which therefore reaches one close further back. VHF = num / den.
-    * The two windows are deliberately not co-terminal: the extrema span `optInTimePeriod` closes, the changes consume one more. Because `num` is the distance between two points the changes connect, `num <= den` always, so the result never leaves [0,1].
-    * }</pre>
+    * nowhere (choppy). Like ADX it measures trend <i>strength</i>, not
+    * direction, but it uses no smoothing and carries no recursion. A common use
+    * is regime selection: run trend-following logic while VHF is high,
+    * oscillator logic while it is low.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/vhf">ta-lib.org/functions/vhf</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A window whose closes are all identical has no vertical movement and no horizontal movement. VHF reports 0 there. Other libraries differ: Tulip Indicators leaves the division unguarded and emits NaN, pandas-ta-classic perturbs the numerator and emits +Inf.</li>
@@ -259,15 +256,12 @@
     * range a window covered divided by the path it actually travelled. Bounded
     * in [0,1]. Values near 1 mean the market covered most of its path in one
     * direction (trending); values near 0 mean it retraced repeatedly and went
-    * nowhere (choppy). Like ADX it measures trend *strength*, not direction,
-    * but it uses no smoothing and carries no recursion. A common use is regime
-    * selection: run trend-following logic while VHF is high, oscillator logic
-    * while it is low.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * num = MAX(C[t-optInTimePeriod+1..t]) - MIN(C[t-optInTimePeriod+1..t]), the range spanned by the `optInTimePeriod` most recent closes. den = SUM( |C[j] - C[j-1]| ) for j = t-optInTimePeriod+1 .. t, the total absolute movement over the same number of changes, which therefore reaches one close further back. VHF = num / den.
-    * The two windows are deliberately not co-terminal: the extrema span `optInTimePeriod` closes, the changes consume one more. Because `num` is the distance between two points the changes connect, `num <= den` always, so the result never leaves [0,1].
-    * }</pre>
+    * nowhere (choppy). Like ADX it measures trend <i>strength</i>, not
+    * direction, but it uses no smoothing and carries no recursion. A common use
+    * is regime selection: run trend-following logic while VHF is high,
+    * oscillator logic while it is low.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/vhf">ta-lib.org/functions/vhf</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A window whose closes are all identical has no vertical movement and no horizontal movement. VHF reports 0 there. Other libraries differ: Tulip Indicators leaves the division unguarded and emits NaN, pandas-ta-classic perturbs the numerator and emits +Inf.</li>
@@ -345,16 +339,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class VhfStream {
-      Core core;
-      int optInTimePeriod;
-      int winPos_i;
-      int winCap_i;
-      double[] win_i_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int winPos_i;
+      private int winCap_i;
+      private double[] win_i_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      VhfStream( Core core ) { this.core = core; }
+      private VhfStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -366,6 +360,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -376,10 +373,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VHF advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      VhfStream( VhfStream other ) {
+      private VhfStream( VhfStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.winPos_i = other.winPos_i;
@@ -392,7 +397,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -404,12 +408,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VHF update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("VHF update: BadParam", RetCode.BadParam);
          core.vhfStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -418,9 +428,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -498,7 +509,7 @@
          return new VhfStream(this);
       }
    }
-   void vhfStepImpl( VhfStream sp, double inReal )
+   private void vhfStepImpl( VhfStream sp, double inReal )
    {
       int i = 0;
       double highest = 0.0;
@@ -683,8 +694,8 @@
     * <p>The history must hold at least {@code VHF_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

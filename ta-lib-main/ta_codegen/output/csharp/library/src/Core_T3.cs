@@ -82,8 +82,8 @@ public partial class Core
    /// <param name="optInTimePeriod">EMA period for each of the six stages (default 5; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInVFactor">Volume factor weighting the coefficients (0 = plain triple EMA, higher =
-   /// more DEMA-like sharpening) (default 0.7; range 0..1; <c>-4e37</c> selects
-   /// the default).</param>
+   /// more DEMA-like sharpening) (default 0.7; range 0..1;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int T3_Lookback( int optInTimePeriod, double optInVFactor )
    {
@@ -92,7 +92,7 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      if( optInVFactor == TA_REAL_DEFAULT ) {
+      if( optInVFactor == REAL_DEFAULT ) {
          optInVFactor = 7e-1;
       } else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) ) {
          return -1;
@@ -139,7 +139,7 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInVFactor == TA_REAL_DEFAULT ) {
+      if( optInVFactor == REAL_DEFAULT ) {
          optInVFactor = 7e-1;
       } else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) ) {
          return RetCode.BadParam;
@@ -317,10 +317,13 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInVFactor == TA_REAL_DEFAULT ) {
+      if( optInVFactor == REAL_DEFAULT ) {
          optInVFactor = 7e-1;
       } else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) ) {
          return RetCode.BadParam;
+      }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
+         return RetCode.BadParam ;
       }
       lookbackTotal = 6 * (optInTimePeriod - 1) + this.unstablePeriod[(int)FuncUnstId.T3];
       if( startIdx <= lookbackTotal ) {
@@ -423,12 +426,10 @@ public partial class Core
    /// despite both being called "triple EMA".
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// k = 2/(period+1); e1=EMA(x), e2=EMA(e1), ... e6=EMA(e5) (six chained EMAs).
-   /// v = vFactor: c1 = -v^3; c2 = 3(v^2 - c1); c3 = -6v^2 - 3(v - c1); c4 = 1 + 3v - c1 + 3v^2.
-   /// T3 = c1*e6 + c2*e5 + c3*e4 + c4*e3
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/t3">ta-lib.org/functions/t3</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</description></item>
    /// </list>
@@ -446,8 +447,8 @@ public partial class Core
    /// <param name="optInTimePeriod">EMA period for each of the six stages (default 5; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInVFactor">Volume factor weighting the coefficients (0 = plain triple EMA, higher =
-   /// more DEMA-like sharpening) (default 0.7; range 0..1; <c>-4e37</c> selects
-   /// the default).</param>
+   /// more DEMA-like sharpening) (default 0.7; range 0..1;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">T3 smoothed line. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
@@ -491,12 +492,10 @@ public partial class Core
    /// despite both being called "triple EMA".
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// k = 2/(period+1); e1=EMA(x), e2=EMA(e1), ... e6=EMA(e5) (six chained EMAs).
-   /// v = vFactor: c1 = -v^3; c2 = 3(v^2 - c1); c3 = -6v^2 - 3(v - c1); c4 = 1 + 3v - c1 + 3v^2.
-   /// T3 = c1*e6 + c2*e5 + c3*e4 + c4*e3
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/t3">ta-lib.org/functions/t3</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>A period of 1 performs no smoothing: the output is a copy of the input. Allowed since 0.6.5 (issues #48/#59).</description></item>
    /// </list>
@@ -520,8 +519,8 @@ public partial class Core
    /// <param name="optInTimePeriod">EMA period for each of the six stages (default 5; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInVFactor">Volume factor weighting the coefficients (0 = plain triple EMA, higher =
-   /// more DEMA-like sharpening) (default 0.7; range 0..1; <c>-4e37</c> selects
-   /// the default).</param>
+   /// more DEMA-like sharpening) (default 0.7; range 0..1;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">T3 smoothed line. Must hold at least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
@@ -539,8 +538,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange T3( int startIdx,
                        int endIdx,
                        ReadOnlySpan<float> inReal,
@@ -609,6 +610,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -619,10 +622,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("T3", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal T3Stream( T3Stream other )
@@ -659,14 +668,20 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("T3", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("T3", "update", RetCode.BadParam);
          core.T3StepImpl(this, inReal);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -676,12 +691,13 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("T3", "peek", RetCode.BadParam);
@@ -773,7 +789,7 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInVFactor == TA_REAL_DEFAULT ) {
+      if( optInVFactor == REAL_DEFAULT ) {
          optInVFactor = 7e-1;
       } else if( !(optInVFactor >= 0e0 && optInVFactor <= 1e0) ) {
          return RetCode.BadParam;
@@ -987,11 +1003,10 @@ public partial class Core
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="T3_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInVFactor">As in the batch call; see <see cref="T3_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>T3_Lookback(...) + 1</c> bars.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
-   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
    /// the two index faults an opener can have (rules S1 and S2).</exception>
@@ -1020,7 +1035,7 @@ public partial class Core
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="T3_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInVFactor">As in the batch call; see <see cref="T3_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">T3 smoothed line. Must hold at least <c>historyLen - T3_Lookback(...)</c>
    /// values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>

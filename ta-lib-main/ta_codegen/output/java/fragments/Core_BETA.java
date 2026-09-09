@@ -621,10 +621,8 @@
     * over a rolling window. Measures how much a security moves relative to a
     * market index. Beta = 1 moves with the index; &lt; 1 less volatile, &gt; 1
     * more volatile.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Per-bar returns: $x_i=(p^0_i-p^0_{i-1})/p^0_{i-1}$ from inReal0, $y_i=(p^1_i-p^1_{i-1})/p^1_{i-1}$ from inReal1. With $n$=period over the window: $\beta = \dfrac{n\,S_{xy}-S_x S_y}{n\,S_{xx}-S_x^2}$, where $S_{xx}=\sum x^2,\ S_{xy}=\sum xy,\ S_x=\sum x,\ S_y=\sum y$.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/beta">ta-lib.org/functions/beta</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -687,10 +685,8 @@
     * over a rolling window. Measures how much a security moves relative to a
     * market index. Beta = 1 moves with the index; &lt; 1 less volatile, &gt; 1
     * more volatile.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Per-bar returns: $x_i=(p^0_i-p^0_{i-1})/p^0_{i-1}$ from inReal0, $y_i=(p^1_i-p^1_{i-1})/p^1_{i-1}$ from inReal1. With $n$=period over the window: $\beta = \dfrac{n\,S_{xy}-S_x S_y}{n\,S_{xx}-S_x^2}$, where $S_{xx}=\sum x^2,\ S_{xy}=\sum xy,\ S_x=\sum x,\ S_y=\sum y$.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/beta">ta-lib.org/functions/beta</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -767,34 +763,34 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class BetaStream {
-      Core core;
-      int optInTimePeriod;
-      double S_xx;
-      double S_xy;
-      double S_x;
-      double S_y;
-      double last_price_x;
-      double last_price_y;
-      double trailing_last_price_x;
-      double trailing_last_price_y;
-      double shift_x;
-      double shift_y;
-      double leaving_xx;
-      double leaving_yy;
-      double S_yy;
-      int barsSinceReseed;
-      double n;
-      int trailingIdx;
-      int j;
-      int i;
-      int xMask;
-      double[] x_inReal0;
-      double[] x_inReal1;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double S_xx;
+      private double S_xy;
+      private double S_x;
+      private double S_y;
+      private double last_price_x;
+      private double last_price_y;
+      private double trailing_last_price_x;
+      private double trailing_last_price_y;
+      private double shift_x;
+      private double shift_y;
+      private double leaving_xx;
+      private double leaving_yy;
+      private double S_yy;
+      private int barsSinceReseed;
+      private double n;
+      private int trailingIdx;
+      private int j;
+      private int i;
+      private int xMask;
+      private double[] x_inReal0;
+      private double[] x_inReal1;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      BetaStream( Core core ) { this.core = core; }
+      private BetaStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -806,6 +802,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -816,10 +815,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("BETA advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      BetaStream( BetaStream other ) {
+      private BetaStream( BetaStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.S_xx = other.S_xx;
@@ -850,7 +857,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -862,12 +868,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal0, double inReal1 ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("BETA update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
             throw new TaLibArgumentException("BETA update: BadParam", RetCode.BadParam);
          core.betaStepImpl(this, inReal0, inReal1);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -876,9 +888,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal0, double inReal1 ) {
          if( !Double.isFinite(inReal0) || !Double.isFinite(inReal1) )
@@ -913,12 +926,6 @@
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
          int pkIdx0 = 0;
-         if( i >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            i -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            j -= rebaseShift;
-         }
          pkSlot0 = i & sp.xMask;
          pkVal0 = inReal0;
          pkSlot1 = i & sp.xMask;
@@ -1117,7 +1124,7 @@
          return new BetaStream(this);
       }
    }
-   void betaStepImpl( BetaStream sp, double inReal0, double inReal1 )
+   private void betaStepImpl( BetaStream sp, double inReal0, double inReal1 )
    {
       double tmp_real = 0.0;
       double denom = 0.0;
@@ -1127,12 +1134,6 @@
       int windowStart = 0;
       double x = 0.0;
       double y = 0.0;
-      if( sp.i >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.i -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.j -= rebaseShift;
-      }
       sp.x_inReal0[sp.i & sp.xMask] = inReal0;
       sp.x_inReal1[sp.i & sp.xMask] = inReal1;
       tmp_real = sp.x_inReal0[sp.i & sp.xMask];
@@ -1747,8 +1748,8 @@
     * <p>The history must hold at least {@code BETA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

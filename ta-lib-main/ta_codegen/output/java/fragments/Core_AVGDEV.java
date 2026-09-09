@@ -145,10 +145,8 @@
     * average over the last N periods. Measures dispersion around the window
     * mean. Higher values indicate greater spread; zero when all values in the
     * window are equal.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $mean_t = \frac{1}{N}\sum_{i=0}^{N-1} x_{t-i}$; $AVGDEV_t = \frac{1}{N}\sum_{i=0}^{N-1} |x_{t-i} - mean_t|$ (N = optInTimePeriod)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/avgdev">ta-lib.org/functions/avgdev</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -205,10 +203,8 @@
     * average over the last N periods. Measures dispersion around the window
     * mean. Higher values indicate greater spread; zero when all values in the
     * window are equal.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $mean_t = \frac{1}{N}\sum_{i=0}^{N-1} x_{t-i}$; $AVGDEV_t = \frac{1}{N}\sum_{i=0}^{N-1} |x_{t-i} - mean_t|$ (N = optInTimePeriod)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/avgdev">ta-lib.org/functions/avgdev</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -280,16 +276,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class AvgdevStream {
-      Core core;
-      int optInTimePeriod;
-      int winPos_i;
-      int winCap_i;
-      double[] win_i_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int winPos_i;
+      private int winCap_i;
+      private double[] win_i_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      AvgdevStream( Core core ) { this.core = core; }
+      private AvgdevStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -301,6 +297,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -311,10 +310,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("AVGDEV advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      AvgdevStream( AvgdevStream other ) {
+      private AvgdevStream( AvgdevStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.winPos_i = other.winPos_i;
@@ -327,7 +334,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -339,12 +345,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("AVGDEV update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("AVGDEV update: BadParam", RetCode.BadParam);
          core.avgdevStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -353,9 +365,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -407,7 +420,7 @@
          return new AvgdevStream(this);
       }
    }
-   void avgdevStepImpl( AvgdevStream sp, double inReal )
+   private void avgdevStepImpl( AvgdevStream sp, double inReal )
    {
       double todaySum = 0.0;
       double todayDev = 0.0;
@@ -541,8 +554,8 @@
     * <p>The history must hold at least {@code AVGDEV_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

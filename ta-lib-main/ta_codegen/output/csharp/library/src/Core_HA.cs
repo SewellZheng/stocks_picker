@@ -243,6 +243,9 @@ public partial class Core
       if( outHAOpen.Overlaps(outHAHigh) || outHAOpen.Overlaps(outHALow) || outHAOpen.Overlaps(outHAClose) || outHAHigh.Overlaps(outHALow) || outHAHigh.Overlaps(outHAClose) || outHALow.Overlaps(outHAClose) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAOpen).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAHigh).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHALow).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inOpen)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outHAClose).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         return RetCode.BadParam ;
+      }
       outBegIdx = 0;
       outNBElement = 0;
       lookbackTotal = HA_Lookback();
@@ -332,19 +335,15 @@ public partial class Core
    /// halves on each bar that follows.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// HA_close[i] = ( O[i] + H[i] + L[i] + C[i] ) / 4
-   /// HA_open[0]  = ( O[0] + C[0] ) / 2
-   /// HA_open[i]  = ( HA_open[i-1] + HA_close[i-1] ) / 2
-   /// HA_high[i]  = max( H[i], HA_open[i], HA_close[i] )
-   /// HA_low[i]   = min( L[i], HA_open[i], HA_close[i] )
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/ha">ta-lib.org/functions/ha</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The first candle has no predecessor, so its open is seeded with the midpoint of the raw open and close. Other conventions exist — ta4j emits the raw bar unchanged as its first candle — and they differ only while the seed still carries weight.</description></item>
    /// <item><description>Both divisors are exact powers of two, so implementations that scale by <c>0.5</c> and <c>0.25</c> produce the same doubles as those that divide by 2 and 4.</description></item>
    /// <item><description>The unstable period discards that many candles of warm-up before the first output, trading history for a smaller residual difference between two requests that start at different bars.</description></item>
-   /// <item><description>Averaging four prices of one bar is also what [<c>AVGPRICE</c>](/functions/avgprice) computes, but it sums them in a different order, so the two can differ in the last bits.</description></item>
+   /// <item><description>Averaging four prices of one bar is also what <see href="https://ta-lib.org/functions/avgprice"><c>AVGPRICE</c></see> computes, but it sums them in a different order, so the two can differ in the last bits.</description></item>
    /// </list>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
@@ -426,19 +425,15 @@ public partial class Core
    /// halves on each bar that follows.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// HA_close[i] = ( O[i] + H[i] + L[i] + C[i] ) / 4
-   /// HA_open[0]  = ( O[0] + C[0] ) / 2
-   /// HA_open[i]  = ( HA_open[i-1] + HA_close[i-1] ) / 2
-   /// HA_high[i]  = max( H[i], HA_open[i], HA_close[i] )
-   /// HA_low[i]   = min( L[i], HA_open[i], HA_close[i] )
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/ha">ta-lib.org/functions/ha</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The first candle has no predecessor, so its open is seeded with the midpoint of the raw open and close. Other conventions exist — ta4j emits the raw bar unchanged as its first candle — and they differ only while the seed still carries weight.</description></item>
    /// <item><description>Both divisors are exact powers of two, so implementations that scale by <c>0.5</c> and <c>0.25</c> produce the same doubles as those that divide by 2 and 4.</description></item>
    /// <item><description>The unstable period discards that many candles of warm-up before the first output, trading history for a smaller residual difference between two requests that start at different bars.</description></item>
-   /// <item><description>Averaging four prices of one bar is also what [<c>AVGPRICE</c>](/functions/avgprice) computes, but it sums them in a different order, so the two can differ in the last bits.</description></item>
+   /// <item><description>Averaging four prices of one bar is also what <see href="https://ta-lib.org/functions/avgprice"><c>AVGPRICE</c></see> computes, but it sums them in a different order, so the two can differ in the last bits.</description></item>
    /// </list>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
@@ -480,8 +475,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange HA( int startIdx,
                        int endIdx,
                        ReadOnlySpan<float> inOpen,
@@ -566,6 +563,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -576,10 +575,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("HA", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal HaStream( HaStream other )
@@ -607,6 +612,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inOpen">This bar's open price.</param>
       /// <param name="inHigh">This bar's high price.</param>
@@ -615,9 +624,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public HaValue Update( double inOpen, double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("HA", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("HA", "update", RetCode.BadParam);
          core.HaStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new HaValue(cur_outHAOpen, cur_outHAHigh, cur_outHALow, cur_outHAClose);
       }
 
@@ -627,15 +638,16 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inOpen">This bar's open price.</param>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public HaValue Peek( double inOpen, double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inOpen) || !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("HA", "peek", RetCode.BadParam);
@@ -916,8 +928,7 @@ public partial class Core
    /// <param name="inClose">Close price of each bar. The warm-up history, oldest bar first.</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>HA_Lookback(...) + 1</c> bars.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
-   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">The input series have different lengths.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
    /// the two index faults an opener can have (rules S1 and S2).</exception>

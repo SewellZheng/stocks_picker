@@ -12,7 +12,6 @@ use common::{
 };
 use std::collections::BTreeSet;
 use ta_codegen_lib::backends;
-use ta_codegen_lib::helper_registry::HelperRegistry;
 use ta_codegen_lib::ir;
 use ta_codegen_lib::streaming;
 
@@ -38,7 +37,7 @@ fn test_composed_open_fuses_every_sub_call() {
         "stoch", "stochf", "adxr", "stochrsi", "apo",
     ];
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let mut fused_total = 0usize;
     let mut unfused_total = 0usize;
 
@@ -112,15 +111,13 @@ fn test_composed_open_fuses_every_sub_call() {
 /// Rule S5 on EVERY Rust public `OpenAndFill` — corpus-wide, because Rust's own
 /// probe (`tests/stream_open_contract.rs`) names six functions and runs nightly.
 ///
-/// Two clauses. The width has to come from the function's OWN lookback, not from
-/// the history's length — `historyLen - lookback` is what the fill writes, and a
-/// bound of `historyLen` would reject every correctly-sized call. And the
-/// capacity has to precede the output-distinctness guard, which is the order the
-/// specification lists (S5, then S6).
+/// The width has to come from the function's OWN lookback, not from the
+/// history's length — `historyLen - lookback` is what the fill writes, and a
+/// bound of `historyLen` would reject every correctly-sized call.
 #[test]
 fn rust_public_fill_bounds_every_output_against_its_own_lookback() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let enums = load_enums();
     let mut checked = 0usize;
 
@@ -206,9 +203,6 @@ fn rust_public_fill_bounds_every_output_against_its_own_lookback() {
                 func.name,
                 out.name
             );
-            if let Some(at_alias) = body.find(&format!("{}_p.as_ptr() ==", out.name)) {
-                assert!(at_out < at_alias, "{}: S5 is specified ahead of S6", func.name);
-            }
         }
         checked += 1;
     }
@@ -231,7 +225,7 @@ fn rust_public_fill_bounds_every_output_against_its_own_lookback() {
 #[test]
 fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let enums = load_enums();
     let mut checked = 0usize;
 
@@ -350,7 +344,7 @@ fn csharp_public_openers_reject_an_empty_history_as_an_index_fault() {
 #[test]
 fn java_public_openers_check_arguments_then_the_index_pair() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let enums = load_enums();
     let mut checked = 0usize;
 
@@ -479,10 +473,11 @@ fn java_public_openers_check_arguments_then_the_index_pair() {
 /// minted a handle over an empty range. Rule S7 is what that shape is: a
 /// history that cannot produce a value (issue #271 item 4).
 ///
-/// Corpus-wide over the three ported backends, because the five sites are in
-/// four functions and the next composed indicator would get the same body. C is
-/// deliberately absent: it runs no cleanup sequence, so its guard still carries
-/// the error half and `return retCode` there is the error propagation.
+/// Corpus-wide over the three ported backends, because the sites are spread
+/// across the composed functions and the next one would get the same body. C is
+/// deliberately absent: no fold pass runs for it, so its guard still tests both
+/// halves. Nothing reaches the arm — no opener answers `TA_SUCCESS` over zero
+/// elements.
 ///
 /// This is the absence half. That the arm answers the opener's code — rather
 /// than losing the return altogether — is asserted directly on the pass, in
@@ -490,7 +485,7 @@ fn java_public_openers_check_arguments_then_the_index_pair() {
 #[test]
 fn an_opener_never_answers_the_code_its_sub_call_handed_back() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let enums = load_enums();
 
     // The definition keyword that tells a definition from a call site, the
@@ -674,7 +669,7 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
     }
 
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let enums = load_enums();
 
     // guard text, the emptiness check it must follow, and the signature marker
@@ -785,7 +780,7 @@ fn every_open_pass_rejects_an_anchor_past_the_history() {
 #[test]
 fn every_declared_input_is_checked_in_every_backend() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
 
     let mut scanned = 0usize;
     let mut no_inputs = 0usize;
@@ -928,7 +923,7 @@ fn every_declared_input_is_checked_in_every_backend() {
 #[test]
 fn a_stream_handle_carries_only_the_settings_its_step_reads() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
 
     // (indicator, handle, the settings its step reads, in field order)
     let cases: [(&str, &str, &[&str]); 3] = [
@@ -1001,7 +996,7 @@ fn a_stream_handle_carries_only_the_settings_its_step_reads() {
 #[test]
 fn a_stream_step_reads_candle_settings_from_its_parameters() {
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let (func, enums) = load_indicator("cdldoji");
     let rust = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
 
@@ -1090,10 +1085,18 @@ fn no_csharp_peek_copies_the_handle() {
     fn write_targets(line: &str) -> Vec<(&str, bool)> {
         /// The trailing name of `lhs`: `x` / `sp.x` / `x[i]` -> the name.
         fn name_of(lhs: &str) -> Option<&str> {
+            let lhs = lhs.trim();
+            // A subscript holds spaces of its own — `sp.x[sp.today & sp.xMask]`
+            // is the extrema tiers' store — so the last SPACE-separated token
+            // is part of the index there, not the name.
+            if lhs.ends_with(']') {
+                let n = ident_before(lhs, lhs.len());
+                return (!n.is_empty()).then_some(n);
+            }
             // The declared name is the LAST token; strip its subscript there,
             // not over the whole left side — `double[] x = ...` carries a `[`
             // in the TYPE, and cutting at it would name the type instead.
-            let last = lhs.trim().rsplit(' ').next()?;
+            let last = lhs.rsplit(' ').next()?;
             let last = last.split_once('[').map_or(last, |(h, _)| h);
             (!last.is_empty() && last.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '.'))
                 .then_some(last)
@@ -1171,8 +1174,11 @@ fn no_csharp_peek_copies_the_handle() {
             let lhs = &l[..eq];
             let compound = lhs.ends_with(OPS);
             let lhs = lhs.trim_end_matches(OPS);
-            // A declaration is `<type> <name> =`; a compound store never one.
-            let declares = !compound && lhs.trim().split(' ').count() > 1;
+            // A declaration is `<type> <name> =`; neither a compound store nor
+            // a subscripted target is ever one.
+            let declares = !compound
+                && !lhs.trim().ends_with(']')
+                && lhs.trim().split(' ').count() > 1;
             out.extend(name_of(lhs).map(|n| (n, declares)));
         }
 
@@ -1195,7 +1201,7 @@ fn no_csharp_peek_copies_the_handle() {
     }
 
     let registry = make_registry();
-    let helpers = HelperRegistry::empty();
+    let helpers = common::make_helpers();
     let (mut swept, mut frames, mut writes) = (0usize, 0usize, 0usize);
     let mut fully_shadowed: BTreeSet<String> = BTreeSet::new();
     let mut offenders: Vec<String> = Vec::new();
@@ -1371,4 +1377,76 @@ fn rust_category_index_lists_every_function_once() {
         heading_total += bullets;
     }
     assert_eq!(heading_total, funcs.len(), "every function must land under a heading");
+}
+
+/// The C# FLOAT overload guards its real output against its real inputs.
+///
+/// The pair is cross-typed — a `float` input against a `double` output — so it
+/// takes the `MemoryMarshal.AsBytes` byte-range arm, and that spelling can only
+/// come from this overload: the double one compares a real pair plainly. The
+/// premise that made it skippable ("different element widths cannot share
+/// memory") is false, `MemoryMarshal.Cast` lays both over one buffer in safe
+/// code, and it has now been wrong three times in this emitter (#386) — twice
+/// caught only by a nightly hand suite. This is the PR-gate half.
+///
+/// Both directions: the double overload's plain term has to be there too, or a
+/// backend that stopped emitting the guard entirely would satisfy the first
+/// half by emitting nothing anyone looks for.
+#[test]
+fn the_csharp_float_overload_guards_its_real_output_against_its_real_inputs() {
+    let registry = make_registry();
+    let helpers = common::make_helpers();
+    let (mut pairs, mut offenders) = (0usize, Vec::new());
+
+    for name in discover_indicators() {
+        let (func, enums) = load_indicator(&name);
+        let reals: Vec<&str> = func
+            .inputs
+            .iter()
+            .filter(|i| i.param_type != ir::ParamType::Integer)
+            .map(|i| i.name.as_str())
+            .collect();
+        let outs: Vec<&str> = func
+            .outputs
+            .iter()
+            .filter(|o| o.param_type != ir::ParamType::Integer)
+            .map(|o| o.name.as_str())
+            .collect();
+        if reals.is_empty() || outs.is_empty() {
+            continue;
+        }
+        let src = backends::csharp::generate(&func, &enums, &registry, &helpers);
+        if !src.contains("ReadOnlySpan<float>") {
+            continue; // no float overload to check
+        }
+        let as_bytes = |x: &str| {
+            format!("System.Runtime.InteropServices.MemoryMarshal.AsBytes({x})")
+        };
+        for o in &outs {
+            for i in &reals {
+                pairs += 1;
+                let cross = format!("{}.Overlaps({})", as_bytes(o), as_bytes(i));
+                if !src.contains(&cross) {
+                    offenders.push(format!("{name}: float overload leaves {o} unguarded against {i}"));
+                }
+                // The carve-out spelling, not a bare `Overlaps`: the STREAM
+                // tier guards the same two names with the same call and would
+                // have answered for the batch tier here, leaving this half
+                // unable to fail. Only the batch tier passes allow_identity.
+                let plain = format!("({o}.Overlaps({i}) && {o} != {i})");
+                if !src.contains(&plain) {
+                    offenders.push(format!("{name}: double overload lost its {o}/{i} guard too"));
+                }
+            }
+        }
+    }
+
+    assert!(pairs >= 200, "only {pairs} real output/input pair(s) swept — too few to measure");
+    assert!(
+        offenders.is_empty(),
+        "a real output can share memory with a real input in the float overload \
+         (MemoryMarshal.Cast), so the guard has to be there ({} case(s)):\n{}",
+        offenders.len(),
+        offenders.join("\n")
+    );
 }

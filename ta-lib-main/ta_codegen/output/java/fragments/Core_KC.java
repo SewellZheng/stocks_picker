@@ -25,7 +25,7 @@
     * @param optInATRPeriod Smoothing period of the Average True Range (default
     *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Multiplier applied to the Average True Range (default 2;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int KC_Lookback( int optInTimePeriod, int optInATRPeriod, double optInNbDev )
@@ -255,14 +255,8 @@
     * multiple of the Average True Range above and below it. The band width
     * tracks volatility, so the channel widens in fast markets and narrows in
     * quiet ones.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * TP = (High + Low + Close) / 3
-    * Middle = EMA(TP, N)
-    * Band = ATR(M)
-    * Upper = Middle + Deviations * Band
-    * Lower = Middle - Deviations * Band
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/kc">ta-lib.org/functions/kc</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Several incompatible indicators are published under the name "Keltner Channel", disagreeing by percent rather than by rounding. This is the typical-price centre line with a Wilder-smoothed Average True Range band, the form implemented by TTR and ta4j.</li>
@@ -287,7 +281,7 @@
     * @param optInATRPeriod Smoothing period of the Average True Range (default
     *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Multiplier applied to the Average True Range (default 2;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outRealUpperBand Centre line plus the scaled Average True Range.
     *        Must hold at least {@code endIdx - startIdx + 1} values.
     * @param outRealMiddleBand Exponential moving average of the typical price.
@@ -350,14 +344,8 @@
     * multiple of the Average True Range above and below it. The band width
     * tracks volatility, so the channel widens in fast markets and narrows in
     * quiet ones.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * TP = (High + Low + Close) / 3
-    * Middle = EMA(TP, N)
-    * Band = ATR(M)
-    * Upper = Middle + Deviations * Band
-    * Lower = Middle - Deviations * Band
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/kc">ta-lib.org/functions/kc</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Several incompatible indicators are published under the name "Keltner Channel", disagreeing by percent rather than by rounding. This is the typical-price centre line with a Wilder-smoothed Average True Range band, the form implemented by TTR and ta4j.</li>
@@ -385,7 +373,7 @@
     * @param optInATRPeriod Smoothing period of the Average True Range (default
     *        10; range 1..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Multiplier applied to the Average True Range (default 2;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outRealUpperBand Centre line plus the scaled Average True Range.
     *        Must hold at least {@code endIdx - startIdx + 1} values.
     * @param outRealMiddleBand Exponential moving average of the typical price.
@@ -459,20 +447,20 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class KcStream {
-      Core core;
-      int optInTimePeriod;
-      int optInATRPeriod;
-      double optInNbDev;
-      double cur_outRealUpperBand;
-      double cur_outRealMiddleBand;
-      double cur_outRealLowerBand;
-      TyppriceStream sub0;
-      AtrStream sub1;
-      EmaStream sub2;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int optInATRPeriod;
+      private double optInNbDev;
+      private double cur_outRealUpperBand;
+      private double cur_outRealMiddleBand;
+      private double cur_outRealLowerBand;
+      private TyppriceStream sub0;
+      private AtrStream sub1;
+      private EmaStream sub2;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      KcStream( Core core ) { this.core = core; }
+      private KcStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -484,6 +472,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -494,10 +485,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("KC advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      KcStream( KcStream other ) {
+      private KcStream( KcStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInATRPeriod = other.optInATRPeriod;
@@ -514,7 +513,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -526,13 +524,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, KcOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("KC update", RetCode.OutOfRangeEndIndex);
          requireArgument("KC update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("KC update: BadParam", RetCode.BadParam);
          core.kcStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.realUpperBand = this.cur_outRealUpperBand;
          out.realMiddleBand = this.cur_outRealMiddleBand;
          out.realLowerBand = this.cur_outRealLowerBand;
@@ -543,9 +547,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, KcOut out ) {
          requireArgument("KC peek", "out", out);
@@ -577,7 +582,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( KcOut out ) {
          requireArgument("KC value", "out", out);
@@ -626,7 +631,7 @@
       /** Centre line minus the scaled Average True Range. */
       public double realLowerBand;
    }
-   void kcStepImpl( KcStream sp, double inHigh, double inLow, double inClose )
+   private void kcStepImpl( KcStream sp, double inHigh, double inLow, double inClose )
    {
       double middle = 0.0;
       double tempReal = 0.0;
@@ -813,8 +818,8 @@
     * <p>The history must hold at least {@code KC_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

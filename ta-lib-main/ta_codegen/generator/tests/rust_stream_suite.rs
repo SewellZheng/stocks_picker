@@ -50,7 +50,7 @@ fn rust_stream_section(name: &str) -> String {
     let (func, enums) = load_indicator(name);
     assert!(func.streaming, "{name}: yaml must carry the stream flag");
     let registry = Registry::from_dir(&input_dir());
-    let helpers = HelperRegistry::empty();
+    let helpers = HelperRegistry::from_dir(&input_dir());
     let full = backends::rust_lang::generate(&func, &enums, &registry, &helpers);
     let start = full
         .find("/**** Streaming API *****/")
@@ -175,13 +175,14 @@ fn test_rust_cdldoji_candle_settings_and_int_output() {
 }
 
 #[test]
-fn test_rust_minmaxindex_extrema_i32_and_rebase() {
+fn test_rust_minmaxindex_extrema_i32() {
     let s = rust_stream_section("minmaxindex");
-    // AIA cursor machinery forced i32 (C's int) in the STATE...
+    // AIA cursor machinery forced i32 (C's int) in the STATE — every field the
+    // transition compares as a batch-absolute index, not just the mask.
     assert!(s.contains("xMask: i32,"));
-    // ...with the batch-absolute rebase guard mirrored verbatim.
-    assert!(s.contains("if sp.today >= 1073741824 {"));
-    assert!(s.contains("let rebaseShift: i32 ="));
+    assert!(s.contains("today: i32,"));
+    assert!(s.contains("trailingIdx: i32,"));
+    assert!(s.contains("highestIdx: i32,"));
     // Capture casts the still-live batch locals at the struct literal.
     assert!(s.contains("today: (today) as i32,"));
     // Index outputs stay batch-exact i32 pairs.
@@ -340,32 +341,6 @@ fn rust_output_writes_are_stride_scaled() {
     assert!(
         s.contains("outInteger[({ let _v = outIdx; outIdx += 1; _v } * outStride) as usize] = 100;"),
         "per-bar output writes scale by the stride"
-    );
-}
-
-#[test]
-fn rust_fill_wrapper_keeps_the_output_distinctness_guard() {
-    // #108: the capture epilogue reads the input tail after writing the outputs,
-    // so two outputs may not share a slice. Rust's borrow checker rules out
-    // output-vs-input, but not output-vs-output.
-    let s = rust_stream_section("minmax");
-    let at = s.find("pub fn minmax_open_and_fill(").expect("fill wrapper");
-    let end = s[at..].find("\n    }\n").map_or(s.len() - at, |e| e + 6);
-    let body = &s[at..at + end];
-    assert!(
-        body.contains("outMin.as_ptr() == outMax.as_ptr()"),
-        "output distinctness survives on the fill wrapper:\n{body}"
-    );
-    // ...and after the capacity check, which the specified order puts first.
-    let cap = body.find("if outMax.len() < _guardOutLen").expect("S5 on the fill wrapper");
-    let alias = body.find("outMin.as_ptr() == outMax.as_ptr()").unwrap();
-    assert!(cap < alias, "S5 is specified ahead of S6:\n{body}");
-    // The scalar wrapper's sinks are its own locals — it must not pay for it.
-    let sat = s.find("fn minmax_open_internal(").expect("scalar wrapper");
-    let sbody = &s[sat..sat + 700.min(s.len() - sat)];
-    assert!(
-        !sbody.contains("as_ptr()"),
-        "Open has no aliasing hazard and must not carry the guard:\n{sbody}"
     );
 }
 

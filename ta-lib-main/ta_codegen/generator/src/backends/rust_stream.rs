@@ -70,27 +70,6 @@ pub fn stream_type_name(func: &FuncDef) -> String {
 }
 
 
-/// The output pairs the distinctness guard (#108) compares: every pair of the
-/// same element type.
-///
-/// A cross-typed pair is skipped, as the batch emitters and both C# tiers skip
-/// it: `*const f64` and `*const i32` are not comparable, and safe code cannot
-/// lay a `&mut [f64]` over a `&mut [i32]` to begin with. Appendix E of
-/// `docs/error-handling-spec.md`, #262.
-fn distinct_output_pairs(func: &FuncDef) -> Vec<(String, String)> {
-    let mut pairs = Vec::new();
-    for i in 0..func.outputs.len() {
-        for j in (i + 1)..func.outputs.len() {
-            let (a, b) = (&func.outputs[i], &func.outputs[j]);
-            if (a.param_type == ParamType::Integer) != (b.param_type == ParamType::Integer) {
-                continue;
-            }
-            pairs.push((a.name.clone(), b.name.clone()));
-        }
-    }
-    pairs
-}
-
 fn state_type_name(func: &FuncDef) -> String {
     format!("{}StreamState", common::pascal_words(&func.name))
 }
@@ -204,9 +183,9 @@ impl streaming::NameMap for RustStreamNames {
 // Typing oracle: the batch type-inference verdicts for every local, reused for
 // state-struct field types AND the render contexts (so cast insertion matches
 // batch decisions exactly). Extrema/AIA override: cursor/trailing/index fields
-// (and xMask) are forced `i32` — C's `int` — because the 2^30 rebase arithmetic
-// does not exist in batch bodies for the inference to type (usize subtraction
-// there could underflow in debug builds; index-only, zero FP impact).
+// (and xMask) are forced `i32` — C's `int` — because the transition subtracts
+// and compares them as batch-absolute indices, which a `usize` would underflow
+// on in a debug build (index-only, zero FP impact).
 // ---------------------------------------------------------------------------
 
 struct Typing {
@@ -677,9 +656,9 @@ fn open_fill_capacity_guards(func: &FuncDef, with_pair: bool) -> String {
 
 /// `open_and_fill`: the fill wrapper onto `<n>_open_impl`. It owns the argument
 /// contract for the only path that writes caller-owned slices: the output
-/// capacity (S5) and the output mutual-distinctness guard (#108, S6). In-place
-/// is forbidden not because the fill would compute the wrong answer, but because
-/// the margin between its writes and the capture's seed reads is unasserted.
+/// capacity (S5). In-place is forbidden not because the fill would compute the
+/// wrong answer, but because the margin between its writes and the capture's
+/// seed reads is unasserted.
 fn emit_open_and_fill_wrapper(
     o: &mut String,
     func: &FuncDef,
@@ -689,9 +668,6 @@ fn emit_open_and_fill_wrapper(
     emit_open_sig(o, func, OutMode::Fill, enums);
     let outs: Vec<&str> = func.outputs.iter().map(|out| out.name.as_str()).collect();
     o.push_str(&open_fill_capacity_guards(func, true));
-    for (a, b) in distinct_output_pairs(func) {
-        let _ = writeln!(o, "{}", distinct_pair_guard(func, &a, &b));
-    }
     let _ = enums;
     let ins: Vec<String> = streaming::input_array_names(func);
     let opt_names: Vec<String> = func.optional_inputs.iter().map(|p| p.name.clone()).collect();
@@ -725,8 +701,7 @@ fn emit_open_and_fill_wrapper(
 }
 
 /// `open_and_fill_internal` for every tier that owns an `<n>_open_impl`: the same single
-/// pass as `OpenAndFill`, at the caller's `startIdx`. See [`OutMode::FillInternal`]
-/// for why it carries no distinctness guard.
+/// pass as `OpenAndFill`, at the caller's `startIdx`.
 fn emit_open_and_fill_internal_wrapper(
     o: &mut String,
     func: &FuncDef,
@@ -1100,11 +1075,26 @@ fn finite_bar_check(func: &FuncDef, indent: &str) -> String {
     )
 }
 
-/// The one spelling of the `OutRange` advance. The saturation guard is not
-/// optional: the count is an index like any other and `TA_MAX_INDEX` bounds it
-/// (#180), so a stream driven past it must stop counting rather than wrap.
+/// Rule U4 — the opener's index-pair check read on a live handle, one bar at a
+/// time (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle
+/// cannot answer it before its parent).
+///
+/// `>` and not `>=`: an opener may legally take `MAX_INDEX + 1` bars (rule S2),
+/// so a handle can be born holding the last bar in the domain and it is the NEXT
+/// one that has nowhere to go.
+fn out_range_ceiling_guard(indent: &str) -> String {
+    format!(
+        "{indent}if self.out.beg_idx + self.out.count > Core::MAX_INDEX {{\n\
+         {indent}    return Err(RetCode::OutOfRangeEndIndex);\n\
+         {indent}}}\n"
+    )
+}
+
+/// The one spelling of the `OutRange` advance. Unconditional: every entry point
+/// that reaches it has already answered [`out_range_ceiling_guard`], which is
+/// what bounds the count.
 fn advance_out_count(indent: &str) -> String {
-    format!("{indent}if self.out.count < Core::MAX_INDEX {{\n{indent}    self.out.count += 1;\n{indent}}}\n")
+    format!("{indent}self.out.count += 1;\n")
 }
 
 
@@ -1246,16 +1236,8 @@ fn peek_frame_arm(
     let transition = streaming::build_transition(model, names).ok()?;
     let pt =
         streaming::peek_transition_widest(model, names, &transition, Some(VarType::Index)).ok()?;
-    // The extrema rebase moves the cursor before the first store, so its
-    // targets are localized with the transition's own.
-    let mut rebased: Vec<String> = Vec::new();
-    if let Some(ex) = model.extrema() {
-        rebased.push(model.cursor.clone());
-        rebased.push(ex.trailing.clone());
-        rebased.extend(ex.index_vars.iter().cloned());
-    }
     let bufs = streaming::transition_buffers(model, names);
-    let (locals, body_ir) = localize_state_writes(func, &pt.body, &rebased, &bufs)?;
+    let (locals, body_ir) = localize_state_writes(func, &pt.body, &[], &bufs)?;
     // A localized field keeps its own name, so the renderer must classify the
     // bare spelling exactly as it classified `sp.<name>` — the sets carry both,
     // and the extrema override touches only one of the pair. Mirror the
@@ -1353,15 +1335,6 @@ fn peek_frame_arm(
     }
     for t in &pt.slot_temps {
         let _ = writeln!(out, "{pad}let mut {t}: usize = 0;");
-    }
-    if let Some(ex) = model.extrema() {
-        let inner = " ".repeat(indent + 4);
-        let _ = writeln!(out, "{pad}if {} >= 1073741824 {{", model.cursor);
-        let _ = writeln!(out, "{inner}let rebaseShift: i32 = {} & !sp.xMask;", ex.trailing);
-        for v in &rebased {
-            let _ = writeln!(out, "{inner}{v} -= rebaseShift;");
-        }
-        let _ = writeln!(out, "{pad}}}");
     }
     let output_names: Vec<String> = func.outputs.iter().map(|o| o.name.clone()).collect();
     let opt_real_params: Vec<String> = func
@@ -1529,8 +1502,8 @@ fn emit_step_end(o: &mut String, fallible: bool) {
     let _ = writeln!(o, "    }}\n");
 }
 
-/// One model's per-bar step body at a given indent: temp decls, the extrema
-/// rebase, candle unpacking, and the rendered transition. Called once by the
+/// One model's per-bar step body at a given indent: temp decls, candle
+/// unpacking, and the rendered transition. Called once by the
 /// loop tier (indent 8) and once per arm by the dual-mode step (indent 12).
 #[allow(clippy::too_many_arguments)]
 fn emit_step_body(
@@ -1550,7 +1523,6 @@ fn emit_step_body(
         let (rty, default) = field_type_and_default(typing, name, ty, false);
         o.push_str(&decl_line(&pad, name, &rty, default.as_ref()));
     }
-    emit_extrema_rebase(o, model, indent);
 
     let transition = streaming::build_transition(model, &RustStreamNames)
         .unwrap_or_else(|e| panic!("streaming transition: {e}"));
@@ -1643,27 +1615,6 @@ fn emit_identity_step_branch(
     }
 }
 
-/// Extrema automatons carry batch-absolute i32 indices; rebase them by a
-/// multiple of the physical ring size long before i32::MAX (mirrors C verbatim —
-/// index differences and `& xMask` slots are invariant).
-fn emit_extrema_rebase(o: &mut String, model: &StreamModel, indent: usize) {
-    if let Some(ex) = model.extrema() {
-        let pad = " ".repeat(indent);
-        let inner = " ".repeat(indent + 4);
-        let mut vars: Vec<String> = vec![model.cursor.clone(), ex.trailing.clone()];
-        vars.extend(ex.index_vars.iter().cloned());
-        let _ = writeln!(o, "{pad}if sp.{} >= 1073741824 {{", model.cursor);
-        let _ = writeln!(
-            o,
-            "{inner}let rebaseShift: i32 = sp.{} & !sp.xMask;",
-            ex.trailing
-        );
-        for v in &vars {
-            let _ = writeln!(o, "{inner}sp.{v} -= rebaseShift;");
-        }
-        let _ = writeln!(o, "{pad}}}");
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Open transcription
@@ -1855,7 +1806,7 @@ fn emit_open_sig(o: &mut String, func: &FuncDef, mode: OutMode, enums: &HashMap<
             let outs = open_out_params(func, mode);
             let _ = writeln!(
                 o,
-                "    /// [`Core::{sn}_open`] that also fills the output array(s) bit-identically to\n    /// [`Core::{n}`] over `0..len` in the same single pass, and reports the range it\n    /// wrote as the [`OutRange`] beside the handle.\n    ///\n    /// # Errors\n    ///\n    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`\n    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —\n    /// or when two of them are the same slice. Everything [`Core::{sn}_open`] rejects\n    /// is rejected here too."
+                "    /// [`Core::{sn}_open`] that also fills the output array(s) bit-identically to\n    /// [`Core::{n}`] over `0..len` in the same single pass, and reports the range it\n    /// wrote as the [`OutRange`] beside the handle.\n    ///\n    /// # Errors\n    ///\n    /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`\n    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).\n    /// Everything [`Core::{sn}_open`] rejects is rejected here too."
             );
             // The example is the summary's own claim, made runnable.
             if let Some(doctest) = open_and_fill_doctest(func, enums) {
@@ -1881,10 +1832,9 @@ fn emit_open_sig(o: &mut String, func: &FuncDef, mode: OutMode, enums: &HashMap<
                 outs.trim_start_matches(", ")
             );
         }
-        // `OpenAndFill` at the caller's startIdx. Carries no output-distinctness
-        // guard: the generator emits a call to it only for a sub-call whose
-        // destinations alias neither its sources nor each other, so the check
-        // could never fire. See `SubCallStep::is_fusable`.
+        // `OpenAndFill` at the caller's startIdx. A call to it is emitted only
+        // for a sub-call whose destinations alias neither its sources nor each
+        // other — see `SubCallStep::is_fusable`.
         OutMode::FillInternal => {
             let outs = open_out_params(func, mode);
             let _ = writeln!(
@@ -1897,33 +1847,6 @@ fn emit_open_sig(o: &mut String, func: &FuncDef, mode: OutMode, enums: &HashMap<
             );
         }
     }
-}
-
-/// The output-distinctness rejection for one pair (#108, rule S6), written so a
-/// declinable operand is compared only when it was supplied — the shape
-/// `rust_lang` already emits for the batch tier. Two declined outputs are not
-/// each other: `None` aliases nothing.
-fn distinct_pair_guard(func: &FuncDef, a: &str, b: &str) -> String {
-    let nullable = super::common::nullable_output_names(func);
-    let declinable = nullable.contains(a) || nullable.contains(b);
-    if !declinable {
-        // The common shape, unchanged: neither operand can be absent.
-        return format!(
-            "        if !{a}.is_empty() && !{b}.is_empty() && {a}.as_ptr() == {b}.as_ptr() {{\n            return Err(RetCode::BadParam);\n        }}"
-        );
-    }
-    let bind = |name: &str| {
-        if nullable.contains(name) {
-            format!("{name}.as_deref()")
-        } else {
-            format!("Some(&{name}[..])")
-        }
-    };
-    format!(
-        "        if let (Some({a}_p), Some({b}_p)) = ({}, {}) {{\n            if !{a}_p.is_empty() && !{b}_p.is_empty() && {a}_p.as_ptr() == {b}_p.as_ptr() {{\n                return Err(RetCode::BadParam);\n            }}\n        }}",
-        bind(a),
-        bind(b)
-    )
 }
 
 /// One output parameter per declared output, in declaration order.
@@ -1948,8 +1871,7 @@ fn open_out_params(func: &FuncDef, mode: OutMode) -> String {
 }
 
 /// The open validation head: the implied index pair, the equal-length input
-/// check, the Fill-mode output-distinctness guard (#108), then optional-param
-/// validation. Shared by every tier.
+/// check, then optional-param validation. Shared by every tier.
 ///
 /// The pair comes first because an opener is a batch call over
 /// `[0, historyLen - 1]`: S1 and S2 are B1 and B2 read on that range and answer
@@ -2003,11 +1925,6 @@ fn emit_open_validation_head(o: &mut String, func: &FuncDef, mode: OutMode, enum
         // output capacity (S5) as well — the merged tiers get theirs from
         // `emit_open_and_fill_wrapper`, which is their public frame.
         o.push_str(&open_fill_capacity_guards(func, false));
-        // Output mutual-distinctness (#108) — same guard the batch emits. FILL
-        // ONLY: the scalar path's sinks are its own locals, so it has no hazard.
-        for (a, b) in distinct_output_pairs(func) {
-            let _ = writeln!(o, "{}", distinct_pair_guard(func, &a, &b));
-        }
     }
 }
 
@@ -2936,13 +2853,18 @@ fn emit_update_and_peek(
          \x20   /// A rejection leaves [`Self::out_range`] alone too. Re-feed the bar when\n\
          \x20   /// a corrected value arrives, or call [`Self::advance`] to count it and\n\
          \x20   /// carry on — two handles on one feed drift a bar apart if neither\n\
-         \x20   /// happens."
+         \x20   /// happens.\n\
+         \x20   ///\n\
+         \x20   /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached\n\
+         \x20   /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run\n\
+         \x20   /// out of index domain and only a shorter history can start a new one."
     );
     let _ = writeln!(o, "    #[doc(alias = \"TA_{n}_Update\")]");
     let _ = writeln!(
         o,
         "    pub fn update(&mut self, {sig_bars}) -> Result<{vt}, RetCode> {{"
     );
+    o.push_str(&out_range_ceiling_guard("        "));
     o.push_str(&finite_bar_check(func, "        "));
     // Retain the value(s) this bar produced where the step has no transition
     // tail to ride on — the composed, dispatch and period-bank steps write the
@@ -2981,7 +2903,9 @@ fn emit_update_and_peek(
          \x20   /// # Errors\n\
          \x20   ///\n\
          \x20   /// [`RetCode::BadParam`] if any bar value is not finite, on the same test\n\
-         \x20   /// `update` applies, and a rejected peek changes nothing at all."
+         \x20   /// `update` applies, and a rejected peek changes nothing at all. Not\n\
+         \x20   /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps\n\
+         \x20   /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at."
     );
     let _ = writeln!(o, "    #[doc(alias = \"TA_{n}_Peek\")]");
     let _ = writeln!(o, "    pub fn peek(&self, {sig_bars}) -> Result<{vt}, RetCode> {{");
@@ -3043,6 +2967,9 @@ fn emit_update_and_peek(
          \x20   /// `peek` — and a clone carries it verbatim. A plain `Open` hands back\n\
          \x20   /// only the last value, a subset of this range, because the caller chose\n\
          \x20   /// not to take the fill.\n\
+         \x20   ///\n\
+         \x20   /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`\n\
+         \x20   /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].\n\
          \x20   #[doc(alias = \"TA_{n}_OutRange\")]\n\
          \x20   pub fn out_range(&self) -> OutRange {{\n\
          \x20       self.out\n\
@@ -3057,10 +2984,19 @@ fn emit_update_and_peek(
          \x20   /// For a bar the caller leaves out: one an `update` rejected and that\n\
          \x20   /// will not be re-fed, or a session with no print. Without it two handles\n\
          \x20   /// on one feed drift a bar apart when only one of them skips.\n\
+         \x20   ///\n\
+         \x20   /// # Errors\n\
+         \x20   ///\n\
+         \x20   /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached\n\
+         \x20   /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and\n\
+         \x20   /// the last this handle will count. `update` answers the same there.\n\
          \x20   #[doc(alias = \"TA_{n}_Advance\")]\n\
-         \x20   pub fn advance(&mut self) {{\n\
+         \x20   pub fn advance(&mut self) -> Result<(), RetCode> {{\n\
          {}\
+         {}\
+         \x20       Ok(())\n\
          \x20   }}",
+        out_range_ceiling_guard("        "),
         advance_out_count("        ")
     );
     let _ = writeln!(o, "}}\n");
@@ -4320,7 +4256,6 @@ fn emit_composed_step(
                 func, model, &names, typing, &ctx, enums, registry, helpers, counter, indent,
             )?);
         } else {
-            emit_extrema_rebase(o, model, indent);
             let transition = streaming::build_transition(model, &names)
                 .unwrap_or_else(|e| panic!("streaming transition: {e}"));
             let mut body = String::new();

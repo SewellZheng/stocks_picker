@@ -207,14 +207,12 @@
     * likely trend reversal; true direction depends on the prevailing trend
     * (bullish in a downtrend, bearish in an uptrend), which the code does not
     * itself verify.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Two candles. Candle 1: long real body (realbody > BodyLong average). Candle 2: doji (realbody <= BodyDoji average). Gap: either candle 1 white (color==1) AND candle 2 real body gaps up above it (the real bodies gap up), or candle 1 black (color==-1) AND candle 2 real body gaps down below it (the real bodies gap down).
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdldojistar">ta-lib.org/functions/cdldojistar</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the reversal signal classically assumes.</li>
-    * <li>Bulkowski's testing contradicts the classic reading for the bullish case: theory says a bullish Doji Star (gapping down after a black candle) should be a bullish reversal, but he found it instead acts as a bearish CONTINUATION 64% of the time — almost 2 out of 3, the opposite of the textbook signal. ([thepatternsite.com](https://thepatternsite.com/DojiStarBull.html))</li>
+    * <li>Bulkowski's testing contradicts the classic reading for the bullish case: theory says a bullish Doji Star (gapping down after a black candle) should be a bullish reversal, but he found it instead acts as a bearish CONTINUATION 64% of the time — almost 2 out of 3, the opposite of the textbook signal. (<a href="https://thepatternsite.com/DojiStarBull.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -284,14 +282,12 @@
     * likely trend reversal; true direction depends on the prevailing trend
     * (bullish in a downtrend, bearish in an uptrend), which the code does not
     * itself verify.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Two candles. Candle 1: long real body (realbody > BodyLong average). Candle 2: doji (realbody <= BodyDoji average). Gap: either candle 1 white (color==1) AND candle 2 real body gaps up above it (the real bodies gap up), or candle 1 black (color==-1) AND candle 2 real body gaps down below it (the real bodies gap down).
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdldojistar">ta-lib.org/functions/cdldojistar</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend the reversal signal classically assumes.</li>
-    * <li>Bulkowski's testing contradicts the classic reading for the bullish case: theory says a bullish Doji Star (gapping down after a black candle) should be a bullish reversal, but he found it instead acts as a bearish CONTINUATION 64% of the time — almost 2 out of 3, the opposite of the textbook signal. ([thepatternsite.com](https://thepatternsite.com/DojiStarBull.html))</li>
+    * <li>Bulkowski's testing contradicts the classic reading for the bullish case: theory says a bullish Doji Star (gapping down after a black candle) should be a bullish reversal, but he found it instead acts as a bearish CONTINUATION 64% of the time — almost 2 out of 3, the opposite of the textbook signal. (<a href="https://thepatternsite.com/DojiStarBull.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -374,30 +370,30 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CdldojistarStream {
-      Core core;
-      double BodyDojiPeriodTotal;
-      double BodyLongPeriodTotal;
-      double lag1_inOpen;
-      double lag1_inHigh;
-      double lag1_inLow;
-      double lag1_inClose;
-      int ringPos_BodyDojiTrailingIdx;
-      int ringCap_BodyDojiTrailingIdx;
-      double[] ring_BodyDojiTrailingIdx_derived;
-      int ringPos_BodyLongTrailingIdx;
-      int ringCap_BodyLongTrailingIdx;
-      double[] ring_BodyLongTrailingIdx_derived;
-      int cs_BodyDoji_rangeType;
-      int cs_BodyDoji_avgPeriod;
-      double cs_BodyDoji_factor;
-      int cs_BodyLong_rangeType;
-      int cs_BodyLong_avgPeriod;
-      double cs_BodyLong_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double BodyDojiPeriodTotal;
+      private double BodyLongPeriodTotal;
+      private double lag1_inOpen;
+      private double lag1_inHigh;
+      private double lag1_inLow;
+      private double lag1_inClose;
+      private int ringPos_BodyDojiTrailingIdx;
+      private int ringCap_BodyDojiTrailingIdx;
+      private double[] ring_BodyDojiTrailingIdx_derived;
+      private int ringPos_BodyLongTrailingIdx;
+      private int ringCap_BodyLongTrailingIdx;
+      private double[] ring_BodyLongTrailingIdx_derived;
+      private int cs_BodyDoji_rangeType;
+      private int cs_BodyDoji_avgPeriod;
+      private double cs_BodyDoji_factor;
+      private int cs_BodyLong_rangeType;
+      private int cs_BodyLong_avgPeriod;
+      private double cs_BodyLong_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CdldojistarStream( Core core ) { this.core = core; }
+      private CdldojistarStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -409,6 +405,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -419,10 +418,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLDOJISTAR advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CdldojistarStream( CdldojistarStream other ) {
+      private CdldojistarStream( CdldojistarStream other ) {
          this.core = other.core;
          this.BodyDojiPeriodTotal = other.BodyDojiPeriodTotal;
          this.BodyLongPeriodTotal = other.BodyLongPeriodTotal;
@@ -449,7 +456,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -461,12 +467,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLDOJISTAR update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLDOJISTAR update: BadParam", RetCode.BadParam);
          core.cdldojistarStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -475,9 +487,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -530,7 +543,7 @@
          return new CdldojistarStream(this);
       }
    }
-   void cdldojistarStepImpl( CdldojistarStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdldojistarStepImpl( CdldojistarStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int BodyDoji_rangeType = sp.cs_BodyDoji_rangeType;
       int BodyDoji_avgPeriod = sp.cs_BodyDoji_avgPeriod;
@@ -759,9 +772,7 @@
     * to {@link Core#CDLDOJISTAR} at that bar.
     * <p>The history must hold at least {@code CDLDOJISTAR_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

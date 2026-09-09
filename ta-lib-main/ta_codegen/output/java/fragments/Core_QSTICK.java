@@ -183,16 +183,13 @@
       return RetCode.Success ;
    }
    /**
-    * Tushar Chande and Stanley Kroll's Qstick (*The New Technical Trader*,
+    * Tushar Chande and Stanley Kroll's Qstick (<i>The New Technical Trader</i>,
     * 1994): a simple moving average of the candle body, close minus open. It
     * measures how bullish or bearish the bodies have been over the window,
     * independently of the wicks — above zero the bodies closed up on balance,
     * below zero they closed down, and the zero-line crossings are the signal.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * body_t = close_t - open_t; QSTICK_t = ( Σ body over the last `optInTimePeriod` bars ) / optInTimePeriod
-    * The moving average is a plain SMA, so there is no seeding convention and none of the cross-library divergence that comes with one. `optInTimePeriod` of 1 leaves the raw body.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/qstick">ta-lib.org/functions/qstick</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -251,16 +248,13 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
    /**
-    * Tushar Chande and Stanley Kroll's Qstick (*The New Technical Trader*,
+    * Tushar Chande and Stanley Kroll's Qstick (<i>The New Technical Trader</i>,
     * 1994): a simple moving average of the candle body, close minus open. It
     * measures how bullish or bearish the bodies have been over the window,
     * independently of the wicks — above zero the bodies closed up on balance,
     * below zero they closed down, and the zero-line crossings are the signal.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * body_t = close_t - open_t; QSTICK_t = ( Σ body over the last `optInTimePeriod` bars ) / optInTimePeriod
-    * The moving average is a plain SMA, so there is no seeding convention and none of the cross-library divergence that comes with one. `optInTimePeriod` of 1 leaves the raw body.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/qstick">ta-lib.org/functions/qstick</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -338,17 +332,17 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class QstickStream {
-      Core core;
-      int optInTimePeriod;
-      double periodTotal;
-      int ringPos_trailingIdx;
-      int ringCap_trailingIdx;
-      double[] ring_trailingIdx_derived;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double periodTotal;
+      private int ringPos_trailingIdx;
+      private int ringCap_trailingIdx;
+      private double[] ring_trailingIdx_derived;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      QstickStream( Core core ) { this.core = core; }
+      private QstickStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -360,6 +354,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -370,10 +367,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("QSTICK advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      QstickStream( QstickStream other ) {
+      private QstickStream( QstickStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.periodTotal = other.periodTotal;
@@ -387,7 +392,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -399,12 +403,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inOpen, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("QSTICK update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("QSTICK update: BadParam", RetCode.BadParam);
          core.qstickStepImpl(this, inOpen, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -413,9 +423,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inOpen, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inClose) )
@@ -463,7 +474,7 @@
          return new QstickStream(this);
       }
    }
-   void qstickStepImpl( QstickStream sp, double inOpen, double inClose )
+   private void qstickStepImpl( QstickStream sp, double inOpen, double inClose )
    {
       double tempReal = 0.0;
       if( sp.ringCap_trailingIdx == 0 ) {
@@ -634,8 +645,8 @@
     * <p>The history must hold at least {@code QSTICK_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

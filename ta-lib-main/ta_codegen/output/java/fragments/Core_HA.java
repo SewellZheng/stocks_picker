@@ -278,20 +278,14 @@
     * {@code HA} is recursive: every candle carries the previous one, so the
     * first candle of a request is seeded from its own bar and its influence
     * halves on each bar that follows.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * HA_close[i] = ( O[i] + H[i] + L[i] + C[i] ) / 4
-    * HA_open[0]  = ( O[0] + C[0] ) / 2
-    * HA_open[i]  = ( HA_open[i-1] + HA_close[i-1] ) / 2
-    * HA_high[i]  = max( H[i], HA_open[i], HA_close[i] )
-    * HA_low[i]   = min( L[i], HA_open[i], HA_close[i] )
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ha">ta-lib.org/functions/ha</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The first candle has no predecessor, so its open is seeded with the midpoint of the raw open and close. Other conventions exist — ta4j emits the raw bar unchanged as its first candle — and they differ only while the seed still carries weight.</li>
     * <li>Both divisors are exact powers of two, so implementations that scale by {@code 0.5} and {@code 0.25} produce the same doubles as those that divide by 2 and 4.</li>
     * <li>The unstable period discards that many candles of warm-up before the first output, trading history for a smaller residual difference between two requests that start at different bars.</li>
-    * <li>Averaging four prices of one bar is also what [{@code AVGPRICE}](/functions/avgprice) computes, but it sums them in a different order, so the two can differ in the last bits.</li>
+    * <li>Averaging four prices of one bar is also what <a href="https://ta-lib.org/functions/avgprice">{@code AVGPRICE}</a> computes, but it sums them in a different order, so the two can differ in the last bits.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -377,20 +371,14 @@
     * {@code HA} is recursive: every candle carries the previous one, so the
     * first candle of a request is seeded from its own bar and its influence
     * halves on each bar that follows.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * HA_close[i] = ( O[i] + H[i] + L[i] + C[i] ) / 4
-    * HA_open[0]  = ( O[0] + C[0] ) / 2
-    * HA_open[i]  = ( HA_open[i-1] + HA_close[i-1] ) / 2
-    * HA_high[i]  = max( H[i], HA_open[i], HA_close[i] )
-    * HA_low[i]   = min( L[i], HA_open[i], HA_close[i] )
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ha">ta-lib.org/functions/ha</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The first candle has no predecessor, so its open is seeded with the midpoint of the raw open and close. Other conventions exist — ta4j emits the raw bar unchanged as its first candle — and they differ only while the seed still carries weight.</li>
     * <li>Both divisors are exact powers of two, so implementations that scale by {@code 0.5} and {@code 0.25} produce the same doubles as those that divide by 2 and 4.</li>
     * <li>The unstable period discards that many candles of warm-up before the first output, trading history for a smaller residual difference between two requests that start at different bars.</li>
-    * <li>Averaging four prices of one bar is also what [{@code AVGPRICE}](/functions/avgprice) computes, but it sums them in a different order, so the two can differ in the last bits.</li>
+    * <li>Averaging four prices of one bar is also what <a href="https://ta-lib.org/functions/avgprice">{@code AVGPRICE}</a> computes, but it sums them in a different order, so the two can differ in the last bits.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -482,17 +470,17 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class HaStream {
-      Core core;
-      double haOpen;
-      double haClose;
-      double cur_outHAOpen;
-      double cur_outHAHigh;
-      double cur_outHALow;
-      double cur_outHAClose;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double haOpen;
+      private double haClose;
+      private double cur_outHAOpen;
+      private double cur_outHAHigh;
+      private double cur_outHALow;
+      private double cur_outHAClose;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      HaStream( Core core ) { this.core = core; }
+      private HaStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -504,6 +492,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -514,10 +505,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("HA advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      HaStream( HaStream other ) {
+      private HaStream( HaStream other ) {
          this.core = other.core;
          this.haOpen = other.haOpen;
          this.haClose = other.haClose;
@@ -531,7 +530,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -543,13 +541,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inOpen, double inHigh, double inLow, double inClose, HaOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("HA update", RetCode.OutOfRangeEndIndex);
          requireArgument("HA update", "out", out);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("HA update: BadParam", RetCode.BadParam);
          core.haStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.haOpen = this.cur_outHAOpen;
          out.haHigh = this.cur_outHAHigh;
          out.haLow = this.cur_outHALow;
@@ -561,9 +565,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inOpen, double inHigh, double inLow, double inClose, HaOut out ) {
          requireArgument("HA peek", "out", out);
@@ -620,7 +625,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( HaOut out ) {
          requireArgument("HA value", "out", out);
@@ -672,7 +677,7 @@
       /** Heikin-Ashi close. */
       public double haClose;
    }
-   void haStepImpl( HaStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void haStepImpl( HaStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       double haHigh = 0.0;
       double haLow = 0.0;
@@ -888,9 +893,7 @@
     * to {@link Core#HA} at that bar.
     * <p>The history must hold at least {@code HA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

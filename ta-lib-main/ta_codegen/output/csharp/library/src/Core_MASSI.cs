@@ -307,6 +307,9 @@ public partial class Core
       } else if( optInSlowPeriod < 2 || optInSlowPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
+         return RetCode.BadParam ;
+      }
       lookbackEma = EMA_Lookback(optInFastPeriod);
       lookbackEma2 = lookbackEma * 2;
       lookbackTotal = lookbackEma2 + (optInSlowPeriod - 1);
@@ -409,14 +412,10 @@ public partial class Core
    /// indicator, because the Mass Index has no sign of its own.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// HL = high - low
-   /// single = EMA( HL, optInFastPeriod )
-   /// double = EMA( single, optInFastPeriod )
-   /// MASSI = SUM( single / double, optInSlowPeriod )
-   /// Both averages are the standard TA-Lib EMA: smoothing factor 2 / (optInFastPeriod + 1), seeded with the simple average of the first optInFastPeriod inputs of that stage.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/massi">ta-lib.org/functions/massi</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The two periods are not interchangeable and are never swapped: <c>optInFastPeriod</c> is the length of both exponential averages, <c>optInSlowPeriod</c> the length of the summation window. Some implementations reorder them when the summation window is the shorter of the two; this one does not.</description></item>
    /// <item><description>A window in which every bar is exactly flat, high equal to low, leaves both averages at zero. The ratio is reported as 1 there, its continuous limit, so a flat market yields exactly <c>optInSlowPeriod</c> rather than a spurious zero.</description></item>
@@ -494,14 +493,10 @@ public partial class Core
    /// indicator, because the Mass Index has no sign of its own.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// HL = high - low
-   /// single = EMA( HL, optInFastPeriod )
-   /// double = EMA( single, optInFastPeriod )
-   /// MASSI = SUM( single / double, optInSlowPeriod )
-   /// Both averages are the standard TA-Lib EMA: smoothing factor 2 / (optInFastPeriod + 1), seeded with the simple average of the first optInFastPeriod inputs of that stage.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/massi">ta-lib.org/functions/massi</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The two periods are not interchangeable and are never swapped: <c>optInFastPeriod</c> is the length of both exponential averages, <c>optInSlowPeriod</c> the length of the summation window. Some implementations reorder them when the summation window is the shorter of the two; this one does not.</description></item>
    /// <item><description>A window in which every bar is exactly flat, high equal to low, leaves both averages at zero. The ratio is reported as 1 there, its continuous limit, so a flat market yields exactly <c>optInSlowPeriod</c> rather than a spurious zero.</description></item>
@@ -549,8 +544,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange MASSI( int startIdx,
                           int endIdx,
                           ReadOnlySpan<float> inHigh,
@@ -617,6 +614,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -627,10 +626,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("MASSI", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal MassiStream( MassiStream other )
@@ -664,15 +669,21 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("MASSI", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("MASSI", "update", RetCode.BadParam);
          core.MassiStepImpl(this, inHigh, inLow);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -682,13 +693,14 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("MASSI", "peek", RetCode.BadParam);

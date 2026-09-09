@@ -439,13 +439,6 @@ static void TA_TSF_StepImpl( struct TA_TSF_Stream *sp, double inReal, double *ou
    double tempValue2;
    double weightedTrailing;
 
-   if( sp->today >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->today -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->j -= rebaseShift;
-   }
    sp->x_inReal[sp->today & sp->xMask] = inReal;
    weightedTrailing = (double)sp->optInTimePeriod * sp->trailingValue;
    sp->SumXY = sp->SumXY + sp->SumY - weightedTrailing;
@@ -822,10 +815,13 @@ TA_RetCode TA_TSF_OpenAndFillInternal( struct TA_TSF_Stream **stream, const doub
 
 TA_LIB_API TA_RetCode TA_TSF_Update( TA_TSF_Stream *stream, double inReal, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_TSF_StepImpl( stream, inReal, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -844,7 +840,6 @@ TA_LIB_API TA_RetCode TA_TSF_Peek( const TA_TSF_Stream *stream, double inReal, d
    int barsSinceReseed;
    int j;
    double sumAbs;
-   int today;
    int trailingIdx;
    double trailingValue;
    double *x_inReal;
@@ -858,23 +853,15 @@ TA_LIB_API TA_RetCode TA_TSF_Peek( const TA_TSF_Stream *stream, double inReal, d
    barsSinceReseed = sp->barsSinceReseed;
    j = sp->j;
    sumAbs = sp->sumAbs;
-   today = sp->today;
    trailingIdx = sp->trailingIdx;
    trailingValue = sp->trailingValue;
    x_inReal = sp->x_inReal;
-   if( today >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      today -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      j -= rebaseShift;
-   }
-   pkSlot0 = today & sp->xMask;
+   pkSlot0 = sp->today & sp->xMask;
    pkVal0 = inReal;
    weightedTrailing = (double)sp->optInTimePeriod * trailingValue;
    SumXY = SumXY + SumY - weightedTrailing;
-   SumY = SumY - trailingValue + (((today & sp->xMask) != pkSlot0) ? x_inReal[today & sp->xMask] : pkVal0);
-   sumAbs = sumAbs - fabs(trailingValue) + fabs(((today & sp->xMask) != pkSlot0) ? x_inReal[today & sp->xMask] : pkVal0);
+   SumY = SumY - trailingValue + (((sp->today & sp->xMask) != pkSlot0) ? x_inReal[sp->today & sp->xMask] : pkVal0);
+   sumAbs = sumAbs - fabs(trailingValue) + fabs(((sp->today & sp->xMask) != pkSlot0) ? x_inReal[sp->today & sp->xMask] : pkVal0);
    /* Re-anchor: rebuild both sums from the window itself. #103 left them as
     * running totals that are never rebuilt, so each bar's rounding joins a
     * residue no later bar can subtract -- unbounded in the length of the
@@ -938,12 +925,12 @@ TA_LIB_API TA_RetCode TA_TSF_Peek( const TA_TSF_Stream *stream, double inReal, d
    if( barsSinceReseed <= 0 || fabs(weightedTrailing) > 100.0 * sumAbs )
    {
       barsSinceReseed = 32 * sp->optInTimePeriod;
-      windowStart = today - sp->lookbackTotal;
+      windowStart = sp->today - sp->lookbackTotal;
       SumY = 0;
       SumXY = 0;
       sumAbs = 0;
       tempValue2 = (double)sp->lookbackTotal;
-      for( j = windowStart; j <= today; j += 1 )
+      for( j = windowStart; j <= sp->today; j += 1 )
       {
          tempValue1 = ((j & sp->xMask) != pkSlot0) ? x_inReal[j & sp->xMask] : pkVal0;
          SumY += tempValue1;
@@ -984,7 +971,9 @@ TA_LIB_API TA_RetCode TA_TSF_OutRange( const TA_TSF_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_TSF_Advance( TA_TSF_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

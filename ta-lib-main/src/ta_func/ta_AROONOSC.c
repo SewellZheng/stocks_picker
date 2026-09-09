@@ -367,15 +367,6 @@ static void TA_AROONOSC_StepImpl( struct TA_AROONOSC_Stream *sp, double inHigh, 
    double tmp;
    double aroon;
 
-   if( sp->today >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->today -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->highestIdx -= rebaseShift;
-      sp->i -= rebaseShift;
-      sp->lowestIdx -= rebaseShift;
-   }
    sp->x_inHigh[sp->today & sp->xMask] = inHigh;
    sp->x_inLow[sp->today & sp->xMask] = inLow;
    /* Keep track of the lowestIdx */
@@ -663,10 +654,13 @@ TA_RetCode TA_AROONOSC_OpenAndFillInternal( struct TA_AROONOSC_Stream **stream, 
 
 TA_LIB_API TA_RetCode TA_AROONOSC_Update( TA_AROONOSC_Stream *stream, double inHigh, double inLow, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inHigh ) || !TA_IS_FINITE( inLow ) ) return TA_BAD_PARAM;
    TA_AROONOSC_StepImpl( stream, inHigh, inLow, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -680,8 +674,6 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double
    int i;
    double lowest;
    int lowestIdx;
-   int today;
-   int trailingIdx;
    double *x_inHigh;
    double *x_inLow;
    int pkSlot0 = -1;
@@ -696,32 +688,21 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double
    i = sp->i;
    lowest = sp->lowest;
    lowestIdx = sp->lowestIdx;
-   today = sp->today;
-   trailingIdx = sp->trailingIdx;
    x_inHigh = sp->x_inHigh;
    x_inLow = sp->x_inLow;
-   if( today >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      today -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      highestIdx -= rebaseShift;
-      i -= rebaseShift;
-      lowestIdx -= rebaseShift;
-   }
-   pkSlot0 = today & sp->xMask;
+   pkSlot0 = sp->today & sp->xMask;
    pkVal0 = inHigh;
-   pkSlot1 = today & sp->xMask;
+   pkSlot1 = sp->today & sp->xMask;
    pkVal1 = inLow;
    /* Keep track of the lowestIdx */
-   tmp = ((today & sp->xMask) != pkSlot1) ? x_inLow[today & sp->xMask] : pkVal1;
-   if( lowestIdx < trailingIdx )
+   tmp = ((sp->today & sp->xMask) != pkSlot1) ? x_inLow[sp->today & sp->xMask] : pkVal1;
+   if( lowestIdx < sp->trailingIdx )
    {
-      lowestIdx = trailingIdx;
+      lowestIdx = sp->trailingIdx;
       lowest = ((lowestIdx & sp->xMask) != pkSlot1) ? x_inLow[lowestIdx & sp->xMask] : pkVal1;
       i = lowestIdx;
       TA_UNROLL(4)
-      while( ++i <= today )
+      while( ++i <= sp->today )
       {
          tmp = ((i & sp->xMask) != pkSlot1) ? x_inLow[i & sp->xMask] : pkVal1;
          if( tmp <= lowest )
@@ -732,18 +713,18 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double
       }
    } else if( tmp <= lowest )
    {
-      lowestIdx = today;
+      lowestIdx = sp->today;
       lowest = tmp;
    }
    /* Keep track of the highestIdx */
-   tmp = ((today & sp->xMask) != pkSlot0) ? x_inHigh[today & sp->xMask] : pkVal0;
-   if( highestIdx < trailingIdx )
+   tmp = ((sp->today & sp->xMask) != pkSlot0) ? x_inHigh[sp->today & sp->xMask] : pkVal0;
+   if( highestIdx < sp->trailingIdx )
    {
-      highestIdx = trailingIdx;
+      highestIdx = sp->trailingIdx;
       highest = ((highestIdx & sp->xMask) != pkSlot0) ? x_inHigh[highestIdx & sp->xMask] : pkVal0;
       i = highestIdx;
       TA_UNROLL(4)
-      while( ++i <= today )
+      while( ++i <= sp->today )
       {
          tmp = ((i & sp->xMask) != pkSlot0) ? x_inHigh[i & sp->xMask] : pkVal0;
          if( tmp >= highest )
@@ -754,7 +735,7 @@ TA_LIB_API TA_RetCode TA_AROONOSC_Peek( const TA_AROONOSC_Stream *stream, double
       }
    } else if( tmp >= highest )
    {
-      highestIdx = today;
+      highestIdx = sp->today;
       highest = tmp;
    }
    /* The oscillator is the following:
@@ -797,7 +778,9 @@ TA_LIB_API TA_RetCode TA_AROONOSC_OutRange( const TA_AROONOSC_Stream *stream, in
 TA_LIB_API TA_RetCode TA_AROONOSC_Advance( TA_AROONOSC_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

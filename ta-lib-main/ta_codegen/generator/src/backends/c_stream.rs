@@ -368,6 +368,41 @@ fn index_pair_guards() -> &'static str {
     )
 }
 
+/// Rule U4 — [`index_pair_guards`] read on a live handle, one bar at a time
+/// (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle cannot
+/// answer it before its parent).
+///
+/// `>` and not `>=`: an opener may legally take `TA_MAX_INDEX + 1` bars (rule
+/// S2), so a handle can be born holding the last bar in the domain and it is the
+/// NEXT one that has nowhere to go.
+fn step_index_guard() -> &'static str {
+    concat!(
+        "   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )\n",
+        "      return TA_OUT_OF_RANGE_END_INDEX;\n"
+    )
+}
+
+/// The whole `Update` / `Peek` prologue, in the opener's order. One producer for
+/// every shape, because the order is the contract and a shape that assembles it
+/// itself can reorder it silently — every clause answers a different code.
+///
+/// `ceiling` is false for `Peek`, which counts no bar and so has no index to
+/// leave the domain (`docs/error-handling-spec.md` §2.4).
+fn step_prologue(func: &FuncDef, frame: Frame, ceiling: bool) -> String {
+    let mut s = String::new();
+    if ceiling {
+        // U4 dereferences the handle, so its own check has to stand alone in
+        // front of it rather than share the presence clause.
+        s.push_str("   if( !stream ) return TA_BAD_PARAM;\n");
+        s.push_str(step_index_guard());
+        s.push_str(&presence_guard(func, frame));
+    } else {
+        s.push_str(&presence_guard_handled(func, frame));
+    }
+    s.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
+    s
+}
+
 /// Which frame is asking [`presence_guard`] what it must find present.
 #[derive(Clone, Copy, PartialEq)]
 enum Frame {
@@ -387,10 +422,14 @@ enum Frame {
     StepEveryOutput,
 }
 
-/// Rule S4 / U1 / U2 — everything a C frame must find present, in one order:
-/// the handle, the declared inputs, the range out-parameters, then the outputs a
-/// caller is required to supply. It is the batch prologue's order too, so both
-/// tiers state the same contract the same way.
+/// Rule S4 / U2 — everything a C frame must find present, in one order: the
+/// declared inputs, the range out-parameters, then the outputs a caller is
+/// required to supply. It is the batch prologue's order too, so both tiers state
+/// the same contract the same way.
+///
+/// The handle is NOT in the list. Every frame checks it first and on its own,
+/// because reading the index domain (S1/S2 at an opener, U4 at a step) is a
+/// dereference and so has to follow it.
 ///
 /// One producer, because it is one decision and every frame makes it. Hand-rolled
 /// it had already split three ways — the merged tier put the out-meta first, the
@@ -409,9 +448,6 @@ enum Frame {
 fn required_args(func: &FuncDef, frame: Frame) -> Vec<String> {
     let nullable = nullable_out_names(func);
     let mut names: Vec<String> = Vec::new();
-    if matches!(frame, Frame::Step | Frame::StepEveryOutput) {
-        names.push("stream".to_string());
-    }
     if matches!(frame, Frame::Open | Frame::OpenAndFill) {
         names.extend(streaming::input_array_names(func));
     }
@@ -452,6 +488,17 @@ fn alias_term(func: &FuncDef, a: &str, b: &str) -> String {
         (false, true) => format!("({b} != NULL && {term})"),
         (true, true) => format!("({a} != NULL && {b} != NULL && {term})"),
     }
+}
+
+/// [`presence_guard`] with the handle fused into the same clause. The two are
+/// one test wherever nothing has to read the handle between them, which is every
+/// frame except a step that answers rule U4 first.
+fn presence_guard_handled(func: &FuncDef, frame: Frame) -> String {
+    let nulls: Vec<String> = std::iter::once("stream".to_string())
+        .chain(required_args(func, frame))
+        .map(|a| format!("!{a}"))
+        .collect();
+    format!("   if( {} ) return TA_BAD_PARAM;\n", nulls.join(" || "))
 }
 
 fn presence_guard(func: &FuncDef, frame: Frame) -> String {
@@ -919,6 +966,7 @@ fn emit_out_range(o: &mut String, func: &FuncDef) {
 fn emit_advance(o: &mut String, func: &FuncDef) {
     let _ = writeln!(o, "{}\n{{", advance_signature(func));
     let _ = writeln!(o, "   if( !stream ) return TA_BAD_PARAM;");
+    o.push_str(step_index_guard());
     emit_range_head_advance(o, "   ", "stream");
     let _ = writeln!(o, "   return TA_SUCCESS;\n}}\n");
 }
@@ -985,15 +1033,15 @@ pub fn header_decls(func: &FuncDef, lookup: &dyn streaming::CalleeLookup) -> Str
     // OutRange / Advance: declared unconditionally too — every tier's struct
     // leads with the range head these two read.
     let out_range = format!(
-        "\n/*\n * OutRange: the bars this stream has an output for, in the input series'\n * coordinates — [*outBegIdx, *outBegIdx + *outNBElement), what TA_{n} reports\n * over the same bars. Open seeds it; every accepted Update and every\n * TA_{n}_Advance adds one; a rejected Update and a Peek change nothing. The\n * count stops at TA_MAX_INDEX.\n */\n{};\n",
+        "\n/*\n * OutRange: the bars this stream has an output for, in the input series'\n * coordinates — [*outBegIdx, *outBegIdx + *outNBElement), what TA_{n} reports\n * over the same bars. Open seeds it; every accepted Update and every\n * TA_{n}_Advance adds one; a rejected Update and a Peek change nothing. The\n * last bar it can reach is TA_MAX_INDEX: past that Update and Advance answer\n * TA_OUT_OF_RANGE_END_INDEX, and the handle is done.\n */\n{};\n",
         out_range_signature(func)
     );
     let advance = format!(
-        "\n/*\n * Advance: count one bar this stream was not fed — one an Update rejected and\n * that will not be re-fed, or a session with no print. The range moves by one\n * and nothing else does, so TA_{n}_Value keeps answering the previous output,\n * which is this bar's output too.\n */\n{};\n",
+        "\n/*\n * Advance: count one bar this stream was not fed — one an Update rejected and\n * that will not be re-fed, or a session with no print. The range moves by one\n * and nothing else does, so TA_{n}_Value keeps answering the previous output,\n * which is this bar's output too. TA_OUT_OF_RANGE_END_INDEX once the range has\n * reached TA_MAX_INDEX.\n */\n{};\n",
         advance_signature(func)
     );
     format!(
-        "\n/*\n * Streaming API for TA_{n} — incremental per-bar evaluation.\n * See docs/streaming-api-design.md.\n{note} */\ntypedef struct TA_{n}_Stream TA_{n}_Stream;\n\n{};\n\n{};\n\n{};\n\n{};\n{}{}{}{}{}",
+        "\n/*\n * Streaming API for TA_{n} — incremental per-bar evaluation.\n{note} */\ntypedef struct TA_{n}_Stream TA_{n}_Stream;\n\n{};\n\n{};\n\n{};\n\n{};\n{}{}{}{}{}",
         open_signature(func),
         update_signature(func),
         peek_signature(func),
@@ -1458,9 +1506,6 @@ fn emit_composed_frame_body(
                 (pt.body, temps, peek_shadow_decls(&pt.shadows, &pt.slot_temps, 3), locals)
             }
         };
-        // Into `decls`, both of them: the extrema rebase below is a STATEMENT,
-        // and a declaration after it would be C99, which this tier's producers
-        // would be the only place in the emitted library to need.
         for (name, ty) in &temps {
             let _ = writeln!(decls, "   {};", c_decl(ty, name));
         }
@@ -1471,7 +1516,6 @@ fn emit_composed_frame_body(
         for (name, ty) in &locals {
             o.push_str(&peek_seed("   ", name, ty, &streaming::NameMap::state(&names, name)));
         }
-        emit_extrema_rebase(o, model, frame);
         let mut body_c = String::new();
         for s in &transition {
             body_c.push_str(&render_statement_stream(s, 3, enums, registry, helpers, counter, &nullable_out_names(func)));
@@ -2736,11 +2780,10 @@ fn emit_dispatch(
         if verb == "Update" {
             let _ = writeln!(o, "   TA_RetCode retCode;\n");
         }
-        o.push_str(&presence_guard(func, Frame::StepEveryOutput));
-        // Checked here rather than left to the sub-stream's own Update/Peek: the
-        // identity arm below never reaches a sub-stream at all, it copies the bar
-        // straight to the output.
-        o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
+        // The bar is checked here rather than left to the sub-stream's own
+        // Update/Peek: the identity arm below never reaches a sub-stream at all,
+        // it copies the bar straight to the output.
+        o.push_str(&step_prologue(func, Frame::StepEveryOutput, verb == "Update"));
         if let (Some(cond), Some(idp)) = (&identity_handle_cond, &dp.identity) {
             let _ = writeln!(o, "   if( {cond} )\n   {{");
             for (out, inp) in &idp.pairs {
@@ -3255,10 +3298,11 @@ pub const RANGE_HEAD_FIELDS: [&str; 2] = ["int outRangeBegIdx;", "int outRangeCo
 /// Advance the handle's count by one bar it has an output for (issue #241).
 /// Emitted for a committing step and for `TA_<N>_Advance`, which counts a bar
 /// the caller declined to feed.
-/// Saturates at `TA_MAX_INDEX`: past that the stream has left the index domain
-/// the batch tier addresses at all, and a signed overflow would be undefined.
+///
+/// Unconditional: every entry point that reaches it has already answered rule
+/// U4 ([`step_index_guard`]), which is the bound.
 fn emit_range_head_advance(o: &mut String, indent: &str, handle: &str) {
-    let _ = writeln!(o, "{indent}if( {handle}->outRangeCount < TA_MAX_INDEX ) {handle}->outRangeCount++;");
+    let _ = writeln!(o, "{indent}{handle}->outRangeCount++;");
 }
 
 /// Retain the value(s) this committed bar produced, for `TA_<N>_Value`.
@@ -4028,16 +4072,8 @@ fn peek_localized(
     body: &[Statement],
 ) -> (Vec<(String, VarType)>, streaming::PeekTransition) {
 
-    // The extrema rebase moves the cursor before the first store, so its
-    // targets are localized with the transition's own.
-    let mut rebased: Vec<String> = Vec::new();
-    if let Some(ex) = model.extrema() {
-        rebased.push(model.cursor.clone());
-        rebased.push(ex.trailing.clone());
-        rebased.extend(ex.index_vars.iter().cloned());
-    }
     let bufs = streaming::transition_buffers(model, names);
-    let (written, bases, body) = localize_peek_state_writes(model.func, body, &rebased, &bufs)
+    let (written, bases, body) = localize_peek_state_writes(model.func, body, &[], &bufs)
         .unwrap_or_else(|| {
             panic!("{}: a peek local would shadow a bar input or an output", model.func.name)
         });
@@ -4046,11 +4082,7 @@ fn peek_localized(
     // Read-only binds carry no store, so the purge has nothing to say about
     // them; `temps_used` still drops one whose only reader the purge deleted.
     let bound = bases;
-    // The rebase is emitted as text beside the frame, so no statement shows the
-    // read that keeps its targets alive; hold them out of the purge entirely.
-    let pinned: std::collections::BTreeSet<&str> = rebased.iter().map(String::as_str).collect();
-    let mut purgeable: Vec<(String, VarType)> =
-        typed.iter().filter(|(n, _)| !pinned.contains(n.as_str())).cloned().collect();
+    let mut purgeable: Vec<(String, VarType)> = typed.clone();
     for sh in &pt.shadows {
         purgeable.push((sh.slot_var.clone(), VarType::Integer));
         purgeable.push((
@@ -4068,7 +4100,7 @@ fn peek_localized(
         streaming::temps_used(&bound, &body).into_iter().map(|(n, _)| n).collect();
     let live: Vec<(String, VarType)> = typed
         .into_iter()
-        .filter(|(n, _)| pinned.contains(n.as_str()) || kept.contains(n))
+        .filter(|(n, _)| kept.contains(n))
         .chain(bound.into_iter().filter(|(n, _)| read_kept.contains(n)))
         .collect();
     let pt = streaming::PeekTransition {
@@ -4147,7 +4179,6 @@ fn emit_step_inner(
     for (name, ty) in &locals {
         body.push_str(&peek_seed(&pad, name, ty, &streaming::NameMap::state(&CNames, name)));
     }
-    emit_extrema_rebase(body, model, frame);
     let mut body_c = String::new();
     for s in &transition {
         body_c.push_str(&render_statement_stream(s, indent, enums, registry, helpers, counter, &nullable_out_names(model.func)));
@@ -4213,35 +4244,6 @@ fn emit_identity_step_branch(
     }
 }
 
-/// Extrema automatons carry batch-absolute int indices that grow by one
-/// per bar. Rebase them by a multiple of the physical ring size long before
-/// INT_MAX: index differences and `& xMask` slots are invariant, so the
-/// automaton (and bit-exactness vs any batch-comparable range, which is
-/// itself bounded by int) is untouched. Index-observable outputs
-/// (MININDEX...) report the rebased position beyond ~2^30 bars — the
-/// batch contract is inherently vacuous past INT_MAX bars.
-fn emit_extrema_rebase(o: &mut String, model: &StreamModel, frame: StepFrame) {
-    if let Some(ex) = model.extrema() {
-        // A peek frame has already moved every one of these to a local.
-        let q = match frame {
-            StepFrame::Commit => "sp->",
-            StepFrame::Peek => "",
-        };
-        let mut vars: Vec<String> = vec![model.cursor.clone(), ex.trailing.clone()];
-        vars.extend(ex.index_vars.iter().cloned());
-        let _ = writeln!(o, "   if( {q}{} >= 1073741824 )", model.cursor);
-        let _ = writeln!(o, "   {{");
-        let _ = writeln!(
-            o,
-            "      int rebaseShift = {q}{} & ~sp->xMask;",
-            ex.trailing
-        );
-        for v in &vars {
-            let _ = writeln!(o, "      {q}{v} -= rebaseShift;");
-        }
-        let _ = writeln!(o, "   }}");
-    }
-}
 
 /// Emit candle-settings unpacking lines only for the `<Set>_<prop>` locals
 /// the rendered code actually references.
@@ -4623,10 +4625,9 @@ fn emit_period_bank(
     let _ = writeln!(o, "{}\n{{", update_signature(func));
     let _ = writeln!(o, "   int k, cp;");
     let _ = writeln!(o, "   double cpReal;");
-    let _ = writeln!(o, "   if( !stream || !{out} ) return TA_BAD_PARAM;");
-    // inPeriods is checked here too: a non-finite period would reach `(int)`, and
-    // the conversion of NaN or an infinity to int is undefined behaviour.
-    o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
+    // inPeriods is in the bar check too: a non-finite period would reach `(int)`,
+    // and the conversion of NaN or an infinity to int is undefined behaviour.
+    o.push_str(&step_prologue(func, Frame::Step, true));
     let _ = writeln!(o, "   for( k = 0; k < stream->nBank; k++ )");
     let _ = writeln!(o, "      {pre}_Update( stream->bank[k], {price}, &stream->scratch[k] );");
     let _ = writeln!(o, "   cpReal = {period};");
@@ -4644,8 +4645,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "{}\n{{", peek_signature(func));
     let _ = writeln!(o, "   int cp;");
     let _ = writeln!(o, "   double cpReal;");
-    let _ = writeln!(o, "   if( !stream || !{out} ) return TA_BAD_PARAM;");
-    o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
+    o.push_str(&step_prologue(func, Frame::Step, false));
     let _ = writeln!(o, "   cpReal = {period};");
     let _ = writeln!(o, "   if( !(cpReal >= stream->{min}) ) cp = stream->{min};");
     let _ = writeln!(o, "   else if( cpReal > stream->{max} ) cp = stream->{max};");
@@ -5383,8 +5383,7 @@ fn emit_update(o: &mut String, func: &FuncDef, step_ret: bool) {
     if step_ret {
         let _ = writeln!(o, "   TA_RetCode retCode;\n");
     }
-    o.push_str(&presence_guard(func, Frame::Step));
-    o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
+    o.push_str(&step_prologue(func, Frame::Step, true));
     let args: Vec<String> = bars
         .iter()
         .cloned()
@@ -5435,8 +5434,7 @@ fn emit_peek(
     if bind_sp || !frame_decls.is_empty() {
         let _ = writeln!(o);
     }
-    o.push_str(&presence_guard(func, guard_frame));
-    o.push_str(&finite_bar_check(func, "   ", "TA_BAD_PARAM"));
+    o.push_str(&step_prologue(func, guard_frame, false));
     o.push_str(frame_body);
     if !fallible {
         let _ = writeln!(o, "   return TA_SUCCESS;");

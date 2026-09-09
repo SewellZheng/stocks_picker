@@ -695,14 +695,6 @@ static void TA_RVI_StepImpl( struct TA_RVI_Stream *sp, double inReal, double *ou
    double dnValue;
    double total;
 
-   if( sp->today >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->today -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->j -= rebaseShift;
-      sp->windowStart -= rebaseShift;
-   }
    sp->x_inReal[sp->today & sp->xMask] = inReal;
    tempReal = sp->x_inReal[sp->today & sp->xMask] - sp->shift;
    sp->periodTotal1 += tempReal;
@@ -1145,10 +1137,13 @@ TA_RetCode TA_RVI_OpenAndFillInternal( struct TA_RVI_Stream **stream, const doub
 
 TA_LIB_API TA_RetCode TA_RVI_Update( TA_RVI_Stream *stream, double inReal, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_RVI_StepImpl( stream, inReal, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1171,7 +1166,6 @@ TA_LIB_API TA_RetCode TA_RVI_Peek( const TA_RVI_Stream *stream, double inReal, d
    double prevDn;
    double prevUp;
    double shift;
-   int today;
    int trailingIdx;
    int windowStart;
    double *x_inReal;
@@ -1187,21 +1181,12 @@ TA_LIB_API TA_RetCode TA_RVI_Peek( const TA_RVI_Stream *stream, double inReal, d
    prevDn = sp->prevDn;
    prevUp = sp->prevUp;
    shift = sp->shift;
-   today = sp->today;
    trailingIdx = sp->trailingIdx;
    windowStart = sp->windowStart;
    x_inReal = sp->x_inReal;
-   if( today >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      today -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      j -= rebaseShift;
-      windowStart -= rebaseShift;
-   }
-   pkSlot0 = today & sp->xMask;
+   pkSlot0 = sp->today & sp->xMask;
    pkVal0 = inReal;
-   tempReal = (((today & sp->xMask) != pkSlot0) ? x_inReal[today & sp->xMask] : pkVal0) - shift;
+   tempReal = (((sp->today & sp->xMask) != pkSlot0) ? x_inReal[sp->today & sp->xMask] : pkVal0) - shift;
    periodTotal1 += tempReal;
    tempReal *= tempReal;
    periodTotal2 += tempReal;
@@ -1216,16 +1201,16 @@ TA_LIB_API TA_RetCode TA_RVI_Peek( const TA_RVI_Stream *stream, double inReal, d
    if( variance < 0.000001 * (periodTotal2 * sp->invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 )
    {
       barsSinceReseed = 32 * sp->optInStdDevPeriod;
-      windowStart = today - sp->nbInitialElementNeeded;
+      windowStart = sp->today - sp->nbInitialElementNeeded;
       tempReal = 0.0;
-      for( j = windowStart; j <= today; j += 1 )
+      for( j = windowStart; j <= sp->today; j += 1 )
       {
          tempReal += ((j & sp->xMask) != pkSlot0) ? x_inReal[j & sp->xMask] : pkVal0;
       }
       shift = tempReal * sp->invPeriod;
       periodTotal1 = 0.0;
       periodTotal2 = 0.0;
-      for( j = windowStart; j <= today; j += 1 )
+      for( j = windowStart; j <= sp->today; j += 1 )
       {
          tempReal = (((j & sp->xMask) != pkSlot0) ? x_inReal[j & sp->xMask] : pkVal0) - shift;
          periodTotal1 += tempReal;
@@ -1244,7 +1229,7 @@ TA_LIB_API TA_RetCode TA_RVI_Peek( const TA_RVI_Stream *stream, double inReal, d
       periodTotal2 -= tempReal;
    }
    sigma = sqrt(variance);
-   delta = (((today & sp->xMask) != pkSlot0) ? x_inReal[today & sp->xMask] : pkVal0) - ((((today - 1) & sp->xMask) != pkSlot0) ? x_inReal[(today - 1) & sp->xMask] : pkVal0);
+   delta = (((sp->today & sp->xMask) != pkSlot0) ? x_inReal[sp->today & sp->xMask] : pkVal0) - ((((sp->today - 1) & sp->xMask) != pkSlot0) ? x_inReal[(sp->today - 1) & sp->xMask] : pkVal0);
    upValue = 0.0;
    dnValue = 0.0;
    if( delta > 0.0 )
@@ -1285,7 +1270,9 @@ TA_LIB_API TA_RetCode TA_RVI_OutRange( const TA_RVI_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_RVI_Advance( TA_RVI_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

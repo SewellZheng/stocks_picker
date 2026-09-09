@@ -23,7 +23,8 @@
     * @param optInTimePeriod Smoothing period of the Average True Range (default
     *        10; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMultiplier Multiplier applied to the Average True Range to set
-    *        the band width (default 3; minimum 0; {@code -4e37} selects the default).
+    *        the band width (default 3; minimum 0; {@link Core#REAL_DEFAULT} selects
+    *        the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int SUPERTREND_Lookback( int optInTimePeriod, double optInMultiplier )
@@ -54,8 +55,8 @@
                             double optInMultiplier,
                             MInteger outBegIdx,
                             MInteger outNBElement,
-                            double outReal[],
-                            int outInteger[] )
+                            double outSupertrend[],
+                            int outTrend[] )
    {
       int i = 0;
       int today = 0;
@@ -174,8 +175,8 @@
       finalLower = medianPrice - band;
       isUptrend = 1;
       prevClose = inClose[startIdx];
-      outReal[0] = finalLower;
-      outInteger[0] = 1;
+      outSupertrend[0] = finalLower;
+      outTrend[0] = 1;
       outIdx = 1;
       today = startIdx + 1;
       while( today <= endIdx ) {
@@ -227,11 +228,11 @@
             isUptrend = 1;
          }
          if( (isUptrend) != 0 ) {
-            outReal[outIdx] = finalLower;
-            outInteger[outIdx] = 1;
+            outSupertrend[outIdx] = finalLower;
+            outTrend[outIdx] = 1;
          } else {
-            outReal[outIdx] = finalUpper;
-            outInteger[outIdx] = 0 - 1;
+            outSupertrend[outIdx] = finalUpper;
+            outTrend[outIdx] = 0 - 1;
          }
          prevClose = closeToday;
          outIdx += 1;
@@ -250,8 +251,8 @@
                             double optInMultiplier,
                             MInteger outBegIdx,
                             MInteger outNBElement,
-                            double outReal[],
-                            int outInteger[] )
+                            double outSupertrend[],
+                            int outTrend[] )
    {
       int i = 0;
       int today = 0;
@@ -347,8 +348,8 @@
       finalLower = medianPrice - band;
       isUptrend = 1;
       prevClose = (double)inClose[startIdx];
-      outReal[0] = finalLower;
-      outInteger[0] = 1;
+      outSupertrend[0] = finalLower;
+      outTrend[0] = 1;
       outIdx = 1;
       today = startIdx + 1;
       while( today <= endIdx ) {
@@ -384,11 +385,11 @@
             isUptrend = 1;
          }
          if( (isUptrend) != 0 ) {
-            outReal[outIdx] = finalLower;
-            outInteger[outIdx] = 1;
+            outSupertrend[outIdx] = finalLower;
+            outTrend[outIdx] = 1;
          } else {
-            outReal[outIdx] = finalUpper;
-            outInteger[outIdx] = 0 - 1;
+            outSupertrend[outIdx] = finalUpper;
+            outTrend[outIdx] = 0 - 1;
          }
          prevClose = closeToday;
          outIdx += 1;
@@ -404,16 +405,8 @@
     * the lower band while it is up and the upper band while it is down, so the
     * line is usually below price in an uptrend and above it in a downtrend, and
     * the flip is the signal. Attributed to Olivier Seban.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Median = (High + Low) / 2
-    * BasicUpper = Median + Multiplier * ATR(TimePeriod)
-    * BasicLower = Median - Multiplier * ATR(TimePeriod)
-    * Upper = BasicUpper, when BasicUpper < previous Upper or previous Close > previous Upper; otherwise the previous Upper
-    * Lower = BasicLower, when BasicLower > previous Lower or previous Close < previous Lower; otherwise the previous Lower
-    * SuperTrend = Lower while the trend is up, until Close < Lower flips it down
-    * SuperTrend = Upper while the trend is down, until Close > Upper flips it up
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/supertrend">ta-lib.org/functions/supertrend</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Both bands are carried forward on every bar, and the trend is decided against the current bar's band. This is the form Investopedia, TradingView and ta4j all describe. A second published form, from the AmiBroker script attributed to Seban, carries only the band the trend is riding and lets the other float free; the two agree on almost every bar and part company at a flip, where this form hands back a band it has been carrying all along and that one hands back a fresh value.</li>
@@ -437,11 +430,12 @@
     * @param optInTimePeriod Smoothing period of the Average True Range (default
     *        10; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMultiplier Multiplier applied to the Average True Range to set
-    *        the band width (default 3; minimum 0; {@code -4e37} selects the default).
-    * @param outReal The SuperTrend line: the band the trend is currently
+    *        the band width (default 3; minimum 0; {@link Core#REAL_DEFAULT} selects
+    *        the default).
+    * @param outSupertrend The SuperTrend line: the band the trend is currently
     *        riding. Must hold at least {@code endIdx - startIdx + 1} values.
-    * @param outInteger Trend direction: +1 while the trend rides the lower
-    *        band, -1 while it rides the upper one. Must hold at least
+    * @param outTrend Trend direction: +1 while the trend rides the lower band,
+    *        -1 while it rides the upper one. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
@@ -470,8 +464,8 @@
                                double inClose[],
                                int optInTimePeriod,
                                double optInMultiplier,
-                               double outReal[],
-                               int outInteger[] )
+                               double outSupertrend[],
+                               int outTrend[] )
    {
       requireIndexRange("SUPERTREND", startIdx, endIdx);
       int guardStart = clampedStart("SUPERTREND", startIdx, SUPERTREND_Lookback(optInTimePeriod, optInMultiplier));
@@ -480,11 +474,11 @@
       requireLength("SUPERTREND", "inHigh", inHigh, guardInLen);
       requireLength("SUPERTREND", "inLow", inLow, guardInLen);
       requireLength("SUPERTREND", "inClose", inClose, guardInLen);
-      requireLength("SUPERTREND", "outReal", outReal, guardOutLen);
-      requireLength("SUPERTREND", "outInteger", outInteger, guardOutLen);
+      requireLength("SUPERTREND", "outSupertrend", outSupertrend, guardOutLen);
+      requireLength("SUPERTREND", "outTrend", outTrend, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SUPERTREND_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outReal, outInteger);
+      RetCode retCode = SUPERTREND_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outSupertrend, outTrend);
       if( retCode != RetCode.Success ) {
          throw failure("SUPERTREND", retCode);
       }
@@ -496,16 +490,8 @@
     * the lower band while it is up and the upper band while it is down, so the
     * line is usually below price in an uptrend and above it in a downtrend, and
     * the flip is the signal. Attributed to Olivier Seban.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Median = (High + Low) / 2
-    * BasicUpper = Median + Multiplier * ATR(TimePeriod)
-    * BasicLower = Median - Multiplier * ATR(TimePeriod)
-    * Upper = BasicUpper, when BasicUpper < previous Upper or previous Close > previous Upper; otherwise the previous Upper
-    * Lower = BasicLower, when BasicLower > previous Lower or previous Close < previous Lower; otherwise the previous Lower
-    * SuperTrend = Lower while the trend is up, until Close < Lower flips it down
-    * SuperTrend = Upper while the trend is down, until Close > Upper flips it up
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/supertrend">ta-lib.org/functions/supertrend</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Both bands are carried forward on every bar, and the trend is decided against the current bar's band. This is the form Investopedia, TradingView and ta4j all describe. A second published form, from the AmiBroker script attributed to Seban, carries only the band the trend is riding and lets the other float free; the two agree on almost every bar and part company at a flip, where this form hands back a band it has been carrying all along and that one hands back a fresh value.</li>
@@ -532,11 +518,12 @@
     * @param optInTimePeriod Smoothing period of the Average True Range (default
     *        10; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInMultiplier Multiplier applied to the Average True Range to set
-    *        the band width (default 3; minimum 0; {@code -4e37} selects the default).
-    * @param outReal The SuperTrend line: the band the trend is currently
+    *        the band width (default 3; minimum 0; {@link Core#REAL_DEFAULT} selects
+    *        the default).
+    * @param outSupertrend The SuperTrend line: the band the trend is currently
     *        riding. Must hold at least {@code endIdx - startIdx + 1} values.
-    * @param outInteger Trend direction: +1 while the trend rides the lower
-    *        band, -1 while it rides the upper one. Must hold at least
+    * @param outTrend Trend direction: +1 while the trend rides the lower band,
+    *        -1 while it rides the upper one. Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
@@ -565,8 +552,8 @@
                                float inClose[],
                                int optInTimePeriod,
                                double optInMultiplier,
-                               double outReal[],
-                               int outInteger[] )
+                               double outSupertrend[],
+                               int outTrend[] )
    {
       requireIndexRange("SUPERTREND", startIdx, endIdx);
       int guardStart = clampedStart("SUPERTREND", startIdx, SUPERTREND_Lookback(optInTimePeriod, optInMultiplier));
@@ -575,11 +562,11 @@
       requireLength("SUPERTREND", "inHigh", inHigh, guardInLen);
       requireLength("SUPERTREND", "inLow", inLow, guardInLen);
       requireLength("SUPERTREND", "inClose", inClose, guardInLen);
-      requireLength("SUPERTREND", "outReal", outReal, guardOutLen);
-      requireLength("SUPERTREND", "outInteger", outInteger, guardOutLen);
+      requireLength("SUPERTREND", "outSupertrend", outSupertrend, guardOutLen);
+      requireLength("SUPERTREND", "outTrend", outTrend, guardOutLen);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      RetCode retCode = SUPERTREND_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outReal, outInteger);
+      RetCode retCode = SUPERTREND_Impl(startIdx, endIdx, inHigh, inLow, inClose, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outSupertrend, outTrend);
       if( retCode != RetCode.Success ) {
          throw failure("SUPERTREND", retCode);
       }
@@ -602,23 +589,23 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class SupertrendStream {
-      Core core;
-      int optInTimePeriod;
-      double optInMultiplier;
-      int isUptrend;
-      double prevATR;
-      double wAlpha;
-      double wBeta;
-      double finalUpper;
-      double finalLower;
-      double prevClose;
-      double lag1_inClose;
-      double cur_outReal;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInMultiplier;
+      private int isUptrend;
+      private double prevATR;
+      private double wAlpha;
+      private double wBeta;
+      private double finalUpper;
+      private double finalLower;
+      private double prevClose;
+      private double lag1_inClose;
+      private double cur_outSupertrend;
+      private int cur_outTrend;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      SupertrendStream( Core core ) { this.core = core; }
+      private SupertrendStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -630,6 +617,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -640,10 +630,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("SUPERTREND advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      SupertrendStream( SupertrendStream other ) {
+      private SupertrendStream( SupertrendStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInMultiplier = other.optInMultiplier;
@@ -655,15 +653,14 @@
          this.finalLower = other.finalLower;
          this.prevClose = other.prevClose;
          this.lag1_inClose = other.lag1_inClose;
-         this.cur_outReal = other.cur_outReal;
-         this.cur_outInteger = other.cur_outInteger;
+         this.cur_outSupertrend = other.cur_outSupertrend;
+         this.cur_outTrend = other.cur_outTrend;
          this.outRangeBegIdx = other.outRangeBegIdx;
          this.outRangeCount = other.outRangeCount;
       }
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -675,15 +672,21 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, SupertrendOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("SUPERTREND update", RetCode.OutOfRangeEndIndex);
          requireArgument("SUPERTREND update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("SUPERTREND update: BadParam", RetCode.BadParam);
          core.supertrendStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
-         out.real = this.cur_outReal;
-         out.integer = this.cur_outInteger;
+         this.outRangeCount++;
+         out.supertrend = this.cur_outSupertrend;
+         out.trend = this.cur_outTrend;
       }
 
       /**
@@ -691,9 +694,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, SupertrendOut out ) {
          requireArgument("SUPERTREND peek", "out", out);
@@ -711,8 +715,8 @@
          double basicUpper = 0.0;
          double basicLower = 0.0;
          double closeToday = 0.0;
-         int cur_outInteger = 0;
-         double cur_outReal = 0.0;
+         double cur_outSupertrend = 0.0;
+         int cur_outTrend = 0;
          double finalLower = sp.finalLower;
          double finalUpper = sp.finalUpper;
          int isUptrend = sp.isUptrend;
@@ -765,26 +769,26 @@
             isUptrend = 1;
          }
          if( (isUptrend) != 0 ) {
-            cur_outReal = finalLower;
-            cur_outInteger = 1;
+            cur_outSupertrend = finalLower;
+            cur_outTrend = 1;
          } else {
-            cur_outReal = finalUpper;
-            cur_outInteger = 0 - 1;
+            cur_outSupertrend = finalUpper;
+            cur_outTrend = 0 - 1;
          }
-         out.real = cur_outReal;
-         out.integer = cur_outInteger;
+         out.supertrend = cur_outSupertrend;
+         out.trend = cur_outTrend;
       }
 
       /**
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( SupertrendOut out ) {
          requireArgument("SUPERTREND value", "out", out);
-         out.real = this.cur_outReal;
-         out.integer = this.cur_outInteger;
+         out.supertrend = this.cur_outSupertrend;
+         out.trend = this.cur_outTrend;
       }
 
       /**
@@ -821,11 +825,11 @@
     */
    public static final class SupertrendOut {
       /** The SuperTrend line: the band the trend is currently riding. */
-      public double real;
+      public double supertrend;
       /** Trend direction: +1 while the trend rides the lower band, -1 while it rides the upper one. */
-      public int integer;
+      public int trend;
    }
-   void supertrendStepImpl( SupertrendStream sp, double inHigh, double inLow, double inClose )
+   private void supertrendStepImpl( SupertrendStream sp, double inHigh, double inLow, double inClose )
    {
       double val2 = 0.0;
       double val3 = 0.0;
@@ -886,16 +890,16 @@
          sp.isUptrend = 1;
       }
       if( (sp.isUptrend) != 0 ) {
-         sp.cur_outReal = sp.finalLower;
-         sp.cur_outInteger = 1;
+         sp.cur_outSupertrend = sp.finalLower;
+         sp.cur_outTrend = 1;
       } else {
-         sp.cur_outReal = sp.finalUpper;
-         sp.cur_outInteger = 0 - 1;
+         sp.cur_outSupertrend = sp.finalUpper;
+         sp.cur_outTrend = 0 - 1;
       }
       sp.prevClose = closeToday;
       sp.lag1_inClose = inClose;
    }
-   private RetCode supertrendOpenImpl( SupertrendStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, double optInMultiplier, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outInteger[], int outStride )
+   private RetCode supertrendOpenImpl( SupertrendStream sp, double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, double optInMultiplier, MInteger outBegIdx, MInteger outNBElement, double outSupertrend[], int outTrend[], int outStride )
    {
       int i = 0;
       int today = 0;
@@ -1024,8 +1028,8 @@
       finalLower = medianPrice - band;
       isUptrend = 1;
       prevClose = inClose[startIdx];
-      outReal[0 * outStride] = finalLower;
-      outInteger[0 * outStride] = 1;
+      outSupertrend[0 * outStride] = finalLower;
+      outTrend[0 * outStride] = 1;
       outIdx = 1;
       today = startIdx + 1;
       while( today <= endIdx ) {
@@ -1077,11 +1081,11 @@
             isUptrend = 1;
          }
          if( (isUptrend) != 0 ) {
-            outReal[outIdx * outStride] = finalLower;
-            outInteger[outIdx * outStride] = 1;
+            outSupertrend[outIdx * outStride] = finalLower;
+            outTrend[outIdx * outStride] = 1;
          } else {
-            outReal[outIdx * outStride] = finalUpper;
-            outInteger[outIdx * outStride] = 0 - 1;
+            outSupertrend[outIdx * outStride] = finalUpper;
+            outTrend[outIdx * outStride] = 0 - 1;
          }
          prevClose = closeToday;
          outIdx += 1;
@@ -1100,15 +1104,15 @@
       sp.finalLower = finalLower;
       sp.prevClose = prevClose;
       sp.lag1_inClose = inClose[historyLen - 1];
-      sp.cur_outReal = outReal[(outNBElement.value - 1) * outStride];
-      sp.cur_outInteger = outInteger[(outNBElement.value - 1) * outStride];
+      sp.cur_outSupertrend = outSupertrend[(outNBElement.value - 1) * outStride];
+      sp.cur_outTrend = outTrend[(outNBElement.value - 1) * outStride];
       return RetCode.Success;
    }
    /* supertrendOpenAndFill anchored at startIdx — the composed-open fusion seam. */
-   SupertrendStream supertrendOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, double optInMultiplier, MInteger outBegIdx, MInteger outNBElement, double outReal[], int outInteger[] )
+   SupertrendStream supertrendOpenAndFillInternal( double inHigh[], double inLow[], double inClose[], int startIdx, int optInTimePeriod, double optInMultiplier, MInteger outBegIdx, MInteger outNBElement, double outSupertrend[], int outTrend[] )
    {
       SupertrendStream sp = new SupertrendStream(this);
-      RetCode retCode = supertrendOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outReal, outInteger, 1);
+      RetCode retCode = supertrendOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outSupertrend, outTrend, 1);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
@@ -1128,9 +1132,9 @@
       SupertrendStream sp = new SupertrendStream(this);
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      double[] sink_outReal = new double[1];
-      int[] sink_outInteger = new int[1];
-      RetCode retCode = supertrendOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, sink_outReal, sink_outInteger, 0);
+      double[] sink_outSupertrend = new double[1];
+      int[] sink_outTrend = new int[1];
+      RetCode retCode = supertrendOpenImpl(sp, inHigh, inLow, inClose, startIdx, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, sink_outSupertrend, sink_outTrend, 0);
       sp.outRangeBegIdx = outBegIdx.value;
       sp.outRangeCount = outNBElement.value;
       if( retCode == RetCode.Success ) {
@@ -1151,8 +1155,8 @@
     * <p>The history must hold at least {@code SUPERTREND_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.
@@ -1178,7 +1182,7 @@
     * <p>The range written is on the returned handle:
     * {@link SupertrendStream#outRange()}.
     */
-   public SupertrendStream supertrendOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double optInMultiplier, double outReal[], int outInteger[] )
+   public SupertrendStream supertrendOpenAndFill( double inHigh[], double inLow[], double inClose[], int optInTimePeriod, double optInMultiplier, double outSupertrend[], int outTrend[] )
    {
       requireArgument("SUPERTREND openAndFill", "inHigh", inHigh);
       requireHistory("SUPERTREND openAndFill", inHigh.length);
@@ -1187,12 +1191,12 @@
       int guardOutLen = openFillCount("SUPERTREND openAndFill", inHigh.length, SUPERTREND_Lookback(optInTimePeriod, optInMultiplier));
       requireHistoryLength("SUPERTREND openAndFill", "inLow", inLow.length, inHigh.length);
       requireHistoryLength("SUPERTREND openAndFill", "inClose", inClose.length, inHigh.length);
-      requireLength("SUPERTREND openAndFill", "outReal", outReal, guardOutLen);
-      requireLength("SUPERTREND openAndFill", "outInteger", outInteger, guardOutLen);
-      if( (Object)outReal == (Object)inHigh || (Object)outReal == (Object)inLow || (Object)outReal == (Object)inClose || (Object)outInteger == (Object)inHigh || (Object)outInteger == (Object)inLow || (Object)outInteger == (Object)inClose || (Object)outReal == (Object)outInteger ) {
+      requireLength("SUPERTREND openAndFill", "outSupertrend", outSupertrend, guardOutLen);
+      requireLength("SUPERTREND openAndFill", "outTrend", outTrend, guardOutLen);
+      if( (Object)outSupertrend == (Object)inHigh || (Object)outSupertrend == (Object)inLow || (Object)outSupertrend == (Object)inClose || (Object)outTrend == (Object)inHigh || (Object)outTrend == (Object)inLow || (Object)outTrend == (Object)inClose || (Object)outSupertrend == (Object)outTrend ) {
          throw new TaLibArgumentException("SUPERTREND openAndFill: " + RetCode.BadParam, RetCode.BadParam);
       }
       MInteger outBegIdx = new MInteger();
       MInteger outNBElement = new MInteger();
-      return supertrendOpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outReal, outInteger);
+      return supertrendOpenAndFillInternal(inHigh, inLow, inClose, 0, optInTimePeriod, optInMultiplier, outBegIdx, outNBElement, outSupertrend, outTrend);
    }

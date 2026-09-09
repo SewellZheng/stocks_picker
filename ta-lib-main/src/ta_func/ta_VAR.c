@@ -441,14 +441,6 @@ static void TA_VAR_StepImpl( struct TA_VAR_Stream *sp, double inReal, double *ou
    double meanValue1;
    double variance;
 
-   if( sp->i >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->i -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->j -= rebaseShift;
-      sp->windowStart -= rebaseShift;
-   }
    sp->x_inReal[sp->i & sp->xMask] = inReal;
    /* Add the incoming value, measured against the shift. */
    tempReal = sp->x_inReal[sp->i & sp->xMask] - sp->shift;
@@ -845,10 +837,13 @@ TA_RetCode TA_VAR_OpenAndFillInternal( struct TA_VAR_Stream **stream, const doub
 
 TA_LIB_API TA_RetCode TA_VAR_Update( TA_VAR_Stream *stream, double inReal, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_VAR_StepImpl( stream, inReal, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -859,7 +854,6 @@ TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, d
    double meanValue1;
    double variance;
    int barsSinceReseed;
-   int i;
    int j;
    double periodTotal1;
    double periodTotal2;
@@ -873,7 +867,6 @@ TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, d
    if( !stream || !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    barsSinceReseed = sp->barsSinceReseed;
-   i = sp->i;
    j = sp->j;
    periodTotal1 = sp->periodTotal1;
    periodTotal2 = sp->periodTotal2;
@@ -881,18 +874,10 @@ TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, d
    trailingIdx = sp->trailingIdx;
    windowStart = sp->windowStart;
    x_inReal = sp->x_inReal;
-   if( i >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      i -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      j -= rebaseShift;
-      windowStart -= rebaseShift;
-   }
-   pkSlot0 = i & sp->xMask;
+   pkSlot0 = sp->i & sp->xMask;
    pkVal0 = inReal;
    /* Add the incoming value, measured against the shift. */
-   tempReal = (((i & sp->xMask) != pkSlot0) ? x_inReal[i & sp->xMask] : pkVal0) - shift;
+   tempReal = (((sp->i & sp->xMask) != pkSlot0) ? x_inReal[sp->i & sp->xMask] : pkVal0) - shift;
    periodTotal1 += tempReal;
    tempReal *= tempReal;
    periodTotal2 += tempReal;
@@ -921,16 +906,16 @@ TA_LIB_API TA_RetCode TA_VAR_Peek( const TA_VAR_Stream *stream, double inReal, d
    if( variance < 0.000001 * (periodTotal2 * sp->invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 )
    {
       barsSinceReseed = 32 * sp->optInTimePeriod;
-      windowStart = i - sp->nbInitialElementNeeded;
+      windowStart = sp->i - sp->nbInitialElementNeeded;
       tempReal = 0.0;
-      for( j = windowStart; j <= i; j += 1 )
+      for( j = windowStart; j <= sp->i; j += 1 )
       {
          tempReal += ((j & sp->xMask) != pkSlot0) ? x_inReal[j & sp->xMask] : pkVal0;
       }
       shift = tempReal * sp->invPeriod;
       periodTotal1 = 0.0;
       periodTotal2 = 0.0;
-      for( j = windowStart; j <= i; j += 1 )
+      for( j = windowStart; j <= sp->i; j += 1 )
       {
          tempReal = (((j & sp->xMask) != pkSlot0) ? x_inReal[j & sp->xMask] : pkVal0) - shift;
          periodTotal1 += tempReal;
@@ -1028,7 +1013,9 @@ TA_LIB_API TA_RetCode TA_VAR_OutRange( const TA_VAR_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_VAR_Advance( TA_VAR_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

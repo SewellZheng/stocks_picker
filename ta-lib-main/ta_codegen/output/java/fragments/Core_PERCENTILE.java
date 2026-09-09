@@ -22,7 +22,7 @@
     * @param optInTimePeriod Number of bars in the trailing window (default 30;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInPercentile Percentage position within the sorted window
-    *        (default 50; range 0..100; {@code -4e37} selects the default).
+    *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int PERCENTILE_Lookback( int optInTimePeriod, double optInPercentile )
@@ -307,10 +307,8 @@
     * scale and never invents a level the series never traded at. At P = 50 with
     * an odd window it is the rolling median; at the extremes it degenerates to
     * the rolling minimum and maximum.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $W_t = \operatorname{sort}(x_{t-N+1}, \dots, x_t)$; $k = \left\lceil \frac{P \cdot N}{100} \right\rceil$ clamped to $[1, N]$; $PERCENTILE_t = W_t[k]$ (N = optInTimePeriod, P = optInPercentile, $W_t[1]$ the smallest)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/percentile">ta-lib.org/functions/percentile</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The nearest-rank method is one of several incompatible percentile conventions. The linear-interpolation family (Hyndman &amp; Fan type 7, the default of most statistical packages, and TradingView's {@code ta.percentile_linear_interpolation}) reports a weighted blend of two neighbouring order statistics and can emit a value that never occurred. That is a different indicator, not a mode of this one: PERCENTILE's parameter list is fixed at a window and a percentage, and a method selector cannot be appended to it later without changing the function's arity.</li>
@@ -328,7 +326,7 @@
     * @param optInTimePeriod Number of bars in the trailing window (default 30;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInPercentile Percentage position within the sorted window
-    *        (default 50; range 0..100; {@code -4e37} selects the default).
+    *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal The value at the requested rank within the trailing window.
     *        Must hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -379,10 +377,8 @@
     * scale and never invents a level the series never traded at. At P = 50 with
     * an odd window it is the rolling median; at the extremes it degenerates to
     * the rolling minimum and maximum.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $W_t = \operatorname{sort}(x_{t-N+1}, \dots, x_t)$; $k = \left\lceil \frac{P \cdot N}{100} \right\rceil$ clamped to $[1, N]$; $PERCENTILE_t = W_t[k]$ (N = optInTimePeriod, P = optInPercentile, $W_t[1]$ the smallest)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/percentile">ta-lib.org/functions/percentile</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The nearest-rank method is one of several incompatible percentile conventions. The linear-interpolation family (Hyndman &amp; Fan type 7, the default of most statistical packages, and TradingView's {@code ta.percentile_linear_interpolation}) reports a weighted blend of two neighbouring order statistics and can emit a value that never occurred. That is a different indicator, not a mode of this one: PERCENTILE's parameter list is fixed at a window and a percentage, and a method selector cannot be appended to it later without changing the function's arity.</li>
@@ -403,7 +399,7 @@
     * @param optInTimePeriod Number of bars in the trailing window (default 30;
     *        range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInPercentile Percentage position within the sorted window
-    *        (default 50; range 0..100; {@code -4e37} selects the default).
+    *        (default 50; range 0..100; {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal The value at the requested rank within the trailing window.
     *        Must hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -463,24 +459,24 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class PercentileStream {
-      Core core;
-      int optInTimePeriod;
-      double optInPercentile;
-      int lookbackTotal;
-      int rank;
-      int ring_Idx;
-      int maxIdx_ring;
-      int sorted_Idx;
-      int maxIdx_sorted;
-      int cbSize_ring;
-      double[] cb_ring;
-      int cbSize_sorted;
-      double[] cb_sorted;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInPercentile;
+      private int lookbackTotal;
+      private int rank;
+      private int ring_Idx;
+      private int maxIdx_ring;
+      private int sorted_Idx;
+      private int maxIdx_sorted;
+      private int cbSize_ring;
+      private double[] cb_ring;
+      private int cbSize_sorted;
+      private double[] cb_sorted;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      PercentileStream( Core core ) { this.core = core; }
+      private PercentileStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -492,6 +488,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -502,10 +501,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PERCENTILE advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      PercentileStream( PercentileStream other ) {
+      private PercentileStream( PercentileStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInPercentile = other.optInPercentile;
@@ -526,7 +533,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -538,12 +544,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PERCENTILE update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("PERCENTILE update: BadParam", RetCode.BadParam);
          core.percentileStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -552,9 +564,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -606,7 +619,7 @@
          return new PercentileStream(this);
       }
    }
-   void percentileStepImpl( PercentileStream sp, double inReal )
+   private void percentileStepImpl( PercentileStream sp, double inReal )
    {
       double newValue = 0.0;
       double oldValue = 0.0;
@@ -857,8 +870,8 @@
     * <p>The history must hold at least {@code PERCENTILE_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

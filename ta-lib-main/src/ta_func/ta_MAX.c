@@ -439,14 +439,6 @@ static void TA_MAX_StepImpl( struct TA_MAX_Stream *sp, double inReal, double *ou
 {
    double tmp;
 
-   if( sp->today >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->today -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->highestIdx -= rebaseShift;
-      sp->i -= rebaseShift;
-   }
    sp->x_inReal[sp->today & sp->xMask] = inReal;
    tmp = sp->x_inReal[sp->today & sp->xMask];
    if( sp->highestIdx < sp->trailingIdx )
@@ -653,10 +645,13 @@ TA_RetCode TA_MAX_OpenAndFillInternal( struct TA_MAX_Stream **stream, const doub
 
 TA_LIB_API TA_RetCode TA_MAX_Update( TA_MAX_Stream *stream, double inReal, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal ) ) return TA_BAD_PARAM;
    TA_MAX_StepImpl( stream, inReal, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -667,8 +662,6 @@ TA_LIB_API TA_RetCode TA_MAX_Peek( const TA_MAX_Stream *stream, double inReal, d
    double highest;
    int highestIdx;
    int i;
-   int today;
-   int trailingIdx;
    double *x_inReal;
    int pkSlot0 = -1;
    double pkVal0 = 0.0;
@@ -678,27 +671,17 @@ TA_LIB_API TA_RetCode TA_MAX_Peek( const TA_MAX_Stream *stream, double inReal, d
    highest = sp->highest;
    highestIdx = sp->highestIdx;
    i = sp->i;
-   today = sp->today;
-   trailingIdx = sp->trailingIdx;
    x_inReal = sp->x_inReal;
-   if( today >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      today -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      highestIdx -= rebaseShift;
-      i -= rebaseShift;
-   }
-   pkSlot0 = today & sp->xMask;
+   pkSlot0 = sp->today & sp->xMask;
    pkVal0 = inReal;
-   tmp = ((today & sp->xMask) != pkSlot0) ? x_inReal[today & sp->xMask] : pkVal0;
-   if( highestIdx < trailingIdx )
+   tmp = ((sp->today & sp->xMask) != pkSlot0) ? x_inReal[sp->today & sp->xMask] : pkVal0;
+   if( highestIdx < sp->trailingIdx )
    {
-      highestIdx = trailingIdx;
+      highestIdx = sp->trailingIdx;
       highest = ((highestIdx & sp->xMask) != pkSlot0) ? x_inReal[highestIdx & sp->xMask] : pkVal0;
       i = highestIdx;
       TA_UNROLL(4)
-      while( ++i <= today )
+      while( ++i <= sp->today )
       {
          tmp = ((i & sp->xMask) != pkSlot0) ? x_inReal[i & sp->xMask] : pkVal0;
          if( tmp > highest )
@@ -709,7 +692,7 @@ TA_LIB_API TA_RetCode TA_MAX_Peek( const TA_MAX_Stream *stream, double inReal, d
       }
    } else if( tmp >= highest )
    {
-      highestIdx = today;
+      highestIdx = sp->today;
       highest = tmp;
    }
    *outReal= highest;
@@ -740,7 +723,9 @@ TA_LIB_API TA_RetCode TA_MAX_OutRange( const TA_MAX_Stream *stream, int *outBegI
 TA_LIB_API TA_RetCode TA_MAX_Advance( TA_MAX_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

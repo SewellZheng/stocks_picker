@@ -1861,10 +1861,8 @@ fn javadoc_notice_present(bin_dir: &Path, javadoc_jar: &Path) -> bool {
 /// thing a user copies, and a published javadoc jar cannot be corrected, so they
 /// are compiled like any other source.
 ///
-/// Scope is the hand-written scaffolding plus the two package pages, listed in
-/// `DOC_EXAMPLE_FILES`. `Core.java` contributes only its hand-written region:
-/// the 233 blocks inside the GENCODE markers are each function's **Formula**
-/// from its canonical `.md`, which is algebra and deliberately not Java.
+/// Scope is `Core.java` plus the hand-written scaffolding and the two package
+/// pages listed in `DOC_EXAMPLE_FILES`.
 ///
 /// A snippet may use `close` and `out`; anything else fails, which is the point
 /// — the alternative is a preamble that quietly grows until the gate compiles
@@ -1877,7 +1875,6 @@ fn check_java_doc_examples(src_root: &Path, jar_path: &Path, bin_dir: &Path) -> 
         "main/java/io/github/talib/metadata/Functions.java",
         "main/java/io/github/talib/metadata/ParamHolder.java",
     ];
-    const CORE_GENCODE_START: &str = "/**** START GENCODE SECTION 1";
 
     let mut snippets: Vec<(String, String)> = Vec::new();
     for rel in DOC_EXAMPLE_FILES {
@@ -1890,12 +1887,10 @@ fn check_java_doc_examples(src_root: &Path, jar_path: &Path, bin_dir: &Path) -> 
             snippets.push((format!("{rel}#{i}"), body));
         }
     }
-    // Core.java: everything before the generated section.
     let core_path = src_root.join("main/java/io/github/talib/Core.java");
     if let Ok(text) = std::fs::read_to_string(&core_path) {
-        let head = text.split(CORE_GENCODE_START).next().unwrap_or("");
-        for (i, body) in extract_doc_code_blocks(head).into_iter().enumerate() {
-            snippets.push((format!("Core.java(hand-written)#{i}"), body));
+        for (i, body) in extract_doc_code_blocks(&text).into_iter().enumerate() {
+            snippets.push((format!("Core.java#{i}"), body));
         }
     }
 
@@ -2408,7 +2403,7 @@ assert_eq!(sma.out_range().count, 4);
 
 // Re-feed the bar when a corrected value arrives, or — when none is coming —
 // count it and carry on. Its output is the previous one, held.
-sma.advance();
+sma.advance()?;
 assert_eq!(sma.out_range().count, 5);
 assert_eq!(sma.value(), 15.0);"#,
 };
@@ -2761,7 +2756,7 @@ $FUNC_INDEX
 // widening the lint cannot break a downstream build; the nightly's
 // `cargo clippy -- -D warnings` is what makes it a gate here.
 #![warn(missing_docs)]
-#![allow(non_snake_case, non_camel_case_types, unused_variables, unused_assignments, unused_mut, unused_parens, arithmetic_overflow)]
+#![allow(non_snake_case, non_camel_case_types, unused_variables, unused_assignments, unused_mut, unused_parens)]
 // Generated code: Clippy's style/complexity lints are noise on machine output, and
 // several "fixes" would change numeric behavior — e.g. `neg_cmp_op_on_partial_ord`
 // on C's `!(a < b)` NaN idiom, or De Morgan rewrites under `nonminimal_bool`. The

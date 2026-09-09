@@ -316,13 +316,6 @@ struct MaxindexStreamState {
 impl Core {
     fn maxindex_step_impl(sp: &mut MaxindexStreamState, inReal: f64, outInteger: &mut i32) {
         let mut tmp: f64 = 0.0_f64;
-        if sp.today >= 1073741824 {
-            let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
-            sp.today -= rebaseShift;
-            sp.trailingIdx -= rebaseShift;
-            sp.highestIdx -= rebaseShift;
-            sp.i -= rebaseShift;
-        }
         sp.x_inReal[(sp.today & sp.xMask) as usize] = inReal;
         tmp = sp.x_inReal[(sp.today & sp.xMask) as usize];
         if sp.highestIdx < sp.trailingIdx {
@@ -508,9 +501,8 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
-    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
-    /// or when two of them are the same slice. Everything [`Core::maxindex_open`] rejects
-    /// is rejected here too.
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).
+    /// Everything [`Core::maxindex_open`] rejects is rejected here too.
     ///
     /// # Examples
     ///
@@ -583,16 +575,21 @@ impl MaxindexStream {
     /// a corrected value arrives, or call [`Self::advance`] to count it and
     /// carry on — two handles on one feed drift a bar apart if neither
     /// happens.
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_MAXINDEX_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<i32, RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
         let mut outInteger: i32 = 0_i32;
         Core::maxindex_step_impl(&mut self.state, inReal, &mut outInteger);
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
-        }
+        self.out.count += 1;
         Ok(outInteger)
     }
 
@@ -606,7 +603,9 @@ impl MaxindexStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies, and a rejected peek changes nothing at all.
+    /// `update` applies, and a rejected peek changes nothing at all. Not
+    /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
+    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
     #[doc(alias = "TA_MAXINDEX_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<i32, RetCode> {
         if !inReal.is_finite() {
@@ -620,25 +619,16 @@ impl MaxindexStream {
             let mut highest = sp.highest;
             let mut highestIdx = sp.highestIdx;
             let mut i = sp.i;
-            let mut today = sp.today;
-            let mut trailingIdx = sp.trailingIdx;
             let mut pkSlot0: usize = usize::MAX;
             let mut pkVal0: f64 = 0.0_f64;
-            if today >= 1073741824 {
-                let rebaseShift: i32 = trailingIdx & !sp.xMask;
-                today -= rebaseShift;
-                trailingIdx -= rebaseShift;
-                highestIdx -= rebaseShift;
-                i -= rebaseShift;
-            }
-            pkSlot0 = (today & sp.xMask) as usize;
+            pkSlot0 = (sp.today & sp.xMask) as usize;
             pkVal0 = inReal;
-            tmp = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(today & sp.xMask) as usize] } else { pkVal0 });
-            if highestIdx < trailingIdx {
-                highestIdx = trailingIdx;
+            tmp = (if ((sp.today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(sp.today & sp.xMask) as usize] } else { pkVal0 });
+            if highestIdx < sp.trailingIdx {
+                highestIdx = sp.trailingIdx;
                 highest = (if ((highestIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(highestIdx & sp.xMask) as usize] } else { pkVal0 });
                 i = highestIdx;
-                while (({ i += 1; i }) as i32) <= today {
+                while (({ i += 1; i }) as i32) <= sp.today {
                     tmp = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(i & sp.xMask) as usize] } else { pkVal0 });
                     if tmp > highest {
                         highestIdx = i;
@@ -646,7 +636,7 @@ impl MaxindexStream {
                     }
                 }
             } else if tmp >= highest {
-                highestIdx = today;
+                highestIdx = sp.today;
                 highest = tmp;
             }
             (*outInteger) = (highestIdx) as i32;
@@ -676,6 +666,9 @@ impl MaxindexStream {
     /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
+    ///
+    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_MAXINDEX_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
@@ -688,11 +681,19 @@ impl MaxindexStream {
     /// For a bar the caller leaves out: one an `update` rejected and that
     /// will not be re-fed, or a session with no print. Without it two handles
     /// on one feed drift a bar apart when only one of them skips.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_MAXINDEX_Advance")]
-    pub fn advance(&mut self) {
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
+    pub fn advance(&mut self) -> Result<(), RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
+        self.out.count += 1;
+        Ok(())
     }
 }
 

@@ -239,6 +239,9 @@ public partial class Core
       if( outBullPower.Overlaps(outBearPower) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outBullPower).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outBullPower).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outBullPower).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outBearPower).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outBearPower).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outBearPower).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         return RetCode.BadParam ;
+      }
       lookbackTotal = ERI_Lookback(optInTimePeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -295,17 +298,16 @@ public partial class Core
    }
    /// <summary>
    /// Elder Ray Index: Alexander Elder's Bull Power / Bear Power pair from
-   /// *Trading for a Living* (1993) — how far the bar's high and low sit from an
-   /// EMA of the close. Bulls strong enough to push the high above the average
-   /// read as positive Bull Power; bears dragging the low below it read as
-   /// negative Bear Power.
+   /// <i>Trading for a Living</i> (1993) — how far the bar's high and low sit
+   /// from an EMA of the close. Bulls strong enough to push the high above the
+   /// average read as positive Bull Power; bears dragging the low below it read
+   /// as negative Bear Power.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// `Bull Power = High − EMA(Close, n)` and `Bear Power = Low − EMA(Close, n)`, both lines against the **same** EMA. Bull ≥ Bear on every bar since high ≥ low. TradingView's built-in *Bull Bear Power* — which its own support page calls "otherwise known as the Elder-Ray Index" — plots only the sum of the two, not the pair; StockCharts, TC2000 and pandas-ta all ship the two lines.
-   /// Because the underlying average is an [`EMA`](/functions/ema), ERI inherits its unstable period: the warm-up consumes `TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)` extra bars, exactly as `EMA` itself does.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/eri">ta-lib.org/functions/eri</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>ERI is a cancelling difference: near the zero crossings that carry its signal, tiny EMA discrepancies are amplified without bound in relative terms. Compare against external values with an absolute tolerance.</description></item>
    /// <item><description>No MAType parameter: every canonical source fixes the EMA, and a selectable average would invent a variant nobody ships.</description></item>
@@ -372,17 +374,16 @@ public partial class Core
    }
    /// <summary>
    /// Elder Ray Index: Alexander Elder's Bull Power / Bear Power pair from
-   /// *Trading for a Living* (1993) — how far the bar's high and low sit from an
-   /// EMA of the close. Bulls strong enough to push the high above the average
-   /// read as positive Bull Power; bears dragging the low below it read as
-   /// negative Bear Power.
+   /// <i>Trading for a Living</i> (1993) — how far the bar's high and low sit
+   /// from an EMA of the close. Bulls strong enough to push the high above the
+   /// average read as positive Bull Power; bears dragging the low below it read
+   /// as negative Bear Power.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// `Bull Power = High − EMA(Close, n)` and `Bear Power = Low − EMA(Close, n)`, both lines against the **same** EMA. Bull ≥ Bear on every bar since high ≥ low. TradingView's built-in *Bull Bear Power* — which its own support page calls "otherwise known as the Elder-Ray Index" — plots only the sum of the two, not the pair; StockCharts, TC2000 and pandas-ta all ship the two lines.
-   /// Because the underlying average is an [`EMA`](/functions/ema), ERI inherits its unstable period: the warm-up consumes `TA_GetUnstablePeriod(TA_FUNC_UNST_EMA)` extra bars, exactly as `EMA` itself does.
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/eri">ta-lib.org/functions/eri</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>ERI is a cancelling difference: near the zero crossings that carry its signal, tiny EMA discrepancies are amplified without bound in relative terms. Compare against external values with an absolute tolerance.</description></item>
    /// <item><description>No MAType parameter: every canonical source fixes the EMA, and a selectable average would invent a variant nobody ships.</description></item>
@@ -428,8 +429,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange ERI( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inHigh,
@@ -506,6 +509,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -516,10 +521,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("ERI", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal EriStream( EriStream other )
@@ -546,6 +557,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -553,9 +568,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public EriValue Update( double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("ERI", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ERI", "update", RetCode.BadParam);
          core.EriStepImpl(this, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new EriValue(cur_outBullPower, cur_outBearPower);
       }
 
@@ -565,14 +582,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public EriValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("ERI", "peek", RetCode.BadParam);

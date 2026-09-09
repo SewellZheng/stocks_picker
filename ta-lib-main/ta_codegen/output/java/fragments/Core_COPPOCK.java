@@ -414,20 +414,15 @@
    }
    /**
     * Coppock Curve: Edwin S. "Sedge" Coppock's long-term momentum oscillator
-    * (*Barron's*, originally published as the "Trendex Model"), computed as a
-    * weighted moving average of the **sum** of two rates of change. Unbounded;
-    * positive turns from below zero are the signal the indicator was designed
-    * for (long-term buying opportunities on monthly index data).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * `COPPOCK = WMA(ROC(optInROC1Period) + ROC(optInROC2Period), optInWMAPeriod)`
-    * Each ROC carries [`ROC`](/functions/roc)'s own zero guard — a zero price `optInROC*Period` bars back yields 0.0 for that term, never an infinity. The two ROCs are **summed**, not averaged: every published definition sums them. (Tulip's `copp` averages, so it reads at exactly half this amplitude — a clean 2.0x ratio against Tulip is Tulip's variant, not a defect.)
-    * The formula is symmetric in the two ROC periods and the lookback keys off their max, so `optInROC1Period > optInROC2Period` is accepted rather than rejected.
-    * The classic defaults are 11/14/10 on monthly data. Wikipedia's daily-scale variant (231/294-bar ROC, 210-bar WMA) is a parameter choice reachable through this API, not a competing formula.
-    * }</pre>
+    * (<i>Barron's</i>, originally published as the "Trendex Model"), computed
+    * as a weighted moving average of the <b>sum</b> of two rates of change.
+    * Unbounded; positive turns from below zero are the signal the indicator was
+    * designed for (long-term buying opportunities on monthly index data).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/coppock">ta-lib.org/functions/coppock</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>The single fused pass is bit-identical to running {@code ROC + ROC} into [{@code WMA}](/functions/wma).</li>
+    * <li>The single fused pass is bit-identical to running {@code ROC + ROC} into <a href="https://ta-lib.org/functions/wma">{@code WMA}</a>.</li>
     * <li>First output at {@code max(optInROC1Period, optInROC2Period) + optInWMAPeriod - 1}. Not start-dependent: each output depends only on its finite trailing window.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -485,20 +480,15 @@
    }
    /**
     * Coppock Curve: Edwin S. "Sedge" Coppock's long-term momentum oscillator
-    * (*Barron's*, originally published as the "Trendex Model"), computed as a
-    * weighted moving average of the **sum** of two rates of change. Unbounded;
-    * positive turns from below zero are the signal the indicator was designed
-    * for (long-term buying opportunities on monthly index data).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * `COPPOCK = WMA(ROC(optInROC1Period) + ROC(optInROC2Period), optInWMAPeriod)`
-    * Each ROC carries [`ROC`](/functions/roc)'s own zero guard — a zero price `optInROC*Period` bars back yields 0.0 for that term, never an infinity. The two ROCs are **summed**, not averaged: every published definition sums them. (Tulip's `copp` averages, so it reads at exactly half this amplitude — a clean 2.0x ratio against Tulip is Tulip's variant, not a defect.)
-    * The formula is symmetric in the two ROC periods and the lookback keys off their max, so `optInROC1Period > optInROC2Period` is accepted rather than rejected.
-    * The classic defaults are 11/14/10 on monthly data. Wikipedia's daily-scale variant (231/294-bar ROC, 210-bar WMA) is a parameter choice reachable through this API, not a competing formula.
-    * }</pre>
+    * (<i>Barron's</i>, originally published as the "Trendex Model"), computed
+    * as a weighted moving average of the <b>sum</b> of two rates of change.
+    * Unbounded; positive turns from below zero are the signal the indicator was
+    * designed for (long-term buying opportunities on monthly index data).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/coppock">ta-lib.org/functions/coppock</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>The single fused pass is bit-identical to running {@code ROC + ROC} into [{@code WMA}](/functions/wma).</li>
+    * <li>The single fused pass is bit-identical to running {@code ROC + ROC} into <a href="https://ta-lib.org/functions/wma">{@code WMA}</a>.</li>
     * <li>First output at {@code max(optInROC1Period, optInROC2Period) + optInWMAPeriod - 1}. Not start-dependent: each output depends only on its finite trailing window.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -574,31 +564,31 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CoppockStream {
-      Core core;
-      int optInWMAPeriod;
-      int optInROC1Period;
-      int optInROC2Period;
-      int ringSize;
-      int barsSinceReseed;
-      double periodSum;
-      double periodSub;
-      double trailingValue;
-      double divider;
-      int sRing_Idx;
-      int maxIdx_sRing;
-      int ringPos_roc1Idx;
-      int ringCap_roc1Idx;
-      double[] ring_roc1Idx_inReal;
-      int ringPos_roc2Idx;
-      int ringCap_roc2Idx;
-      double[] ring_roc2Idx_inReal;
-      int cbSize_sRing;
-      double[] cb_sRing;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInWMAPeriod;
+      private int optInROC1Period;
+      private int optInROC2Period;
+      private int ringSize;
+      private int barsSinceReseed;
+      private double periodSum;
+      private double periodSub;
+      private double trailingValue;
+      private double divider;
+      private int sRing_Idx;
+      private int maxIdx_sRing;
+      private int ringPos_roc1Idx;
+      private int ringCap_roc1Idx;
+      private double[] ring_roc1Idx_inReal;
+      private int ringPos_roc2Idx;
+      private int ringCap_roc2Idx;
+      private double[] ring_roc2Idx_inReal;
+      private int cbSize_sRing;
+      private double[] cb_sRing;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CoppockStream( Core core ) { this.core = core; }
+      private CoppockStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -610,6 +600,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -620,10 +613,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("COPPOCK advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CoppockStream( CoppockStream other ) {
+      private CoppockStream( CoppockStream other ) {
          this.core = other.core;
          this.optInWMAPeriod = other.optInWMAPeriod;
          this.optInROC1Period = other.optInROC1Period;
@@ -651,7 +652,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -663,12 +663,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("COPPOCK update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("COPPOCK update: BadParam", RetCode.BadParam);
          core.coppockStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -677,9 +683,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -795,7 +802,7 @@
          return new CoppockStream(this);
       }
    }
-   void coppockStepImpl( CoppockStream sp, double inReal )
+   private void coppockStepImpl( CoppockStream sp, double inReal )
    {
       int q = 0;
       int rw = 0;
@@ -1173,8 +1180,8 @@
     * <p>The history must hold at least {@code COPPOCK_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -252,7 +252,7 @@
       return RetCode.Success ;
    }
    /**
-    * Alexander Elder's Force Index (*Trading for a Living*, 1993):
+    * Alexander Elder's Force Index (<i>Trading for a Living</i>, 1993):
     * volume-weighted momentum. Each bar's close-to-close move is weighted by
     * that bar's volume, and the result is smoothed with an exponential moving
     * average. The sign is the direction of the move; the size combines how far
@@ -265,11 +265,8 @@
     * sellers. Nothing normalises the result, so it scales with the instrument's
     * own volume: read its sign and its shape over time, not its level against
     * another instrument.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * force_t = ( close_t - close_{t-1} ) * volume_t; EFI = EMA( force, optInTimePeriod )
-    * The EMA is TA-Lib's, seeded with a simple average of the first `optInTimePeriod` force values. A period of 1 leaves the raw one-bar Force Index.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/efi">ta-lib.org/functions/efi</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -327,7 +324,7 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
    /**
-    * Alexander Elder's Force Index (*Trading for a Living*, 1993):
+    * Alexander Elder's Force Index (<i>Trading for a Living</i>, 1993):
     * volume-weighted momentum. Each bar's close-to-close move is weighted by
     * that bar's volume, and the result is smoothed with an exponential moving
     * average. The sign is the direction of the move; the size combines how far
@@ -340,11 +337,8 @@
     * sellers. Nothing normalises the result, so it scales with the instrument's
     * own volume: read its sign and its shape over time, not its level against
     * another instrument.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * force_t = ( close_t - close_{t-1} ) * volume_t; EFI = EMA( force, optInTimePeriod )
-    * The EMA is TA-Lib's, seeded with a simple average of the first `optInTimePeriod` force values. A period of 1 leaves the raw one-bar Force Index.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/efi">ta-lib.org/functions/efi</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -421,16 +415,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class EfiStream {
-      Core core;
-      int optInTimePeriod;
-      double prevClose;
-      double optInK_1;
-      double prevMA;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double prevClose;
+      private double optInK_1;
+      private double prevMA;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      EfiStream( Core core ) { this.core = core; }
+      private EfiStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -442,6 +436,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -452,10 +449,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("EFI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      EfiStream( EfiStream other ) {
+      private EfiStream( EfiStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevClose = other.prevClose;
@@ -468,7 +473,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -480,12 +484,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inClose, double inVolume ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("EFI update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("EFI update: BadParam", RetCode.BadParam);
          core.efiStepImpl(this, inClose, inVolume);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -494,9 +504,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inClose, double inVolume ) {
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
@@ -547,7 +558,7 @@
          return new EfiStream(this);
       }
    }
-   void efiStepImpl( EfiStream sp, double inClose, double inVolume )
+   private void efiStepImpl( EfiStream sp, double inClose, double inVolume )
    {
       if( sp.optInTimePeriod == 1 ) {
          double force = 0.0;
@@ -807,8 +818,8 @@
     * <p>The history must hold at least {@code EFI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

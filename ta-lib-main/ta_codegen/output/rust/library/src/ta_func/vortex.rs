@@ -880,9 +880,8 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
-    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
-    /// or when two of them are the same slice. Everything [`Core::vortex_open`] rejects
-    /// is rejected here too.
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).
+    /// Everything [`Core::vortex_open`] rejects is rejected here too.
     ///
     /// # Examples
     ///
@@ -932,9 +931,6 @@ impl Core {
         if outMinusVI.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if !outPlusVI.is_empty() && !outMinusVI.is_empty() && outPlusVI.as_ptr() == outMinusVI.as_ptr() {
-            return Err(RetCode::BadParam);
-        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.vortex_open_and_fill_internal(inHigh, inLow, inClose, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outPlusVI, outMinusVI)?;
@@ -973,17 +969,22 @@ impl VortexStream {
     /// a corrected value arrives, or call [`Self::advance`] to count it and
     /// carry on — two handles on one feed drift a bar apart if neither
     /// happens.
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_VORTEX_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64), RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
             return Err(RetCode::BadParam);
         }
         let mut outPlusVI: f64 = 0.0_f64;
         let mut outMinusVI: f64 = 0.0_f64;
         Core::vortex_step_impl(&mut self.state, inHigh, inLow, inClose, &mut outPlusVI, &mut outMinusVI);
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
-        }
+        self.out.count += 1;
         Ok((outPlusVI, outMinusVI))
     }
 
@@ -997,7 +998,9 @@ impl VortexStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies, and a rejected peek changes nothing at all.
+    /// `update` applies, and a rejected peek changes nothing at all. Not
+    /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
+    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
     #[doc(alias = "TA_VORTEX_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64, inClose: f64) -> Result<(f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() || !inClose.is_finite() {
@@ -1141,6 +1144,9 @@ impl VortexStream {
     /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
+    ///
+    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_VORTEX_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
@@ -1153,11 +1159,19 @@ impl VortexStream {
     /// For a bar the caller leaves out: one an `update` rejected and that
     /// will not be re-fed, or a session with no print. Without it two handles
     /// on one feed drift a bar apart when only one of them skips.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_VORTEX_Advance")]
-    pub fn advance(&mut self) {
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
+    pub fn advance(&mut self) -> Result<(), RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
+        self.out.count += 1;
+        Ok(())
     }
 }
 

@@ -678,10 +678,8 @@
     * detrend/Hilbert machinery as the other HT_* cycle functions. This function
     * is meant for building your own cycle analysis on top of the raw phasor,
     * not as a ready-made signal.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Smooth price with a 4-bar WMA (weights 1,2,3,4 /10). Apply the Hilbert Transform (a=0.0962, b=0.5769, scaled per bar by adjustedPrevPeriod = 0.075*period + 0.54) to get detrender = HT(smoothed) and Q1 = HT(detrender). Output: outInPhase = detrender delayed 3 price bars; outQuadrature = Q1.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ht_phasor">ta-lib.org/functions/ht_phasor</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -743,10 +741,8 @@
     * detrend/Hilbert machinery as the other HT_* cycle functions. This function
     * is meant for building your own cycle analysis on top of the raw phasor,
     * not as a ready-made signal.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Smooth price with a 4-bar WMA (weights 1,2,3,4 /10). Apply the Hilbert Transform (a=0.0962, b=0.5769, scaled per bar by adjustedPrevPeriod = 0.075*period + 0.54) to get detrender = HT(smoothed) and Q1 = HT(detrender). Output: outInPhase = detrender delayed 3 price bars; outQuadrature = Q1.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ht_phasor">ta-lib.org/functions/ht_phasor</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -822,57 +818,57 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class HtPhasorStream {
-      Core core;
-      double period;
-      double periodWMASum;
-      double periodWMASub;
-      double trailingWMAValue;
-      double a;
-      double b;
-      int hilbertIdx;
-      double[] detrender_Odd;
-      double[] detrender_Even;
-      double prev_detrender_Odd;
-      double prev_detrender_Even;
-      double prev_detrender_input_Odd;
-      double prev_detrender_input_Even;
-      double[] Q1_Odd;
-      double[] Q1_Even;
-      double prev_Q1_Odd;
-      double prev_Q1_Even;
-      double prev_Q1_input_Odd;
-      double prev_Q1_input_Even;
-      double[] jI_Odd;
-      double[] jI_Even;
-      double prev_jI_Odd;
-      double prev_jI_Even;
-      double prev_jI_input_Odd;
-      double prev_jI_input_Even;
-      double[] jQ_Odd;
-      double[] jQ_Even;
-      double prev_jQ_Odd;
-      double prev_jQ_Even;
-      double prev_jQ_input_Odd;
-      double prev_jQ_input_Even;
-      double prevQ2;
-      double prevI2;
-      double Re;
-      double Im;
-      double I1ForOddPrev2;
-      double I1ForOddPrev3;
-      double I1ForEvenPrev2;
-      double I1ForEvenPrev3;
-      double rad2Deg;
-      int streamParity;
-      int ringPos_trailingWMAIdx;
-      int ringCap_trailingWMAIdx;
-      double[] ring_trailingWMAIdx_inReal;
-      double cur_outInPhase;
-      double cur_outQuadrature;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double period;
+      private double periodWMASum;
+      private double periodWMASub;
+      private double trailingWMAValue;
+      private double a;
+      private double b;
+      private int hilbertIdx;
+      private double[] detrender_Odd;
+      private double[] detrender_Even;
+      private double prev_detrender_Odd;
+      private double prev_detrender_Even;
+      private double prev_detrender_input_Odd;
+      private double prev_detrender_input_Even;
+      private double[] Q1_Odd;
+      private double[] Q1_Even;
+      private double prev_Q1_Odd;
+      private double prev_Q1_Even;
+      private double prev_Q1_input_Odd;
+      private double prev_Q1_input_Even;
+      private double[] jI_Odd;
+      private double[] jI_Even;
+      private double prev_jI_Odd;
+      private double prev_jI_Even;
+      private double prev_jI_input_Odd;
+      private double prev_jI_input_Even;
+      private double[] jQ_Odd;
+      private double[] jQ_Even;
+      private double prev_jQ_Odd;
+      private double prev_jQ_Even;
+      private double prev_jQ_input_Odd;
+      private double prev_jQ_input_Even;
+      private double prevQ2;
+      private double prevI2;
+      private double Re;
+      private double Im;
+      private double I1ForOddPrev2;
+      private double I1ForOddPrev3;
+      private double I1ForEvenPrev2;
+      private double I1ForEvenPrev3;
+      private double rad2Deg;
+      private int streamParity;
+      private int ringPos_trailingWMAIdx;
+      private int ringCap_trailingWMAIdx;
+      private double[] ring_trailingWMAIdx_inReal;
+      private double cur_outInPhase;
+      private double cur_outQuadrature;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      HtPhasorStream( Core core ) { this.core = core; }
+      private HtPhasorStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -884,6 +880,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -894,10 +893,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("HT_PHASOR advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      HtPhasorStream( HtPhasorStream other ) {
+      private HtPhasorStream( HtPhasorStream other ) {
          this.core = other.core;
          this.period = other.period;
          this.periodWMASum = other.periodWMASum;
@@ -951,7 +958,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -963,13 +969,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, HtPhasorOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("HT_PHASOR update", RetCode.OutOfRangeEndIndex);
          requireArgument("HT_PHASOR update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("HT_PHASOR update: BadParam", RetCode.BadParam);
          core.htPhasorStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.inPhase = this.cur_outInPhase;
          out.quadrature = this.cur_outQuadrature;
       }
@@ -979,9 +991,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, HtPhasorOut out ) {
          requireArgument("HT_PHASOR peek", "out", out);
@@ -1114,7 +1127,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( HtPhasorOut out ) {
          requireArgument("HT_PHASOR value", "out", out);
@@ -1160,7 +1173,7 @@
       /** Quadrature component (Q1 of the Hilbert Transform) */
       public double quadrature;
    }
-   void htPhasorStepImpl( HtPhasorStream sp, double inReal )
+   private void htPhasorStepImpl( HtPhasorStream sp, double inReal )
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
@@ -1765,9 +1778,7 @@
     * to {@link Core#HT_PHASOR} at that bar.
     * <p>The history must hold at least {@code HT_PHASOR_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

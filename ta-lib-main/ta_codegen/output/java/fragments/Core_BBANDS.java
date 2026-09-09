@@ -43,9 +43,9 @@
     * @param optInTimePeriod Periods for the MA and standard deviation (default
     *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDevUp Standard-deviation multiplier for the upper band
-    *        (default 2; {@code -4e37} selects the default).
+    *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInNbDevDn Standard-deviation multiplier for the lower band
-    *        (default 2; {@code -4e37} selects the default).
+    *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInMAType Moving-average type for the middle band (default 0 =
     *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
     *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
@@ -599,25 +599,8 @@
     * Bollinger Bands: a moving-average middle band with upper and lower bands
     * offset by a multiple of the standard deviation. Used to gauge relative
     * price volatility.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $$
-    * \begin{aligned}
-    * \text{middle}_t &= \operatorname{MA}(X, n, \text{matype})_t \\
-    * \sigma_t &= \operatorname{STDDEV}(X, n)_t \\
-    * \text{upper}_t &= \text{middle}_t + k_{\text{up}}\,\sigma_t \\
-    * \text{lower}_t &= \text{middle}_t - k_{\text{dn}}\,\sigma_t
-    * \end{aligned}
-    * $$
-    * }</pre>
-    * <p>where $X$ is the input series, $n$ the period, $\text{matype}$ the
-    * moving-average type, and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and
-    * lower deviation multipliers.
-    * <p><b>Notes</b>
-    * <ul>
-    * <li>The defaults reproduce Bollinger's original definition: a 20-period SMA middle band with $k_{\text{up}} = k_{\text{dn}} = 2$. Any other $\text{matype}$ is a TA-Lib generalisation.</li>
-    * <li>$\text{matype}$ sets where the envelope is centred; $n$ and $k$ set how wide it is. The two are independent — $\sigma$ depends only on the price window, so changing the middle band re-centres the bands without resizing them.</li>
-    * </ul>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/bbands">ta-lib.org/functions/bbands</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -630,9 +613,9 @@
     * @param optInTimePeriod Periods for the MA and standard deviation (default
     *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDevUp Standard-deviation multiplier for the upper band
-    *        (default 2; {@code -4e37} selects the default).
+    *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInNbDevDn Standard-deviation multiplier for the lower band
-    *        (default 2; {@code -4e37} selects the default).
+    *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInMAType Moving-average type for the middle band (default 0 =
     *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
     *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
@@ -693,25 +676,8 @@
     * Bollinger Bands: a moving-average middle band with upper and lower bands
     * offset by a multiple of the standard deviation. Used to gauge relative
     * price volatility.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $$
-    * \begin{aligned}
-    * \text{middle}_t &= \operatorname{MA}(X, n, \text{matype})_t \\
-    * \sigma_t &= \operatorname{STDDEV}(X, n)_t \\
-    * \text{upper}_t &= \text{middle}_t + k_{\text{up}}\,\sigma_t \\
-    * \text{lower}_t &= \text{middle}_t - k_{\text{dn}}\,\sigma_t
-    * \end{aligned}
-    * $$
-    * }</pre>
-    * <p>where $X$ is the input series, $n$ the period, $\text{matype}$ the
-    * moving-average type, and $k_{\text{up}}$, $k_{\text{dn}}$ the upper and
-    * lower deviation multipliers.
-    * <p><b>Notes</b>
-    * <ul>
-    * <li>The defaults reproduce Bollinger's original definition: a 20-period SMA middle band with $k_{\text{up}} = k_{\text{dn}} = 2$. Any other $\text{matype}$ is a TA-Lib generalisation.</li>
-    * <li>$\text{matype}$ sets where the envelope is centred; $n$ and $k$ set how wide it is. The two are independent — $\sigma$ depends only on the price window, so changing the middle band re-centres the bands without resizing them.</li>
-    * </ul>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/bbands">ta-lib.org/functions/bbands</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -727,9 +693,9 @@
     * @param optInTimePeriod Periods for the MA and standard deviation (default
     *        20; range 2..100000; {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDevUp Standard-deviation multiplier for the upper band
-    *        (default 2; {@code -4e37} selects the default).
+    *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInNbDevDn Standard-deviation multiplier for the lower band
-    *        (default 2; {@code -4e37} selects the default).
+    *        (default 2; {@link Core#REAL_DEFAULT} selects the default).
     * @param optInMAType Moving-average type for the middle band (default 0 =
     *        SMA; values: 0=SMA, 1=EMA, 2=WMA, 3=DEMA, 4=TEMA, 5=TRIMA, 6=KAMA, 7=MAMA,
     *        8=T3, 9=HMA, 10=DISABLED, 11=DEFAULT, 12=ZLEMA, 13=RMA;
@@ -803,20 +769,20 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class BbandsStream {
-      Core core;
-      int optInTimePeriod;
-      double optInNbDevUp;
-      double optInNbDevDn;
-      MAType optInMAType;
-      double cur_outRealUpperBand;
-      double cur_outRealMiddleBand;
-      double cur_outRealLowerBand;
-      MaStream sub0;
-      StddevStream sub1;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInNbDevUp;
+      private double optInNbDevDn;
+      private MAType optInMAType;
+      private double cur_outRealUpperBand;
+      private double cur_outRealMiddleBand;
+      private double cur_outRealLowerBand;
+      private MaStream sub0;
+      private StddevStream sub1;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      BbandsStream( Core core ) { this.core = core; }
+      private BbandsStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -828,6 +794,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -838,10 +807,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("BBANDS advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      BbandsStream( BbandsStream other ) {
+      private BbandsStream( BbandsStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInNbDevUp = other.optInNbDevUp;
@@ -858,7 +835,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -870,13 +846,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, BbandsOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("BBANDS update", RetCode.OutOfRangeEndIndex);
          requireArgument("BBANDS update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("BBANDS update: BadParam", RetCode.BadParam);
          core.bbandsStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.realUpperBand = this.cur_outRealUpperBand;
          out.realMiddleBand = this.cur_outRealMiddleBand;
          out.realLowerBand = this.cur_outRealLowerBand;
@@ -887,9 +869,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, BbandsOut out ) {
          requireArgument("BBANDS peek", "out", out);
@@ -927,7 +910,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( BbandsOut out ) {
          requireArgument("BBANDS value", "out", out);
@@ -976,7 +959,7 @@
       /** Middle band minus nbDevDn standard deviations. */
       public double realLowerBand;
    }
-   void bbandsStepImpl( BbandsStream sp, double inReal )
+   private void bbandsStepImpl( BbandsStream sp, double inReal )
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
@@ -1185,8 +1168,9 @@
     * <p>The history must hold at least {@code BBANDS_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE}, {@link Core#REAL_DEFAULT} and
+    * {@link MAType#DEFAULT} select a parameter's documented default, as in
+    * the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

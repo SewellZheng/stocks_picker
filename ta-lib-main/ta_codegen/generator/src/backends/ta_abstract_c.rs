@@ -2944,7 +2944,34 @@ fn gen_ta_func_h(funcs: &[&FuncDef]) -> String {
          \n\
          #ifndef TA_DEFS_H\n\
          \x20  #include \"ta_defs.h\"\n\
-         #endif\n\n\n",
+         #endif\n\
+         \n\
+         /* The streaming API: what every TA_<NAME>_Open / Update / Peek / Close\n\
+         \x20* quartet below promises. A stream evaluates one bar at a time and is\n\
+         \x20* bit-identical to the batch function over the same series.\n\
+         \x20*\n\
+         \x20* Open( &stream, inputs..., historyLen, params..., out ) warms up on\n\
+         \x20* historyLen bars and hands back a handle. It wants at least one bar --\n\
+         \x20* fewer is TA_OUT_OF_RANGE_START_INDEX -- and MORE than\n\
+         \x20* TA_<NAME>_Lookback() of them; short of that it answers\n\
+         \x20* TA_INSUFFICIENT_HISTORY, the one recoverable code, meaning send more bars\n\
+         \x20* rather than fix the call. A handle it returns must be closed; a FAILED\n\
+         \x20* Open sets the handle to NULL rather than leaving it alone, so do not open\n\
+         \x20* into a variable still holding a live one.\n\
+         \x20*\n\
+         \x20* Update( stream, bar..., out ) commits one CLOSED bar and answers its value.\n\
+         \x20* A bar that is not finite is refused with TA_BAD_PARAM and nothing moves --\n\
+         \x20* re-feed the corrected bar, or call TA_<NAME>_Advance to count it and carry\n\
+         \x20* on.\n\
+         \x20*\n\
+         \x20* Peek( stream, bar..., out ) answers what Update would and commits nothing;\n\
+         \x20* the handle it takes is const.\n\
+         \x20*\n\
+         \x20* Close( stream ) frees the handle.\n\
+         \x20*\n\
+         \x20* The streaming pages on ta-lib.org carry the rest.\n\
+         \x20*/\n\
+\n\n",
     );
 
     // Emit all function prototypes.
@@ -2983,13 +3010,10 @@ fn gen_ta_func_h(funcs: &[&FuncDef]) -> String {
          \x20* TA_SetCompatibility does nothing and TA_GetCompatibility always\n\
          \x20* answers TA_COMPATIBILITY_DEFAULT. Both are kept so existing\n\
          \x20* sources still compile and link; avoid them in new code.\n\
-         \x20*\n\
-         \x20* Deliberately NOT TA_LIB_API: no released version ever exported\n\
-         \x20* them from the Windows DLL, and a retired setting is not the one\n\
-         \x20* to start. Adding it back would widen the shipped surface.\n\
          \x20*/\n\
-         TA_RetCode TA_SetCompatibility( TA_Compatibility value );\n\
-         TA_Compatibility TA_GetCompatibility( void );\n\
+         TA_LIB_API TA_RetCode TA_SetCompatibility( TA_Compatibility value );\n\
+         \n\
+         TA_LIB_API TA_Compatibility TA_GetCompatibility( void );\n\
          \n\
          /* Candlesticks struct and functions\n\
          \x20* Because candlestick patterns are subjective, it is necessary \n\
@@ -3085,6 +3109,22 @@ fn emit_func_h_block(o: &mut String, func: &FuncDef, lookup: &dyn crate::streami
         .collect();
     let _ = writeln!(o, " * Output = {}", output_desc.join(", "));
     o.push_str(" * \n");
+
+    let declinable: Vec<&str> = func
+        .outputs
+        .iter()
+        .filter(|out| out.is_nullable())
+        .map(|out| out.name.as_str())
+        .collect();
+    if !declinable.is_empty() {
+        let _ = writeln!(
+            o,
+            " * {} may be NULL: still computed where the algorithm needs it, but\n \
+             * not written out.",
+            declinable.join(" and ")
+        );
+        o.push_str(" * \n");
+    }
 
     // Optional parameters section
     if !func.optional_inputs.is_empty() {

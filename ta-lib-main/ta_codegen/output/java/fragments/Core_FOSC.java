@@ -282,13 +282,11 @@
     * below; the value oscillates around zero and crosses it whenever price
     * meets its own forecast. Persistent readings far from zero say the trend is
     * running ahead of, or lagging, its regression line.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * FOSC[t] = 100 * (P[t] - TSF[t-1]) / P[t], where TSF[t-1] is the Time Series Forecast fitted over the N bars ending at t-1 and evaluated one x-step beyond that window — the forecast for bar t made without seeing it.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/fosc">ta-lib.org/functions/fosc</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Several vendors publish a "Chande Forecast Oscillator (CFO)" that compares the close to the regression value of the window *ending at the same bar*, with no lag. FOSC is the lagged form Chande and Achelis describe.</li>
+    * <li>Several vendors publish a "Chande Forecast Oscillator (CFO)" that compares the close to the regression value of the window <i>ending at the same bar</i>, with no lag. FOSC is the lagged form Chande and Achelis describe.</li>
     * <li>The default window is Chande's own suggestion, shorter than the one TA-Lib's TSF and LINEARREG default to.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -349,13 +347,11 @@
     * below; the value oscillates around zero and crosses it whenever price
     * meets its own forecast. Persistent readings far from zero say the trend is
     * running ahead of, or lagging, its regression line.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * FOSC[t] = 100 * (P[t] - TSF[t-1]) / P[t], where TSF[t-1] is the Time Series Forecast fitted over the N bars ending at t-1 and evaluated one x-step beyond that window — the forecast for bar t made without seeing it.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/fosc">ta-lib.org/functions/fosc</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Several vendors publish a "Chande Forecast Oscillator (CFO)" that compares the close to the regression value of the window *ending at the same bar*, with no lag. FOSC is the lagged form Chande and Achelis describe.</li>
+    * <li>Several vendors publish a "Chande Forecast Oscillator (CFO)" that compares the close to the regression value of the window <i>ending at the same bar</i>, with no lag. FOSC is the lagged form Chande and Achelis describe.</li>
     * <li>The default window is Chande's own suggestion, shorter than the one TA-Lib's TSF and LINEARREG default to.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -429,27 +425,27 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class FoscStream {
-      Core core;
-      int optInTimePeriod;
-      int lookbackTotal;
-      int trailingIdx;
-      double SumX;
-      double SumXY;
-      double SumY;
-      double Divisor;
-      int barsSinceReseed;
-      double trailingValue;
-      double sumAbs;
-      int j;
-      int today;
-      double lag1_inReal;
-      int xMask;
-      double[] x_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int lookbackTotal;
+      private int trailingIdx;
+      private double SumX;
+      private double SumXY;
+      private double SumY;
+      private double Divisor;
+      private int barsSinceReseed;
+      private double trailingValue;
+      private double sumAbs;
+      private int j;
+      private int today;
+      private double lag1_inReal;
+      private int xMask;
+      private double[] x_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      FoscStream( Core core ) { this.core = core; }
+      private FoscStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -461,6 +457,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -471,10 +470,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("FOSC advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      FoscStream( FoscStream other ) {
+      private FoscStream( FoscStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.lookbackTotal = other.lookbackTotal;
@@ -498,7 +505,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -510,12 +516,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("FOSC update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("FOSC update: BadParam", RetCode.BadParam);
          core.foscStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -524,9 +536,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -545,32 +558,25 @@
          double cur_outReal = 0.0;
          int j = sp.j;
          double sumAbs = sp.sumAbs;
-         int today = sp.today;
          int trailingIdx = sp.trailingIdx;
          double trailingValue = sp.trailingValue;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            j -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inReal;
          weightedTrailing = (double)sp.optInTimePeriod * trailingValue;
          SumXY = SumXY + SumY - weightedTrailing;
-         SumY = SumY - trailingValue + ((((today - 1) & sp.xMask) != pkSlot0) ? sp.x_inReal[(today - 1) & sp.xMask] : pkVal0);
-         sumAbs = sumAbs - Math.abs(trailingValue) + Math.abs((((today - 1) & sp.xMask) != pkSlot0) ? sp.x_inReal[(today - 1) & sp.xMask] : pkVal0);
+         SumY = SumY - trailingValue + ((((sp.today - 1) & sp.xMask) != pkSlot0) ? sp.x_inReal[(sp.today - 1) & sp.xMask] : pkVal0);
+         sumAbs = sumAbs - Math.abs(trailingValue) + Math.abs((((sp.today - 1) & sp.xMask) != pkSlot0) ? sp.x_inReal[(sp.today - 1) & sp.xMask] : pkVal0);
          barsSinceReseed -= 1;
          if( barsSinceReseed <= 0 || Math.abs(weightedTrailing) > 100.0 * sumAbs ) {
             barsSinceReseed = 32 * sp.optInTimePeriod;
-            windowStart = today - sp.lookbackTotal;
+            windowStart = sp.today - sp.lookbackTotal;
             SumY = 0;
             SumXY = 0;
             sumAbs = 0;
             tempValue2 = (double)(sp.optInTimePeriod - 1);
-            for( j = windowStart; j < today; j += 1 ) {
+            for( j = windowStart; j < sp.today; j += 1 ) {
                tempValue1 = ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
                SumY += tempValue1;
                SumXY += tempValue2 * tempValue1;
@@ -582,7 +588,7 @@
          b = (SumY - m * sp.SumX) / (double)sp.optInTimePeriod;
          trailingValue = ((trailingIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[trailingIdx & sp.xMask] : pkVal0;
          trailingIdx += 1;
-         closeValue = ((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0;
+         closeValue = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0;
          if( closeValue != 0.0 ) {
             cur_outReal = 100.0 * (closeValue - (Math.fma(m, (double)sp.optInTimePeriod, b))) / closeValue;
          } else {
@@ -617,7 +623,7 @@
          return new FoscStream(this);
       }
    }
-   void foscStepImpl( FoscStream sp, double inReal )
+   private void foscStepImpl( FoscStream sp, double inReal )
    {
       double m = 0.0;
       double b = 0.0;
@@ -626,12 +632,6 @@
       double tempValue1 = 0.0;
       double tempValue2 = 0.0;
       double weightedTrailing = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.j -= rebaseShift;
-      }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
       weightedTrailing = (double)sp.optInTimePeriod * sp.trailingValue;
       sp.SumXY = sp.SumXY + sp.SumY - weightedTrailing;
@@ -871,8 +871,8 @@
     * <p>The history must hold at least {@code FOSC_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

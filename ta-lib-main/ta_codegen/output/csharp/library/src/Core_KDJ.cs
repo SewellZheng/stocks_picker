@@ -249,6 +249,9 @@ public partial class Core
       if( outK.Overlaps(outD) || outK.Overlaps(outJ) || outD.Overlaps(outJ) ) {
          return RetCode.BadParam ;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outK).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outD).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outJ).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outJ).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outJ).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inClose)) ) {
+         return RetCode.BadParam ;
+      }
       lookbackTotal = KDJ_Lookback(optInFastK_Period, optInSlowK_Period, optInSlowK_MAType, optInSlowD_Period, optInSlowD_MAType);
       if( lookbackTotal > endIdx ) {
          outBegIdx = 0;
@@ -281,13 +284,10 @@ public partial class Core
    /// a J line attached.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// RSV = 100*(Close - LL_n)/(HH_n - LL_n), n = FastK_Period (LL/HH = lowest low / highest high over n)
-   /// K = MA(RSV, SlowK_Period, SlowK_MAType)
-   /// D = MA(K, SlowD_Period, SlowD_MAType)
-   /// J = 3*K - 2*D
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/kdj">ta-lib.org/functions/kdj</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The default smoothing is Wilder's moving average. The originating 通达信 (Tongdaxin) formula language writes each stage as <c>SMA(X, N, 1)</c>, a recurrence with weight 1/N on the new value, which is Wilder's smoothing under another name — not a simple average.</description></item>
    /// <item><description>How that recurrence is started is a TA-Lib house convention, not something the originating specification settles: like every other Wilder-smoothed function here, the first value is the simple average of the first N inputs, and callers who want the transient gone set the unstable period. Platforms that seed the recurrence at 50, or at the first raw value, differ for the first several dozen bars.</description></item>
@@ -386,13 +386,10 @@ public partial class Core
    /// a J line attached.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// RSV = 100*(Close - LL_n)/(HH_n - LL_n), n = FastK_Period (LL/HH = lowest low / highest high over n)
-   /// K = MA(RSV, SlowK_Period, SlowK_MAType)
-   /// D = MA(K, SlowD_Period, SlowD_MAType)
-   /// J = 3*K - 2*D
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/kdj">ta-lib.org/functions/kdj</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>The default smoothing is Wilder's moving average. The originating 通达信 (Tongdaxin) formula language writes each stage as <c>SMA(X, N, 1)</c>, a recurrence with weight 1/N on the new value, which is Wilder's smoothing under another name — not a simple average.</description></item>
    /// <item><description>How that recurrence is started is a TA-Lib house convention, not something the originating specification settles: like every other Wilder-smoothed function here, the first value is the simple average of the first N inputs, and callers who want the transient gone set the unstable period. Platforms that seed the recurrence at 50, or at the first raw value, differ for the first several dozen bars.</description></item>
@@ -454,8 +451,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange KDJ( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inHigh,
@@ -543,6 +542,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -553,10 +554,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("KDJ", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal KdjStream( KdjStream other )
@@ -587,6 +594,10 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
@@ -594,9 +605,11 @@ public partial class Core
       /// <returns>The value at the bar just committed.</returns>
       public KdjValue Update( double inHigh, double inLow, double inClose )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("KDJ", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("KDJ", "update", RetCode.BadParam);
          core.KdjStepImpl(this, inHigh, inLow, inClose);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new KdjValue(cur_outK, cur_outD, cur_outJ);
       }
 
@@ -606,14 +619,15 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <param name="inClose">This bar's close price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public KdjValue Peek( double inHigh, double inLow, double inClose )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) || !double.IsFinite(inClose) ) throw Core.StreamFailure("KDJ", "peek", RetCode.BadParam);
@@ -807,11 +821,11 @@ public partial class Core
    /// <param name="optInSlowK_Period">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <param name="optInSlowD_Period">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>KDJ_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
@@ -852,11 +866,11 @@ public partial class Core
    /// <param name="optInSlowK_Period">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowK_MAType">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <param name="optInSlowD_Period">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSlowD_MAType">As in the batch call; see <see cref="KDJ_Lookback"/> for its default and
-   /// range (<c>int.MinValue</c> selects the default).</param>
+   /// range (<c>MAType.DEFAULT</c> selects the default).</param>
    /// <param name="outK">Raw stochastic smoothed by SlowK_Period MA. Must hold at least
    /// <c>historyLen - KDJ_Lookback(...)</c> values.</param>
    /// <param name="outD">Signal line: K smoothed by SlowD_Period MA. Must hold at least

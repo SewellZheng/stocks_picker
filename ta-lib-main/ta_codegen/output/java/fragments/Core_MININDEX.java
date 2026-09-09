@@ -184,10 +184,8 @@
     * Returns the absolute index of the lowest value within a rolling window of
     * the given period. Same scan as MIN but outputs the position of the minimum
     * rather than its value.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * outInteger[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/minindex">ta-lib.org/functions/minindex</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>When several bars in a window share the lowest value, the index of one of them is returned — not necessarily the first or the last.</li>
@@ -249,10 +247,8 @@
     * Returns the absolute index of the lowest value within a rolling window of
     * the given period. Same scan as MIN but outputs the position of the minimum
     * rather than its value.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * outInteger[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/minindex">ta-lib.org/functions/minindex</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>When several bars in a window share the lowest value, the index of one of them is returned — not necessarily the first or the last.</li>
@@ -330,20 +326,20 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MinindexStream {
-      Core core;
-      int optInTimePeriod;
-      double lowest;
-      int trailingIdx;
-      int lowestIdx;
-      int i;
-      int today;
-      int xMask;
-      double[] x_inReal;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double lowest;
+      private int trailingIdx;
+      private int lowestIdx;
+      private int i;
+      private int today;
+      private int xMask;
+      private double[] x_inReal;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MinindexStream( Core core ) { this.core = core; }
+      private MinindexStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -355,6 +351,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -365,10 +364,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MININDEX advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MinindexStream( MinindexStream other ) {
+      private MinindexStream( MinindexStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.lowest = other.lowest;
@@ -385,7 +392,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -397,12 +403,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MININDEX update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MININDEX update: BadParam", RetCode.BadParam);
          core.minindexStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -411,9 +423,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -424,25 +437,16 @@
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inReal;
-         tmp = ((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0;
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         tmp = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[lowestIdx & sp.xMask] : pkVal0;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmp = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmp < lowest ) {
                   lowestIdx = i;
@@ -450,7 +454,7 @@
                }
             }
          } else if( tmp <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmp;
          }
          cur_outInteger = lowestIdx;
@@ -483,16 +487,9 @@
          return new MinindexStream(this);
       }
    }
-   void minindexStepImpl( MinindexStream sp, double inReal )
+   private void minindexStepImpl( MinindexStream sp, double inReal )
    {
       double tmp = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
       tmp = sp.x_inReal[sp.today & sp.xMask];
       if( sp.lowestIdx < sp.trailingIdx ) {
@@ -664,8 +661,8 @@
     * <p>The history must hold at least {@code MININDEX_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

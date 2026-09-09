@@ -25,9 +25,11 @@
     * method.
     *
     * @param optInFastLimit Upper bound on the adaptive smoothing factor
-    *        (default 0.5; range 0.01..0.99; {@code -4e37} selects the default).
+    *        (default 0.5; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param optInSlowLimit Lower bound on the adaptive smoothing factor
-    *        (default 0.05; range 0.01..0.99; {@code -4e37} selects the default).
+    *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int MAMA_Lookback( double optInFastLimit, double optInSlowLimit )
@@ -801,13 +803,8 @@
     * driven by the dominant-cycle phase rate measured with a Hilbert transform.
     * Emits two lines, MAMA and its slower follower FAMA. MAMA crossing above
     * FAMA is bullish; crossing below is bearish.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * phase = atan(Q1/I1) in degrees; deltaPhase = max(1, prevPhase - phase)
-    * alpha = max(fastLimit/deltaPhase, slowLimit) if deltaPhase>1 else fastLimit
-    * MAMA = alpha*price + (1-alpha)*MAMA_prev
-    * FAMA = (alpha/2)*MAMA + (1-alpha/2)*FAMA_prev
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/mama">ta-lib.org/functions/mama</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -818,9 +815,11 @@
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Price series to smooth.
     * @param optInFastLimit Upper bound on the adaptive smoothing factor
-    *        (default 0.5; range 0.01..0.99; {@code -4e37} selects the default).
+    *        (default 0.5; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param optInSlowLimit Lower bound on the adaptive smoothing factor
-    *        (default 0.05; range 0.01..0.99; {@code -4e37} selects the default).
+    *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @param outFAMA Following adaptive moving average, using half the alpha
@@ -873,13 +872,8 @@
     * driven by the dominant-cycle phase rate measured with a Hilbert transform.
     * Emits two lines, MAMA and its slower follower FAMA. MAMA crossing above
     * FAMA is bullish; crossing below is bearish.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * phase = atan(Q1/I1) in degrees; deltaPhase = max(1, prevPhase - phase)
-    * alpha = max(fastLimit/deltaPhase, slowLimit) if deltaPhase>1 else fastLimit
-    * MAMA = alpha*price + (1-alpha)*MAMA_prev
-    * FAMA = (alpha/2)*MAMA + (1-alpha/2)*FAMA_prev
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/mama">ta-lib.org/functions/mama</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -893,9 +887,11 @@
     * @param endIdx Last bar of the requested range (inclusive).
     * @param inReal Price series to smooth.
     * @param optInFastLimit Upper bound on the adaptive smoothing factor
-    *        (default 0.5; range 0.01..0.99; {@code -4e37} selects the default).
+    *        (default 0.5; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param optInSlowLimit Lower bound on the adaptive smoothing factor
-    *        (default 0.05; range 0.01..0.99; {@code -4e37} selects the default).
+    *        (default 0.05; range 0.01..0.99; {@link Core#REAL_DEFAULT} selects the
+    *        default).
     * @param outMAMA Adaptive moving average (fast line) Must hold at least
     *        {@code endIdx - startIdx + 1} values.
     * @param outFAMA Following adaptive moving average, using half the alpha
@@ -960,62 +956,62 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MamaStream {
-      Core core;
-      double optInFastLimit;
-      double optInSlowLimit;
-      double period;
-      double periodWMASum;
-      double periodWMASub;
-      double trailingWMAValue;
-      double a;
-      double b;
-      int hilbertIdx;
-      double[] detrender_Odd;
-      double[] detrender_Even;
-      double prev_detrender_Odd;
-      double prev_detrender_Even;
-      double prev_detrender_input_Odd;
-      double prev_detrender_input_Even;
-      double[] Q1_Odd;
-      double[] Q1_Even;
-      double prev_Q1_Odd;
-      double prev_Q1_Even;
-      double prev_Q1_input_Odd;
-      double prev_Q1_input_Even;
-      double[] jI_Odd;
-      double[] jI_Even;
-      double prev_jI_Odd;
-      double prev_jI_Even;
-      double prev_jI_input_Odd;
-      double prev_jI_input_Even;
-      double[] jQ_Odd;
-      double[] jQ_Even;
-      double prev_jQ_Odd;
-      double prev_jQ_Even;
-      double prev_jQ_input_Odd;
-      double prev_jQ_input_Even;
-      double prevQ2;
-      double prevI2;
-      double Re;
-      double Im;
-      double I1ForOddPrev2;
-      double I1ForOddPrev3;
-      double I1ForEvenPrev2;
-      double I1ForEvenPrev3;
-      double rad2Deg;
-      double mama;
-      double fama;
-      double prevPhase;
-      int streamParity;
-      int ringPos_trailingWMAIdx;
-      int ringCap_trailingWMAIdx;
-      double[] ring_trailingWMAIdx_inReal;
-      double cur_outMAMA;
-      double cur_outFAMA;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double optInFastLimit;
+      private double optInSlowLimit;
+      private double period;
+      private double periodWMASum;
+      private double periodWMASub;
+      private double trailingWMAValue;
+      private double a;
+      private double b;
+      private int hilbertIdx;
+      private double[] detrender_Odd;
+      private double[] detrender_Even;
+      private double prev_detrender_Odd;
+      private double prev_detrender_Even;
+      private double prev_detrender_input_Odd;
+      private double prev_detrender_input_Even;
+      private double[] Q1_Odd;
+      private double[] Q1_Even;
+      private double prev_Q1_Odd;
+      private double prev_Q1_Even;
+      private double prev_Q1_input_Odd;
+      private double prev_Q1_input_Even;
+      private double[] jI_Odd;
+      private double[] jI_Even;
+      private double prev_jI_Odd;
+      private double prev_jI_Even;
+      private double prev_jI_input_Odd;
+      private double prev_jI_input_Even;
+      private double[] jQ_Odd;
+      private double[] jQ_Even;
+      private double prev_jQ_Odd;
+      private double prev_jQ_Even;
+      private double prev_jQ_input_Odd;
+      private double prev_jQ_input_Even;
+      private double prevQ2;
+      private double prevI2;
+      private double Re;
+      private double Im;
+      private double I1ForOddPrev2;
+      private double I1ForOddPrev3;
+      private double I1ForEvenPrev2;
+      private double I1ForEvenPrev3;
+      private double rad2Deg;
+      private double mama;
+      private double fama;
+      private double prevPhase;
+      private int streamParity;
+      private int ringPos_trailingWMAIdx;
+      private int ringCap_trailingWMAIdx;
+      private double[] ring_trailingWMAIdx_inReal;
+      private double cur_outMAMA;
+      private double cur_outFAMA;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MamaStream( Core core ) { this.core = core; }
+      private MamaStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -1027,6 +1023,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -1037,10 +1036,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MAMA advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MamaStream( MamaStream other ) {
+      private MamaStream( MamaStream other ) {
          this.core = other.core;
          this.optInFastLimit = other.optInFastLimit;
          this.optInSlowLimit = other.optInSlowLimit;
@@ -1099,7 +1106,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -1111,13 +1117,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, MamaOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MAMA update", RetCode.OutOfRangeEndIndex);
          requireArgument("MAMA update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MAMA update: BadParam", RetCode.BadParam);
          core.mamaStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.mama = this.cur_outMAMA;
          out.fama = this.cur_outFAMA;
       }
@@ -1127,9 +1139,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, MamaOut out ) {
          requireArgument("MAMA peek", "out", out);
@@ -1299,7 +1312,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( MamaOut out ) {
          requireArgument("MAMA value", "out", out);
@@ -1345,7 +1358,7 @@
       /** Following adaptive moving average, using half the alpha (slow line) */
       public double fama;
    }
-   void mamaStepImpl( MamaStream sp, double inReal )
+   private void mamaStepImpl( MamaStream sp, double inReal )
    {
       double tempReal = 0.0;
       double tempReal2 = 0.0;
@@ -2037,8 +2050,8 @@
     * <p>The history must hold at least {@code MAMA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Core#REAL_DEFAULT} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

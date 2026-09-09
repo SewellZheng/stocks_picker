@@ -291,10 +291,12 @@
     * marubozu contained within the second candle's range. A hit signals a
     * bullish reversal; per the code comment it is meaningful in a downtrend,
     * but the function does not verify prior trend.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdl3starsinsouth">ta-lib.org/functions/cdl3starsinsouth</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior downtrend the pattern classically assumes for significance.</li>
-    * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. ([thepatternsite.com](https://thepatternsite.com/ThreeStarsSouth.html))</li>
+    * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. (<a href="https://thepatternsite.com/ThreeStarsSouth.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -361,10 +363,12 @@
     * marubozu contained within the second candle's range. A hit signals a
     * bullish reversal; per the code comment it is meaningful in a downtrend,
     * but the function does not verify prior trend.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdl3starsinsouth">ta-lib.org/functions/cdl3starsinsouth</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior downtrend the pattern classically assumes for significance.</li>
-    * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. ([thepatternsite.com](https://thepatternsite.com/ThreeStarsSouth.html))</li>
+    * <li>Thomas Bulkowski's statistical study found this has the best reversal rate of the 103 candlestick patterns he tracked (86% bullish reversal) — but that rests on just 9 occurrences in 4.7 million candle lines, and its overall post-breakout performance ranks dead last, 103rd of 103. (<a href="https://thepatternsite.com/ThreeStarsSouth.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -444,51 +448,51 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class Cdl3starsinsouthStream {
-      Core core;
-      double BodyLongPeriodTotal;
-      double BodyShortPeriodTotal;
-      double ShadowLongPeriodTotal;
-      double[] ShadowVeryShortPeriodTotal;
-      double lag1_inOpen;
-      double lag2_inOpen;
-      double lag1_inHigh;
-      double lag2_inHigh;
-      double lag1_inLow;
-      double lag2_inLow;
-      double lag1_inClose;
-      double lag2_inClose;
-      int ringPos_BodyLongTrailingIdx;
-      int ringCap_BodyLongTrailingIdx;
-      int ringLag_BodyLongTrailingIdx;
-      double[] ring_BodyLongTrailingIdx_derived;
-      int ringPos_BodyShortTrailingIdx;
-      int ringCap_BodyShortTrailingIdx;
-      double[] ring_BodyShortTrailingIdx_derived;
-      int ringPos_ShadowLongTrailingIdx;
-      int ringCap_ShadowLongTrailingIdx;
-      int ringLag_ShadowLongTrailingIdx;
-      double[] ring_ShadowLongTrailingIdx_derived;
-      int ringPos_ShadowVeryShortTrailingIdx;
-      int ringCap_ShadowVeryShortTrailingIdx;
-      int ringLag_ShadowVeryShortTrailingIdx;
-      double[] ring_ShadowVeryShortTrailingIdx_derived;
-      int cs_BodyLong_rangeType;
-      int cs_BodyLong_avgPeriod;
-      double cs_BodyLong_factor;
-      int cs_BodyShort_rangeType;
-      int cs_BodyShort_avgPeriod;
-      double cs_BodyShort_factor;
-      int cs_ShadowLong_rangeType;
-      int cs_ShadowLong_avgPeriod;
-      double cs_ShadowLong_factor;
-      int cs_ShadowVeryShort_rangeType;
-      int cs_ShadowVeryShort_avgPeriod;
-      double cs_ShadowVeryShort_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double BodyLongPeriodTotal;
+      private double BodyShortPeriodTotal;
+      private double ShadowLongPeriodTotal;
+      private double[] ShadowVeryShortPeriodTotal;
+      private double lag1_inOpen;
+      private double lag2_inOpen;
+      private double lag1_inHigh;
+      private double lag2_inHigh;
+      private double lag1_inLow;
+      private double lag2_inLow;
+      private double lag1_inClose;
+      private double lag2_inClose;
+      private int ringPos_BodyLongTrailingIdx;
+      private int ringCap_BodyLongTrailingIdx;
+      private int ringLag_BodyLongTrailingIdx;
+      private double[] ring_BodyLongTrailingIdx_derived;
+      private int ringPos_BodyShortTrailingIdx;
+      private int ringCap_BodyShortTrailingIdx;
+      private double[] ring_BodyShortTrailingIdx_derived;
+      private int ringPos_ShadowLongTrailingIdx;
+      private int ringCap_ShadowLongTrailingIdx;
+      private int ringLag_ShadowLongTrailingIdx;
+      private double[] ring_ShadowLongTrailingIdx_derived;
+      private int ringPos_ShadowVeryShortTrailingIdx;
+      private int ringCap_ShadowVeryShortTrailingIdx;
+      private int ringLag_ShadowVeryShortTrailingIdx;
+      private double[] ring_ShadowVeryShortTrailingIdx_derived;
+      private int cs_BodyLong_rangeType;
+      private int cs_BodyLong_avgPeriod;
+      private double cs_BodyLong_factor;
+      private int cs_BodyShort_rangeType;
+      private int cs_BodyShort_avgPeriod;
+      private double cs_BodyShort_factor;
+      private int cs_ShadowLong_rangeType;
+      private int cs_ShadowLong_avgPeriod;
+      private double cs_ShadowLong_factor;
+      private int cs_ShadowVeryShort_rangeType;
+      private int cs_ShadowVeryShort_avgPeriod;
+      private double cs_ShadowVeryShort_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      Cdl3starsinsouthStream( Core core ) { this.core = core; }
+      private Cdl3starsinsouthStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -500,6 +504,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -510,10 +517,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDL3STARSINSOUTH advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      Cdl3starsinsouthStream( Cdl3starsinsouthStream other ) {
+      private Cdl3starsinsouthStream( Cdl3starsinsouthStream other ) {
          this.core = other.core;
          this.BodyLongPeriodTotal = other.BodyLongPeriodTotal;
          this.BodyShortPeriodTotal = other.BodyShortPeriodTotal;
@@ -561,7 +576,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -573,12 +587,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDL3STARSINSOUTH update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDL3STARSINSOUTH update: BadParam", RetCode.BadParam);
          core.cdl3starsinsouthStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -587,9 +607,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -658,7 +679,7 @@
          return new Cdl3starsinsouthStream(this);
       }
    }
-   void cdl3starsinsouthStepImpl( Cdl3starsinsouthStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdl3starsinsouthStepImpl( Cdl3starsinsouthStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int totIdx = 0;
       int BodyLong_rangeType = sp.cs_BodyLong_rangeType;
@@ -1005,9 +1026,7 @@
     * to {@link Core#CDL3STARSINSOUTH} at that bar.
     * <p>The history must hold at least {@code CDL3STARSINSOUTH_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -87,12 +87,37 @@ See [github commits](https://github.com/TA-Lib/ta-lib/commits) for complete list
 - (#129) API: `TA_FUNC_UNST_ADXR` and `TA_FUNC_UNST_STOCHRSI` enum constants removed.
 - (#180) API: `startIdx` and `endIdx` are now capped at the new `TA_MAX_INDEX` (100,000,000);
   above it a call returns `TA_OUT_OF_RANGE_START_INDEX` / `TA_OUT_OF_RANGE_END_INDEX`.
+  A stream handle lives in the same domain: the last bar it can count is `TA_MAX_INDEX`,
+  and past it `Update` and `Advance` report `TA_OUT_OF_RANGE_END_INDEX`.
 - (#144) API: `TA_FUNC_UNST_NONE` enum constant removed. It could not be passed in
   (it is rejected) and was never returned, so it had no use in the public API.
 - (#122) Removed the `ide/` directory (Visual Studio/Xcode/MSVC project files). Use autotools, CMake and vcpkg instead.
-- (#388) API: the MetaStock variant of CMO, DEMA, EMA, MACD, MACDFIX, RSI, TEMA and TRIX is removed. The same variant reached MA, BBANDS, APO, PPO, PVO, MAVP, STOCH, STOCHF and STOCHRSI when the MAType was EMA, DEMA or TEMA. Default behavior is unchanged. `TA_SetCompatibility()` and `TA_GetCompatibility()` remain declared, so existing sources still compile, but the setter now does nothing and the getter always answers `TA_COMPATIBILITY_DEFAULT`. They are not exported from the Windows DLL — no released version exported them either. Moving forward TA-Lib will create separate TA functions for distinct behaviors.
+- (#386) API: the shared library's SONAME is now `libta-lib.so.1`. The two build systems
+  previously disagreed — autotools produced `libta-lib.so.0`, CMake `libta-lib.so.0.8.1` —
+  so a binary built against one could not load the other. Both now derive it from a single
+  `TALIB_LIBRARY_VERSION` in `configure.ac`, and it changes only when the ABI does, not
+  every release. Binaries linked against the old names must be relinked; they will fail to
+  load rather than silently misreading `TA_FuncInfo`.
+
+### Removed
+- (#400) API: the shared library now exports only what the installed headers declare — 2,452
+  symbols instead of 3,968. The 1,516 removed were internals no header ever mentioned: the
+  `TA_<NAME>_OpenInternal` / `_OpenAndFillInternal` seams, the `_FramePP` / `_FramePPLB` frame
+  helpers, the `TA_DEF_*` / `TA_INFO_*` interface tables and the `target_clones` dispatch
+  resolvers. Nothing that compiles against `ta_libc.h` can have used them: no installed header
+  declared any of them, and none is reachable through the documented API. Code that linked one
+  anyway must stop. `TA_SetCompatibility()` and `TA_GetCompatibility()` are unaffected — they are
+  now exported from the Windows DLL too, which no released version did.
+- (#386) API: `include/ta_func_unguarded.h`, with the 161 `TA_<NAME>_Unguarded` functions and
+  `TA_EMA_Private`. The header declared them `TA_LIB_API` and described them as exported public
+  API. Call the ordinary `TA_<NAME>` functions instead, which validate their arguments.
+- (#386) API: `TA_FuncInfo.camelCaseName`. Code that reads it no longer compiles. Code that reads
+  any field after it — `flags`, `nbInput`, `nbOptInput`, `nbOutput`, `handle` — must be rebuilt:
+  the struct is 8 bytes smaller and every one of those fields moves.
+- (#388) API: the MetaStock variant of CMO, DEMA, EMA, MACD, MACDFIX, RSI, TEMA and TRIX is removed. The same variant reached MA, BBANDS, APO, PPO, PVO, MAVP, STOCH, STOCHF and STOCHRSI when the MAType was EMA, DEMA or TEMA. Default behavior is unchanged. `TA_SetCompatibility()` and `TA_GetCompatibility()` remain declared and exported, so existing sources still compile and link, but the setter now does nothing and the getter always answers `TA_COMPATIBILITY_DEFAULT`. Moving forward TA-Lib will create separate TA functions for distinct behaviors.
 
 ### Fixed
+- (#386) The `.deb` declared `prefix=/usr/local` in `ta-lib.pc` while installing into `/usr`, so `pkg-config` reported paths the package never populated — and preferred a stale TA-Lib under `/usr/local` where one existed.
 - (#385) KAMA could divide by zero and return `-Inf`, after which every remaining bar of the call was NaN. It needs a window whose one-bar changes sum to exactly zero through floating-point absorption while the net change over that window is negative.
 - (#130) In-place calls (same buffer as input and output) returned wrong values for STOCH, STOCHF and MAVP. Regular (separate-buffer) calls were always correct.
 - (#118,#242) VAR, CORREL, STDDEV and BBANDS more precise and faster.

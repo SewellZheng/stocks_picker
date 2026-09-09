@@ -292,11 +292,10 @@ public partial class Core
    /// each rolling window of optInTimePeriod bars. Index variant of MINMAX.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
-   /// outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/minmaxindex">ta-lib.org/functions/minmaxindex</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</description></item>
    /// </list>
@@ -359,11 +358,10 @@ public partial class Core
    /// each rolling window of optInTimePeriod bars. Index variant of MINMAX.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// outMinIdx[i] = index of min(inReal[i-optInTimePeriod+1 .. i])
-   /// outMaxIdx[i] = index of max(inReal[i-optInTimePeriod+1 .. i])
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/minmaxindex">ta-lib.org/functions/minmaxindex</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>When several bars in a window share the extreme value, the index of one of them is returned — not necessarily the first or the last.</description></item>
    /// </list>
@@ -406,8 +404,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange MINMAXINDEX( int startIdx,
                                 int endIdx,
                                 ReadOnlySpan<float> inReal,
@@ -458,10 +458,9 @@ public partial class Core
    /// partially built handle can be minted: to checkpoint, retain the history
    /// and re-open — the result is bit-identical by contract.</para>
    /// <para>This indicator reports absolute bar indices. In the streaming tier they
-   /// count bars fed to this stream rather than positions in an array, and the
-   /// basis is shifted once that count passes 2^30 — so treat an index as a
-   /// position within the current window, not as an identifier you can store and
-   /// compare against one read much later.</para>
+   /// count bars fed to this stream rather than positions in an array — so treat
+   /// an index as a position within this handle's own window, not as one you can
+   /// compare against an index a different handle reported.</para>
    /// </remarks>
    public sealed class MinmaxindexStream
    {
@@ -492,6 +491,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -502,10 +503,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("MINMAXINDEX", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal MinmaxindexStream( MinmaxindexStream other )
@@ -540,14 +547,20 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public MinmaxindexValue Update( double inReal )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("MINMAXINDEX", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MINMAXINDEX", "update", RetCode.BadParam);
          core.MinmaxindexStepImpl(this, inReal);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return new MinmaxindexValue(cur_outMinIdx, cur_outMaxIdx);
       }
 
@@ -557,12 +570,13 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public MinmaxindexValue Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("MINMAXINDEX", "peek", RetCode.BadParam);
@@ -576,27 +590,17 @@ public partial class Core
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inReal;
-         tmpHigh = ((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0;
+         tmpHigh = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0;
          tmpLow = tmpHigh;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpHigh = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmpHigh > highest ) {
                   highestIdx = i;
@@ -604,14 +608,14 @@ public partial class Core
                }
             }
          } else if( tmpHigh >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmpHigh;
          }
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot0) ? sp.x_inReal[lowestIdx & sp.xMask] : pkVal0;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpLow = ((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0;
                if( tmpLow < lowest ) {
                   lowestIdx = i;
@@ -619,7 +623,7 @@ public partial class Core
                }
             }
          } else if( tmpLow <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmpLow;
          }
          cur_outMaxIdx = highestIdx;
@@ -648,14 +652,6 @@ public partial class Core
    {
       double tmpHigh = 0.0;
       double tmpLow = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
       tmpHigh = sp.x_inReal[sp.today & sp.xMask];
       tmpLow = tmpHigh;
@@ -870,8 +866,7 @@ public partial class Core
    /// default and range (<c>int.MinValue</c> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>MINMAXINDEX_Lookback(...) + 1</c> bars.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
-   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
    /// the two index faults an opener can have (rules S1 and S2).</exception>

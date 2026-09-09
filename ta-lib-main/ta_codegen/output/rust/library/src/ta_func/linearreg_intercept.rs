@@ -438,12 +438,6 @@ impl Core {
         let mut tempValue1: f64 = 0.0_f64;
         let mut tempValue2: f64 = 0.0_f64;
         let mut weightedTrailing: f64 = 0.0_f64;
-        if sp.today >= 1073741824 {
-            let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
-            sp.today -= rebaseShift;
-            sp.trailingIdx -= rebaseShift;
-            sp.j -= rebaseShift;
-        }
         sp.x_inReal[(sp.today & sp.xMask) as usize] = inReal;
         weightedTrailing = (sp.optInTimePeriod as f64) * sp.trailingValue;
         sp.SumXY = sp.SumXY + sp.SumY - weightedTrailing;
@@ -815,9 +809,8 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
-    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
-    /// or when two of them are the same slice. Everything [`Core::linearreg_intercept_open`] rejects
-    /// is rejected here too.
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).
+    /// Everything [`Core::linearreg_intercept_open`] rejects is rejected here too.
     ///
     /// # Examples
     ///
@@ -891,16 +884,21 @@ impl LinearregInterceptStream {
     /// a corrected value arrives, or call [`Self::advance`] to count it and
     /// carry on — two handles on one feed drift a bar apart if neither
     /// happens.
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_LINEARREG_INTERCEPT_Update")]
     pub fn update(&mut self, inReal: f64) -> Result<f64, RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
         if !inReal.is_finite() {
             return Err(RetCode::BadParam);
         }
         let mut outReal: f64 = 0.0_f64;
         Core::linearreg_intercept_step_impl(&mut self.state, inReal, &mut outReal);
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
-        }
+        self.out.count += 1;
         Ok(outReal)
     }
 
@@ -914,7 +912,9 @@ impl LinearregInterceptStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies, and a rejected peek changes nothing at all.
+    /// `update` applies, and a rejected peek changes nothing at all. Not
+    /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
+    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
     #[doc(alias = "TA_LINEARREG_INTERCEPT_Peek")]
     pub fn peek(&self, inReal: f64) -> Result<f64, RetCode> {
         if !inReal.is_finite() {
@@ -934,23 +934,16 @@ impl LinearregInterceptStream {
             let mut barsSinceReseed = sp.barsSinceReseed;
             let mut j = sp.j;
             let mut sumAbs = sp.sumAbs;
-            let mut today = sp.today;
             let mut trailingIdx = sp.trailingIdx;
             let mut trailingValue = sp.trailingValue;
             let mut pkSlot0: usize = usize::MAX;
             let mut pkVal0: f64 = 0.0_f64;
-            if today >= 1073741824 {
-                let rebaseShift: i32 = trailingIdx & !sp.xMask;
-                today -= rebaseShift;
-                trailingIdx -= rebaseShift;
-                j -= rebaseShift;
-            }
-            pkSlot0 = (today & sp.xMask) as usize;
+            pkSlot0 = (sp.today & sp.xMask) as usize;
             pkVal0 = inReal;
             weightedTrailing = (sp.optInTimePeriod as f64) * trailingValue;
             SumXY = SumXY + SumY - weightedTrailing;
-            SumY = SumY - trailingValue + (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(today & sp.xMask) as usize] } else { pkVal0 });
-            sumAbs = sumAbs - (trailingValue).abs() + ((if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(today & sp.xMask) as usize] } else { pkVal0 })).abs();
+            SumY = SumY - trailingValue + (if ((sp.today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(sp.today & sp.xMask) as usize] } else { pkVal0 });
+            sumAbs = sumAbs - (trailingValue).abs() + ((if ((sp.today & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(sp.today & sp.xMask) as usize] } else { pkVal0 })).abs();
             // Re-anchor: rebuild both sums from the window itself. #103 left them as
             // running totals that are never rebuilt, so each bar's rounding joins a
             // residue no later bar can subtract -- unbounded in the length of the
@@ -1012,14 +1005,14 @@ impl LinearregInterceptStream {
             barsSinceReseed -= 1;
             if barsSinceReseed <= 0 || (weightedTrailing).abs() > 100.0 * sumAbs {
                 barsSinceReseed = (32 * sp.optInTimePeriod) as usize;
-                windowStart = (today - ((sp.lookbackTotal) as i32)) as usize;
+                windowStart = (sp.today - ((sp.lookbackTotal) as i32)) as usize;
                 SumY = 0.0;
                 SumXY = 0.0;
                 sumAbs = 0.0;
                 tempValue2 = sp.lookbackTotal as f64;
-                // for( j = (windowStart) as i32; j <= today; j += 1 )
+                // for( j = (windowStart) as i32; j <= sp.today; j += 1 )
                 j = (windowStart) as i32;
-                while j <= today {
+                while j <= sp.today {
                     tempValue1 = (if ((j & sp.xMask) as usize) != pkSlot0 { sp.x_inReal[(j & sp.xMask) as usize] } else { pkVal0 });
                     SumY += tempValue1;
                     SumXY += tempValue2 * tempValue1;
@@ -1058,6 +1051,9 @@ impl LinearregInterceptStream {
     /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
+    ///
+    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_LINEARREG_INTERCEPT_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
@@ -1070,11 +1066,19 @@ impl LinearregInterceptStream {
     /// For a bar the caller leaves out: one an `update` rejected and that
     /// will not be re-fed, or a session with no print. Without it two handles
     /// on one feed drift a bar apart when only one of them skips.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_LINEARREG_INTERCEPT_Advance")]
-    pub fn advance(&mut self) {
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
+    pub fn advance(&mut self) -> Result<(), RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
+        self.out.count += 1;
+        Ok(())
     }
 }
 

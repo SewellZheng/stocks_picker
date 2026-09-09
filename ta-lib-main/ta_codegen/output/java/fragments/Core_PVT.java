@@ -109,11 +109,8 @@
     * the shape of the curve carries information. A rising PVT while price is
     * flat says volume is accumulating on the up moves; a falling PVT while
     * price rises is the classic bearish divergence.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * PVT[i] = PVT[i-1] + inVolume[i] * (inClose[i] - inClose[i-1]) / inClose[i-1]
-    * The series starts at zero on the first bar of the requested range.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/pvt">ta-lib.org/functions/pvt</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The absolute level is arbitrary and depends on where the accumulation started, so two ranges over the same data give curves of the same shape at different offsets.</li>
@@ -183,11 +180,8 @@
     * the shape of the curve carries information. A rising PVT while price is
     * flat says volume is accumulating on the up moves; a falling PVT while
     * price rises is the classic bearish divergence.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * PVT[i] = PVT[i-1] + inVolume[i] * (inClose[i] - inClose[i-1]) / inClose[i-1]
-    * The series starts at zero on the first bar of the requested range.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/pvt">ta-lib.org/functions/pvt</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The absolute level is arbitrary and depends on where the accumulation started, so two ranges over the same data give curves of the same shape at different offsets.</li>
@@ -267,14 +261,14 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class PvtStream {
-      Core core;
-      double prevPVT;
-      double prevClose;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double prevPVT;
+      private double prevClose;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      PvtStream( Core core ) { this.core = core; }
+      private PvtStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -286,6 +280,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -296,10 +293,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PVT advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      PvtStream( PvtStream other ) {
+      private PvtStream( PvtStream other ) {
          this.core = other.core;
          this.prevPVT = other.prevPVT;
          this.prevClose = other.prevClose;
@@ -310,7 +315,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -322,12 +326,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inClose, double inVolume ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PVT update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("PVT update: BadParam", RetCode.BadParam);
          core.pvtStepImpl(this, inClose, inVolume);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -336,9 +346,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inClose, double inVolume ) {
          if( !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
@@ -385,7 +396,7 @@
          return new PvtStream(this);
       }
    }
-   void pvtStepImpl( PvtStream sp, double inClose, double inVolume )
+   private void pvtStepImpl( PvtStream sp, double inClose, double inVolume )
    {
       double tempClose = 0.0;
       tempClose = inClose;
@@ -490,9 +501,7 @@
     * to {@link Core#PVT} at that bar.
     * <p>The history must hold at least {@code PVT_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

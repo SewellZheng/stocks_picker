@@ -72,62 +72,63 @@ public partial class Core
    /// output.
    /// </remarks>
    /// <param name="optInStartValue">Initial SAR/direction: 0 auto, &gt;0 start long at value, &lt;0 start
-   /// short at |value| (default 0; <c>-4e37</c> selects the default).</param>
+   /// short at |value| (default 0; <see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <param name="optInOffsetOnReverse">Fractional offset applied to the stop on each reversal (default 0; minimum
-   /// 0; <c>-4e37</c> selects the default).</param>
+   /// 0; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitLong">Initial acceleration factor when long (default 0.02; minimum 0;
-   /// <c>-4e37</c> selects the default).</param>
-   /// <param name="optInAccelerationLong">AF increment per new long extreme (default 0.02; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
-   /// <param name="optInAccelerationMaxLong">Cap on the long acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationLong">AF increment per new long extreme (default 0.02; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationMaxLong">Cap on the long acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitShort">Initial acceleration factor when short (default 0.02; minimum 0;
-   /// <c>-4e37</c> selects the default).</param>
-   /// <param name="optInAccelerationShort">AF increment per new short extreme (default 0.02; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
-   /// <param name="optInAccelerationMaxShort">Cap on the short acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationShort">AF increment per new short extreme (default 0.02; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationMaxShort">Cap on the short acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int SAREXT_Lookback( double optInStartValue, double optInOffsetOnReverse, double optInAccelerationInitLong, double optInAccelerationLong, double optInAccelerationMaxLong, double optInAccelerationInitShort, double optInAccelerationShort, double optInAccelerationMaxShort )
    {
-      if( optInStartValue == TA_REAL_DEFAULT ) {
+      if( optInStartValue == REAL_DEFAULT ) {
          optInStartValue = 0e0;
-      } else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) ) {
+      } else if( !(optInStartValue >= REAL_MIN && optInStartValue <= REAL_MAX) ) {
          return -1;
       }
-      if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
+      if( optInOffsetOnReverse == REAL_DEFAULT ) {
          optInOffsetOnReverse = 0e0;
-      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) ) {
+      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= REAL_MAX) ) {
          return -1;
       }
-      if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitLong == REAL_DEFAULT ) {
          optInAccelerationInitLong = 2e-2;
-      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= REAL_MAX) ) {
          return -1;
       }
-      if( optInAccelerationLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationLong == REAL_DEFAULT ) {
          optInAccelerationLong = 2e-2;
-      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= REAL_MAX) ) {
          return -1;
       }
-      if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxLong == REAL_DEFAULT ) {
          optInAccelerationMaxLong = 2e-1;
-      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= REAL_MAX) ) {
          return -1;
       }
-      if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitShort == REAL_DEFAULT ) {
          optInAccelerationInitShort = 2e-2;
-      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= REAL_MAX) ) {
          return -1;
       }
-      if( optInAccelerationShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationShort == REAL_DEFAULT ) {
          optInAccelerationShort = 2e-2;
-      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= REAL_MAX) ) {
          return -1;
       }
-      if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxShort == REAL_DEFAULT ) {
          optInAccelerationMaxShort = 2e-1;
-      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= REAL_MAX) ) {
          return -1;
       }
       /* SAR always sacrifices one price bar to establish the
@@ -174,44 +175,44 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInStartValue == TA_REAL_DEFAULT ) {
+      if( optInStartValue == REAL_DEFAULT ) {
          optInStartValue = 0e0;
-      } else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) ) {
+      } else if( !(optInStartValue >= REAL_MIN && optInStartValue <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
+      if( optInOffsetOnReverse == REAL_DEFAULT ) {
          optInOffsetOnReverse = 0e0;
-      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) ) {
+      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitLong == REAL_DEFAULT ) {
          optInAccelerationInitLong = 2e-2;
-      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationLong == REAL_DEFAULT ) {
          optInAccelerationLong = 2e-2;
-      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxLong == REAL_DEFAULT ) {
          optInAccelerationMaxLong = 2e-1;
-      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitShort == REAL_DEFAULT ) {
          optInAccelerationInitShort = 2e-2;
-      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationShort == REAL_DEFAULT ) {
          optInAccelerationShort = 2e-2;
-      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxShort == REAL_DEFAULT ) {
          optInAccelerationMaxShort = 2e-1;
-      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( (outReal.Overlaps(inHigh) && outReal != inHigh) || (outReal.Overlaps(inLow) && outReal != inLow) ) {
@@ -526,45 +527,48 @@ public partial class Core
       if( (endIdx < 0) || (endIdx > MAX_INDEX) || (endIdx < startIdx)) {
          return RetCode.OutOfRangeEndIndex ;
       }
-      if( optInStartValue == TA_REAL_DEFAULT ) {
+      if( optInStartValue == REAL_DEFAULT ) {
          optInStartValue = 0e0;
-      } else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) ) {
+      } else if( !(optInStartValue >= REAL_MIN && optInStartValue <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
+      if( optInOffsetOnReverse == REAL_DEFAULT ) {
          optInOffsetOnReverse = 0e0;
-      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) ) {
+      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitLong == REAL_DEFAULT ) {
          optInAccelerationInitLong = 2e-2;
-      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationLong == REAL_DEFAULT ) {
          optInAccelerationLong = 2e-2;
-      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxLong == REAL_DEFAULT ) {
          optInAccelerationMaxLong = 2e-1;
-      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitShort == REAL_DEFAULT ) {
          optInAccelerationInitShort = 2e-2;
-      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationShort == REAL_DEFAULT ) {
          optInAccelerationShort = 2e-2;
-      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxShort == REAL_DEFAULT ) {
          optInAccelerationMaxShort = 2e-1;
-      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
+         return RetCode.BadParam ;
       }
       if( startIdx < 1 ) {
          startIdx = 1;
@@ -724,10 +728,10 @@ public partial class Core
    /// reversal (positive=long stop, negative=short stop).
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// SAR_next = SAR + AF*(EP - SAR), then clamped within the prior and current bar's range. On penetration, reverse: set SAR=EP (clamped), reset AF to its Init value, EP=extreme of the new direction. Output is +SAR when long, -SAR when short. On reversal an optional offset is applied: long-&gt;short SAR*(1+offset), short-&gt;long SAR*(1-offset).
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/sarext">ta-lib.org/functions/sarext</see>.
+   /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
@@ -741,21 +745,22 @@ public partial class Core
    /// <param name="inHigh">High price of each bar.</param>
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="optInStartValue">Initial SAR/direction: 0 auto, &gt;0 start long at value, &lt;0 start
-   /// short at |value| (default 0; <c>-4e37</c> selects the default).</param>
+   /// short at |value| (default 0; <see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <param name="optInOffsetOnReverse">Fractional offset applied to the stop on each reversal (default 0; minimum
-   /// 0; <c>-4e37</c> selects the default).</param>
+   /// 0; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitLong">Initial acceleration factor when long (default 0.02; minimum 0;
-   /// <c>-4e37</c> selects the default).</param>
-   /// <param name="optInAccelerationLong">AF increment per new long extreme (default 0.02; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
-   /// <param name="optInAccelerationMaxLong">Cap on the long acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationLong">AF increment per new long extreme (default 0.02; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationMaxLong">Cap on the long acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitShort">Initial acceleration factor when short (default 0.02; minimum 0;
-   /// <c>-4e37</c> selects the default).</param>
-   /// <param name="optInAccelerationShort">AF increment per new short extreme (default 0.02; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
-   /// <param name="optInAccelerationMaxShort">Cap on the short acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationShort">AF increment per new short extreme (default 0.02; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationMaxShort">Cap on the short acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">SAR stop level; positive while long, negative while short. Must hold at
    /// least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -810,10 +815,10 @@ public partial class Core
    /// reversal (positive=long stop, negative=short stop).
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// SAR_next = SAR + AF*(EP - SAR), then clamped within the prior and current bar's range. On penetration, reverse: set SAR=EP (clamped), reset AF to its Init value, EP=extreme of the new direction. Output is +SAR when long, -SAR when short. On reversal an optional offset is applied: long-&gt;short SAR*(1+offset), short-&gt;long SAR*(1-offset).
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/sarext">ta-lib.org/functions/sarext</see>.
+   /// </para>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
    /// <c>double</c> as they are read and all arithmetic is performed in
@@ -833,21 +838,22 @@ public partial class Core
    /// <param name="inHigh">High price of each bar.</param>
    /// <param name="inLow">Low price of each bar.</param>
    /// <param name="optInStartValue">Initial SAR/direction: 0 auto, &gt;0 start long at value, &lt;0 start
-   /// short at |value| (default 0; <c>-4e37</c> selects the default).</param>
+   /// short at |value| (default 0; <see cref="Core.REAL_DEFAULT"/> selects the
+   /// default).</param>
    /// <param name="optInOffsetOnReverse">Fractional offset applied to the stop on each reversal (default 0; minimum
-   /// 0; <c>-4e37</c> selects the default).</param>
+   /// 0; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitLong">Initial acceleration factor when long (default 0.02; minimum 0;
-   /// <c>-4e37</c> selects the default).</param>
-   /// <param name="optInAccelerationLong">AF increment per new long extreme (default 0.02; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
-   /// <param name="optInAccelerationMaxLong">Cap on the long acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationLong">AF increment per new long extreme (default 0.02; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationMaxLong">Cap on the long acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitShort">Initial acceleration factor when short (default 0.02; minimum 0;
-   /// <c>-4e37</c> selects the default).</param>
-   /// <param name="optInAccelerationShort">AF increment per new short extreme (default 0.02; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
-   /// <param name="optInAccelerationMaxShort">Cap on the short acceleration factor (default 0.2; minimum 0; <c>-4e37</c>
-   /// selects the default).</param>
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationShort">AF increment per new short extreme (default 0.02; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
+   /// <param name="optInAccelerationMaxShort">Cap on the short acceleration factor (default 0.2; minimum 0;
+   /// <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">SAR stop level; positive while long, negative while short. Must hold at
    /// least <c>endIdx - startIdx + 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -866,8 +872,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange SAREXT( int startIdx,
                            int endIdx,
                            ReadOnlySpan<float> inHigh,
@@ -945,6 +953,8 @@ public partial class Core
       /// neither does <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain
       /// <c>Open</c> hands back only the last value, a subset of this range,
       /// because the caller chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -955,10 +965,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("SAREXT", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal SarextStream( SarextStream other )
@@ -996,15 +1012,21 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("SAREXT", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("SAREXT", "update", RetCode.BadParam);
          core.SarextStepImpl(this, inHigh, inLow);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -1014,13 +1036,14 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("SAREXT", "peek", RetCode.BadParam);
@@ -1328,44 +1351,44 @@ public partial class Core
       if( inLow.Length != inHigh.Length ) {
          return RetCode.BadParam;
       }
-      if( optInStartValue == TA_REAL_DEFAULT ) {
+      if( optInStartValue == REAL_DEFAULT ) {
          optInStartValue = 0e0;
-      } else if( !(optInStartValue >= TA_REAL_MIN && optInStartValue <= TA_REAL_MAX) ) {
+      } else if( !(optInStartValue >= REAL_MIN && optInStartValue <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInOffsetOnReverse == TA_REAL_DEFAULT ) {
+      if( optInOffsetOnReverse == REAL_DEFAULT ) {
          optInOffsetOnReverse = 0e0;
-      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= TA_REAL_MAX) ) {
+      } else if( !(optInOffsetOnReverse >= 0e0 && optInOffsetOnReverse <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationInitLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitLong == REAL_DEFAULT ) {
          optInAccelerationInitLong = 2e-2;
-      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitLong >= 0e0 && optInAccelerationInitLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationLong == REAL_DEFAULT ) {
          optInAccelerationLong = 2e-2;
-      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationLong >= 0e0 && optInAccelerationLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationMaxLong == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxLong == REAL_DEFAULT ) {
          optInAccelerationMaxLong = 2e-1;
-      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxLong >= 0e0 && optInAccelerationMaxLong <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationInitShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationInitShort == REAL_DEFAULT ) {
          optInAccelerationInitShort = 2e-2;
-      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationInitShort >= 0e0 && optInAccelerationInitShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationShort == REAL_DEFAULT ) {
          optInAccelerationShort = 2e-2;
-      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationShort >= 0e0 && optInAccelerationShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
-      if( optInAccelerationMaxShort == TA_REAL_DEFAULT ) {
+      if( optInAccelerationMaxShort == REAL_DEFAULT ) {
          optInAccelerationMaxShort = 2e-1;
-      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= TA_REAL_MAX) ) {
+      } else if( !(optInAccelerationMaxShort >= 0e0 && optInAccelerationMaxShort <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
@@ -1700,21 +1723,21 @@ public partial class Core
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="optInStartValue">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInOffsetOnReverse">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitLong">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationLong">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationMaxLong">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitShort">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationShort">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationMaxShort">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>SAREXT_Lookback(...) + 1</c> bars.</exception>
    /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
@@ -1748,21 +1771,21 @@ public partial class Core
    /// <param name="inHigh">High price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="inLow">Low price of each bar. The warm-up history, oldest bar first.</param>
    /// <param name="optInStartValue">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInOffsetOnReverse">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitLong">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationLong">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationMaxLong">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationInitShort">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationShort">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="optInAccelerationMaxShort">As in the batch call; see <see cref="SAREXT_Lookback"/> for its default
-   /// and range (<c>-4e37</c> selects the default).</param>
+   /// and range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">SAR stop level; positive while long, negative while short. Must hold at
    /// least <c>historyLen - SAREXT_Lookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>

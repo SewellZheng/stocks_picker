@@ -266,17 +266,12 @@
     * four-week rule — generally credited as the first published systematic
     * trend-following system — buys a break above the high of the preceding
     * weeks and sells a break below their low.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Window = the optInTimePeriod bars ending at the current bar
-    * Upper  = Highest High of Window
-    * Lower  = Lowest  Low  of Window
-    * Middle = (Upper + Lower) / 2
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/donchian">ta-lib.org/functions/donchian</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The window includes the current bar, matching TradingView ({@code ta.highest}/{@code ta.lowest}), NinjaTrader, ta4j, pandas-ta and every other library that ships Donchian Channels.</li>
-    * <li>A breakout rule compares the current bar against the **previous** bar's band — {@code High[t] &gt; Upper[t-1]} — which is where the one-bar offset belongs. Reading {@code Upper[t]} against {@code High[t]} can never signal, because {@code High[t]} is inside the window that produced it.</li>
+    * <li>A breakout rule compares the current bar against the <b>previous</b> bar's band — {@code High[t] &gt; Upper[t-1]} — which is where the one-bar offset belongs. Reading {@code Upper[t]} against {@code High[t]} can never signal, because {@code High[t]} is inside the window that produced it.</li>
     * <li>Upper, Middle and Lower are bit-identical to {@code MAX(high, N)}, {@code MIDPRICE(N)} and {@code MIN(low, N)}. DONCHIAN computes all three in one pass under the name users look for.</li>
     * <li>The middle line is the channel midpoint, not a moving average of price.</li>
     * <li>No smoothing or recursion is involved, so there is no unstable period: outputs are exact from the first bar.</li>
@@ -346,17 +341,12 @@
     * four-week rule — generally credited as the first published systematic
     * trend-following system — buys a break above the high of the preceding
     * weeks and sells a break below their low.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Window = the optInTimePeriod bars ending at the current bar
-    * Upper  = Highest High of Window
-    * Lower  = Lowest  Low  of Window
-    * Middle = (Upper + Lower) / 2
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/donchian">ta-lib.org/functions/donchian</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The window includes the current bar, matching TradingView ({@code ta.highest}/{@code ta.lowest}), NinjaTrader, ta4j, pandas-ta and every other library that ships Donchian Channels.</li>
-    * <li>A breakout rule compares the current bar against the **previous** bar's band — {@code High[t] &gt; Upper[t-1]} — which is where the one-bar offset belongs. Reading {@code Upper[t]} against {@code High[t]} can never signal, because {@code High[t]} is inside the window that produced it.</li>
+    * <li>A breakout rule compares the current bar against the <b>previous</b> bar's band — {@code High[t] &gt; Upper[t-1]} — which is where the one-bar offset belongs. Reading {@code Upper[t]} against {@code High[t]} can never signal, because {@code High[t]} is inside the window that produced it.</li>
     * <li>Upper, Middle and Lower are bit-identical to {@code MAX(high, N)}, {@code MIDPRICE(N)} and {@code MIN(low, N)}. DONCHIAN computes all three in one pass under the name users look for.</li>
     * <li>The middle line is the channel midpoint, not a moving average of price.</li>
     * <li>No smoothing or recursion is involved, so there is no unstable period: outputs are exact from the first bar.</li>
@@ -439,25 +429,25 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class DonchianStream {
-      Core core;
-      int optInTimePeriod;
-      double lowest;
-      double highest;
-      int trailingIdx;
-      int lowestIdx;
-      int highestIdx;
-      int i;
-      int today;
-      int xMask;
-      double[] x_inHigh;
-      double[] x_inLow;
-      double cur_outRealUpperBand;
-      double cur_outRealMiddleBand;
-      double cur_outRealLowerBand;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double lowest;
+      private double highest;
+      private int trailingIdx;
+      private int lowestIdx;
+      private int highestIdx;
+      private int i;
+      private int today;
+      private int xMask;
+      private double[] x_inHigh;
+      private double[] x_inLow;
+      private double cur_outRealUpperBand;
+      private double cur_outRealMiddleBand;
+      private double cur_outRealLowerBand;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      DonchianStream( Core core ) { this.core = core; }
+      private DonchianStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -469,6 +459,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -479,10 +472,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("DONCHIAN advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      DonchianStream( DonchianStream other ) {
+      private DonchianStream( DonchianStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.lowest = other.lowest;
@@ -504,7 +505,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -516,13 +516,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, DonchianOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("DONCHIAN update", RetCode.OutOfRangeEndIndex);
          requireArgument("DONCHIAN update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("DONCHIAN update: BadParam", RetCode.BadParam);
          core.donchianStepImpl(this, inHigh, inLow);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.realUpperBand = this.cur_outRealUpperBand;
          out.realMiddleBand = this.cur_outRealMiddleBand;
          out.realLowerBand = this.cur_outRealLowerBand;
@@ -533,9 +539,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, DonchianOut out ) {
          requireArgument("DONCHIAN peek", "out", out);
@@ -552,31 +559,21 @@
          int i = sp.i;
          double lowest = sp.lowest;
          int lowestIdx = sp.lowestIdx;
-         int today = sp.today;
-         int trailingIdx = sp.trailingIdx;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
          int pkSlot1 = -1;
          double pkVal1 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            highestIdx -= rebaseShift;
-            i -= rebaseShift;
-            lowestIdx -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inHigh;
-         pkSlot1 = today & sp.xMask;
+         pkSlot1 = sp.today & sp.xMask;
          pkVal1 = inLow;
-         tmpHigh = ((today & sp.xMask) != pkSlot0) ? sp.x_inHigh[today & sp.xMask] : pkVal0;
-         tmpLow = ((today & sp.xMask) != pkSlot1) ? sp.x_inLow[today & sp.xMask] : pkVal1;
-         if( highestIdx < trailingIdx ) {
-            highestIdx = trailingIdx;
+         tmpHigh = ((sp.today & sp.xMask) != pkSlot0) ? sp.x_inHigh[sp.today & sp.xMask] : pkVal0;
+         tmpLow = ((sp.today & sp.xMask) != pkSlot1) ? sp.x_inLow[sp.today & sp.xMask] : pkVal1;
+         if( highestIdx < sp.trailingIdx ) {
+            highestIdx = sp.trailingIdx;
             highest = ((highestIdx & sp.xMask) != pkSlot0) ? sp.x_inHigh[highestIdx & sp.xMask] : pkVal0;
             i = highestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpHigh = ((i & sp.xMask) != pkSlot0) ? sp.x_inHigh[i & sp.xMask] : pkVal0;
                if( tmpHigh > highest ) {
                   highestIdx = i;
@@ -584,14 +581,14 @@
                }
             }
          } else if( tmpHigh >= highest ) {
-            highestIdx = today;
+            highestIdx = sp.today;
             highest = tmpHigh;
          }
-         if( lowestIdx < trailingIdx ) {
-            lowestIdx = trailingIdx;
+         if( lowestIdx < sp.trailingIdx ) {
+            lowestIdx = sp.trailingIdx;
             lowest = ((lowestIdx & sp.xMask) != pkSlot1) ? sp.x_inLow[lowestIdx & sp.xMask] : pkVal1;
             i = lowestIdx;
-            while( ++i <= today ) {
+            while( ++i <= sp.today ) {
                tmpLow = ((i & sp.xMask) != pkSlot1) ? sp.x_inLow[i & sp.xMask] : pkVal1;
                if( tmpLow < lowest ) {
                   lowestIdx = i;
@@ -599,7 +596,7 @@
                }
             }
          } else if( tmpLow <= lowest ) {
-            lowestIdx = today;
+            lowestIdx = sp.today;
             lowest = tmpLow;
          }
          cur_outRealUpperBand = highest;
@@ -614,7 +611,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( DonchianOut out ) {
          requireArgument("DONCHIAN value", "out", out);
@@ -663,18 +660,10 @@
       /** Lowest low of the window. */
       public double realLowerBand;
    }
-   void donchianStepImpl( DonchianStream sp, double inHigh, double inLow )
+   private void donchianStepImpl( DonchianStream sp, double inHigh, double inLow )
    {
       double tmpLow = 0.0;
       double tmpHigh = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.highestIdx -= rebaseShift;
-         sp.i -= rebaseShift;
-         sp.lowestIdx -= rebaseShift;
-      }
       sp.x_inHigh[sp.today & sp.xMask] = inHigh;
       sp.x_inLow[sp.today & sp.xMask] = inLow;
       tmpHigh = sp.x_inHigh[sp.today & sp.xMask];
@@ -919,8 +908,8 @@
     * <p>The history must hold at least {@code DONCHIAN_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

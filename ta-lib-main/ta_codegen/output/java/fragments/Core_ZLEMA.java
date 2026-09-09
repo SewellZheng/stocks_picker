@@ -213,30 +213,27 @@
       return RetCode.Success ;
    }
    /**
-    * Zero-Lag Exponential Moving Average: an [{@code EMA}](/functions/ema)
-    * applied not to price but to a de-lagged series that extrapolates price
-    * forward by the EMA's own lag, cancelling that lag to first order. It
-    * tracks a trend far more closely than an EMA of the same length, at the
-    * cost of overshooting sharp reversals — the extrapolation keeps pushing in
-    * the old direction for a bar or two. Read it as an EMA that turns sooner:
-    * crossings of price and average, and changes in its slope, arrive earlier
-    * than the equivalent EMA signal, and its overshoot after a spike is a
-    * property of the filter rather than a move in the market. ZLEMA is also
-    * selectable as a moving-average type ({@code TA_MAType_ZLEMA}) wherever an
-    * {@code optInMAType} parameter is accepted ([{@code MA}](/functions/ma),
-    * [{@code BBANDS}](/functions/bbands), [{@code STOCH}](/functions/stoch),
-    * [{@code MACDEXT}](/functions/macdext), ...).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * lag = Integer( (n - 1) / 2 )
-    * d = 2 * Price - Price[lag bars ago]
-    * ZLEMA(n) = EMA( d, n )
-    * The inner average is the standard TA-Lib EMA: smoothing factor 2 / (n + 1), seeded with the simple average of the first n de-lagged values.
-    * }</pre>
+    * Zero-Lag Exponential Moving Average: an <a
+    * href="https://ta-lib.org/functions/ema">{@code EMA}</a> applied not to
+    * price but to a de-lagged series that extrapolates price forward by the
+    * EMA's own lag, cancelling that lag to first order. It tracks a trend far
+    * more closely than an EMA of the same length, at the cost of overshooting
+    * sharp reversals — the extrapolation keeps pushing in the old direction for
+    * a bar or two. Read it as an EMA that turns sooner: crossings of price and
+    * average, and changes in its slope, arrive earlier than the equivalent EMA
+    * signal, and its overshoot after a spike is a property of the filter rather
+    * than a move in the market. ZLEMA is also selectable as a moving-average
+    * type ({@code TA_MAType_ZLEMA}) wherever an {@code optInMAType} parameter
+    * is accepted (<a href="https://ta-lib.org/functions/ma">{@code MA}</a>, <a
+    * href="https://ta-lib.org/functions/bbands">{@code BBANDS}</a>, <a
+    * href="https://ta-lib.org/functions/stoch">{@code STOCH}</a>, <a
+    * href="https://ta-lib.org/functions/macdext">{@code MACDEXT}</a>, ...).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/zlema">ta-lib.org/functions/zlema</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>**The paper this indicator is usually credited to describes a different filter.** Ehlers and Way's *Zero Lag (Well, Almost)* specifies an error-correcting EMA with a per-bar gain search; neither the de-lagged series nor the {@code (n-1)/2} lag appears anywhere in it. What TA-Lib ships here is the de-lagged-EMA construction published under the "zero lag" name by Tulip Indicators, pandas-ta, TradingView Pine and others, for which no primary source is traceable.</li>
-    * <li>{@code lag} **truncates**: {@code Integer((n-1)/2)}. For an even period that is one bar shorter than the round-to-nearest convention some descriptions use, which moves the whole line, not just its warm-up. Tulip Indicators, pandas-ta and Pine all truncate.</li>
+    * <li><b>The paper this indicator is usually credited to describes a different filter.</b> Ehlers and Way's <i>Zero Lag (Well, Almost)</i> specifies an error-correcting EMA with a per-bar gain search; neither the de-lagged series nor the {@code (n-1)/2} lag appears anywhere in it. What TA-Lib ships here is the de-lagged-EMA construction published under the "zero lag" name by Tulip Indicators, pandas-ta, TradingView Pine and others, for which no primary source is traceable.</li>
+    * <li>{@code lag} <b>truncates</b>: {@code Integer((n-1)/2)}. For an even period that is one bar shorter than the round-to-nearest convention some descriptions use, which moves the whole line, not just its warm-up. Tulip Indicators, pandas-ta and Pine all truncate.</li>
     * <li>The de-lag is computed as {@code 2 * Price - Price[lag]} in one rounding, rather than the algebraically equal {@code Price + (Price - Price[lag])} that Tulip Indicators, TradingView Pine and the Wikipedia statement use. The second form's extra rounding is one unit in the last place of the larger price — negligible against the de-lagged value, except where that value nearly cancels. When price is near double its value {@code lag} bars ago the two forms differ by about 5e-12 relative, so expect that much disagreement against those implementations on a strongly trending series, and do not attribute it to the seed or the smoothing factor.</li>
     * <li>Implementations disagree on how the inner EMA is seeded — TA-Lib uses its own EMA convention (the simple average of the first {@code n} de-lagged values), where Tulip Indicators seeds from a single raw price and so emits its first value earlier and converges to these values only after many bars.</li>
     * <li>ZLEMA inherits EMA's unstable period rather than owning one: {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} moves ZLEMA's first output too.</li>
@@ -297,30 +294,27 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
    /**
-    * Zero-Lag Exponential Moving Average: an [{@code EMA}](/functions/ema)
-    * applied not to price but to a de-lagged series that extrapolates price
-    * forward by the EMA's own lag, cancelling that lag to first order. It
-    * tracks a trend far more closely than an EMA of the same length, at the
-    * cost of overshooting sharp reversals — the extrapolation keeps pushing in
-    * the old direction for a bar or two. Read it as an EMA that turns sooner:
-    * crossings of price and average, and changes in its slope, arrive earlier
-    * than the equivalent EMA signal, and its overshoot after a spike is a
-    * property of the filter rather than a move in the market. ZLEMA is also
-    * selectable as a moving-average type ({@code TA_MAType_ZLEMA}) wherever an
-    * {@code optInMAType} parameter is accepted ([{@code MA}](/functions/ma),
-    * [{@code BBANDS}](/functions/bbands), [{@code STOCH}](/functions/stoch),
-    * [{@code MACDEXT}](/functions/macdext), ...).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * lag = Integer( (n - 1) / 2 )
-    * d = 2 * Price - Price[lag bars ago]
-    * ZLEMA(n) = EMA( d, n )
-    * The inner average is the standard TA-Lib EMA: smoothing factor 2 / (n + 1), seeded with the simple average of the first n de-lagged values.
-    * }</pre>
+    * Zero-Lag Exponential Moving Average: an <a
+    * href="https://ta-lib.org/functions/ema">{@code EMA}</a> applied not to
+    * price but to a de-lagged series that extrapolates price forward by the
+    * EMA's own lag, cancelling that lag to first order. It tracks a trend far
+    * more closely than an EMA of the same length, at the cost of overshooting
+    * sharp reversals — the extrapolation keeps pushing in the old direction for
+    * a bar or two. Read it as an EMA that turns sooner: crossings of price and
+    * average, and changes in its slope, arrive earlier than the equivalent EMA
+    * signal, and its overshoot after a spike is a property of the filter rather
+    * than a move in the market. ZLEMA is also selectable as a moving-average
+    * type ({@code TA_MAType_ZLEMA}) wherever an {@code optInMAType} parameter
+    * is accepted (<a href="https://ta-lib.org/functions/ma">{@code MA}</a>, <a
+    * href="https://ta-lib.org/functions/bbands">{@code BBANDS}</a>, <a
+    * href="https://ta-lib.org/functions/stoch">{@code STOCH}</a>, <a
+    * href="https://ta-lib.org/functions/macdext">{@code MACDEXT}</a>, ...).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/zlema">ta-lib.org/functions/zlema</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>**The paper this indicator is usually credited to describes a different filter.** Ehlers and Way's *Zero Lag (Well, Almost)* specifies an error-correcting EMA with a per-bar gain search; neither the de-lagged series nor the {@code (n-1)/2} lag appears anywhere in it. What TA-Lib ships here is the de-lagged-EMA construction published under the "zero lag" name by Tulip Indicators, pandas-ta, TradingView Pine and others, for which no primary source is traceable.</li>
-    * <li>{@code lag} **truncates**: {@code Integer((n-1)/2)}. For an even period that is one bar shorter than the round-to-nearest convention some descriptions use, which moves the whole line, not just its warm-up. Tulip Indicators, pandas-ta and Pine all truncate.</li>
+    * <li><b>The paper this indicator is usually credited to describes a different filter.</b> Ehlers and Way's <i>Zero Lag (Well, Almost)</i> specifies an error-correcting EMA with a per-bar gain search; neither the de-lagged series nor the {@code (n-1)/2} lag appears anywhere in it. What TA-Lib ships here is the de-lagged-EMA construction published under the "zero lag" name by Tulip Indicators, pandas-ta, TradingView Pine and others, for which no primary source is traceable.</li>
+    * <li>{@code lag} <b>truncates</b>: {@code Integer((n-1)/2)}. For an even period that is one bar shorter than the round-to-nearest convention some descriptions use, which moves the whole line, not just its warm-up. Tulip Indicators, pandas-ta and Pine all truncate.</li>
     * <li>The de-lag is computed as {@code 2 * Price - Price[lag]} in one rounding, rather than the algebraically equal {@code Price + (Price - Price[lag])} that Tulip Indicators, TradingView Pine and the Wikipedia statement use. The second form's extra rounding is one unit in the last place of the larger price — negligible against the de-lagged value, except where that value nearly cancels. When price is near double its value {@code lag} bars ago the two forms differ by about 5e-12 relative, so expect that much disagreement against those implementations on a strongly trending series, and do not attribute it to the seed or the smoothing factor.</li>
     * <li>Implementations disagree on how the inner EMA is seeded — TA-Lib uses its own EMA convention (the simple average of the first {@code n} de-lagged values), where Tulip Indicators seeds from a single raw price and so emits its first value earlier and converges to these values only after many bars.</li>
     * <li>ZLEMA inherits EMA's unstable period rather than owning one: {@code TA_SetUnstablePeriod(TA_FUNC_UNST_EMA, ...)} moves ZLEMA's first output too.</li>
@@ -400,18 +394,18 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class ZlemaStream {
-      Core core;
-      int optInTimePeriod;
-      double optInK_1;
-      double prevMA;
-      int ringPos_trailingIdx;
-      int ringCap_trailingIdx;
-      double[] ring_trailingIdx_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInK_1;
+      private double prevMA;
+      private int ringPos_trailingIdx;
+      private int ringCap_trailingIdx;
+      private double[] ring_trailingIdx_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      ZlemaStream( Core core ) { this.core = core; }
+      private ZlemaStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -423,6 +417,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -433,10 +430,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("ZLEMA advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      ZlemaStream( ZlemaStream other ) {
+      private ZlemaStream( ZlemaStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInK_1 = other.optInK_1;
@@ -451,7 +456,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -463,12 +467,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("ZLEMA update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("ZLEMA update: BadParam", RetCode.BadParam);
          core.zlemaStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -477,9 +487,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -528,7 +539,7 @@
          return new ZlemaStream(this);
       }
    }
-   void zlemaStepImpl( ZlemaStream sp, double inReal )
+   private void zlemaStepImpl( ZlemaStream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -713,8 +724,8 @@
     * <p>The history must hold at least {@code ZLEMA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

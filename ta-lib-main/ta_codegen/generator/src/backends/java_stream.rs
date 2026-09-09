@@ -558,14 +558,15 @@ fn emit_loop_shape(
         func, model, &fields, &step_settings, stream_fma, enums, registry, helpers, counter, 9,
         &BTreeSet::new(),
     );
-    emit_handle_class(o, func, &fields, &SubMembers::none(), frame.as_deref());
+    let frame = frame.map(PeekFrame::falls_through);
+    emit_handle_class(o, func, &fields, &SubMembers::none(), frame.as_ref());
     emit_step(o, func, model, &step_settings, stream_fma, enums, registry, helpers, counter);
     emit_open_body(
         o, func, model, body, &fields, &step_settings, stream_fma, enums, registry,
         helpers, counter,
     );
     emit_open_and_fill_internal_wrapper(o, func, true);
-    emit_open_wrappers(o, func, true);
+    emit_open_wrappers(o, func, true, enums);
 }
 
 /// Prefix every non-empty line of `s` with `extra` spaces — cosmetic re-indent
@@ -628,6 +629,21 @@ impl SubMembers {
     }
 }
 
+/// A rendered peek frame and whether it returns on every path. A terminal
+/// frame owns its exits, so the tail read of `cur_*` must NOT follow it:
+/// javac rejects the unreachable statement outright (JLS 14.22), and a
+/// multi-output frame would skip the caller's sink write instead.
+struct PeekFrame {
+    body: String,
+    terminal: bool,
+}
+
+impl PeekFrame {
+    fn falls_through(body: String) -> Self {
+        Self { body, terminal: false }
+    }
+}
+
 /// Emit the nested handle class. `subs` holds the tier-owned members
 /// (sub-handle copies); loop tier passes [`SubMembers::none`].
 fn emit_handle_class(
@@ -635,7 +651,7 @@ fn emit_handle_class(
     func: &FuncDef,
     fields: &[Field],
     subs: &SubMembers,
-    frame: Option<&str>,
+    frame: Option<&PeekFrame>,
 ) {
     emit_handle_class_with_members(o, func, fields, subs, "", frame);
 }
@@ -648,7 +664,7 @@ fn emit_handle_class_with_members(
     fields: &[Field],
     subs: &SubMembers,
     extra_members: &str,
-    frame: Option<&str>,
+    frame: Option<&PeekFrame>,
 ) {
     let class = stream_class_name(func);
     let base = base_name(func);
@@ -673,18 +689,18 @@ fn emit_handle_class_with_members(
          \x20   */"
     );
     let _ = writeln!(o, "   public static final class {class} {{");
-    let _ = writeln!(o, "      Core core;");
+    let _ = writeln!(o, "      private Core core;");
     for (name, jty, _) in fields {
-        let _ = writeln!(o, "      {jty} {name};");
+        let _ = writeln!(o, "      private {jty} {name};");
     }
     o.push_str(extra_members);
     // The bars this handle has an output for (issue #241). Two ints
     // rather than an `OutRange`: `update` runs on every bar and the emitted
     // javadoc promises it never allocates handle state, so the record is built
     // in the accessor instead of replaced per bar.
-    let _ = writeln!(o, "      int outRangeBegIdx;");
-    let _ = writeln!(o, "      int outRangeCount;");
-    let _ = writeln!(o, "\n      {class}( Core core ) {{ this.core = core; }}");
+    let _ = writeln!(o, "      private int outRangeBegIdx;");
+    let _ = writeln!(o, "      private int outRangeCount;");
+    let _ = writeln!(o, "\n      private {class}( Core core ) {{ this.core = core; }}");
     let _ = writeln!(
         o,
         "\n      /**\n\
@@ -697,6 +713,9 @@ fn emit_handle_class_with_members(
          \x20      * {{@code clone()}} carries it verbatim. A plain\n\
          \x20      * {{@code open}} hands back only the last value, a subset of this range,\n\
          \x20      * because the caller chose not to take the fill.\n\
+         \x20      * <p>The last bar it can reach is {{@link Core#MAX_INDEX}}; past that\n\
+         \x20      * {{@code update}} and {{@code advance}} throw\n\
+         \x20      * {{@link IndexOutOfBoundsException}}.\n\
          \x20      */\n\
          \x20     public OutRange outRange() {{ return new OutRange(outRangeBegIdx, outRangeCount); }}",
         base = base_name(func)
@@ -710,8 +729,16 @@ fn emit_handle_class_with_members(
          \x20      * <p>For a bar the caller leaves out: one an {{@code update}} rejected\n\
          \x20      * and that will not be re-fed, or a session with no print. Without it\n\
          \x20      * two handles on one feed drift a bar apart when only one of them skips.\n\
+         \x20      * <p>Throws {{@link IndexOutOfBoundsException}} once {{@link #outRange()}}\n\
+         \x20      * has reached bar {{@link Core#MAX_INDEX}}, the last one the batch tier\n\
+         \x20      * can address and the last this handle will count. {{@code update}}\n\
+         \x20      * throws the same there.\n\
          \x20      */\n\
-         \x20     public void advance() {{ {} }}",
+         \x20     public void advance() {{\n\
+         {}\
+         \x20        {}\n\
+         \x20     }}",
+        out_range_ceiling_guard(func, "         ", "advance"),
         advance_out_range(),
         vlink = value_link(func)
     );
@@ -719,7 +746,7 @@ fn emit_handle_class_with_members(
     // Deep-copy constructor: scalars assign, arrays clone (element-wise for
     // sub-handle arrays via copy_extra), sub-handles copy recursively; the
     // Core reference is shared (settings identity is the contract).
-    let _ = writeln!(o, "\n      {class}( {class} other ) {{");
+    let _ = writeln!(o, "\n      private {class}( {class} other ) {{");
     let _ = writeln!(o, "         this.core = other.core;");
     for (name, jty, _) in fields {
         if jty.ends_with("[]") {
@@ -854,12 +881,29 @@ fn assert_single_output(func: &FuncDef, site: &str) {
     );
 }
 
-/// The one spelling of the `outRange` advance. Saturating: nothing bounds how
-/// many bars a live stream is fed, and past `MAX_INDEX` the count has left the
-/// batch index domain anyway. Every site that moves the count goes through here,
-/// or the saturation guard exists in two places and only one of them gets fixed.
+/// Rule U4 — the opener's index-pair check read on a live handle, one bar at a
+/// time (`docs/error-handling-spec.md` §2.4, which carries why a sub-handle
+/// cannot answer it before its parent).
+///
+/// `>` and not `>=`: an opener may legally take `MAX_INDEX + 1` bars (rule S2),
+/// so a handle can be born holding the last bar in the domain and it is the NEXT
+/// one that has nowhere to go.
+///
+/// Through `failure(...)`, so the code is spelled here exactly as
+/// `requireHistory` spells it for rule S2 and not as a fourth exception type.
+fn out_range_ceiling_guard(func: &FuncDef, indent: &str, verb: &str) -> String {
+    format!(
+        "{indent}if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )\n\
+         {indent}   throw failure(\"{} {verb}\", RetCode.OutOfRangeEndIndex);\n",
+        func.name
+    )
+}
+
+/// The one spelling of the `outRange` advance. Unconditional: every site that
+/// reaches it has already answered [`out_range_ceiling_guard`], which is what
+/// bounds the count.
 fn advance_out_range() -> &'static str {
-    "if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;"
+    "this.outRangeCount++;"
 }
 
 /// The per-bar finite-input rejection for `update`/`peek`: one `Double.isFinite`
@@ -890,7 +934,7 @@ fn finite_bar_check(func: &FuncDef, indent: &str, what: &str) -> String {
 }
 
 
-fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef, frame: Option<&str>) {
+fn emit_update_peek_value_copy(o: &mut String, func: &FuncDef, frame: Option<&PeekFrame>) {
     emit_update_method(o, func);
     emit_peek_method(o, func, frame);
     emit_value_method(o, func);
@@ -923,7 +967,6 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
         o,
         "\n      /**\n\
          \x20      * Commit one closed bar, {answers}.\n\
-         \x20      * Never allocates handle state.\n\
          \x20      * <p>Throws {{@link IllegalArgumentException}} if any bar value is not\n\
          \x20      * finite (NaN or an infinity). That check runs before anything is\n\
          \x20      * written, so nothing moves — {{@link #outRange()}} included — and\n\
@@ -935,10 +978,17 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
          \x20      * the batch API, which computes on whatever it is given: a handle\n\
          \x20      * retains its state, so a single non-finite bar would poison every\n\
          \x20      * later value it produces.\n\
+         \x20      * <p>Throws {{@link IndexOutOfBoundsException}} once {{@link #outRange()}}\n\
+         \x20      * has reached bar {{@link Core#MAX_INDEX}}, which no re-feed clears: the\n\
+         \x20      * handle has run out of index domain and only a shorter history can\n\
+         \x20      * start a new one.\n\
          \x20      */"
     );
     let _ = writeln!(o, "      public {vt} update( {sig_bars}{sink} ) {{");
-    // U2 before U3: an absent sink is a fault in the call, not in the bar.
+    // U4 first, then U2 before U3: the index domain ahead of the call's
+    // arguments, as an opener answers S1/S2 ahead of S4; and an absent sink is a
+    // fault in the call, not in the bar.
+    o.push_str(&out_range_ceiling_guard(func, "         ", "update"));
     o.push_str(&require_sink(func, "         ", "update"));
     o.push_str(&finite_bar_check(func, "         ", "update"));
     let _ = writeln!(o, "         core.{base}StepImpl(this, {fwd_bars});");
@@ -953,7 +1003,7 @@ fn emit_update_method(o: &mut String, func: &FuncDef) {
 }
 
 // --- peek ------------------------------------------------------------------------
-fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
+fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&PeekFrame>) {
     let class = stream_class_name(func);
     let multi = has_value_class(func);
     let vt = if multi {
@@ -970,24 +1020,6 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     let verb = if multi { "write" } else { "return" };
 
     // What still allocates per call is the sink a COMPOSED frame hands its
-    // multi-output sub-handle (#325), and an accumulator a frame had to clone —
-    // no shipped one does, and the branch is the fallback. Read off the frame
-    // rather than off the output count: the outputs go to the caller's own sink
-    // now, so the count says nothing about what a peek allocates.
-    let allocates = frame.is_some_and(|f| {
-        f.contains(".clone()")
-            || f.lines().any(|l| l.contains(" = new ") && l.trim_end().ends_with("Out();"))
-    });
-    let cost = if allocates {
-        "It copies no buffer: the frame runs against this handle, reading its\n\
-         \x20      * buffers and storing what the step would commit into locals, so the cost\n\
-         \x20      * does not grow with the period. It does allocate a small bounded amount\n\
-         \x20      * per call — a size fixed by the indicator, never by the period."
-    } else {
-        "It copies nothing: the frame runs against this handle, reading its\n\
-         \x20      * buffers and storing what the step would commit into locals, so the cost\n\
-         \x20      * does not grow with the period and {@code peek} never allocates."
-    };
     let _ = writeln!(
         o,
         "\n      /**\n\
@@ -995,7 +1027,10 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
          \x20      * next {{@code update}} with the same bar would {verb} — the same\n\
          \x20      * transition, with every store it would make carried in a local instead.\n\
          \x20      * Never writes this handle, so peeks may\n\
-         \x20      * run concurrently with each other. {cost}\n\
+         \x20      * run concurrently with each other, and its cost does not grow with the\n\
+         \x20      * period.\n\
+         \x20      * <p>It counts no bar, so it keeps answering past the\n\
+         \x20      * {{@link Core#MAX_INDEX}} ceiling {{@code update}} stops at.\n\
          \x20      */"
     );
     let _ = writeln!(o, "      public {vt} peek( {sig_bars}{sink} ) {{");
@@ -1003,10 +1038,12 @@ fn emit_peek_method(o: &mut String, func: &FuncDef, frame: Option<&str>) {
     // run any of it.
     o.push_str(&require_sink(func, "         ", "peek"));
     o.push_str(&finite_bar_check(func, "         ", "peek"));
-    let body = frame.expect("every tier emits a peek frame");
+    let frame = frame.expect("every tier emits a peek frame");
     let _ = writeln!(o, "         {class} sp = this;");
-    o.push_str(body);
-    if multi {
+    o.push_str(&frame.body);
+    if frame.terminal {
+        assert!(!multi, "a terminal peek frame would skip the caller's sink write");
+    } else if multi {
         o.push_str(&write_out_stmts(func, "out", "", "         "));
     } else {
         let _ = writeln!(o, "         return {};", fresh_value_expr_local(func));
@@ -1024,7 +1061,7 @@ fn emit_value_method(o: &mut String, func: &FuncDef) {
     };
     let sink = if multi { format!(" {} out ", out_class_name(func)) } else { String::new() };
     let (past_verb, write_note) = if multi {
-        ("wrote", " Overwrites {@code out}, allocating nothing.")
+        ("wrote", " Overwrites {@code out}.")
     } else {
         ("returned", "")
     };
@@ -1236,21 +1273,34 @@ fn build_dispatch_peek_frame(
     enums: &HashMap<String, EnumDef>,
     registry: &Registry,
     helpers: &HelperRegistry,
-) -> String {
+) -> PeekFrame {
+    // Arms return straight out of the switch rather than accumulating, to keep
+    // the frame under C2's default `FreqInlineSize` (325 bytes of bytecode):
+    // over it, every caller holding an MA sub-handle loses inlining. The
+    // accumulating shape measured 345, this one 286, and each further MAType
+    // arm costs 16.
+    let terminal = func.outputs.len() == 1;
     let mut f = String::new();
-    for out in &func.outputs {
-        let jty = out_java_type(func, &out.name);
-        let zero = if jty == "int" { "0" } else { "0.0" };
-        let _ = writeln!(f, "         {jty} cur_{} = {zero};", out.name);
+    if !terminal {
+        for out in &func.outputs {
+            let jty = out_java_type(func, &out.name);
+            let zero = if jty == "int" { "0" } else { "0.0" };
+            let _ = writeln!(f, "         {jty} cur_{} = {zero};", out.name);
+        }
     }
     if let Some(idp) = &dp.identity {
         let cond = params_on_state(func, &idp.condition);
         let cond = render_predicate(&cond, ctx, registry, helpers);
         let _ = writeln!(f, "         if( {cond} ) {{");
-        for (out, inp) in &idp.pairs {
-            let _ = writeln!(f, "            cur_{out} = {inp};");
+        if terminal {
+            let (_, inp) = &idp.pairs[0];
+            let _ = writeln!(f, "            return {inp};");
+        } else {
+            for (out, inp) in &idp.pairs {
+                let _ = writeln!(f, "            cur_{out} = {inp};");
+            }
+            let _ = writeln!(f, "            return {};", fresh_value_expr_local(func));
         }
-        let _ = writeln!(f, "            return {};", fresh_value_expr_local(func));
         let _ = writeln!(f, "         }}");
     }
     let _ = writeln!(f, "         switch( sp.{} )", dp.param);
@@ -1260,15 +1310,18 @@ fn build_dispatch_peek_frame(
         let cls = callee_stream_class(registry, &arm.callee);
         let ocls = callee_out_class(registry, &arm.callee);
         let _ = writeln!(f, "         case {label}: {{");
+        let mut returned = false;
         if arm.out_map.len() == 1 {
             let streaming::OutSlot::Forward(k) = arm.out_map[0] else {
                 panic!("single-output arm cannot discard its only slot")
             };
-            let _ = writeln!(
-                f,
-                "            cur_{} = (({cls}) sp.sub).peek({bar_args});",
-                outputs[k]
-            );
+            let call = format!("(({cls}) sp.sub).peek({bar_args})");
+            if terminal {
+                let _ = writeln!(f, "            return {call};");
+                returned = true;
+            } else {
+                let _ = writeln!(f, "            cur_{} = {call};", outputs[k]);
+            }
         } else {
             let _ = writeln!(
                 f,
@@ -1277,16 +1330,24 @@ fn build_dispatch_peek_frame(
             );
             for (i, slot) in arm.out_map.iter().enumerate() {
                 if let streaming::OutSlot::Forward(k) = slot {
-                    let _ = writeln!(
-                        f,
-                        "            cur_{} = subValue.{};",
-                        outputs[*k],
-                        callee_value_field(registry, &arm.callee, i)
-                    );
+                    let field = callee_value_field(registry, &arm.callee, i);
+                    if terminal {
+                        let _ = writeln!(f, "            return subValue.{field};");
+                        returned = true;
+                    } else {
+                        let _ = writeln!(f, "            cur_{} = subValue.{field};", outputs[*k]);
+                    }
                 }
             }
         }
-        let _ = writeln!(f, "            break;");
+        if terminal {
+            // Without a forwarded slot the arm emits no exit at all and falls
+            // into the next case, which casts this arm's sub-handle to the next
+            // arm's class.
+            assert!(returned, "dispatch arm {label} forwards no output");
+        } else {
+            let _ = writeln!(f, "            break;");
+        }
         let _ = writeln!(f, "         }}");
     }
     let _ = writeln!(f, "         default:");
@@ -1295,7 +1356,7 @@ fn build_dispatch_peek_frame(
         "            throw new IllegalStateException(\"unreachable: open rejects arms without a sub-stream\");"
     );
     let _ = writeln!(f, "         }}");
-    f
+    PeekFrame { body: f, terminal }
 }
 
 /// [`peek_frame_arm_named`] for the tiers whose transition uses the ordinary
@@ -1341,16 +1402,8 @@ fn peek_frame_arm_named(
     let pad = " ".repeat(indent);
     let transition = streaming::build_transition(model, names).ok()?;
     let pt = streaming::peek_transition_widest(model, names, &transition, None).ok()?;
-    // The extrema rebase moves the cursor before the first store, so its
-    // targets localize with the transition's own.
-    let mut rebased: Vec<String> = Vec::new();
-    if let Some(ex) = model.extrema() {
-        rebased.push(model.cursor.clone());
-        rebased.push(ex.trailing.clone());
-        rebased.extend(ex.index_vars.iter().cloned());
-    }
     let bufs = streaming::transition_buffers(model, names);
-    let (locals, body_ir) = localize_state_writes(func, &pt.body, &rebased, &bufs)?;
+    let (locals, body_ir) = localize_state_writes(func, &pt.body, &[], &bufs)?;
     // The transition's own early exit — the param-degenerate identity
     // short-circuit — is valueless, because a step returns `void`. Inline in
     // `peek` it exits a method that answers a value.
@@ -1400,15 +1453,6 @@ fn peek_frame_arm_named(
     for t in &pt.slot_temps {
         let _ = writeln!(out, "{pad}int {t} = 0;");
     }
-    if let Some(ex) = model.extrema() {
-        let inner = " ".repeat(indent + 3);
-        let _ = writeln!(out, "{pad}if( {} >= 1073741824 ) {{", model.cursor);
-        let _ = writeln!(out, "{inner}int rebaseShift = {} & ~sp.xMask;", ex.trailing);
-        for v in &rebased {
-            let _ = writeln!(out, "{inner}{v} -= rebaseShift;");
-        }
-        let _ = writeln!(out, "{pad}}}");
-    }
     for s in step_settings {
         let _ = writeln!(out, "{pad}int {s}_rangeType = sp.cs_{s}_rangeType;");
         let _ = writeln!(out, "{pad}int {s}_avgPeriod = sp.cs_{s}_avgPeriod;");
@@ -1446,11 +1490,11 @@ fn emit_step_sig(o: &mut String, func: &FuncDef) {
     let base = method_base(func);
     let class = stream_class_name(func);
     let (sig_bars, _) = bar_params(func);
-    let _ = writeln!(o, "   void {base}StepImpl( {class} sp, {sig_bars} )\n   {{");
+    let _ = writeln!(o, "   private void {base}StepImpl( {class} sp, {sig_bars} )\n   {{");
 }
 
-/// One model's per-bar step body at a given indent: temp decls, the extrema
-/// rebase, the candle-snapshot unpacking, and the rendered transition. Called
+/// One model's per-bar step body at a given indent: temp decls, the
+/// candle-snapshot unpacking, and the rendered transition. Called
 /// once by the loop tier (indent 6) and once per arm by the dual-mode step.
 #[allow(clippy::too_many_arguments)]
 fn emit_step_body(
@@ -1470,7 +1514,6 @@ fn emit_step_body(
         let (jty, default) = field_type_and_default(ty);
         let _ = writeln!(o, "{pad}{jty} {name} = {default};");
     }
-    emit_extrema_rebase(o, model, indent);
     // Candle settings from the open-time snapshot (never the live objects).
     for s in step_settings {
         let _ = writeln!(o, "{pad}int {s}_rangeType = sp.cs_{s}_rangeType;");
@@ -1504,27 +1547,6 @@ fn emit_identity_step_branch(
     }
 }
 
-/// Extrema automatons carry batch-absolute int indices; rebase them by a
-/// multiple of the physical ring size long before Integer.MAX_VALUE (mirrors C
-/// verbatim — index differences and `& xMask` slots are invariant).
-fn emit_extrema_rebase(o: &mut String, model: &StreamModel, indent: usize) {
-    if let Some(ex) = model.extrema() {
-        let pad = " ".repeat(indent);
-        let inner = " ".repeat(indent + 3);
-        let mut vars: Vec<String> = vec![model.cursor.clone(), ex.trailing.clone()];
-        vars.extend(ex.index_vars.iter().cloned());
-        let _ = writeln!(o, "{pad}if( sp.{} >= 1073741824 ) {{", model.cursor);
-        let _ = writeln!(
-            o,
-            "{inner}int rebaseShift = sp.{} & ~sp.xMask;",
-            ex.trailing
-        );
-        for v in &vars {
-            let _ = writeln!(o, "{inner}sp.{v} -= rebaseShift;");
-        }
-        let _ = writeln!(o, "{pad}}}");
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Open transcription
@@ -2483,6 +2505,80 @@ fn declinable_note(func: &FuncDef, class: &str) -> String {
     )
 }
 
+/// The public opener's javadoc block.
+fn emit_public_open_doc(
+    o: &mut String,
+    func: &FuncDef,
+    enums: &HashMap<String, EnumDef>,
+    n: &str,
+    base: &str,
+) {
+    let params = default_sentinel_clause(func, enums);
+    let _ = writeln!(
+        o,
+        "   /**\n\
+         \x20   * Open a live {n} stream over the warm-up history; the handle's\n\
+         \x20   * {{@code value()}} starts at the last history bar's value — bit-identical\n\
+         \x20   * to {{@link Core#{base}}} at that bar.\n\
+         \x20   * <p>The history must hold at least {{@code {base}_Lookback(...) + 1}} bars\n\
+         \x20   * (unstable-period aware), or {{@link InsufficientHistoryException}} is\n\
+         \x20   * thrown.{params} An EMPTY history throws\n\
+         \x20   * {{@link IndexOutOfBoundsException}} — its implied {{@code startIdx}} of 0\n\
+         \x20   * names no bar — and a null argument {{@link IllegalArgumentException}},\n\
+         \x20   * both ahead of everything above.\n\
+         \x20   */"
+    );
+}
+
+/// The opener's sentence about out-of-range parameters, wrapped and ready to
+/// splice — empty where the function takes no optional parameter, since both
+/// halves of the sentence then describe nothing.
+fn default_sentinel_clause(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> String {
+    let sentinels = default_sentinels(func, enums);
+    let (list, verb) = match sentinels.split_last() {
+        None => return String::new(),
+        Some((last, [])) => (last.clone(), "selects"),
+        Some((last, rest)) => (format!("{} and {last}", rest.join(", ")), "select"),
+    };
+    format!(
+        " Out-of-range parameters throw {{@link IllegalArgumentException}}\n{}",
+        javadoc_wrap(&format!(
+            "({list} {verb} a parameter's documented default, as in the batch API)."
+        ))
+    )
+}
+
+/// The spellings of "use this parameter's documented default" that THIS
+/// function's parameters accept.
+fn default_sentinels(func: &FuncDef, enums: &HashMap<String, EnumDef>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for opt in &func.optional_inputs {
+        let spelling = match &opt.param_type {
+            ParamType::Integer => "{@link Integer#MIN_VALUE}".to_string(),
+            ParamType::Real => "{@link Core#REAL_DEFAULT}".to_string(),
+            ParamType::Enum(name) => match common::enum_default_variant(enums, name) {
+                Some(v) => format!("{{@link {name}#{}}}", v.name),
+                None => continue,
+            },
+            ParamType::Price(_) => continue,
+        };
+        if !out.contains(&spelling) {
+            out.push(spelling);
+        }
+    }
+    out
+}
+
+/// Fold prose into javadoc continuation lines at the width the surrounding
+/// block already uses.
+fn javadoc_wrap(text: &str) -> String {
+    super::java_doc::wrap(text, 70)
+        .into_iter()
+        .map(|l| format!("    * {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// `openInternal` (the anchored plain open), the public `<base>Open`, and the
 /// public `<base>OpenAndFill`.
 ///
@@ -2493,12 +2589,17 @@ fn declinable_note(func: &FuncDef, class: &str) -> String {
 /// public `OpenAndFill` hoists the aliasing guard and then delegates to
 /// `OpenAndFillInternal`, exactly the way `Open` delegates to `OpenInternal`.
 /// That symmetry is what makes the anchored fill seam reachable for every
-/// function rather than only the sixteen something composes over.
+/// function rather than only the ones something composes over.
 ///
 /// The two exempt tiers (`Dispatch`, `PeriodBank`) hand-roll a RetCode-returning
 /// body per entry point — theirs differ by which callee tier they call and by an
 /// anchor clamp, not by a stride — so their wrappers stay thin over those.
-fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
+fn emit_open_wrappers(
+    o: &mut String,
+    func: &FuncDef,
+    merged: bool,
+    enums: &HashMap<String, EnumDef>,
+) {
     let base = base_name(func);
     let jbase = method_base(func);
     let class = stream_class_name(func);
@@ -2521,23 +2622,7 @@ fn emit_open_wrappers(o: &mut String, func: &FuncDef, merged: bool) {
 
     emit_open_internal_seam(o, func, merged, &in_sig, &in_fwd, &opt_sig_str, &opt_fwd_str);
 
-    // Public open.
-    let _ = writeln!(
-        o,
-        "   /**\n\
-         \x20   * Open a live {n} stream over the warm-up history; the handle's\n\
-         \x20   * {{@code value()}} starts at the last history bar's value — bit-identical\n\
-         \x20   * to {{@link Core#{base}}} at that bar.\n\
-         \x20   * <p>The history must hold at least {{@code {base}_Lookback(...) + 1}} bars\n\
-         \x20   * (unstable-period aware), or {{@link InsufficientHistoryException}} is\n\
-         \x20   * thrown. Out-of-range parameters throw {{@link IllegalArgumentException}}\n\
-         \x20   * ({{@code Integer.MIN_VALUE}} selects an integer parameter's documented\n\
-         \x20   * default, as in the batch API). An EMPTY history throws\n\
-         \x20   * {{@link IndexOutOfBoundsException}} — its implied {{@code startIdx}} of 0\n\
-         \x20   * names no bar — and a null argument {{@link IllegalArgumentException}},\n\
-         \x20   * both ahead of everything above.\n\
-         \x20   */"
-    );
+    emit_public_open_doc(o, func, enums, &n, &base);
     let _ = writeln!(
         o,
         "   public {class} {jbase}Open( {}{opt_sig_str} )\n   {{",
@@ -2768,7 +2853,8 @@ fn emit_dual_mode(
             f
         })
     };
-    emit_handle_class(o, func, &fields, &SubMembers::none(), dual_frame.as_deref());
+    let dual_frame = dual_frame.map(PeekFrame::falls_through);
+    emit_handle_class(o, func, &fields, &SubMembers::none(), dual_frame.as_ref());
 
     // --- step: one function, the mode re-derived from the stored param ------
     emit_step_sig(o, func);
@@ -2844,7 +2930,7 @@ fn emit_dual_mode(
     }
     emit_open_and_fill_internal_wrapper(o, func, true);
 
-    emit_open_wrappers(o, func, true);
+    emit_open_wrappers(o, func, true, enums);
 }
 
 // ---------------------------------------------------------------------------
@@ -2915,7 +3001,7 @@ fn emit_dispatch(
     // --- handle class -------------------------------------------------------
     let fields = base_fields(func);
     let extra_members = format!(
-        "      // Sub-stream, tagged by {}; null on the identity path.\n      Object sub;\n",
+        "      // Sub-stream, tagged by {}; null on the identity path.\n      private Object sub;\n",
         dp.param
     );
     // Deep copy of the tagged sub: switch on the stored enum param, invoke the
@@ -3003,11 +3089,17 @@ fn emit_dispatch(
                 }
             }
         }
-        let _ = writeln!(o, "         break;");
+        // Every arm returns, including `default` below, which is what makes
+        // javac reject anything emitted after this switch. Nothing may go
+        // there: the arms are the only writers of `sp.cur_*` and a tail would
+        // be dead on every real MAType, reached only by the unreachable
+        // default. Keep the two in step -- a `break` default silently restores
+        // the trap, at no saving.
+        let _ = writeln!(o, "         return;");
         let _ = writeln!(o, "      }}");
     }
     let _ = writeln!(o, "      default:");
-    let _ = writeln!(o, "         break; /* unreachable: open rejects arms without a sub-stream */");
+    let _ = writeln!(o, "         return; /* unreachable: open rejects arms without a sub-stream */");
     let _ = writeln!(o, "      }}");
     let _ = writeln!(o, "   }}");
 
@@ -3179,7 +3271,7 @@ fn emit_dispatch(
         let _ = writeln!(o, "   }}");
     }
 
-    emit_open_wrappers(o, func, false);
+    emit_open_wrappers(o, func, false, enums);
     emit_open_and_fill_internal_wrapper(o, func, false);
 }
 
@@ -3229,7 +3321,7 @@ fn emit_period_bank(
     // --- handle class -------------------------------------------------------
     let fields = base_fields(func);
     let extra_members = format!(
-        "      // One sub-{} stream per period in [{min}, {max}], advanced in lockstep.\n      {subty}[] bank;\n",
+        "      // One sub-{} stream per period in [{min}, {max}], advanced in lockstep.\n      private {subty}[] bank;\n",
         callee.to_uppercase()
     );
     // Object-array clone is SHALLOW: the bank must copy element-wise or a peek
@@ -3253,6 +3345,7 @@ fn emit_period_bank(
     let _ = writeln!(bank_frame, "         }}");
     let _ = writeln!(bank_frame, "         int slot = cp - sp.{min};");
     let _ = writeln!(bank_frame, "         double cur_{out} = sp.bank[slot].peek({price});");
+    let bank_frame = PeekFrame::falls_through(bank_frame);
     emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, Some(&bank_frame));
 
     // --- step: advance ALL slots, output the clamped-period slot ------------
@@ -3384,7 +3477,7 @@ fn emit_period_bank(
     let _ = writeln!(o, "      return RetCode.Success;");
     let _ = writeln!(o, "   }}");
 
-    emit_open_wrappers(o, func, false);
+    emit_open_wrappers(o, func, false, enums);
 }
 
 // ---------------------------------------------------------------------------
@@ -3665,7 +3758,6 @@ fn emit_composed_step(
                 counter, indent, &declared,
             )?);
         } else {
-        emit_extrema_rebase(o, model, indent);
         for s in step_settings {
             let _ = writeln!(o, "{pad}int {s}_rangeType = sp.cs_{s}_rangeType;");
             let _ = writeln!(o, "{pad}int {s}_avgPeriod = sp.cs_{s}_avgPeriod;");
@@ -4103,7 +4195,7 @@ fn emit_composed(
     for (si, sub) in cp.subs.iter().enumerate() {
         let callee_key = sub.callee.to_lowercase();
         let cls = callee_stream_class(registry, &callee_key);
-        let _ = writeln!(extra_members, "      {cls} sub{si};");
+        let _ = writeln!(extra_members, "      private {cls} sub{si};");
         let _ = writeln!(copy_extra, "         this.sub{si} = new {cls}(other.sub{si});");
     }
     let subs = SubMembers { copy: copy_extra };
@@ -4114,7 +4206,8 @@ fn emit_composed(
             helpers, counter, &fields, true,
         )
     };
-    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, frame.as_deref());
+    let frame = frame.map(PeekFrame::falls_through);
+    emit_handle_class_with_members(o, func, &fields, &subs, &extra_members, frame.as_ref());
 
     emit_composed_step(
         o, func, cp, &step_settings, stream_fma, registry, &inputs, &outputs, enums, helpers,
@@ -4124,7 +4217,7 @@ fn emit_composed(
         o, func, cp, &step_settings, stream_fma, &outputs, enums, registry, helpers, counter,
     );
     emit_open_and_fill_internal_wrapper(o, func, true);
-    emit_open_wrappers(o, func, true);
+    emit_open_wrappers(o, func, true, enums);
 }
 
 /// `<base>OpenAndFillInternal`: `OpenAndFill` anchored at the caller's

@@ -582,13 +582,6 @@ static void TA_CORREL_StepImpl( struct TA_CORREL_Stream *sp, double inReal0, dou
    sumY = sp->sumY;
    sumX2 = sp->sumX2;
    sumY2 = sp->sumY2;
-   if( sp->today >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->today -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->j -= rebaseShift;
-   }
    sp->x_inReal0[sp->today & sp->xMask] = inReal0;
    sp->x_inReal1[sp->today & sp->xMask] = inReal1;
    /* Add the incoming value, measured against the shift. */
@@ -1106,10 +1099,13 @@ TA_RetCode TA_CORREL_OpenAndFillInternal( struct TA_CORREL_Stream **stream, cons
 
 TA_LIB_API TA_RetCode TA_CORREL_Update( TA_CORREL_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    TA_CORREL_StepImpl( stream, inReal0, inReal1, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1132,8 +1128,6 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
    double sumXY;
    double sumY;
    double sumY2;
-   int today;
-   int trailingIdx;
    double *x_inReal0;
    double *x_inReal1;
    int pkSlot0 = -1;
@@ -1152,26 +1146,17 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
    sumXY = sp->sumXY;
    sumY = sp->sumY;
    sumY2 = sp->sumY2;
-   today = sp->today;
-   trailingIdx = sp->trailingIdx;
    x_inReal0 = sp->x_inReal0;
    x_inReal1 = sp->x_inReal1;
-   if( today >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      today -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      j -= rebaseShift;
-   }
-   pkSlot0 = today & sp->xMask;
+   pkSlot0 = sp->today & sp->xMask;
    pkVal0 = inReal0;
-   pkSlot1 = today & sp->xMask;
+   pkSlot1 = sp->today & sp->xMask;
    pkVal1 = inReal1;
    /* Add the incoming value, measured against the shift. */
-   x = (((today & sp->xMask) != pkSlot0) ? x_inReal0[today & sp->xMask] : pkVal0) - shiftX;
+   x = (((sp->today & sp->xMask) != pkSlot0) ? x_inReal0[sp->today & sp->xMask] : pkVal0) - shiftX;
    sumX += x;
    sumX2 += x * x;
-   y = (((today & sp->xMask) != pkSlot1) ? x_inReal1[today & sp->xMask] : pkVal1) - shiftY;
+   y = (((sp->today & sp->xMask) != pkSlot1) ? x_inReal1[sp->today & sp->xMask] : pkVal1) - shiftY;
    sumXY += x * y;
    sumY += y;
    sumY2 += y * y;
@@ -1208,14 +1193,14 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
    if( ssX < 0.000001 * sumX2 || ssY < 0.000001 * sumY2 || sp->leavingX > 1000000.0 * sumX2 || sp->leavingY > 1000000.0 * sumY2 || barsSinceReseed <= 0 )
    {
       barsSinceReseed = 32 * sp->optInTimePeriod;
-      windowStart = today - sp->lookbackTotal;
+      windowStart = sp->today - sp->lookbackTotal;
       /* Both means in one pass over the window: the rebuild below is the
        * only O(period) work on this function's hot path, so it is walked
        * twice, not three times.
        */
       tempReal = 0.0;
       shiftY = 0.0;
-      for( j = windowStart; j <= today; j += 1 )
+      for( j = windowStart; j <= sp->today; j += 1 )
       {
          tempReal += ((j & sp->xMask) != pkSlot0) ? x_inReal0[j & sp->xMask] : pkVal0;
          shiftY += ((j & sp->xMask) != pkSlot1) ? x_inReal1[j & sp->xMask] : pkVal1;
@@ -1227,7 +1212,7 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
       sumY = sumX2;
       sumX = sumY;
       sumXY = sumX;
-      for( j = windowStart; j <= today; j += 1 )
+      for( j = windowStart; j <= sp->today; j += 1 )
       {
          x = (((j & sp->xMask) != pkSlot0) ? x_inReal0[j & sp->xMask] : pkVal0) - shiftX;
          sumX += x;
@@ -1258,7 +1243,6 @@ TA_LIB_API TA_RetCode TA_CORREL_Peek( const TA_CORREL_Stream *stream, double inR
          ssY = 0.0;
       }
    }
-   trailingIdx += 1;
    /* Output the new coefficient.
     *
     * Each sum of squares is tested against its OWN scale, not the pair
@@ -1334,7 +1318,9 @@ TA_LIB_API TA_RetCode TA_CORREL_OutRange( const TA_CORREL_Stream *stream, int *o
 TA_LIB_API TA_RetCode TA_CORREL_Advance( TA_CORREL_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

@@ -526,13 +526,54 @@ message(STATUS "BUILD_SHARED_LIBS: ${BUILD_SHARED_LIBS}  BUILD_STATIC_LIBS: ${BU
 # library needs its own DT_NEEDED libm and the static archive must propagate the
 # dependency to consumers. Windows math is in the CRT, macOS in libSystem, so 'm'
 # is linked only on non-Windows. PRIVATE: libm is an implementation detail.
+# The ABI generation is declared ONCE, in configure.ac, and parsed here — the two
+# build systems ship the same library and a soname they disagree about is a
+# library that resolves differently depending on which one built it. libtool's
+# arithmetic: soname suffix is `current - age`, file version `<soname>.age.revision`.
+# Without this the ABI generation can change and an EXISTING build tree keeps
+# stamping the old soname: `cmake --build` alone never re-reads configure.ac.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_SOURCE_DIR}/configure.ac")
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/configure.ac" TA_ABI_LINE
+     REGEX "^TALIB_LIBRARY_VERSION=[0-9]+:[0-9]+:[0-9]+$")
+if(NOT TA_ABI_LINE)
+	message(FATAL_ERROR "no TALIB_LIBRARY_VERSION=c:r:a in configure.ac — the ABI generation is declared there")
+endif()
+string(REGEX REPLACE "^TALIB_LIBRARY_VERSION=([0-9]+):([0-9]+):([0-9]+)$" "\\1;\\2;\\3"
+       TA_ABI_TRIPLE "${TA_ABI_LINE}")
+list(GET TA_ABI_TRIPLE 0 TA_ABI_CURRENT)
+list(GET TA_ABI_TRIPLE 1 TA_ABI_REVISION)
+list(GET TA_ABI_TRIPLE 2 TA_ABI_AGE)
+math(EXPR TA_SOVERSION "${TA_ABI_CURRENT} - ${TA_ABI_AGE}")
+set(TA_ABI_FILE_VERSION "${TA_SOVERSION}.${TA_ABI_AGE}.${TA_ABI_REVISION}")
+
 if(BUILD_SHARED_LIBS)
 	add_library(ta-lib SHARED ${LIB_SOURCES})
 	set_target_properties(ta-lib PROPERTIES
-		SOVERSION ${PROJECT_VERSION}
+		VERSION ${TA_ABI_FILE_VERSION}
+		SOVERSION ${TA_SOVERSION}
 		DEFINE_SYMBOL TA_LIB_SHARED
+		C_VISIBILITY_PRESET hidden
 		OUTPUT_NAME "ta-lib"
 	)
+
+	# Hidden-by-default is what makes TA_LIB_API mean the same thing on ELF that
+	# __declspec(dllexport) already means on Windows. Set as a target property,
+	# not from CMAKE_C_VISIBILITY_PRESET, so a consumer's cache cannot widen the
+	# shipped surface. The map handles what the flag cannot -- see src/libta-lib.map.
+	# --no-undefined-version makes a map naming a symbol that no longer exists a
+	# link error; GNU ld accepts one silently otherwise. Apple's ld understands
+	# neither flag and needs no map: target_clones is glibc-only, so no resolver
+	# is emitted there.
+	if(NOT WIN32 AND NOT APPLE)
+		set(TA_VERSION_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/src/libta-lib.map")
+		target_link_options(ta-lib PRIVATE
+			"LINKER:--version-script,${TA_VERSION_SCRIPT}"
+			"LINKER:--no-undefined-version")
+		# Without this a regenerated map does not relink and the stale export
+		# table survives an incremental build.
+		set_target_properties(ta-lib PROPERTIES LINK_DEPENDS "${TA_VERSION_SCRIPT}")
+	endif()
 	target_include_directories(ta-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 	if(NOT WIN32)
 		target_link_libraries(ta-lib PRIVATE m)
@@ -540,6 +581,11 @@ if(BUILD_SHARED_LIBS)
 endif()
 if(BUILD_STATIC_LIBS)
 	add_library(ta-lib-static STATIC ${LIB_SOURCES})
+	# Same visibility as the shared build, so a consumer who links this archive
+	# into their own shared library re-exports the TA_LIB_API surface and nothing
+	# else. Static LINKING is unaffected: a hidden symbol still resolves at link
+	# time, which is how the dev tools reach TA_Globals.
+	set_target_properties(ta-lib-static PROPERTIES C_VISIBILITY_PRESET hidden)
 
 	if(UNIX)
 		set_target_properties(ta-lib-static PROPERTIES OUTPUT_NAME ta-lib)
@@ -606,10 +652,17 @@ if(UNIX)
 	)
 	install(SCRIPT "${CMAKE_BINARY_DIR}/warn-stale-installs.cmake")
 
-    set(prefix ${CMAKE_INSTALL_PREFIX})
-    set(exec_prefix ${CMAKE_INSTALL_PREFIX}/bin)
-    set(libdir ${CMAKE_INSTALL_PREFIX}/lib)
-    set(includedir ${CMAKE_INSTALL_PREFIX}/include)
+    # The .pc must describe where these files END UP. A CPack package stages
+    # under CPACK_PACKAGING_INSTALL_PREFIX (/usr for DEB) rather than here, so a
+    # packaging build has to be configured with a matching CMAKE_INSTALL_PREFIX
+    # -- scripts/package.py passes it, and verify_deb_payload fails the run if
+    # the shipped .pc and the shipped payload ever disagree again. Quoted: an
+    # unquoted prefix containing a space becomes a CMake list, and `libdir` then
+    # reads `/opt/ta;lib/lib`.
+    set(prefix "${CMAKE_INSTALL_PREFIX}")
+    set(exec_prefix "${prefix}")
+    set(libdir "${prefix}/lib")
+    set(includedir "${prefix}/include")
     set(PACKAGE_VERSION ${PROJECT_VERSION})
     if(NOT WIN32)
         set(LIBM "-lm")
@@ -622,11 +675,11 @@ if(UNIX)
     install(FILES ${CMAKE_BINARY_DIR}/ta-lib.pc DESTINATION lib/pkgconfig)
 endif()
 
-# The dev tools use internal, non-exported library symbols, so they need the
-# STATIC library. On Linux/macOS the shared library also exports every symbol, so
-# the tools can fall back to it there; on Windows the DLL exports only the public
-# TA_LIB_API surface, so a shared-only build cannot link the tools -- skip them
-# (a shared-only build is a packaging request; the dev tools are not needed).
+# The dev tools reach TA_Globals, which no installed header declares. The
+# ELF/Mach-O library still exports it (src/ta_common/ta_global.h says why), so
+# the tools can fall back to the shared library there; on Windows the DLL never
+# has, so a shared-only build cannot link them -- skip them (a shared-only build
+# is a packaging request; the dev tools are not needed).
 set(_TA_BUILD_TOOLS ${BUILD_DEV_TOOLS})
 if(BUILD_DEV_TOOLS AND WIN32 AND NOT BUILD_STATIC_LIBS)
 	message(WARNING "BUILD_DEV_TOOLS is ON but the dev tools require the static library "
@@ -721,7 +774,8 @@ if(_TA_BUILD_TOOLS)
 	)
 
 	# Link the static lib (built alongside by default); on a non-Windows
-	# shared-only build fall back to the shared lib, which exports all symbols.
+	# shared-only build fall back to the shared lib, which still exports the one
+	# internal these tools need.
 	# (The Windows shared-only case never reaches here -- see _TA_BUILD_TOOLS.)
 	if(BUILD_STATIC_LIBS)
 		set(TA_LIB_TOOL_TARGET ta-lib-static)
@@ -884,7 +938,7 @@ set(CPACK_BUILD_CONFIG "${CMAKE_BUILD_TYPE}")
 # Set common package metadata
 set(CPACK_PACKAGE_VERSION_MAJOR ${TA_LIB_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${TA_LIB_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${TA_LIB_VERSION_BUILD})
+set(CPACK_PACKAGE_VERSION_PATCH ${TA_LIB_VERSION_PATCH})
 set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
 
 set(CPACK_PACKAGE_VENDOR "ta-lib.org")

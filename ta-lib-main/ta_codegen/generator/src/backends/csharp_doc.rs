@@ -22,6 +22,21 @@ use std::fmt::Write as _;
 use super::doc_meta::{self, ensure_period, RangeMeta};
 use crate::ir::{DocDef, EnumDef, FuncDef, OptInput, Output, ParamType};
 
+/// What the aliasing guard rejects, which differs by overload: only the
+/// `double` one can express computing wholly in place, since a `float` input and
+/// a `double` output are never the same span.
+fn aliasing_exception_text(single_precision: bool) -> &'static str {
+    if single_precision {
+        "Two output buffers overlap, or an output overlaps an input. An output and a \
+         real input never share an element type in this overload, so the two can never \
+         be the same span: there is no in-place case to allow, and any overlap of their \
+         byte ranges is rejected."
+    } else {
+        "Two output buffers overlap, or an output partially overlaps an input. \
+         Computing wholly in place (an output that IS an input) is allowed."
+    }
+}
+
 /// XML docs for the public guarded batch wrapper.
 ///
 /// `single_precision` selects the `float[]`-input overload, whose only
@@ -42,23 +57,15 @@ pub fn guarded_docs(
     b.close("summary");
 
     b.open("remarks");
-    if let Some(formula) = &doc.formula {
-        b.text("<b>Formula</b>");
-        b.raw("<code>");
-        for line in formula.lines() {
-            let t = line.trim();
-            if !t.is_empty() {
-                b.raw(&xml_escape_raw(t));
-            }
-        }
-        b.raw("</code>");
-        if let Some(note) = &doc.formula_note {
-            b.text(&csdoc(note));
-        }
-    }
-    if !doc.notes.is_empty() {
+    let url = doc_meta::function_page_url(&func.name);
+    b.para(&format!(
+        "Formula and more info at <see href=\"{url}\">{}</see>.",
+        url.trim_start_matches("https://")
+    ));
+    let notes = doc_meta::renderable_notes(&doc.notes);
+    if !notes.is_empty() {
         b.raw("<list type=\"bullet\">");
-        for note in &doc.notes {
+        for note in notes {
             b.raw(&format!("<item><description>{}</description></item>", csdoc(note)));
         }
         b.raw("</list>");
@@ -128,11 +135,7 @@ pub fn guarded_docs(
          produces a value, and fine when it produces none, and on an output this function \
          documents as declinable it is how you decline.",
     );
-    b.exception(
-        "System.ArgumentException",
-        "Two output buffers overlap, or an output partially overlaps an input. Computing \
-         wholly in place (an output that IS an input) is allowed.",
-    );
+    b.exception("System.ArgumentException", aliasing_exception_text(single_precision));
     b.render()
 }
 
@@ -258,7 +261,7 @@ fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> 
         }
         // Every optional parameter accepts the cross-language default sentinel.
         meta.push(match opt.param_type {
-            ParamType::Real => "<c>-4e37</c> selects the default".to_string(),
+            ParamType::Real => "<see cref=\"Core.REAL_DEFAULT\"/> selects the default".to_string(),
             _ => "<c>int.MinValue</c> selects the default".to_string(),
         });
     }
@@ -275,15 +278,51 @@ fn param_doc(opt: &OptInput, doc: &DocDef, enums: &HashMap<String, EnumDef>) -> 
 // ---------------------------------------------------------------------------
 
 /// Turn canonical Markdown-ish prose into XML-doc-safe text: `&`/`<`/`>` become
-/// entities (CS1570 otherwise) and backtick spans become `<c>...</c>`.
-fn csdoc(text: &str) -> String {
+/// entities (CS1570 otherwise), backtick spans become `<c>...</c>`, `**bold**`
+/// and `*italic*` become `<b>` and `<i>` — the XML docs are rendered as markup,
+/// so a delimiter left alone reaches the reader as an asterisk — and a Markdown
+/// inline link becomes a `<see href>`.
+pub(super) fn csdoc(text: &str) -> String {
     let mut out = String::new();
     let mut in_code = false;
-    for c in text.chars() {
+    // The delimiter length and closing tag of the emphasis run we are inside.
+    let mut emphasis: Option<(usize, &str)> = None;
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if !in_code {
+            if let Some((len, close)) = emphasis {
+                if super::common::asterisks_at(&chars, i, len) {
+                    out.push_str(close);
+                    emphasis = None;
+                    i += len;
+                    continue;
+                }
+            } else if let Some(len) = super::common::emphasis_open(&chars, i) {
+                out.push_str(if len == 2 { "<b>" } else { "<i>" });
+                emphasis = Some((len, if len == 2 { "</b>" } else { "</i>" }));
+                i += len;
+                continue;
+            }
+        }
         match c {
             '`' => {
                 out.push_str(if in_code { "</c>" } else { "<c>" });
                 in_code = !in_code;
+            }
+            '[' if !in_code => {
+                if let Some((label, dest, end)) = inline_link(&chars, i) {
+                    let _ = write!(
+                        out,
+                        "<see href=\"{}\">{}</see>",
+                        attr_escape(&dest),
+                        csdoc(&label)
+                    );
+                    i = end;
+                    continue;
+                }
+                out.push('[');
             }
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
@@ -291,16 +330,59 @@ fn csdoc(text: &str) -> String {
             '\n' => out.push(' '),
             _ => out.push(c),
         }
+        i += 1;
     }
     if in_code {
         // Unbalanced backtick in the source — close it rather than emit bad XML.
         out.push_str("</c>");
     }
+    // `emphasis` is unreachable here: a run only opens once its closer is
+    // found, and nothing between them consumes it.
+    debug_assert!(emphasis.is_none(), "emphasis opened without its closer: {text:?}");
     out
 }
 
-/// Escape a raw (formula) line for XML content — entities only, no backtick
-/// handling (formulas use `*`/`<`/`>` as math, not markup).
+/// A URL destination as an attribute value. `&` and `"` are the only characters
+/// that can end the attribute early; everything else in a URL is literal.
+fn attr_escape(dest: &str) -> String {
+    dest.replace('&', "&amp;").replace('"', "&quot;")
+}
+
+/// A well-formed Markdown inline link starting at `chars[start] == '['`: its
+/// label, its destination and the index one past the closing `)`. The label must
+/// not itself contain a bracket, and the destination must look like a URL or a
+/// site-absolute path — a parenthesis that merely follows a bracketed aside is
+/// not a link. A site-absolute destination is written for ta-lib.org, which an
+/// XML doc has no root for, so it is resolved against the real site.
+fn inline_link(chars: &[char], start: usize) -> Option<(String, String, usize)> {
+    let close = chars[start + 1..]
+        .iter()
+        .position(|c| *c == ']' || *c == '[')
+        .map(|p| start + 1 + p)
+        .filter(|p| chars[*p] == ']')?;
+    if chars.get(close + 1) != Some(&'(') {
+        return None;
+    }
+    let paren = chars[close + 2..]
+        .iter()
+        .position(|c| *c == ')' || *c == '(')
+        .map(|p| close + 2 + p)
+        .filter(|p| chars[*p] == ')')?;
+    let dest: String = chars[close + 2..paren].iter().collect();
+    let is_url =
+        dest.starts_with("http://") || dest.starts_with("https://") || dest.starts_with('/');
+    if !is_url || dest.contains(char::is_whitespace) {
+        return None;
+    }
+    let label: String = chars[start + 1..close].iter().collect();
+    let dest = match dest.strip_prefix('/') {
+        Some(rest) => format!("https://ta-lib.org/{rest}"),
+        None => dest,
+    };
+    Some((label, dest, paren + 1))
+}
+
+/// Escape a line for XML content — entities only, no inline-markup handling.
 pub(crate) fn xml_escape_raw(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
@@ -433,4 +515,45 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
         out.push(String::new());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::csdoc;
+
+    /// A Markdown link renders as a `<see href>`. The C# compiler has no lint
+    /// for a stranded one, so nothing but this says the conversion still happens.
+    #[test]
+    fn inline_links_become_see_href() {
+        assert_eq!(
+            csdoc("see [TradingView](https://tv.com/x) for more"),
+            "see <see href=\"https://tv.com/x\">TradingView</see> for more"
+        );
+        // Site-absolute destinations are rebased: an XML doc has no ta-lib.org root.
+        assert_eq!(
+            csdoc("the [`SMA`](/functions/sma) page"),
+            "the <see href=\"https://ta-lib.org/functions/sma\"><c>SMA</c></see> page"
+        );
+    }
+
+    /// Bracketed prose that merely happens to be followed by parentheses is not
+    /// a link, and a bracket inside a code span is literal.
+    #[test]
+    fn bracketed_prose_is_left_alone() {
+        assert_eq!(csdoc("range [-1, 1]"), "range [-1, 1]");
+        assert_eq!(csdoc("close[i](t)"), "close[i](t)");
+        assert_eq!(csdoc("[label](not a url)"), "[label](not a url)");
+        assert_eq!(csdoc("`a[i](x)`"), "<c>a[i](x)</c>");
+        // A bare fragment resolves to the type page, where no such anchor is.
+        assert_eq!(csdoc("[Rules](#rules)"), "[Rules](#rules)");
+    }
+
+    /// A raw `&` in an attribute is malformed XML, which CS1570 makes an error.
+    #[test]
+    fn link_destinations_are_attribute_escaped() {
+        assert_eq!(
+            csdoc("[x](https://a.b/?p=1&q=2)"),
+            "<see href=\"https://a.b/?p=1&amp;q=2\">x</see>"
+        );
+    }
 }

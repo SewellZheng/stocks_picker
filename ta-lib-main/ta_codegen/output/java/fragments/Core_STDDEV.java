@@ -26,7 +26,7 @@
     * @param optInTimePeriod Window length (default 5; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Multiplier applied to the standard deviation (default 1;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @return The lookback, or {@code -1} if a parameter is out of range.
     */
    public int STDDEV_Lookback( int optInTimePeriod, double optInNbDev )
@@ -167,10 +167,8 @@
    /**
     * Rolling standard deviation of a series over a window, scaled by a
     * deviations multiplier. Delegates to VAR, then takes the square root.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $\sigma_i = \sqrt{\mathrm{VAR}_i}\cdot nbDev$, where $\mathrm{VAR}_i = \frac{1}{N}\sum x^2 - \left(\frac{1}{N}\sum x\right)^2$ (population variance, $N=$ timePeriod)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/stddev">ta-lib.org/functions/stddev</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Uses population variance (divides by the period, not period minus one), so results differ slightly from the sample standard deviation used by some tools.</li>
@@ -187,7 +185,7 @@
     * @param optInTimePeriod Window length (default 5; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Multiplier applied to the standard deviation (default 1;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal Standard deviation at each bar, scaled by optInNbDev. Must
     *        hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -232,10 +230,8 @@
    /**
     * Rolling standard deviation of a series over a window, scaled by a
     * deviations multiplier. Delegates to VAR, then takes the square root.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * $\sigma_i = \sqrt{\mathrm{VAR}_i}\cdot nbDev$, where $\mathrm{VAR}_i = \frac{1}{N}\sum x^2 - \left(\frac{1}{N}\sum x\right)^2$ (population variance, $N=$ timePeriod)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/stddev">ta-lib.org/functions/stddev</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Uses population variance (divides by the period, not period minus one), so results differ slightly from the sample standard deviation used by some tools.</li>
@@ -255,7 +251,7 @@
     * @param optInTimePeriod Window length (default 5; range 2..100000;
     *        {@code Integer.MIN_VALUE} selects the default).
     * @param optInNbDev Multiplier applied to the standard deviation (default 1;
-    *        {@code -4e37} selects the default).
+    *        {@link Core#REAL_DEFAULT} selects the default).
     * @param outReal Standard deviation at each bar, scaled by optInNbDev. Must
     *        hold at least {@code endIdx - startIdx + 1} values.
     * @return The range written: {@code begIdx} is the first bar with a value,
@@ -314,15 +310,15 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class StddevStream {
-      Core core;
-      int optInTimePeriod;
-      double optInNbDev;
-      double cur_outReal;
-      VarStream sub0;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double optInNbDev;
+      private double cur_outReal;
+      private VarStream sub0;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      StddevStream( Core core ) { this.core = core; }
+      private StddevStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -334,6 +330,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -344,10 +343,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("STDDEV advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      StddevStream( StddevStream other ) {
+      private StddevStream( StddevStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInNbDev = other.optInNbDev;
@@ -359,7 +366,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -371,12 +377,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("STDDEV update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("STDDEV update: BadParam", RetCode.BadParam);
          core.stddevStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -385,9 +397,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -431,7 +444,7 @@
          return new StddevStream(this);
       }
    }
-   void stddevStepImpl( StddevStream sp, double inReal )
+   private void stddevStepImpl( StddevStream sp, double inReal )
    {
       double cur_outReal = 0.0;
       /* Pipeline the new bar through the sub-streams (batch tail order). */
@@ -574,8 +587,8 @@
     * <p>The history must hold at least {@code STDDEV_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link Core#REAL_DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

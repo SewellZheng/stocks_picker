@@ -256,12 +256,8 @@
     * of price, measuring where RSI sits within its recent min/max range.
     * Oscillates 0-100; high = RSI near its recent top, low = near its recent
     * bottom.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * rsi = RSI(inReal, optInTimePeriod)
-    * FastK = 100 * (rsi_t - min(rsi, FastK_Period)) / (max(rsi, FastK_Period) - min(rsi, FastK_Period))
-    * FastD = MA(FastK, FastD_Period, FastD_MAType)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/stochrsi">ta-lib.org/functions/stochrsi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>To reproduce the original article's unsmoothed Stochastic RSI, set the RSI period equal to the %K period and read the raw %K output.</li>
@@ -341,12 +337,8 @@
     * of price, measuring where RSI sits within its recent min/max range.
     * Oscillates 0-100; high = RSI near its recent top, low = near its recent
     * bottom.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * rsi = RSI(inReal, optInTimePeriod)
-    * FastK = 100 * (rsi_t - min(rsi, FastK_Period)) / (max(rsi, FastK_Period) - min(rsi, FastK_Period))
-    * FastD = MA(FastK, FastD_Period, FastD_MAType)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/stochrsi">ta-lib.org/functions/stochrsi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>To reproduce the original article's unsmoothed Stochastic RSI, set the RSI period equal to the %K period and read the raw %K output.</li>
@@ -441,19 +433,19 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class StochrsiStream {
-      Core core;
-      int optInTimePeriod;
-      int optInFastK_Period;
-      int optInFastD_Period;
-      MAType optInFastD_MAType;
-      double cur_outFastK;
-      double cur_outFastD;
-      RsiStream sub0;
-      StochfStream sub1;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int optInFastK_Period;
+      private int optInFastD_Period;
+      private MAType optInFastD_MAType;
+      private double cur_outFastK;
+      private double cur_outFastD;
+      private RsiStream sub0;
+      private StochfStream sub1;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      StochrsiStream( Core core ) { this.core = core; }
+      private StochrsiStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -465,6 +457,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -475,10 +470,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("STOCHRSI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      StochrsiStream( StochrsiStream other ) {
+      private StochrsiStream( StochrsiStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInFastK_Period = other.optInFastK_Period;
@@ -494,7 +497,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -506,13 +508,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inReal, StochrsiOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("STOCHRSI update", RetCode.OutOfRangeEndIndex);
          requireArgument("STOCHRSI update", "out", out);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("STOCHRSI update: BadParam", RetCode.BadParam);
          core.stochrsiStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.fastK = this.cur_outFastK;
          out.fastD = this.cur_outFastD;
       }
@@ -522,10 +530,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inReal, StochrsiOut out ) {
          requireArgument("STOCHRSI peek", "out", out);
@@ -551,7 +559,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( StochrsiOut out ) {
          requireArgument("STOCHRSI value", "out", out);
@@ -597,7 +605,7 @@
       /** %K smoothed over FastD_Period (signal line) */
       public double fastD;
    }
-   void stochrsiStepImpl( StochrsiStream sp, double inReal )
+   private void stochrsiStepImpl( StochrsiStream sp, double inReal )
    {
       double cur_tempRSIBuffer = 0.0;
       double cur_outFastK = 0.0;
@@ -779,8 +787,8 @@
     * <p>The history must hold at least {@code STOCHRSI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

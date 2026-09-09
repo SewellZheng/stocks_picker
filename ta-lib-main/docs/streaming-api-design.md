@@ -20,7 +20,8 @@ This file is the contract and the shape. The error model is
    `TA_INSUFFICIENT_HISTORY` — the library's one recoverable condition, which is
    why it carries its own code. The history may be freed afterwards.
 2. **`update(handle, bar) → value`** — once per CLOSED bar. Always produces the
-   new value, and **allocates nothing**: the handle is sized at open.
+   new value, at a cost that does not grow with the period: the handle is sized at
+   open.
 3. **`peek(handle, bar) → value`** — a provisional bar, evaluated without
    committing. Call it as often as the forming bar is revised.
 4. **`close(handle)`** — explicit in C, nothing in the managed backends.
@@ -33,8 +34,11 @@ contract.
 
 **The handle reports its own `OutRange`** — `[begIdx, begIdx + count)`, the bars
 it has an output for, in the input series' coordinates: `TA_<N>_OutRange`,
-`out_range()`, `outRange()`, `OutRange`. Which calls move it is
-`docs/error-handling-spec.md` §2.4's business.
+`out_range()`, `outRange()`, `OutRange`. It is the batch tier's range and lives
+in the batch tier's domain, so the last bar a handle can reach is `MAX_INDEX`:
+past it `update` and `advance` refuse, permanently. Which calls move
+it, and how the refusal is spelled, are `docs/error-handling-spec.md` §2.4's
+business.
 
 **`Advance` counts a bar the handle was not fed** — `TA_<N>_Advance`,
 `advance()`, `advance()`, `Advance()`, emitted per handle class in all four
@@ -42,7 +46,9 @@ backends as `OutRange` is. It moves the count by one and nothing else, so
 the skipped bar's output is the previous one, held. It exists because a rejected
 `update` changes nothing: a caller with a corrected value re-feeds the bar, and
 one without says so here rather than letting two handles on one feed drift a bar
-apart.
+apart. The `MAX_INDEX` ceiling is what makes it fallible in the three
+backends where it was not already: C's has always returned a `TA_RetCode`, Rust's
+became `Result<(), RetCode>`, and Java's and C#'s stay `void` and throw.
 
 Multi-output functions produce one value per output per update: an out-pointer
 each in C, a tuple in Rust, a caller-owned sink in Java, a `readonly record
@@ -65,17 +71,13 @@ writes becomes a local of the same name, seeded from the handle, and in C the
 handle is bound `const` so a frame that stored through it would not compile.
 Java and C# additionally offer the accumulators to the shadow
 rewrite, because a managed array field is a reference and localizing one means
-cloning it; what survives is a clone only where the rewrite refuses, which today
-is an accumulator the batch body sums inside a loop. The offer is made from all
-four backends or from none — bit-identity has no room for a per-backend
-difference in what the frame rewrites.
+cloning it; a clone survives only where the rewrite refuses, which no shipped
+function makes it do. The offer is made from all four backends or from none —
+bit-identity has no room for a per-backend difference in what the frame rewrites.
 
 No form writes the handle. That is what keeps Rust's `peek` a `&self` method and
 every backend's handles concurrently peekable, including two threads peeking the
-same handle. `update` never allocating is the hard constraint; `peek` also
-allocates nothing in C and Rust, and in the managed backends only where that
-surviving clone is — each generated `peek` doc comment says which of the two it
-is rather than claiming the stronger one everywhere.
+same handle.
 
 The property is structural, not observable: a peek that copied and then wrote
 the copy would still answer correctly, so no value gate can see the difference.
@@ -83,7 +85,8 @@ Each backend therefore carries its own sweep over every streamable function —
 `peek_suite` for C, `no_rust_peek_copies_the_handle`,
 `no_java_peek_copies_the_handle`, `no_csharp_peek_copies_the_handle` — asserting
 that a frame is what runs, that it allocates nothing growing with the period, and
-that the accumulators it still copies are the ones the shadow rewrite refused.
+that no shipped function has fallen back from the shadow to copying an
+accumulator.
 
 Every backend's frame drops the handle qualifier on a localized field, so each
 renderer that keys on how a name is spelled has to classify the bare name as it
@@ -204,7 +207,7 @@ take one out-pointer per output in batch order; `CDL*` outputs are
 ```rust
 let core = Core::builder().build()?;               // immutable settings
 let (mut s, _last) = core.sma_open(&history, 14)?; // &self on Core; the handle
-                                                   // holds its own Core by value
+                                                   // borrows nothing from it
 let v = s.update(x)?;                              // &mut self
 let provisional = s.peek(forming)?;                // &self, commits nothing
 let r = s.out_range();
@@ -261,13 +264,12 @@ Shape rules that are not visible in those lines:
   `clone` there reads as scikit-learn's, which returns the parameters WITHOUT
   the fitted state, the opposite of what a handle copy owes. Java's spelling
   needs no `Cloneable` and never calls `super.clone()`, which is what the
-  standard objection to Java `clone()` actually attaches to; the remedy that
-  objection prescribes is a copy constructor, which is what every backend
-  already emits.
+  standard objection to Java `clone()` actually attaches to.
 - `OpenAndFill` rejects output↔input and output↔output aliasing by reference
   equality in Java (arrays are identical or disjoint, so that is complete) and by
-  `ReferenceEquals` in C#, which additionally compiles for cross-typed
-  `double[]`/`int[]` output pairs where `==` would not.
+  `Span<T>.Overlaps` in C#, which additionally catches the PARTIAL overlap Java
+  cannot express; a cross-typed `double`/`int` pair goes through
+  `MemoryMarshal.AsBytes`, which is what makes the two comparable at all.
 - `Integer.MIN_VALUE` keeps its batch meaning — use the documented default — in a
   streaming open, and the gate asserts `open(MIN_VALUE) == open(default)`
   bitwise.
@@ -282,13 +284,12 @@ One rule holds in every language, each enforcing it its own way:
 
 > **A stream's candle settings must not change over its lifetime.**
 
-- **Rust** enforces it by construction: settings live in the immutable `Core` the
-  stream was opened from, so a violation is not expressible. `Core` is
-  `Send + Sync`, `open` is `&self`, and the handle holds its own `Core` by value
-  (a `&self` method cannot mint a shared `Arc`, and a clone of a small, deeply
-  immutable `Core` is observationally identical to a reference while keeping
-  handles free of lifetimes). A handle is `Send` but single-writer, because
-  `update(&mut self)` makes concurrent updates on one handle a compile error.
+- **Rust** enforces it by construction: `open` copies the settings its own step
+  reads out of the `Core` it was called on, so a violation is not expressible —
+  the handle owns them, borrows nothing, and carries no lifetime. `Core` is
+  `Send + Sync` and `open` is `&self`. A handle is `Send` but single-writer,
+  because `update(&mut self)` makes concurrent updates on one handle a compile
+  error.
 - **C** documents it, as an extension of the existing batch-tier caveat: calling
   `TA_SetCandleSettings` while streams are open is
   undefined, warm-up and ring sizes being derived from the settings in effect at

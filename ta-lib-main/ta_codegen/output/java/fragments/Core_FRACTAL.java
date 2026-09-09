@@ -242,12 +242,8 @@
     * / {@code inLow[...]} at that index. The two outputs are independent flags
     * rather than one signed value, because an outside bar can be a swing high
     * and a swing low at once.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * With `L = optInLeftBars`, `R = optInRightBars` and pivot `c = i - R`:
-    * swingHigh(i) = 100 if High[c] > High[j] for every j in [c-L, c+R] other than c, else 0.
-    * swingLow(i) = 100 if Low[c] < Low[j] for every j in [c-L, c+R] other than c, else 0.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/fractal">ta-lib.org/functions/fractal</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Strict on both sides: a bar tied with any other bar of its window is not a pivot. TradingView's Pine runtime differs — its {@code ta.pivothigh} / {@code ta.pivotlow} let a tie with an older bar stand and let a tie with a newer bar cancel, i.e. non-strict left and strict right — so a plateau Pine reports as a pivot is not one here.</li>
@@ -333,12 +329,8 @@
     * / {@code inLow[...]} at that index. The two outputs are independent flags
     * rather than one signed value, because an outside bar can be a swing high
     * and a swing low at once.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * With `L = optInLeftBars`, `R = optInRightBars` and pivot `c = i - R`:
-    * swingHigh(i) = 100 if High[c] > High[j] for every j in [c-L, c+R] other than c, else 0.
-    * swingLow(i) = 100 if Low[c] < Low[j] for every j in [c-L, c+R] other than c, else 0.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/fractal">ta-lib.org/functions/fractal</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Strict on both sides: a bar tied with any other bar of its window is not a pivot. TradingView's Pine runtime differs — its {@code ta.pivothigh} / {@code ta.pivotlow} let a tie with an older bar stand and let a tie with a newer bar cancel, i.e. non-strict left and strict right — so a plateau Pine reports as a pivot is not one here.</li>
@@ -430,19 +422,19 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class FractalStream {
-      Core core;
-      int optInLeftBars;
-      int optInRightBars;
-      int winPos_i;
-      int winCap_i;
-      double[] win_i_inHigh;
-      double[] win_i_inLow;
-      int cur_outSwingHigh;
-      int cur_outSwingLow;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInLeftBars;
+      private int optInRightBars;
+      private int winPos_i;
+      private int winCap_i;
+      private double[] win_i_inHigh;
+      private double[] win_i_inLow;
+      private int cur_outSwingHigh;
+      private int cur_outSwingLow;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      FractalStream( Core core ) { this.core = core; }
+      private FractalStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -454,6 +446,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -464,10 +459,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("FRACTAL advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      FractalStream( FractalStream other ) {
+      private FractalStream( FractalStream other ) {
          this.core = other.core;
          this.optInLeftBars = other.optInLeftBars;
          this.optInRightBars = other.optInRightBars;
@@ -483,7 +486,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -495,13 +497,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, FractalOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("FRACTAL update", RetCode.OutOfRangeEndIndex);
          requireArgument("FRACTAL update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("FRACTAL update: BadParam", RetCode.BadParam);
          core.fractalStepImpl(this, inHigh, inLow);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.swingHigh = this.cur_outSwingHigh;
          out.swingLow = this.cur_outSwingLow;
       }
@@ -511,9 +519,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, FractalOut out ) {
          requireArgument("FRACTAL peek", "out", out);
@@ -580,7 +589,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( FractalOut out ) {
          requireArgument("FRACTAL value", "out", out);
@@ -626,7 +635,7 @@
       /** 100 when the bar {@code optInRightBars} back is a strict swing low, 0 otherwise. */
       public int swingLow;
    }
-   void fractalStepImpl( FractalStream sp, double inHigh, double inLow )
+   private void fractalStepImpl( FractalStream sp, double inHigh, double inLow )
    {
       int i = 0;
       double pivotHigh = 0.0;
@@ -834,8 +843,8 @@
     * <p>The history must hold at least {@code FRACTAL_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

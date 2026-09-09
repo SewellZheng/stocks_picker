@@ -158,10 +158,12 @@
     * the first candle's opposite-colored real body. Bullish (white engulfs
     * black) or bearish (black engulfs white) reversal signal; ideally after a
     * downtrend (bullish) or uptrend (bearish), which the code does not verify.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlengulfing">ta-lib.org/functions/cdlengulfing</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend (down for bullish, up for bearish) the reversal classically assumes.</li>
-    * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. ([thepatternsite.com](https://thepatternsite.com/BearEngulfing.html))</li>
+    * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. (<a href="https://thepatternsite.com/BearEngulfing.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -228,10 +230,12 @@
     * the first candle's opposite-colored real body. Bullish (white engulfs
     * black) or bearish (black engulfs white) reversal signal; ideally after a
     * downtrend (bullish) or uptrend (bearish), which the code does not verify.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlengulfing">ta-lib.org/functions/cdlengulfing</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>Does not verify the prior trend (down for bullish, up for bearish) the reversal classically assumes.</li>
-    * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. ([thepatternsite.com](https://thepatternsite.com/BearEngulfing.html))</li>
+    * <li>Bulkowski's testing found bearish Engulfing has a strong 79% reversal rate (5th-best of 103 patterns by that measure alone) but a weak overall post-breakout performance rank of 91st of 103 — the reversal fires reliably but rarely sustains. Bullish Engulfing reverses 63% of the time with a similarly weak overall rank of 84th of 103. (<a href="https://thepatternsite.com/BearEngulfing.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -313,14 +317,14 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CdlengulfingStream {
-      Core core;
-      double lag1_inOpen;
-      double lag1_inClose;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double lag1_inOpen;
+      private double lag1_inClose;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CdlengulfingStream( Core core ) { this.core = core; }
+      private CdlengulfingStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -332,6 +336,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -342,10 +349,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLENGULFING advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CdlengulfingStream( CdlengulfingStream other ) {
+      private CdlengulfingStream( CdlengulfingStream other ) {
          this.core = other.core;
          this.lag1_inOpen = other.lag1_inOpen;
          this.lag1_inClose = other.lag1_inClose;
@@ -356,7 +371,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -368,12 +382,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLENGULFING update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLENGULFING update: BadParam", RetCode.BadParam);
          core.cdlengulfingStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -382,9 +402,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -441,7 +462,7 @@
          return new CdlengulfingStream(this);
       }
    }
-   void cdlengulfingStepImpl( CdlengulfingStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdlengulfingStepImpl( CdlengulfingStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       if( ((inClose >= inOpen) ? 1 : 0 - 1) == 1 &&
            ((sp.lag1_inClose >= sp.lag1_inOpen) ? 1 : 0 - 1) == 0 - 1 && /* white engulfs black */
@@ -597,9 +618,7 @@
     * to {@link Core#CDLENGULFING} at that bar.
     * <p>The history must hold at least {@code CDLENGULFING_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

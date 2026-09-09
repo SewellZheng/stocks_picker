@@ -378,13 +378,8 @@
     * Plus Directional Movement: the Wilder-smoothed accumulation of upward
     * directional movement (+DM1). A component of the Directional Movement
     * System used to build +DI/DX/ADX.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * +DM1 = (high - prevHigh) if (high-prevHigh) > 0 and > (prevLow-low), else 0.
-    * period<=1: output = +DM1 per bar.
-    * period>1: seed = sum of first (period-1) +DM1; then Wilder smoothing:
-    * +DM = prevPlusDM - prevPlusDM/period + +DM1(today)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/plus_dm">ta-lib.org/functions/plus_dm</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -446,13 +441,8 @@
     * Plus Directional Movement: the Wilder-smoothed accumulation of upward
     * directional movement (+DM1). A component of the Directional Movement
     * System used to build +DI/DX/ADX.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * +DM1 = (high - prevHigh) if (high-prevHigh) > 0 and > (prevLow-low), else 0.
-    * period<=1: output = +DM1 per bar.
-    * period>1: seed = sum of first (period-1) +DM1; then Wilder smoothing:
-    * +DM = prevPlusDM - prevPlusDM/period + +DM1(today)
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/plus_dm">ta-lib.org/functions/plus_dm</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -530,16 +520,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class PlusDmStream {
-      Core core;
-      int optInTimePeriod;
-      double prevHigh;
-      double prevLow;
-      double prevPlusDM;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double prevHigh;
+      private double prevLow;
+      private double prevPlusDM;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      PlusDmStream( Core core ) { this.core = core; }
+      private PlusDmStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -551,6 +541,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -561,10 +554,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PLUS_DM advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      PlusDmStream( PlusDmStream other ) {
+      private PlusDmStream( PlusDmStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.prevHigh = other.prevHigh;
@@ -577,7 +578,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -589,12 +589,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inHigh, double inLow ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("PLUS_DM update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("PLUS_DM update: BadParam", RetCode.BadParam);
          core.plusDmStepImpl(this, inHigh, inLow);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -603,9 +609,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
@@ -685,7 +692,7 @@
          return new PlusDmStream(this);
       }
    }
-   void plusDmStepImpl( PlusDmStream sp, double inHigh, double inLow )
+   private void plusDmStepImpl( PlusDmStream sp, double inHigh, double inLow )
    {
       if( sp.optInTimePeriod <= 1 ) {
          double tempReal = 0.0;
@@ -1092,8 +1099,8 @@
     * <p>The history must hold at least {@code PLUS_DM_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -337,6 +337,9 @@ public partial class Core
       } else if( optInSignalPeriod < 2 || optInSignalPeriod > 100000 ) {
          return RetCode.BadParam;
       }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inHigh)) || System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inLow)) ) {
+         return RetCode.BadParam ;
+      }
       lookbackTotal = AC_Lookback(optInFastPeriod, optInSlowPeriod, optInSignalPeriod);
       if( startIdx < lookbackTotal ) {
          startIdx = lookbackTotal;
@@ -407,29 +410,29 @@ public partial class Core
       return RetCode.Success ;
    }
    /// <summary>
-   /// Bill Williams' Accelerator/Decelerator Oscillator (*New Trading
-   /// Dimensions*, 1998): the rate at which market momentum is itself speeding
-   /// up or slowing down. Where the Awesome Oscillator
-   /// ([<c>AO</c>](/functions/ao)) measures momentum, this measures the change
-   /// in that momentum, by taking the oscillator's distance above or below its
-   /// own moving average. Because acceleration turns before speed does, the
-   /// reading changes sign ahead of the oscillator it is built from — it is
-   /// meant as the early half of a pair, not as a signal on its own. Above zero
-   /// acceleration is with the bulls, below zero with the bears, and it is drawn
-   /// as a zero-centred histogram whose colour convention is the bar-to-bar
-   /// change: rising bars accelerating, falling bars decelerating. Williams'
-   /// rule of thumb is that two same-coloured bars are what confirms the turn,
-   /// which is why the sign and the direction matter more than the level. The
-   /// oscillator is one leg of Williams' Profitunity system, alongside the
-   /// Awesome Oscillator ([<c>AO</c>](/functions/ao)) and the Alligator.
+   /// Bill Williams' Accelerator/Decelerator Oscillator (<i>New Trading
+   /// Dimensions</i>, 1998): the rate at which market momentum is itself
+   /// speeding up or slowing down. Where the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) measures
+   /// momentum, this measures the change in that momentum, by taking the
+   /// oscillator's distance above or below its own moving average. Because
+   /// acceleration turns before speed does, the reading changes sign ahead of
+   /// the oscillator it is built from — it is meant as the early half of a pair,
+   /// not as a signal on its own. Above zero acceleration is with the bulls,
+   /// below zero with the bears, and it is drawn as a zero-centred histogram
+   /// whose colour convention is the bar-to-bar change: rising bars
+   /// accelerating, falling bars decelerating. Williams' rule of thumb is that
+   /// two same-coloured bars are what confirms the turn, which is why the sign
+   /// and the direction matter more than the level. The oscillator is one leg of
+   /// Williams' Profitunity system, alongside the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) and the
+   /// Alligator.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// median_t = ( high_t + low_t ) / 2
-   /// AO_t = SMA(median, fast)_t − SMA(median, slow)_t
-   /// AC_t = AO_t − SMA(AO, signal)_t
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/ac">ta-lib.org/functions/ac</see>.
+   /// </para>
    /// <para>
    /// Values are written only where the indicator is defined. The returned
    /// <see cref="OutRange"/> says where they start and how many there are;
@@ -448,9 +451,10 @@ public partial class Core
    /// range 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSignalPeriod">Number of bars in the moving average taken over the oscillator (default 5;
    /// range 2..100000; <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Distance of the Awesome Oscillator ([<c>AO</c>](/functions/ao)) from its
-   /// own moving average, centred on zero. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// <param name="outReal">Distance of the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) from its own
+   /// moving average, centred on zero. Must hold at least <c>endIdx - startIdx +
+   /// 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -491,29 +495,29 @@ public partial class Core
       return new OutRange(outBegIdx, outNBElement);
    }
    /// <summary>
-   /// Bill Williams' Accelerator/Decelerator Oscillator (*New Trading
-   /// Dimensions*, 1998): the rate at which market momentum is itself speeding
-   /// up or slowing down. Where the Awesome Oscillator
-   /// ([<c>AO</c>](/functions/ao)) measures momentum, this measures the change
-   /// in that momentum, by taking the oscillator's distance above or below its
-   /// own moving average. Because acceleration turns before speed does, the
-   /// reading changes sign ahead of the oscillator it is built from — it is
-   /// meant as the early half of a pair, not as a signal on its own. Above zero
-   /// acceleration is with the bulls, below zero with the bears, and it is drawn
-   /// as a zero-centred histogram whose colour convention is the bar-to-bar
-   /// change: rising bars accelerating, falling bars decelerating. Williams'
-   /// rule of thumb is that two same-coloured bars are what confirms the turn,
-   /// which is why the sign and the direction matter more than the level. The
-   /// oscillator is one leg of Williams' Profitunity system, alongside the
-   /// Awesome Oscillator ([<c>AO</c>](/functions/ao)) and the Alligator.
+   /// Bill Williams' Accelerator/Decelerator Oscillator (<i>New Trading
+   /// Dimensions</i>, 1998): the rate at which market momentum is itself
+   /// speeding up or slowing down. Where the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) measures
+   /// momentum, this measures the change in that momentum, by taking the
+   /// oscillator's distance above or below its own moving average. Because
+   /// acceleration turns before speed does, the reading changes sign ahead of
+   /// the oscillator it is built from — it is meant as the early half of a pair,
+   /// not as a signal on its own. Above zero acceleration is with the bulls,
+   /// below zero with the bears, and it is drawn as a zero-centred histogram
+   /// whose colour convention is the bar-to-bar change: rising bars
+   /// accelerating, falling bars decelerating. Williams' rule of thumb is that
+   /// two same-coloured bars are what confirms the turn, which is why the sign
+   /// and the direction matter more than the level. The oscillator is one leg of
+   /// Williams' Profitunity system, alongside the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) and the
+   /// Alligator.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// median_t = ( high_t + low_t ) / 2
-   /// AO_t = SMA(median, fast)_t − SMA(median, slow)_t
-   /// AC_t = AO_t − SMA(AO, signal)_t
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/ac">ta-lib.org/functions/ac</see>.
+   /// </para>
    /// <para>
    /// This is the <c>float[]</c> overload: input elements are widened to
    /// <c>double</c> as they are read and all arithmetic is performed in
@@ -538,9 +542,10 @@ public partial class Core
    /// range 2..100000; <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSignalPeriod">Number of bars in the moving average taken over the oscillator (default 5;
    /// range 2..100000; <c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Distance of the Awesome Oscillator ([<c>AO</c>](/functions/ao)) from its
-   /// own moving average, centred on zero. Must hold at least <c>endIdx -
-   /// startIdx + 1</c> values.</param>
+   /// <param name="outReal">Distance of the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) from its own
+   /// moving average, centred on zero. Must hold at least <c>endIdx - startIdx +
+   /// 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
    /// <c>Count</c> how many were written.</returns>
    /// <exception cref="System.ArgumentOutOfRangeException"><c>startIdx</c> or <c>endIdx</c> is negative or above
@@ -557,8 +562,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange AC( int startIdx,
                        int endIdx,
                        ReadOnlySpan<float> inHigh,
@@ -632,6 +639,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -642,10 +651,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("AC", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal AcStream( AcStream other )
@@ -687,15 +702,21 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inHigh, double inLow )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("AC", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("AC", "update", RetCode.BadParam);
          core.AcStepImpl(this, inHigh, inLow);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -705,13 +726,14 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inHigh">This bar's high price.</param>
       /// <param name="inLow">This bar's low price.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inHigh, double inLow )
       {
          if( !double.IsFinite(inHigh) || !double.IsFinite(inLow) ) throw Core.StreamFailure("AC", "peek", RetCode.BadParam);
@@ -1157,8 +1179,9 @@ public partial class Core
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInSignalPeriod">As in the batch call; see <see cref="AC_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
-   /// <param name="outReal">Distance of the Awesome Oscillator ([<c>AO</c>](/functions/ao)) from its
-   /// own moving average, centred on zero. Must hold at least <c>historyLen -
+   /// <param name="outReal">Distance of the Awesome Oscillator
+   /// (<see href="https://ta-lib.org/functions/ao"><c>AO</c></see>) from its own
+   /// moving average, centred on zero. Must hold at least <c>historyLen -
    /// AC_Lookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>AC_Lookback(...) + 1</c> bars.</exception>

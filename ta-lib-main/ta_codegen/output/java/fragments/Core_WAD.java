@@ -170,26 +170,17 @@
     * Williams built it to catch that shift before price confirms it — traders
     * watch for the line to diverge from price, since a line that keeps rising
     * while price stalls or falls points to accumulation, and one that stalls
-    * while price pushes to a new high points to distribution. **It consumes no
-    * volume.** Larry Williams' original multiplies each move by that bar's
+    * while price pushes to a new high points to distribution. <b>It consumes no
+    * volume.</b> Larry Williams' original multiplies each move by that bar's
     * volume; Steven Achelis published the modification that drops the
-    * multiplier (*Technical Analysis from A to Z*, 2nd ed., p.368), and the
-    * industry kept Williams' name on that no-volume form. That industry-wide
-    * decision is enough for TA-Lib to ship the same form under the same name.
-    * What remains once the multiplier is dropped is a signed close-to-close
-    * move measured on the true range, so it is grouped as a momentum indicator,
-    * not a volume one.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * For each bar t:
-    * TRH_t = max(close_{t-1}, high_t)
-    * TRL_t = min(close_{t-1}, low_t)
-    * if close_t > close_{t-1} then AD_t = close_t - TRL_t
-    * if close_t < close_{t-1} then AD_t = close_t - TRH_t
-    * otherwise                     AD_t = 0
-    * WAD_t = WAD_{t-1} + AD_t
-    * The first bar of the requested range has no previous close, so the first output is always AD_t = 0. A different `startIdx` shifts WAD's whole line by a constant.
-    * }</pre>
+    * multiplier (<i>Technical Analysis from A to Z</i>, 2nd ed., p.368), and
+    * the industry kept Williams' name on that no-volume form. That
+    * industry-wide decision is enough for TA-Lib to ship the same form under
+    * the same name. What remains once the multiplier is dropped is a signed
+    * close-to-close move measured on the true range, so it is grouped as a
+    * momentum indicator, not a volume one.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/wad">ta-lib.org/functions/wad</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -253,26 +244,17 @@
     * Williams built it to catch that shift before price confirms it — traders
     * watch for the line to diverge from price, since a line that keeps rising
     * while price stalls or falls points to accumulation, and one that stalls
-    * while price pushes to a new high points to distribution. **It consumes no
-    * volume.** Larry Williams' original multiplies each move by that bar's
+    * while price pushes to a new high points to distribution. <b>It consumes no
+    * volume.</b> Larry Williams' original multiplies each move by that bar's
     * volume; Steven Achelis published the modification that drops the
-    * multiplier (*Technical Analysis from A to Z*, 2nd ed., p.368), and the
-    * industry kept Williams' name on that no-volume form. That industry-wide
-    * decision is enough for TA-Lib to ship the same form under the same name.
-    * What remains once the multiplier is dropped is a signed close-to-close
-    * move measured on the true range, so it is grouped as a momentum indicator,
-    * not a volume one.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * For each bar t:
-    * TRH_t = max(close_{t-1}, high_t)
-    * TRL_t = min(close_{t-1}, low_t)
-    * if close_t > close_{t-1} then AD_t = close_t - TRL_t
-    * if close_t < close_{t-1} then AD_t = close_t - TRH_t
-    * otherwise                     AD_t = 0
-    * WAD_t = WAD_{t-1} + AD_t
-    * The first bar of the requested range has no previous close, so the first output is always AD_t = 0. A different `startIdx` shifts WAD's whole line by a constant.
-    * }</pre>
+    * multiplier (<i>Technical Analysis from A to Z</i>, 2nd ed., p.368), and
+    * the industry kept Williams' name on that no-volume form. That
+    * industry-wide decision is enough for TA-Lib to ship the same form under
+    * the same name. What remains once the multiplier is dropped is a signed
+    * close-to-close move measured on the true range, so it is grouped as a
+    * momentum indicator, not a volume one.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/wad">ta-lib.org/functions/wad</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -349,14 +331,14 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class WadStream {
-      Core core;
-      double sum;
-      double prevClose;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double sum;
+      private double prevClose;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      WadStream( Core core ) { this.core = core; }
+      private WadStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -368,6 +350,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -378,10 +363,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("WAD advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      WadStream( WadStream other ) {
+      private WadStream( WadStream other ) {
          this.core = other.core;
          this.sum = other.sum;
          this.prevClose = other.prevClose;
@@ -392,7 +385,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -404,12 +396,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("WAD update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("WAD update: BadParam", RetCode.BadParam);
          core.wadStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -418,9 +416,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -474,7 +473,7 @@
          return new WadStream(this);
       }
    }
-   void wadStepImpl( WadStream sp, double inHigh, double inLow, double inClose )
+   private void wadStepImpl( WadStream sp, double inHigh, double inLow, double inClose )
    {
       double close = 0.0;
       double trueExtreme = 0.0;
@@ -632,9 +631,7 @@
     * to {@link Core#WAD} at that bar.
     * <p>The history must hold at least {@code WAD_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

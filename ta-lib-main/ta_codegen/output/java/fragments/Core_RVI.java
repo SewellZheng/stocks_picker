@@ -568,14 +568,8 @@
     * down bars. Dorsey proposed it as a confirming filter rather than a
     * stand-alone signal: take a long entry only while RVI is above 50, a short
     * only while it is below.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * With `S` the standard deviation of the last `optInStdDevPeriod` values of `inReal`, and `C` the input series:
-    * U[i] = S[i] if C[i] > C[i-1], else 0
-    * D[i] = S[i] if C[i] < C[i-1], else 0
-    * RVI  = 100 * RMA(U, optInTimePeriod) / ( RMA(U, optInTimePeriod) + RMA(D, optInTimePeriod) )
-    * `RMA` is Wilder's smoothed moving average, seeded with the simple average of its first `optInTimePeriod` inputs. A bar whose close equals the previous close feeds neither bucket.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/rvi">ta-lib.org/functions/rvi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>This is Dorsey's 1993 original, which measures the closes alone. His 1995 revision averages the index of the highs with the index of the lows; some vendors reserve the name RVI for that revision and call this one RVIorig. It is not implemented here.</li>
@@ -652,14 +646,8 @@
     * down bars. Dorsey proposed it as a confirming filter rather than a
     * stand-alone signal: take a long entry only while RVI is above 50, a short
     * only while it is below.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * With `S` the standard deviation of the last `optInStdDevPeriod` values of `inReal`, and `C` the input series:
-    * U[i] = S[i] if C[i] > C[i-1], else 0
-    * D[i] = S[i] if C[i] < C[i-1], else 0
-    * RVI  = 100 * RMA(U, optInTimePeriod) / ( RMA(U, optInTimePeriod) + RMA(D, optInTimePeriod) )
-    * `RMA` is Wilder's smoothed moving average, seeded with the simple average of its first `optInTimePeriod` inputs. A bar whose close equals the previous close feeds neither bucket.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/rvi">ta-lib.org/functions/rvi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>This is Dorsey's 1993 original, which measures the closes alone. His 1995 revision averages the index of the highs with the index of the lows; some vendors reserve the name RVI for that revision and call this one RVIorig. It is not implemented here.</li>
@@ -746,31 +734,31 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class RviStream {
-      Core core;
-      int optInTimePeriod;
-      int optInStdDevPeriod;
-      double shift;
-      double periodTotal1;
-      double periodTotal2;
-      double invPeriod;
-      double prevUp;
-      double prevDn;
-      double wAlpha;
-      double wBeta;
-      int trailingIdx;
-      int barsSinceReseed;
-      int nbInitialElementNeeded;
-      int j;
-      int windowStart;
-      int today;
-      double lag1_inReal;
-      int xMask;
-      double[] x_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int optInStdDevPeriod;
+      private double shift;
+      private double periodTotal1;
+      private double periodTotal2;
+      private double invPeriod;
+      private double prevUp;
+      private double prevDn;
+      private double wAlpha;
+      private double wBeta;
+      private int trailingIdx;
+      private int barsSinceReseed;
+      private int nbInitialElementNeeded;
+      private int j;
+      private int windowStart;
+      private int today;
+      private double lag1_inReal;
+      private int xMask;
+      private double[] x_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      RviStream( Core core ) { this.core = core; }
+      private RviStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -782,6 +770,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -792,10 +783,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("RVI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      RviStream( RviStream other ) {
+      private RviStream( RviStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInStdDevPeriod = other.optInStdDevPeriod;
@@ -823,7 +822,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -835,12 +833,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("RVI update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("RVI update: BadParam", RetCode.BadParam);
          core.rviStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -849,9 +853,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -873,21 +878,13 @@
          double prevDn = sp.prevDn;
          double prevUp = sp.prevUp;
          double shift = sp.shift;
-         int today = sp.today;
          int trailingIdx = sp.trailingIdx;
          int windowStart = sp.windowStart;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( today >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            today -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            j -= rebaseShift;
-            windowStart -= rebaseShift;
-         }
-         pkSlot0 = today & sp.xMask;
+         pkSlot0 = sp.today & sp.xMask;
          pkVal0 = inReal;
-         tempReal = (((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0) - shift;
+         tempReal = (((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0) - shift;
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
@@ -901,15 +898,15 @@
          barsSinceReseed -= 1;
          if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * sp.optInStdDevPeriod;
-            windowStart = today - sp.nbInitialElementNeeded;
+            windowStart = sp.today - sp.nbInitialElementNeeded;
             tempReal = 0.0;
-            for( j = windowStart; j <= today; j += 1 ) {
+            for( j = windowStart; j <= sp.today; j += 1 ) {
                tempReal += ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
             }
             shift = tempReal * sp.invPeriod;
             periodTotal1 = 0.0;
             periodTotal2 = 0.0;
-            for( j = windowStart; j <= today; j += 1 ) {
+            for( j = windowStart; j <= sp.today; j += 1 ) {
                tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
                periodTotal1 += tempReal;
                tempReal *= tempReal;
@@ -926,7 +923,7 @@
             periodTotal2 -= tempReal;
          }
          sigma = Math.sqrt(variance);
-         delta = (((today & sp.xMask) != pkSlot0) ? sp.x_inReal[today & sp.xMask] : pkVal0) - ((((today - 1) & sp.xMask) != pkSlot0) ? sp.x_inReal[(today - 1) & sp.xMask] : pkVal0);
+         delta = (((sp.today & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.today & sp.xMask] : pkVal0) - ((((sp.today - 1) & sp.xMask) != pkSlot0) ? sp.x_inReal[(sp.today - 1) & sp.xMask] : pkVal0);
          upValue = 0.0;
          dnValue = 0.0;
          if( delta > 0.0 ) {
@@ -967,7 +964,7 @@
          return new RviStream(this);
       }
    }
-   void rviStepImpl( RviStream sp, double inReal )
+   private void rviStepImpl( RviStream sp, double inReal )
    {
       double tempReal = 0.0;
       double meanValue1 = 0.0;
@@ -977,13 +974,6 @@
       double upValue = 0.0;
       double dnValue = 0.0;
       double total = 0.0;
-      if( sp.today >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.today -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.j -= rebaseShift;
-         sp.windowStart -= rebaseShift;
-      }
       sp.x_inReal[sp.today & sp.xMask] = inReal;
       tempReal = sp.x_inReal[sp.today & sp.xMask] - sp.shift;
       sp.periodTotal1 += tempReal;
@@ -1385,8 +1375,8 @@
     * <p>The history must hold at least {@code RVI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -363,10 +363,8 @@
     * Money Flow Index: a volume-weighted momentum oscillator (0-100) comparing
     * positive vs negative money flow over a period. A volume-based analog of
     * RSI. &gt;80 overbought, &lt;20 oversold.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * TP = (High+Low+Close)/3; MF = TP*Volume, classed positive if TP>prevTP, negative if TP<prevTP, neither if equal. MFI = 100 * posSumMF/(posSumMF+negSumMF).
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/mfi">ta-lib.org/functions/mfi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>When the typical price is unchanged from the prior bar, that bar's money flow is counted as neither positive nor negative.</li>
@@ -436,10 +434,8 @@
     * Money Flow Index: a volume-weighted momentum oscillator (0-100) comparing
     * positive vs negative money flow over a period. A volume-based analog of
     * RSI. &gt;80 overbought, &lt;20 oversold.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * TP = (High+Low+Close)/3; MF = TP*Volume, classed positive if TP>prevTP, negative if TP<prevTP, neither if equal. MFI = 100 * posSumMF/(posSumMF+negSumMF).
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/mfi">ta-lib.org/functions/mfi</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>When the typical price is unchanged from the prior bar, that bar's money flow is counted as neither positive nor negative.</li>
@@ -525,22 +521,22 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MfiStream {
-      Core core;
-      int optInTimePeriod;
-      double posSumMF;
-      double negSumMF;
-      double prevValue;
-      int nullRun;
-      int mflow_Idx;
-      int maxIdx_mflow;
-      int cbSize_mflow;
-      double[] cb_mflow_positive;
-      double[] cb_mflow_negative;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double posSumMF;
+      private double negSumMF;
+      private double prevValue;
+      private int nullRun;
+      private int mflow_Idx;
+      private int maxIdx_mflow;
+      private int cbSize_mflow;
+      private double[] cb_mflow_positive;
+      private double[] cb_mflow_negative;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MfiStream( Core core ) { this.core = core; }
+      private MfiStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -552,6 +548,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -562,10 +561,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MFI advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MfiStream( MfiStream other ) {
+      private MfiStream( MfiStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.posSumMF = other.posSumMF;
@@ -584,7 +591,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -596,12 +602,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MFI update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("MFI update: BadParam", RetCode.BadParam);
          core.mfiStepImpl(this, inHigh, inLow, inClose, inVolume);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -610,9 +622,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
@@ -687,7 +700,7 @@
          return new MfiStream(this);
       }
    }
-   void mfiStepImpl( MfiStream sp, double inHigh, double inLow, double inClose, double inVolume )
+   private void mfiStepImpl( MfiStream sp, double inHigh, double inLow, double inClose, double inVolume )
    {
       double tempValue1 = 0.0;
       double tempValue2 = 0.0;
@@ -979,8 +992,8 @@
     * <p>The history must hold at least {@code MFI_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

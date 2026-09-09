@@ -371,14 +371,6 @@ struct AroonStreamState {
 impl Core {
     fn aroon_step_impl(sp: &mut AroonStreamState, inHigh: f64, inLow: f64, outAroonDown: &mut f64, outAroonUp: &mut f64) {
         let mut tmp: f64 = 0.0_f64;
-        if sp.today >= 1073741824 {
-            let rebaseShift: i32 = sp.trailingIdx & !sp.xMask;
-            sp.today -= rebaseShift;
-            sp.trailingIdx -= rebaseShift;
-            sp.highestIdx -= rebaseShift;
-            sp.i -= rebaseShift;
-            sp.lowestIdx -= rebaseShift;
-        }
         sp.x_inHigh[(sp.today & sp.xMask) as usize] = inHigh;
         sp.x_inLow[(sp.today & sp.xMask) as usize] = inLow;
         // Keep track of the lowestIdx
@@ -628,9 +620,8 @@ impl Core {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] when an output slice holds fewer than `len - lookback`
-    /// values — the batch tier's sizing rule, checked here as it is there (rule S5) —
-    /// or when two of them are the same slice. Everything [`Core::aroon_open`] rejects
-    /// is rejected here too.
+    /// values — the batch tier's sizing rule, checked here as it is there (rule S5).
+    /// Everything [`Core::aroon_open`] rejects is rejected here too.
     ///
     /// # Examples
     ///
@@ -677,9 +668,6 @@ impl Core {
         if outAroonUp.len() < _guardOutLen {
             return Err(RetCode::BadParam);
         }
-        if !outAroonDown.is_empty() && !outAroonUp.is_empty() && outAroonDown.as_ptr() == outAroonUp.as_ptr() {
-            return Err(RetCode::BadParam);
-        }
         let mut outBegIdx: usize = 0;
         let mut outNBElement: usize = 0;
         let handle = self.aroon_open_and_fill_internal(inHigh, inLow, 0, optInTimePeriod, &mut outBegIdx, &mut outNBElement, outAroonDown, outAroonUp)?;
@@ -718,17 +706,22 @@ impl AroonStream {
     /// a corrected value arrives, or call [`Self::advance`] to count it and
     /// carry on — two handles on one feed drift a bar apart if neither
     /// happens.
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`], which no re-feed clears: the handle has run
+    /// out of index domain and only a shorter history can start a new one.
     #[doc(alias = "TA_AROON_Update")]
     pub fn update(&mut self, inHigh: f64, inLow: f64) -> Result<(f64, f64), RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
+        }
         if !inHigh.is_finite() || !inLow.is_finite() {
             return Err(RetCode::BadParam);
         }
         let mut outAroonDown: f64 = 0.0_f64;
         let mut outAroonUp: f64 = 0.0_f64;
         Core::aroon_step_impl(&mut self.state, inHigh, inLow, &mut outAroonDown, &mut outAroonUp);
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
-        }
+        self.out.count += 1;
         Ok((outAroonDown, outAroonUp))
     }
 
@@ -742,7 +735,9 @@ impl AroonStream {
     /// # Errors
     ///
     /// [`RetCode::BadParam`] if any bar value is not finite, on the same test
-    /// `update` applies, and a rejected peek changes nothing at all.
+    /// `update` applies, and a rejected peek changes nothing at all. Not
+    /// [`RetCode::OutOfRangeEndIndex`]: `peek` counts no bar, so it keeps
+    /// answering past the [`Core::MAX_INDEX`] ceiling `update` stops at.
     #[doc(alias = "TA_AROON_Peek")]
     pub fn peek(&self, inHigh: f64, inLow: f64) -> Result<(f64, f64), RetCode> {
         if !inHigh.is_finite() || !inLow.is_finite() {
@@ -760,31 +755,21 @@ impl AroonStream {
             let mut i = sp.i;
             let mut lowest = sp.lowest;
             let mut lowestIdx = sp.lowestIdx;
-            let mut today = sp.today;
-            let mut trailingIdx = sp.trailingIdx;
             let mut pkSlot0: usize = usize::MAX;
             let mut pkVal0: f64 = 0.0_f64;
             let mut pkSlot1: usize = usize::MAX;
             let mut pkVal1: f64 = 0.0_f64;
-            if today >= 1073741824 {
-                let rebaseShift: i32 = trailingIdx & !sp.xMask;
-                today -= rebaseShift;
-                trailingIdx -= rebaseShift;
-                highestIdx -= rebaseShift;
-                i -= rebaseShift;
-                lowestIdx -= rebaseShift;
-            }
-            pkSlot0 = (today & sp.xMask) as usize;
+            pkSlot0 = (sp.today & sp.xMask) as usize;
             pkVal0 = inHigh;
-            pkSlot1 = (today & sp.xMask) as usize;
+            pkSlot1 = (sp.today & sp.xMask) as usize;
             pkVal1 = inLow;
             // Keep track of the lowestIdx
-            tmp = (if ((today & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(today & sp.xMask) as usize] } else { pkVal1 });
-            if lowestIdx < trailingIdx {
-                lowestIdx = trailingIdx;
+            tmp = (if ((sp.today & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(sp.today & sp.xMask) as usize] } else { pkVal1 });
+            if lowestIdx < sp.trailingIdx {
+                lowestIdx = sp.trailingIdx;
                 lowest = (if ((lowestIdx & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(lowestIdx & sp.xMask) as usize] } else { pkVal1 });
                 i = lowestIdx;
-                while (({ i += 1; i }) as i32) <= today {
+                while (({ i += 1; i }) as i32) <= sp.today {
                     tmp = (if ((i & sp.xMask) as usize) != pkSlot1 { sp.x_inLow[(i & sp.xMask) as usize] } else { pkVal1 });
                     if tmp <= lowest {
                         lowestIdx = i;
@@ -792,16 +777,16 @@ impl AroonStream {
                     }
                 }
             } else if tmp <= lowest {
-                lowestIdx = today;
+                lowestIdx = sp.today;
                 lowest = tmp;
             }
             // Keep track of the highestIdx
-            tmp = (if ((today & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(today & sp.xMask) as usize] } else { pkVal0 });
-            if highestIdx < trailingIdx {
-                highestIdx = trailingIdx;
+            tmp = (if ((sp.today & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(sp.today & sp.xMask) as usize] } else { pkVal0 });
+            if highestIdx < sp.trailingIdx {
+                highestIdx = sp.trailingIdx;
                 highest = (if ((highestIdx & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(highestIdx & sp.xMask) as usize] } else { pkVal0 });
                 i = highestIdx;
-                while (({ i += 1; i }) as i32) <= today {
+                while (({ i += 1; i }) as i32) <= sp.today {
                     tmp = (if ((i & sp.xMask) as usize) != pkSlot0 { sp.x_inHigh[(i & sp.xMask) as usize] } else { pkVal0 });
                     if tmp >= highest {
                         highestIdx = i;
@@ -809,13 +794,13 @@ impl AroonStream {
                     }
                 }
             } else if tmp >= highest {
-                highestIdx = today;
+                highestIdx = sp.today;
                 highest = tmp;
             }
             // Note: Do not forget that input and output buffer can be the same,
             //       so writing to the output is the last thing being done here.
-            (*outAroonUp) = sp.factor * (((sp.optInTimePeriod - (today - highestIdx))) as f64);
-            (*outAroonDown) = sp.factor * (((sp.optInTimePeriod - (today - lowestIdx))) as f64);
+            (*outAroonUp) = sp.factor * (((sp.optInTimePeriod - (sp.today - highestIdx))) as f64);
+            (*outAroonDown) = sp.factor * (((sp.optInTimePeriod - (sp.today - lowestIdx))) as f64);
         }
         Ok((outAroonDown, outAroonUp))
     }
@@ -842,6 +827,9 @@ impl AroonStream {
     /// `peek` — and a clone carries it verbatim. A plain `Open` hands back
     /// only the last value, a subset of this range, because the caller chose
     /// not to take the fill.
+    ///
+    /// The last bar it can reach is [`Core::MAX_INDEX`]; past that `update`
+    /// and `advance` answer [`RetCode::OutOfRangeEndIndex`].
     #[doc(alias = "TA_AROON_OutRange")]
     pub fn out_range(&self) -> OutRange {
         self.out
@@ -854,11 +842,19 @@ impl AroonStream {
     /// For a bar the caller leaves out: one an `update` rejected and that
     /// will not be re-fed, or a session with no print. Without it two handles
     /// on one feed drift a bar apart when only one of them skips.
+    ///
+    /// # Errors
+    ///
+    /// [`RetCode::OutOfRangeEndIndex`] once [`Self::out_range`] has reached
+    /// bar [`Core::MAX_INDEX`] — the last one the batch tier can address, and
+    /// the last this handle will count. `update` answers the same there.
     #[doc(alias = "TA_AROON_Advance")]
-    pub fn advance(&mut self) {
-        if self.out.count < Core::MAX_INDEX {
-            self.out.count += 1;
+    pub fn advance(&mut self) -> Result<(), RetCode> {
+        if self.out.beg_idx + self.out.count > Core::MAX_INDEX {
+            return Err(RetCode::OutOfRangeEndIndex);
         }
+        self.out.count += 1;
+        Ok(())
     }
 }
 

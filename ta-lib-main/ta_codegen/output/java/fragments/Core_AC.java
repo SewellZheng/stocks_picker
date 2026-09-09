@@ -359,27 +359,24 @@
       return RetCode.Success ;
    }
    /**
-    * Bill Williams' Accelerator/Decelerator Oscillator (*New Trading
-    * Dimensions*, 1998): the rate at which market momentum is itself speeding
-    * up or slowing down. Where the Awesome Oscillator
-    * ([{@code AO}](/functions/ao)) measures momentum, this measures the change
-    * in that momentum, by taking the oscillator's distance above or below its
-    * own moving average. Because acceleration turns before speed does, the
-    * reading changes sign ahead of the oscillator it is built from — it is
-    * meant as the early half of a pair, not as a signal on its own. Above zero
-    * acceleration is with the bulls, below zero with the bears, and it is drawn
-    * as a zero-centred histogram whose colour convention is the bar-to-bar
-    * change: rising bars accelerating, falling bars decelerating. Williams'
-    * rule of thumb is that two same-coloured bars are what confirms the turn,
-    * which is why the sign and the direction matter more than the level. The
-    * oscillator is one leg of Williams' Profitunity system, alongside the
-    * Awesome Oscillator ([{@code AO}](/functions/ao)) and the Alligator.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * median_t = ( high_t + low_t ) / 2
-    * AO_t = SMA(median, fast)_t − SMA(median, slow)_t
-    * AC_t = AO_t − SMA(AO, signal)_t
-    * }</pre>
+    * Bill Williams' Accelerator/Decelerator Oscillator (<i>New Trading
+    * Dimensions</i>, 1998): the rate at which market momentum is itself
+    * speeding up or slowing down. Where the Awesome Oscillator (<a
+    * href="https://ta-lib.org/functions/ao">{@code AO}</a>) measures momentum,
+    * this measures the change in that momentum, by taking the oscillator's
+    * distance above or below its own moving average. Because acceleration turns
+    * before speed does, the reading changes sign ahead of the oscillator it is
+    * built from — it is meant as the early half of a pair, not as a signal on
+    * its own. Above zero acceleration is with the bulls, below zero with the
+    * bears, and it is drawn as a zero-centred histogram whose colour convention
+    * is the bar-to-bar change: rising bars accelerating, falling bars
+    * decelerating. Williams' rule of thumb is that two same-coloured bars are
+    * what confirms the turn, which is why the sign and the direction matter
+    * more than the level. The oscillator is one leg of Williams' Profitunity
+    * system, alongside the Awesome Oscillator (<a
+    * href="https://ta-lib.org/functions/ao">{@code AO}</a>) and the Alligator.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ac">ta-lib.org/functions/ac</a>.
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
     * outside that range is touched, and the library never pads with NaN. A
@@ -399,9 +396,10 @@
     * @param optInSignalPeriod Number of bars in the moving average taken over
     *        the oscillator (default 5; range 2..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
-    * @param outReal Distance of the Awesome Oscillator
-    *        ([{@code AO}](/functions/ao)) from its own moving average, centred on
-    *        zero. Must hold at least {@code endIdx - startIdx + 1} values.
+    * @param outReal Distance of the Awesome Oscillator (<a
+    *        href="https://ta-lib.org/functions/ao">{@code AO}</a>) from its own moving
+    *        average, centred on zero. Must hold at least {@code endIdx - startIdx + 1}
+    *        values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -447,27 +445,24 @@
       return new OutRange(outBegIdx.value, outNBElement.value);
    }
    /**
-    * Bill Williams' Accelerator/Decelerator Oscillator (*New Trading
-    * Dimensions*, 1998): the rate at which market momentum is itself speeding
-    * up or slowing down. Where the Awesome Oscillator
-    * ([{@code AO}](/functions/ao)) measures momentum, this measures the change
-    * in that momentum, by taking the oscillator's distance above or below its
-    * own moving average. Because acceleration turns before speed does, the
-    * reading changes sign ahead of the oscillator it is built from — it is
-    * meant as the early half of a pair, not as a signal on its own. Above zero
-    * acceleration is with the bulls, below zero with the bears, and it is drawn
-    * as a zero-centred histogram whose colour convention is the bar-to-bar
-    * change: rising bars accelerating, falling bars decelerating. Williams'
-    * rule of thumb is that two same-coloured bars are what confirms the turn,
-    * which is why the sign and the direction matter more than the level. The
-    * oscillator is one leg of Williams' Profitunity system, alongside the
-    * Awesome Oscillator ([{@code AO}](/functions/ao)) and the Alligator.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * median_t = ( high_t + low_t ) / 2
-    * AO_t = SMA(median, fast)_t − SMA(median, slow)_t
-    * AC_t = AO_t − SMA(AO, signal)_t
-    * }</pre>
+    * Bill Williams' Accelerator/Decelerator Oscillator (<i>New Trading
+    * Dimensions</i>, 1998): the rate at which market momentum is itself
+    * speeding up or slowing down. Where the Awesome Oscillator (<a
+    * href="https://ta-lib.org/functions/ao">{@code AO}</a>) measures momentum,
+    * this measures the change in that momentum, by taking the oscillator's
+    * distance above or below its own moving average. Because acceleration turns
+    * before speed does, the reading changes sign ahead of the oscillator it is
+    * built from — it is meant as the early half of a pair, not as a signal on
+    * its own. Above zero acceleration is with the bulls, below zero with the
+    * bears, and it is drawn as a zero-centred histogram whose colour convention
+    * is the bar-to-bar change: rising bars accelerating, falling bars
+    * decelerating. Williams' rule of thumb is that two same-coloured bars are
+    * what confirms the turn, which is why the sign and the direction matter
+    * more than the level. The oscillator is one leg of Williams' Profitunity
+    * system, alongside the Awesome Oscillator (<a
+    * href="https://ta-lib.org/functions/ao">{@code AO}</a>) and the Alligator.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ac">ta-lib.org/functions/ac</a>.
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
     * result beyond {@code float} range is still representable.
@@ -490,9 +485,10 @@
     * @param optInSignalPeriod Number of bars in the moving average taken over
     *        the oscillator (default 5; range 2..100000; {@code Integer.MIN_VALUE}
     *        selects the default).
-    * @param outReal Distance of the Awesome Oscillator
-    *        ([{@code AO}](/functions/ao)) from its own moving average, centred on
-    *        zero. Must hold at least {@code endIdx - startIdx + 1} values.
+    * @param outReal Distance of the Awesome Oscillator (<a
+    *        href="https://ta-lib.org/functions/ao">{@code AO}</a>) from its own moving
+    *        average, centred on zero. Must hold at least {@code endIdx - startIdx + 1}
+    *        values.
     * @return The range written: {@code begIdx} is the first bar with a value,
     *        {@code count} how many were written.
     * @throws IndexOutOfBoundsException if {@code startIdx} or {@code endIdx} is
@@ -554,28 +550,28 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class AcStream {
-      Core core;
-      int optInFastPeriod;
-      int optInSlowPeriod;
-      int optInSignalPeriod;
-      double sumFast;
-      double sumSlow;
-      double sumSignal;
-      int oscBuffer_Idx;
-      int maxIdx_oscBuffer;
-      int ringPos_trailingFastIdx;
-      int ringCap_trailingFastIdx;
-      double[] ring_trailingFastIdx_derived;
-      int ringPos_trailingSlowIdx;
-      int ringCap_trailingSlowIdx;
-      double[] ring_trailingSlowIdx_derived;
-      int cbSize_oscBuffer;
-      double[] cb_oscBuffer;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInFastPeriod;
+      private int optInSlowPeriod;
+      private int optInSignalPeriod;
+      private double sumFast;
+      private double sumSlow;
+      private double sumSignal;
+      private int oscBuffer_Idx;
+      private int maxIdx_oscBuffer;
+      private int ringPos_trailingFastIdx;
+      private int ringCap_trailingFastIdx;
+      private double[] ring_trailingFastIdx_derived;
+      private int ringPos_trailingSlowIdx;
+      private int ringCap_trailingSlowIdx;
+      private double[] ring_trailingSlowIdx_derived;
+      private int cbSize_oscBuffer;
+      private double[] cb_oscBuffer;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      AcStream( Core core ) { this.core = core; }
+      private AcStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -587,6 +583,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -597,10 +596,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("AC advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      AcStream( AcStream other ) {
+      private AcStream( AcStream other ) {
          this.core = other.core;
          this.optInFastPeriod = other.optInFastPeriod;
          this.optInSlowPeriod = other.optInSlowPeriod;
@@ -625,7 +632,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -637,12 +643,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inHigh, double inLow ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("AC update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
             throw new TaLibArgumentException("AC update: BadParam", RetCode.BadParam);
          core.acStepImpl(this, inHigh, inLow);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -651,9 +663,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) )
@@ -742,7 +755,7 @@
          return new AcStream(this);
       }
    }
-   void acStepImpl( AcStream sp, double inHigh, double inLow )
+   private void acStepImpl( AcStream sp, double inHigh, double inLow )
    {
       double medianPrice = 0.0;
       double osc = 0.0;
@@ -1070,8 +1083,8 @@
     * <p>The history must hold at least {@code AC_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

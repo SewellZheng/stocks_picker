@@ -373,10 +373,8 @@
     * Generic moving-average dispatcher that forwards the job to the MA
     * implementation selected by optInMAType. Single uniform interface over all
     * TA-Lib moving averages.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * outReal = MA_of_type(optInMAType)(inReal, optInTimePeriod); default type = SMA
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ma">ta-lib.org/functions/ma</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A period of 1 performs no smoothing for every MAType: the output is a copy of the input.</li>
@@ -453,10 +451,8 @@
     * Generic moving-average dispatcher that forwards the job to the MA
     * implementation selected by optInMAType. Single uniform interface over all
     * TA-Lib moving averages.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * outReal = MA_of_type(optInMAType)(inReal, optInTimePeriod); default type = SMA
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/ma">ta-lib.org/functions/ma</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>A period of 1 performs no smoothing for every MAType: the output is a copy of the input.</li>
@@ -549,16 +545,16 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class MaStream {
-      Core core;
-      int optInTimePeriod;
-      MAType optInMAType;
-      double cur_outReal;
+      private Core core;
+      private int optInTimePeriod;
+      private MAType optInMAType;
+      private double cur_outReal;
       // Sub-stream, tagged by optInMAType; null on the identity path.
-      Object sub;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Object sub;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      MaStream( Core core ) { this.core = core; }
+      private MaStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -570,6 +566,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -580,10 +579,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MA advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      MaStream( MaStream other ) {
+      private MaStream( MaStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.optInMAType = other.optInMAType;
@@ -639,7 +646,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -651,12 +657,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("MA update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MA update: BadParam", RetCode.BadParam);
          core.maStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -665,76 +677,61 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies no buffer: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period. It does allocate a small bounded amount
-       * per call — a size fixed by the indicator, never by the period.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("MA peek: BadParam", RetCode.BadParam);
          MaStream sp = this;
-         double cur_outReal = 0.0;
          if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
-            cur_outReal = inReal;
-            return cur_outReal;
+            return inReal;
          }
          switch( sp.optInMAType )
          {
          case SMA: {
-            cur_outReal = ((SmaStream) sp.sub).peek(inReal);
-            break;
+            return ((SmaStream) sp.sub).peek(inReal);
          }
          case EMA: {
-            cur_outReal = ((EmaStream) sp.sub).peek(inReal);
-            break;
+            return ((EmaStream) sp.sub).peek(inReal);
          }
          case WMA: {
-            cur_outReal = ((WmaStream) sp.sub).peek(inReal);
-            break;
+            return ((WmaStream) sp.sub).peek(inReal);
          }
          case DEMA: {
-            cur_outReal = ((DemaStream) sp.sub).peek(inReal);
-            break;
+            return ((DemaStream) sp.sub).peek(inReal);
          }
          case TEMA: {
-            cur_outReal = ((TemaStream) sp.sub).peek(inReal);
-            break;
+            return ((TemaStream) sp.sub).peek(inReal);
          }
          case TRIMA: {
-            cur_outReal = ((TrimaStream) sp.sub).peek(inReal);
-            break;
+            return ((TrimaStream) sp.sub).peek(inReal);
          }
          case KAMA: {
-            cur_outReal = ((KamaStream) sp.sub).peek(inReal);
-            break;
+            return ((KamaStream) sp.sub).peek(inReal);
          }
          case MAMA: {
             MamaOut subValue = new MamaOut();
             ((MamaStream) sp.sub).peek(inReal, subValue);
-            cur_outReal = subValue.mama;
-            break;
+            return subValue.mama;
          }
          case T3: {
-            cur_outReal = ((T3Stream) sp.sub).peek(inReal);
-            break;
+            return ((T3Stream) sp.sub).peek(inReal);
          }
          case HMA: {
-            cur_outReal = ((HmaStream) sp.sub).peek(inReal);
-            break;
+            return ((HmaStream) sp.sub).peek(inReal);
          }
          case ZLEMA: {
-            cur_outReal = ((ZlemaStream) sp.sub).peek(inReal);
-            break;
+            return ((ZlemaStream) sp.sub).peek(inReal);
          }
          case RMA: {
-            cur_outReal = ((RmaStream) sp.sub).peek(inReal);
-            break;
+            return ((RmaStream) sp.sub).peek(inReal);
          }
          default:
             throw new IllegalStateException("unreachable: open rejects arms without a sub-stream");
          }
-         return cur_outReal;
       }
 
       /**
@@ -763,7 +760,7 @@
          return new MaStream(this);
       }
    }
-   void maStepImpl( MaStream sp, double inReal )
+   private void maStepImpl( MaStream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 || sp.optInMAType == MAType.DISABLED ) {
          sp.cur_outReal = inReal;
@@ -773,56 +770,56 @@
       {
       case SMA: {
          sp.cur_outReal = ((SmaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case EMA: {
          sp.cur_outReal = ((EmaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case WMA: {
          sp.cur_outReal = ((WmaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case DEMA: {
          sp.cur_outReal = ((DemaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case TEMA: {
          sp.cur_outReal = ((TemaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case TRIMA: {
          sp.cur_outReal = ((TrimaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case KAMA: {
          sp.cur_outReal = ((KamaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case MAMA: {
          MamaOut subOut = new MamaOut();
          ((MamaStream) sp.sub).update(inReal, subOut);
          sp.cur_outReal = subOut.mama;
-         break;
+         return;
       }
       case T3: {
          sp.cur_outReal = ((T3Stream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case HMA: {
          sp.cur_outReal = ((HmaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case ZLEMA: {
          sp.cur_outReal = ((ZlemaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       case RMA: {
          sp.cur_outReal = ((RmaStream) sp.sub).update(inReal);
-         break;
+         return;
       }
       default:
-         break; /* unreachable: open rejects arms without a sub-stream */
+         return; /* unreachable: open rejects arms without a sub-stream */
       }
    }
    private RetCode maOpenImpl( MaStream sp, double inReal[], int startIdx, int optInTimePeriod, MAType optInMAType )
@@ -1255,8 +1252,8 @@
     * <p>The history must hold at least {@code MA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} and {@link MAType#DEFAULT} select a
+    * parameter's documented default, as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

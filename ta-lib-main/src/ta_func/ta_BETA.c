@@ -789,13 +789,6 @@ static void TA_BETA_StepImpl( struct TA_BETA_Stream *sp, double inReal0, double 
    S_x = sp->S_x;
    S_y = sp->S_y;
    S_yy = sp->S_yy;
-   if( sp->i >= 1073741824 )
-   {
-      int rebaseShift = sp->trailingIdx & ~sp->xMask;
-      sp->i -= rebaseShift;
-      sp->trailingIdx -= rebaseShift;
-      sp->j -= rebaseShift;
-   }
    sp->x_inReal0[sp->i & sp->xMask] = inReal0;
    sp->x_inReal1[sp->i & sp->xMask] = inReal1;
    tmp_real = sp->x_inReal0[sp->i & sp->xMask];
@@ -1455,10 +1448,13 @@ TA_RetCode TA_BETA_OpenAndFillInternal( struct TA_BETA_Stream **stream, const do
 
 TA_LIB_API TA_RetCode TA_BETA_Update( TA_BETA_Stream *stream, double inReal0, double inReal1, double *outReal )
 {
-   if( !stream || !outReal ) return TA_BAD_PARAM;
+   if( !stream ) return TA_BAD_PARAM;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   if( !outReal ) return TA_BAD_PARAM;
    if( !TA_IS_FINITE( inReal0 ) || !TA_IS_FINITE( inReal1 ) ) return TA_BAD_PARAM;
    TA_BETA_StepImpl( stream, inReal0, inReal1, outReal );
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 
@@ -1515,13 +1511,6 @@ TA_LIB_API TA_RetCode TA_BETA_Peek( const TA_BETA_Stream *stream, double inReal0
    trailing_last_price_y = sp->trailing_last_price_y;
    x_inReal0 = sp->x_inReal0;
    x_inReal1 = sp->x_inReal1;
-   if( i >= 1073741824 )
-   {
-      int rebaseShift = trailingIdx & ~sp->xMask;
-      i -= rebaseShift;
-      trailingIdx -= rebaseShift;
-      j -= rebaseShift;
-   }
    pkSlot0 = i & sp->xMask;
    pkVal0 = inReal0;
    pkSlot1 = i & sp->xMask;
@@ -1738,7 +1727,9 @@ TA_LIB_API TA_RetCode TA_BETA_OutRange( const TA_BETA_Stream *stream, int *outBe
 TA_LIB_API TA_RetCode TA_BETA_Advance( TA_BETA_Stream *stream )
 {
    if( !stream ) return TA_BAD_PARAM;
-   if( stream->outRangeCount < TA_MAX_INDEX ) stream->outRangeCount++;
+   if( stream->outRangeBegIdx + stream->outRangeCount > TA_MAX_INDEX )
+      return TA_OUT_OF_RANGE_END_INDEX;
+   stream->outRangeCount++;
    return TA_SUCCESS;
 }
 

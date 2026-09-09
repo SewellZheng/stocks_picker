@@ -294,19 +294,15 @@
    }
    /**
     * Kaufman Efficiency Ratio (also searched as "KER"): Perry Kaufman's noise
-    * measure from *Smarter Trading* (1995) — the net directional movement over
-    * the period divided by the total path travelled to get there. 1.0 is a
+    * measure from <i>Smarter Trading</i> (1995) — the net directional movement
+    * over the period divided by the total path travelled to get there. 1.0 is a
     * perfectly efficient (straight-line) move; values near 0 are churn. This is
-    * exactly the efficiency ratio [{@code KAMA}](/functions/kama) computes
+    * exactly the efficiency ratio <a
+    * href="https://ta-lib.org/functions/kama">{@code KAMA}</a> computes
     * internally to set its adaptive smoothing constant, exposed standalone and
     * kept bit-identical to it.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * `ER[t] = |close[t] − close[t−P]| / Σ |close[k] − close[k−1]|` over the same `P` bars.
-    * Two guards, both shared with `KAMA`: a ratio that floating point would nudge just above 1.0 on a straight-line advance is pinned to exactly 1.0, and a dead-flat window (0/0) also reports 1.0 — a flat market therefore reads as "perfectly efficient", which is `KAMA`'s own convention and what keeps the two reconstructible from each other.
-    * The output is a hard 0..1 — the net move can never exceed the path travelled.
-    * TC2000 documents a signed ×100 variant (−100..+100); the absolute 0..1 form here is the author's, StockCharts', LEAN's, backtrader's and pandas-ta's.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/er">ta-lib.org/functions/er</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>First output at index {@code P} ({@code P} one-bar changes need {@code P+1} prices). No unstable period, not start-dependent.</li>
@@ -367,19 +363,15 @@
    }
    /**
     * Kaufman Efficiency Ratio (also searched as "KER"): Perry Kaufman's noise
-    * measure from *Smarter Trading* (1995) — the net directional movement over
-    * the period divided by the total path travelled to get there. 1.0 is a
+    * measure from <i>Smarter Trading</i> (1995) — the net directional movement
+    * over the period divided by the total path travelled to get there. 1.0 is a
     * perfectly efficient (straight-line) move; values near 0 are churn. This is
-    * exactly the efficiency ratio [{@code KAMA}](/functions/kama) computes
+    * exactly the efficiency ratio <a
+    * href="https://ta-lib.org/functions/kama">{@code KAMA}</a> computes
     * internally to set its adaptive smoothing constant, exposed standalone and
     * kept bit-identical to it.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * `ER[t] = |close[t] − close[t−P]| / Σ |close[k] − close[k−1]|` over the same `P` bars.
-    * Two guards, both shared with `KAMA`: a ratio that floating point would nudge just above 1.0 on a straight-line advance is pinned to exactly 1.0, and a dead-flat window (0/0) also reports 1.0 — a flat market therefore reads as "perfectly efficient", which is `KAMA`'s own convention and what keeps the two reconstructible from each other.
-    * The output is a hard 0..1 — the net move can never exceed the path travelled.
-    * TC2000 documents a signed ×100 variant (−100..+100); the absolute 0..1 form here is the author's, StockCharts', LEAN's, backtrader's and pandas-ta's.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/er">ta-lib.org/functions/er</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>First output at index {@code P} ({@code P} one-bar changes need {@code P+1} prices). No unstable period, not start-dependent.</li>
@@ -458,20 +450,20 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class ErStream {
-      Core core;
-      int optInTimePeriod;
-      int nullRun;
-      double sumROC1;
-      double trailingValue;
-      double lag1_inReal;
-      int ringPos_trailingIdx;
-      int ringCap_trailingIdx;
-      double[] ring_trailingIdx_inReal;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int nullRun;
+      private double sumROC1;
+      private double trailingValue;
+      private double lag1_inReal;
+      private int ringPos_trailingIdx;
+      private int ringCap_trailingIdx;
+      private double[] ring_trailingIdx_inReal;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      ErStream( Core core ) { this.core = core; }
+      private ErStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -483,6 +475,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -493,10 +488,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("ER advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      ErStream( ErStream other ) {
+      private ErStream( ErStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.nullRun = other.nullRun;
@@ -513,7 +516,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -525,12 +527,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("ER update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("ER update: BadParam", RetCode.BadParam);
          core.erStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -539,9 +547,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -622,7 +631,7 @@
          return new ErStream(this);
       }
    }
-   void erStepImpl( ErStream sp, double inReal )
+   private void erStepImpl( ErStream sp, double inReal )
    {
       double periodROC = 0.0;
       double tempReal = 0.0;
@@ -891,8 +900,8 @@
     * <p>The history must hold at least {@code ER_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

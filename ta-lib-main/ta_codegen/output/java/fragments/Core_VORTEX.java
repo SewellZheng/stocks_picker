@@ -375,20 +375,17 @@
    }
    /**
     * Vortex Indicator: Etienne Botes and Douglas Siepman's two-line trend
-    * indicator (*Technical Analysis of Stocks &amp; Commodities* 28:1, January
-    * 2010). Positive and negative "vortex movement" — the reach from today's
-    * high to yesterday's low and from today's low to yesterday's high — each
-    * summed over the period and normalized by the summed true range. A +VI line
-    * crossing above −VI is the bullish signal the authors describe; the two
-    * lines are conventionally plotted together.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Per bar, `TR[i] = max(H[i]−L[i], |C[i−1]−H[i]|, |C[i−1]−L[i]|)` (exactly [`TRANGE`](/functions/trange)), `VMP[i] = |H[i] − L[i−1]|` and `VMM[i] = |L[i] − H[i−1]|`. Then `+VI = SUM(VMP, n) / SUM(TR, n)` and `−VI = SUM(VMM, n) / SUM(TR, n)`.
-    * No smoothing, no recursion, no seeding — three rolling sums over per-bar terms. Every source (the original TASC article, StockCharts, Wikipedia, TradingView) states the identical formula; the only cross-source difference is the suggested period (14 vs Wikipedia's worked 21). A window whose every bar is flat sums the true range to zero; both lines then emit 0.0, the convention the external implementations share.
-    * }</pre>
+    * indicator (<i>Technical Analysis of Stocks &amp; Commodities</i> 28:1,
+    * January 2010). Positive and negative "vortex movement" — the reach from
+    * today's high to yesterday's low and from today's low to yesterday's high —
+    * each summed over the period and normalized by the summed true range. A +VI
+    * line crossing above −VI is the bullish signal the authors describe; the
+    * two lines are conventionally plotted together.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/vortex">ta-lib.org/functions/vortex</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Bar 0 has no term (all three need a prior bar) and is consumed exactly as [{@code TRANGE}](/functions/trange) consumes it, so the first output sits at index {@code optInTimePeriod}, not {@code optInTimePeriod − 1}.</li>
+    * <li>Bar 0 has no term (all three need a prior bar) and is consumed exactly as <a href="https://ta-lib.org/functions/trange">{@code TRANGE}</a> consumes it, so the first output sits at index {@code optInTimePeriod}, not {@code optInTimePeriod − 1}.</li>
     * <li>Not start-dependent: each output depends only on the finite trailing window. No unstable period.</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
@@ -455,20 +452,17 @@
    }
    /**
     * Vortex Indicator: Etienne Botes and Douglas Siepman's two-line trend
-    * indicator (*Technical Analysis of Stocks &amp; Commodities* 28:1, January
-    * 2010). Positive and negative "vortex movement" — the reach from today's
-    * high to yesterday's low and from today's low to yesterday's high — each
-    * summed over the period and normalized by the summed true range. A +VI line
-    * crossing above −VI is the bullish signal the authors describe; the two
-    * lines are conventionally plotted together.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Per bar, `TR[i] = max(H[i]−L[i], |C[i−1]−H[i]|, |C[i−1]−L[i]|)` (exactly [`TRANGE`](/functions/trange)), `VMP[i] = |H[i] − L[i−1]|` and `VMM[i] = |L[i] − H[i−1]|`. Then `+VI = SUM(VMP, n) / SUM(TR, n)` and `−VI = SUM(VMM, n) / SUM(TR, n)`.
-    * No smoothing, no recursion, no seeding — three rolling sums over per-bar terms. Every source (the original TASC article, StockCharts, Wikipedia, TradingView) states the identical formula; the only cross-source difference is the suggested period (14 vs Wikipedia's worked 21). A window whose every bar is flat sums the true range to zero; both lines then emit 0.0, the convention the external implementations share.
-    * }</pre>
+    * indicator (<i>Technical Analysis of Stocks &amp; Commodities</i> 28:1,
+    * January 2010). Positive and negative "vortex movement" — the reach from
+    * today's high to yesterday's low and from today's low to yesterday's high —
+    * each summed over the period and normalized by the summed true range. A +VI
+    * line crossing above −VI is the bullish signal the authors describe; the
+    * two lines are conventionally plotted together.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/vortex">ta-lib.org/functions/vortex</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>Bar 0 has no term (all three need a prior bar) and is consumed exactly as [{@code TRANGE}](/functions/trange) consumes it, so the first output sits at index {@code optInTimePeriod}, not {@code optInTimePeriod − 1}.</li>
+    * <li>Bar 0 has no term (all three need a prior bar) and is consumed exactly as <a href="https://ta-lib.org/functions/trange">{@code TRANGE}</a> consumes it, so the first output sits at index {@code optInTimePeriod}, not {@code optInTimePeriod − 1}.</li>
     * <li>Not start-dependent: each output depends only on the finite trailing window. No unstable period.</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
@@ -553,27 +547,27 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class VortexStream {
-      Core core;
-      int optInTimePeriod;
-      int nullRun;
-      double sTR;
-      double sVMP;
-      double sVMM;
-      double lag1_inHigh;
-      double lag1_inLow;
-      double lag1_inClose;
-      int ringPos_trailingIdx;
-      int ringCap_trailingIdx;
-      int ringLag_trailingIdx;
-      double[] ring_trailingIdx_inHigh;
-      double[] ring_trailingIdx_inLow;
-      double[] ring_trailingIdx_inClose;
-      double cur_outPlusVI;
-      double cur_outMinusVI;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private int nullRun;
+      private double sTR;
+      private double sVMP;
+      private double sVMM;
+      private double lag1_inHigh;
+      private double lag1_inLow;
+      private double lag1_inClose;
+      private int ringPos_trailingIdx;
+      private int ringCap_trailingIdx;
+      private int ringLag_trailingIdx;
+      private double[] ring_trailingIdx_inHigh;
+      private double[] ring_trailingIdx_inLow;
+      private double[] ring_trailingIdx_inClose;
+      private double cur_outPlusVI;
+      private double cur_outMinusVI;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      VortexStream( Core core ) { this.core = core; }
+      private VortexStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -585,6 +579,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -595,10 +592,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VORTEX advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      VortexStream( VortexStream other ) {
+      private VortexStream( VortexStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.nullRun = other.nullRun;
@@ -622,7 +627,6 @@
 
       /**
        * Commit one closed bar, writing the new current values into the {@code out} the CALLER owns.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -634,13 +638,19 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public void update( double inHigh, double inLow, double inClose, VortexOut out ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("VORTEX update", RetCode.OutOfRangeEndIndex);
          requireArgument("VORTEX update", "out", out);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("VORTEX update: BadParam", RetCode.BadParam);
          core.vortexStepImpl(this, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          out.plusVI = this.cur_outPlusVI;
          out.minusVI = this.cur_outMinusVI;
       }
@@ -650,9 +660,10 @@
        * next {@code update} with the same bar would write — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public void peek( double inHigh, double inLow, double inClose, VortexOut out ) {
          requireArgument("VORTEX peek", "out", out);
@@ -778,7 +789,7 @@
        * The value at the last bar this stream counted — the bar
        * {@link #outRange()} ends on. The last history bar right after open,
        * then whatever the latest accepted {@code update} wrote.
-       * A pure field read; {@code peek} does not change it. Overwrites {@code out}, allocating nothing.
+       * A pure field read; {@code peek} does not change it. Overwrites {@code out}.
        */
       public void value( VortexOut out ) {
          requireArgument("VORTEX value", "out", out);
@@ -824,7 +835,7 @@
       /** Negative vortex line (−VI) */
       public double minusVI;
    }
-   void vortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
+   private void vortexStepImpl( VortexStream sp, double inHigh, double inLow, double inClose )
    {
       double curTR = 0.0;
       double curVMP = 0.0;
@@ -1208,8 +1219,8 @@
     * <p>The history must hold at least {@code VORTEX_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

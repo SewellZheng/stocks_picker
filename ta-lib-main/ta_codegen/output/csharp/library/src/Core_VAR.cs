@@ -72,7 +72,7 @@ public partial class Core
    /// <param name="optInTimePeriod">Window length for the variance (default 5; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">Deviation count accepted by the API but never used in the computation
-   /// (default 1; <c>-4e37</c> selects the default).</param>
+   /// (default 1; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The lookback, or <c>-1</c> if a parameter is out of range.</returns>
    public int VAR_Lookback( int optInTimePeriod, double optInNbDev )
    {
@@ -81,9 +81,9 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return -1;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return -1;
       }
       return optInTimePeriod - 1 ;
@@ -125,9 +125,9 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( (outReal.Overlaps(inReal) && outReal != inReal) ) {
@@ -320,10 +320,13 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
+      }
+      if( System.Runtime.InteropServices.MemoryMarshal.AsBytes(outReal).Overlaps(System.Runtime.InteropServices.MemoryMarshal.AsBytes(inReal)) ) {
+         return RetCode.BadParam ;
       }
       nbInitialElementNeeded = optInTimePeriod - 1;
       if( startIdx < nbInitialElementNeeded ) {
@@ -400,10 +403,10 @@ public partial class Core
    /// dispersion; 0 means constant input.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// $\mathrm{VAR} = \frac{1}{n}\sum x_i^2 - \left(\frac{1}{n}\sum x_i\right)^2$, over the last $n$ = optInTimePeriod values (population, divides by $n$).
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/var">ta-lib.org/functions/var</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>Computes population variance (divides by the period), not the sample variance (n-1) used by some definitions.</description></item>
    /// <item><description>The deviation-count parameter is accepted but has no effect on the result.</description></item>
@@ -422,7 +425,7 @@ public partial class Core
    /// <param name="optInTimePeriod">Window length for the variance (default 5; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">Deviation count accepted by the API but never used in the computation
-   /// (default 1; <c>-4e37</c> selects the default).</param>
+   /// (default 1; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">Rolling population variance. Must hold at least <c>endIdx - startIdx +
    /// 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -467,10 +470,10 @@ public partial class Core
    /// dispersion; 0 means constant input.
    /// </summary>
    /// <remarks>
-   /// <b>Formula</b>
-   /// <code>
-   /// $\mathrm{VAR} = \frac{1}{n}\sum x_i^2 - \left(\frac{1}{n}\sum x_i\right)^2$, over the last $n$ = optInTimePeriod values (population, divides by $n$).
-   /// </code>
+   /// <para>
+   /// Formula and more info at
+   /// <see href="https://ta-lib.org/functions/var">ta-lib.org/functions/var</see>.
+   /// </para>
    /// <list type="bullet">
    /// <item><description>Computes population variance (divides by the period), not the sample variance (n-1) used by some definitions.</description></item>
    /// <item><description>The deviation-count parameter is accepted but has no effect on the result.</description></item>
@@ -495,7 +498,7 @@ public partial class Core
    /// <param name="optInTimePeriod">Window length for the variance (default 5; range 1..100000;
    /// <c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">Deviation count accepted by the API but never used in the computation
-   /// (default 1; <c>-4e37</c> selects the default).</param>
+   /// (default 1; <see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">Rolling population variance. Must hold at least <c>endIdx - startIdx +
    /// 1</c> values.</param>
    /// <returns>The range written: <c>BegIdx</c> is the first bar with a value,
@@ -514,8 +517,10 @@ public partial class Core
    /// it is too short whenever the range produces a value, and fine when it
    /// produces none, and on an output this function documents as declinable it
    /// is how you decline.</exception>
-   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output partially overlaps an input.
-   /// Computing wholly in place (an output that IS an input) is allowed.</exception>
+   /// <exception cref="System.ArgumentException">Two output buffers overlap, or an output overlaps an input. An output and
+   /// a real input never share an element type in this overload, so the two can
+   /// never be the same span: there is no in-place case to allow, and any
+   /// overlap of their byte ranges is rejected.</exception>
    public OutRange VAR( int startIdx,
                         int endIdx,
                         ReadOnlySpan<float> inReal,
@@ -584,6 +589,8 @@ public partial class Core
       /// <c>Peek</c> — and <c>Clone</c> carries it verbatim. A plain <c>Open</c>
       /// hands back only the last value, a subset of this range, because the caller
       /// chose not to take the fill.</para>
+      /// <para>The last bar it can reach is <see cref="Core.MAX_INDEX"/>; past that
+      /// <c>Update</c> and <c>Advance</c> throw.</para>
       /// </remarks>
       public OutRange OutRange => new OutRange(outRangeBegIdx, outRangeCount);
 
@@ -594,10 +601,16 @@ public partial class Core
       /// bar's output too. For a bar the caller leaves out: one an <c>Update</c>
       /// rejected and that will not be re-fed, or a session with no print. Without
       /// it two handles on one feed drift a bar apart when only one of them skips.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, the last one the batch tier
+      /// can address and the last this handle will count. <c>Update</c> throws the
+      /// same there.</para>
       /// </remarks>
       public void Advance()
       {
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("VAR", "advance", RetCode.OutOfRangeEndIndex);
+         outRangeCount++;
       }
 
       internal VarStream( VarStream other )
@@ -635,14 +648,20 @@ public partial class Core
       /// This is the one place the streaming tier is stricter than the batch API,
       /// which computes on whatever it is given: a handle retains its state, so a
       /// single non-finite bar would poison every later value it produces.</para>
+      /// <para>Throws <see cref="System.ArgumentException"/> once <see cref="OutRange"/>
+      /// has reached bar <see cref="Core.MAX_INDEX"/>, which no re-feed clears: the
+      /// handle has run out of index domain and only a shorter history can start a
+      /// new one.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
       /// <returns>The value at the bar just committed.</returns>
       public double Update( double inReal )
       {
+         if( outRangeBegIdx + outRangeCount > Core.MAX_INDEX )
+            throw Core.StreamFailure("VAR", "update", RetCode.OutOfRangeEndIndex);
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("VAR", "update", RetCode.BadParam);
          core.VarStepImpl(this, inReal);
-         if( outRangeCount < Core.MAX_INDEX ) outRangeCount++;
+         outRangeCount++;
          return cur_outReal;
       }
 
@@ -652,12 +671,13 @@ public partial class Core
       /// would return — the same transition, with every store it would make carried
       /// in a local instead. Never writes this handle, so peeks may run
       /// concurrently with each other.</para>
-      /// <para>It copies nothing: the frame runs against this handle, reading its buffers
-      /// and holding what the step would commit in locals. The cost does not grow
-      /// with the period, and <c>Peek</c> never allocates.</para>
+      /// <para>Its cost does not grow with the period.</para>
+      /// <para>It counts no bar, so it keeps answering past the
+      /// <see cref="Core.MAX_INDEX"/> ceiling <c>Update</c> stops at.</para>
       /// </remarks>
       /// <param name="inReal">This bar's value for <c>inReal</c>.</param>
-      /// <returns>What <see cref="Update"/> would return for this bar.</returns>
+      /// <returns>The value <see cref="Update"/> would return for this bar, when it takes
+      /// it.</returns>
       public double Peek( double inReal )
       {
          if( !double.IsFinite(inReal) ) throw Core.StreamFailure("VAR", "peek", RetCode.BadParam);
@@ -667,7 +687,6 @@ public partial class Core
          double variance = 0.0;
          int barsSinceReseed = sp.barsSinceReseed;
          double cur_outReal = 0.0;
-         int i = sp.i;
          int j = sp.j;
          double periodTotal1 = sp.periodTotal1;
          double periodTotal2 = sp.periodTotal2;
@@ -676,17 +695,10 @@ public partial class Core
          int windowStart = sp.windowStart;
          int pkSlot0 = -1;
          double pkVal0 = 0.0;
-         if( i >= 1073741824 ) {
-            int rebaseShift = trailingIdx & ~sp.xMask;
-            i -= rebaseShift;
-            trailingIdx -= rebaseShift;
-            j -= rebaseShift;
-            windowStart -= rebaseShift;
-         }
-         pkSlot0 = i & sp.xMask;
+         pkSlot0 = sp.i & sp.xMask;
          pkVal0 = inReal;
          /* Add the incoming value, measured against the shift. */
-         tempReal = (((i & sp.xMask) != pkSlot0) ? sp.x_inReal[i & sp.xMask] : pkVal0) - shift;
+         tempReal = (((sp.i & sp.xMask) != pkSlot0) ? sp.x_inReal[sp.i & sp.xMask] : pkVal0) - shift;
          periodTotal1 += tempReal;
          tempReal *= tempReal;
          periodTotal2 += tempReal;
@@ -714,15 +726,15 @@ public partial class Core
          barsSinceReseed -= 1;
          if( variance < 0.000001 * (periodTotal2 * sp.invPeriod) || tempReal > 1000000.0 * periodTotal2 || barsSinceReseed <= 0 ) {
             barsSinceReseed = 32 * sp.optInTimePeriod;
-            windowStart = i - sp.nbInitialElementNeeded;
+            windowStart = sp.i - sp.nbInitialElementNeeded;
             tempReal = 0.0;
-            for( j = windowStart; j <= i; j += 1 ) {
+            for( j = windowStart; j <= sp.i; j += 1 ) {
                tempReal += ((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0;
             }
             shift = tempReal * sp.invPeriod;
             periodTotal1 = 0.0;
             periodTotal2 = 0.0;
-            for( j = windowStart; j <= i; j += 1 ) {
+            for( j = windowStart; j <= sp.i; j += 1 ) {
                tempReal = (((j & sp.xMask) != pkSlot0) ? sp.x_inReal[j & sp.xMask] : pkVal0) - shift;
                periodTotal1 += tempReal;
                tempReal *= tempReal;
@@ -816,13 +828,6 @@ public partial class Core
       double tempReal = 0.0;
       double meanValue1 = 0.0;
       double variance = 0.0;
-      if( sp.i >= 1073741824 ) {
-         int rebaseShift = sp.trailingIdx & ~sp.xMask;
-         sp.i -= rebaseShift;
-         sp.trailingIdx -= rebaseShift;
-         sp.j -= rebaseShift;
-         sp.windowStart -= rebaseShift;
-      }
       sp.x_inReal[sp.i & sp.xMask] = inReal;
       /* Add the incoming value, measured against the shift. */
       tempReal = sp.x_inReal[sp.i & sp.xMask] - sp.shift;
@@ -964,9 +969,9 @@ public partial class Core
       } else if( optInTimePeriod < 1 || optInTimePeriod > 100000 ) {
          return RetCode.BadParam;
       }
-      if( optInNbDev == TA_REAL_DEFAULT ) {
+      if( optInNbDev == REAL_DEFAULT ) {
          optInNbDev = 1e0;
-      } else if( !(optInNbDev >= TA_REAL_MIN && optInNbDev <= TA_REAL_MAX) ) {
+      } else if( !(optInNbDev >= REAL_MIN && optInNbDev <= REAL_MAX) ) {
          return RetCode.BadParam;
       }
       if( startIdx > endIdx ) {
@@ -1193,11 +1198,10 @@ public partial class Core
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="VAR_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">As in the batch call; see <see cref="VAR_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <returns>The open stream handle.</returns>
    /// <exception cref="InsufficientHistoryException">The history holds fewer than <c>VAR_Lookback(...) + 1</c> bars.</exception>
-   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range, or the input series
-   /// have different lengths.</exception>
+   /// <exception cref="System.ArgumentException">An optional parameter is outside its documented range.</exception>
    /// <exception cref="System.ArgumentOutOfRangeException">The history is empty — which is what a null array becomes, since a span
    /// cannot be null — or it is longer than <see cref="Core.MAX_INDEX"/> + 1,
    /// the two index faults an opener can have (rules S1 and S2).</exception>
@@ -1226,7 +1230,7 @@ public partial class Core
    /// <param name="optInTimePeriod">As in the batch call; see <see cref="VAR_Lookback"/> for its default and
    /// range (<c>int.MinValue</c> selects the default).</param>
    /// <param name="optInNbDev">As in the batch call; see <see cref="VAR_Lookback"/> for its default and
-   /// range (<c>-4e37</c> selects the default).</param>
+   /// range (<see cref="Core.REAL_DEFAULT"/> selects the default).</param>
    /// <param name="outReal">Rolling population variance. Must hold at least <c>historyLen -
    /// VAR_Lookback(...)</c> values.</param>
    /// <returns>The open stream handle, with its fill range set.</returns>

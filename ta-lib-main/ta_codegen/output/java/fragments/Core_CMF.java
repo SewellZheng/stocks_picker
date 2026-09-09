@@ -286,21 +286,17 @@
     * distribution, and the distance from zero measures conviction. Because the
     * divisor is the window's own volume, the output is comparable across
     * instruments and across time in a way a raw accumulation total is not.
-    * Created by Marc Chaikin, who also authored the [{@code AD}](/functions/ad)
-    * line this shares its per-bar multiplier with. CMF is that same multiplier
-    * summed over a fixed window and normalised, where AD accumulates it from
-    * the start of the series without bound.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * t = high[i] - low[i]
-    * mfv[i] = ((close[i] - low[i]) - (high[i] - close[i])) / t * volume[i], or 0 when t is not positive
-    * CMF[i] = ( sum_{k=i-N+1..i} mfv[k] ) / ( sum_{k=i-N+1..i} volume[k] ), N = optInTimePeriod
-    * There is no seeding and no recursion, hence no unstable period. Each output depends only on the N bars in its own window.
-    * }</pre>
+    * Created by Marc Chaikin, who also authored the <a
+    * href="https://ta-lib.org/functions/ad">{@code AD}</a> line this shares its
+    * per-bar multiplier with. CMF is that same multiplier summed over a fixed
+    * window and normalised, where AD accumulates it from the start of the
+    * series without bound.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cmf">ta-lib.org/functions/cmf</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The output is the raw ratio in {@code [-1, +1]}, matching every published definition. Some retail platforms display it multiplied by 100; that is a presentation choice, not a different indicator.</li>
-    * <li>Each bar's close is expected to lie within its own {@code [low, high]}, and its volume to be finite and non-negative. A close outside its bar makes the multiplier exceed ±1 and is passed through unclamped, exactly as [{@code AD}](/functions/ad) does.</li>
+    * <li>Each bar's close is expected to lie within its own {@code [low, high]}, and its volume to be finite and non-negative. A close outside its bar makes the multiplier exceed ±1 and is passed through unclamped, exactly as <a href="https://ta-lib.org/functions/ad">{@code AD}</a> does.</li>
     * <li>A bar whose high equals its low has no range for the close to sit inside, so it contributes exactly zero money flow volume rather than dividing by zero. Its volume still counts toward the divisor.</li>
     * <li>A window whose volume is entirely zero has no money flow to distribute and reports 0.0. Published references are silent here and other implementations divide by zero; TA-Lib does not return NaN from a successful call.</li>
     * <li>Bars where the low exceeds the high are malformed rather than degenerate, and also contribute zero.</li>
@@ -380,21 +376,17 @@
     * distribution, and the distance from zero measures conviction. Because the
     * divisor is the window's own volume, the output is comparable across
     * instruments and across time in a way a raw accumulation total is not.
-    * Created by Marc Chaikin, who also authored the [{@code AD}](/functions/ad)
-    * line this shares its per-bar multiplier with. CMF is that same multiplier
-    * summed over a fixed window and normalised, where AD accumulates it from
-    * the start of the series without bound.
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * t = high[i] - low[i]
-    * mfv[i] = ((close[i] - low[i]) - (high[i] - close[i])) / t * volume[i], or 0 when t is not positive
-    * CMF[i] = ( sum_{k=i-N+1..i} mfv[k] ) / ( sum_{k=i-N+1..i} volume[k] ), N = optInTimePeriod
-    * There is no seeding and no recursion, hence no unstable period. Each output depends only on the N bars in its own window.
-    * }</pre>
+    * Created by Marc Chaikin, who also authored the <a
+    * href="https://ta-lib.org/functions/ad">{@code AD}</a> line this shares its
+    * per-bar multiplier with. CMF is that same multiplier summed over a fixed
+    * window and normalised, where AD accumulates it from the start of the
+    * series without bound.
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cmf">ta-lib.org/functions/cmf</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The output is the raw ratio in {@code [-1, +1]}, matching every published definition. Some retail platforms display it multiplied by 100; that is a presentation choice, not a different indicator.</li>
-    * <li>Each bar's close is expected to lie within its own {@code [low, high]}, and its volume to be finite and non-negative. A close outside its bar makes the multiplier exceed ±1 and is passed through unclamped, exactly as [{@code AD}](/functions/ad) does.</li>
+    * <li>Each bar's close is expected to lie within its own {@code [low, high]}, and its volume to be finite and non-negative. A close outside its bar makes the multiplier exceed ±1 and is passed through unclamped, exactly as <a href="https://ta-lib.org/functions/ad">{@code AD}</a> does.</li>
     * <li>A bar whose high equals its low has no range for the close to sit inside, so it contributes exactly zero money flow volume rather than dividing by zero. Its volume still counts toward the divisor.</li>
     * <li>A window whose volume is entirely zero has no money flow to distribute and reports 0.0. Published references are silent here and other implementations divide by zero; TA-Lib does not return NaN from a successful call.</li>
     * <li>Bars where the low exceeds the high are malformed rather than degenerate, and also contribute zero.</li>
@@ -481,20 +473,20 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CmfStream {
-      Core core;
-      int optInTimePeriod;
-      double sumMFV;
-      double sumVol;
-      int mfv_Idx;
-      int maxIdx_mfv;
-      int cbSize_mfv;
-      double[] cb_mfv_flow;
-      double[] cb_mfv_volume;
-      double cur_outReal;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double sumMFV;
+      private double sumVol;
+      private int mfv_Idx;
+      private int maxIdx_mfv;
+      private int cbSize_mfv;
+      private double[] cb_mfv_flow;
+      private double[] cb_mfv_volume;
+      private double cur_outReal;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CmfStream( Core core ) { this.core = core; }
+      private CmfStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -506,6 +498,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -516,10 +511,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CMF advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CmfStream( CmfStream other ) {
+      private CmfStream( CmfStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.sumMFV = other.sumMFV;
@@ -536,7 +539,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -548,12 +550,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inHigh, double inLow, double inClose, double inVolume ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CMF update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
             throw new TaLibArgumentException("CMF update: BadParam", RetCode.BadParam);
          core.cmfStepImpl(this, inHigh, inLow, inClose, inVolume);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -562,9 +570,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inHigh, double inLow, double inClose, double inVolume ) {
          if( !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) || !Double.isFinite(inVolume) )
@@ -625,7 +634,7 @@
          return new CmfStream(this);
       }
    }
-   void cmfStepImpl( CmfStream sp, double inHigh, double inLow, double inClose, double inVolume )
+   private void cmfStepImpl( CmfStream sp, double inHigh, double inLow, double inClose, double inVolume )
    {
       double high = 0.0;
       double low = 0.0;
@@ -851,8 +860,8 @@
     * <p>The history must hold at least {@code CMF_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

@@ -199,10 +199,11 @@ elements: the batch tier may report that as an empty `OutRange`, but an opener
 has no handle to mint over a range holding nothing, so the sub-call's own
 `TA_SUCCESS` is not the answer.
 `an_opener_never_answers_the_code_its_sub_call_handed_back` pins it in the three
-ported backends. **C is the exception**, and it is a known one: the guard there
-still carries the `retCode != TA_SUCCESS` half — that backend answers a
-cross-call rejection by propagating the code rather than at the call site — so
-the arm cannot be rewritten without splitting the guard, and C mints the handle.
+ported backends. **C is outside that sweep**: no fold pass runs for it, so its
+transcribed guard still tests both halves and returns the sub-call's own code.
+Nothing reaches that arm — no opener answers `TA_SUCCESS` over zero elements —
+but a composed indicator that made one would hand C's caller `TA_SUCCESS` and a
+NULL handle where the other three answer S7.
 
 Unlike the batch tier, `OpenAndFill` outputs may **not** be the same buffer as
 the inputs (no in-place execution). Not because it would compute the wrong
@@ -307,10 +308,10 @@ not a capacity fault: the value is still computed, the handle still reports it,
 and nothing is written out (footnote [6], Appendix F).
 
 [8] All four converge on `TA_INSUFFICIENT_HISTORY`, which leaves a history
-*longer* than `MAX_INDEX + 1` (rule S2) as the only producer of
-`TA_OUT_OF_RANGE_END_INDEX` in this tier. Verified as uniform, not incidental:
-across every streaming function in every backend, each short-history arm reports
-this code and no other. What the four answered before the code existed, and why
+*longer* than `MAX_INDEX + 1` (rule S2) as this tier's only producer of
+`TA_OUT_OF_RANGE_END_INDEX` — U4 is the other, one tier down. Verified as
+uniform, not incidental: across every streaming function in every backend, each
+short-history arm reports this code and no other. What the four answered before the code existed, and why
 the borrowed one was wrong on its face, is Appendix D item 8.
 
 [9] **Withdrawn.** The warm-up history is an input *array*, and the library
@@ -321,11 +322,12 @@ than a rule. What the scan cost, and why folding it into the fill loop was not
 the alternative, are in `docs/streaming-api-design.md`. U3 is untouched: a bar
 handed to `Update` or `Peek` is a single value.
 
-### 2.4 Streaming tier — advancing (`Update`, `Peek`)
+### 2.4 Streaming tier — advancing (`Update`, `Peek`, `Advance`)
 
 | Rule | Condition (in order) | RetCode | C | Rust | Java | C# |
 |---|---|---|:---:|:---:|:---:|:---:|
 | U1 | The handle was not supplied | `TA_BAD_PARAM` | ✅<br>&nbsp; | —<br>&nbsp; | —<br>&nbsp; | —<br>&nbsp; |
+| U4 | The bar this call would COUNT leaves the index domain: `begIdx + count > MAX_INDEX`. `Update` and `Advance` only — `Peek` is exempt for performance, and counts no bar | `TA_OUT_OF_RANGE_END_INDEX` | ✅<br>&nbsp; | ✅<br>&nbsp; | ✅<br>&nbsp; | ✅<br>&nbsp; |
 | U2 | The output was not supplied | `TA_BAD_PARAM` | ✅<br>&nbsp; | —<br>&nbsp; | ✅<br>&nbsp; | —<br>&nbsp; |
 | U6a | An output is **declined** — null, or zero-length where the language cannot spell null. Accepted only where the .yaml marks that output `nullable` (Appendix F) | `TA_BAD_PARAM` | ✅<br>&nbsp; | n/a<br>[10] | n/a<br>[10] | n/a<br>[10] |
 | U3 | **Per bar**, after the rules above: the bar is non-finite | `TA_BAD_PARAM` | ✅<br>&nbsp; | ✅<br>&nbsp; | ✅<br>&nbsp; | ✅<br>&nbsp; |
@@ -336,7 +338,45 @@ return the value, and Java writes every field of a caller-owned sink.
 **A rejection changes nothing at all.** No accumulator moves, no output is
 written, and `OutRange` does not advance — a rejected `Update` costs the caller
 nothing but the call, and the handle is intact and usable for the next bar, so a
-transient bad print clears itself. `Peek` is the same, under any outcome.
+transient bad print clears itself. `Peek` is the same, under any outcome. It
+holds while the library's own arithmetic stays inside `double`; past that,
+Part 3's *Intermediate overflow* governs and this rule does not.
+
+**U4 is the one rejection that does not clear.** It is S2 read one bar at a
+time: the next bar's index is `begIdx + count`, and once that leaves
+`[0, MAX_INDEX]` the handle is being asked for a bar `TA_<N>(startIdx, endIdx)`
+refuses to address — so `Update` and `Advance` both answer it and neither moves
+anything, permanently. The recovery is a new handle over a shorter history, not a
+re-feed. `Advance` is in the section header because of it: U1 is the only other
+rule that reaches that call, and the rest of the table is about a bar it is not
+given.
+
+It is evaluated where the opener evaluates S1 and S2 — ahead of every presence
+check, with only the handle's own null test in front of it — because it is the
+same fault read on the same domain, and a caller who fixed the argument the
+presence check named would only get U4 back.
+
+`Peek` is exempt for performance — it commits no bar.
+
+A composed step drives its sub-handles through their public `Update`, so each of
+them re-reads U4. It cannot fire there first, and that is load-bearing rather
+than incidental: every handle over one history satisfies
+`begIdx + count == historyLen` at open, an accepted `Update` moves a parent and
+its sub-handles together, and `Advance` moves the parent alone — so the parent is
+never behind, and its own guard answers before any sub-handle is stepped. Without
+that, MAVP's bank would be left with its leading slots stepped and the parent's
+count unmoved.
+
+No cross-language gate can reach U4 — `stream_verify` runs 240 bars and
+`MAX_INDEX` is 100 000 000 — so it is pinned by one source gate and one runtime
+probe per backend. `only_an_accepted_bar_advances_the_range` asserts the guard's
+*position* — first, with only C's handle check allowed in front of it — the code
+it names, and its ABSENCE from `Peek`, in all four backends over the whole
+corpus. Then each of `test_stream_finite.c`, `stream_out_range.rs`,
+`StreamSmokeTest` and `StreamApiTest` drives one handle to the ceiling and
+demands the refusal, the code, and that nothing moved. The code is asserted twice
+because the type cannot stand in for it: Java renders S1's code and U4's as one
+exception class.
 
 That leaves the caller two ways to answer a bar `Update` turned down, and having
 to pick one is the point. **Re-feed** it when a corrected value arrives — that is
@@ -393,13 +433,15 @@ and the emitted shape is held on the PR gate by
 `test_a_nullable_output_is_declinable_at_update_in_c`.
 
 **All four backends have a value accessor** since #287: `TA_<N>_Value`,
-`value()`, `value()` and `Value`. Each reports the value(s) at the last bar the
-stream counted — the bar `OutRange` ends on — without recomputing, and each is a
-plain read of state the stream already holds — so the only error surface is C's,
-which answers `TA_BAD_PARAM` for a NULL stream or a NULL out-pointer for a
-required output (a declinable output may be NULL and is then simply not
-written). Java, C# and Rust cannot fail: they take no argument
-to reject. The accessor exists because a FORKED stream is the one caller with no
+`value()`, `value()` / `value(<N>Out)` and `Value`. Each reports the value(s) at
+the last bar the stream counted — the bar `OutRange` ends on — without
+recomputing, and each is a plain read of state the stream already holds — so the
+only error surface is the destination it is handed. C answers `TA_BAD_PARAM` for
+a NULL stream or a NULL out-pointer for a required output (a declinable output
+may be NULL and is then simply not written), and a multi-output Java handle
+answers the same code for an absent sink, under U2. Rust, C# and single-output
+Java take no argument to reject.
+The accessor exists because a FORKED stream is the one caller with no
 earlier call to have handed it a value — `clone()` gives a second stream at the
 same bar, and `peek` would answer for a bar that has not been committed.
 
@@ -418,21 +460,10 @@ rather than a field: `TA_<N>_OutRange` answers `TA_BAD_PARAM` for a NULL
 handle **and** for either NULL out-parameter. The other three read a field on an
 object that cannot be absent.
 
-**Advancing it** the same way: `TA_<N>_Advance` answers `TA_BAD_PARAM` for a
-NULL handle and nothing else; the other three take no argument to reject. The
-count it moves saturates at `TA_MAX_INDEX` exactly as `Update`'s does.
-
-**One documented hole.** A composed function drives its sub-streams through their
-*public* entry points, so a sub-stream re-checks a value the library itself
-produced. If such an intermediate were ever non-finite the sub-stream would
-reject it, and the rejection would surface after earlier sub-streams in the
-pipeline had already stepped and counted their own bar — leaving the handle
-partway through a bar, with those siblings' `OutRange` one ahead of both the
-parent's and the rejecting sub-stream's.
-Reaching it requires an intermediate to overflow to ±Inf, i.e. input magnitudes
-around 1e306. Out of scope by the same reasoning as issue #191; recorded so it is
-not rediscovered. All four backends agree on the behaviour, and the reported
-error names the sub-stage.
+**Advancing it** answers two: `TA_BAD_PARAM` for a NULL handle, which C alone
+can be handed, and U4 once the range has reached `TA_MAX_INDEX`, which every
+backend answers. Rust spells the second as `Result<(), RetCode>`; Java and C#
+throw, since a `void` accessor has nowhere else to put it.
 
 ### 2.5 Streaming tier — releasing
 
@@ -507,6 +538,23 @@ not on which function was called.
 Only the first row is undefined. The other three are ordinary errors, and
 Part 2 is their specification.
 
+### Intermediate overflow
+
+The library computes in `double`. A value it derives from your bars — a running
+sum, a smoothed average, a ratio against a window that is very nearly flat — can
+leave the representable range on bars that are each perfectly finite. **Past
+that point nothing is defined**: not the output, not the return code, and not
+the state of a stream handle that produced one. Treat such a handle as spent —
+close it and open a new one.
+
+Defined next to it: the *bar* handed to `Update` or `Peek` is checked, and a
+non-finite one is rejected (U3). That check is on the argument, not on what the
+arithmetic later makes of it. And a function whose own domain has a hole — an
+arc cosine outside [-1,1], a logarithm at zero — says so, in its `## Notes` and
+through `TA_FUNC_FLG_NAN_INF_OUT`. Overflow is not that: it is a property of
+`double` rather than of any indicator, so it carries no flag, and issue #191
+settled that it gets no semantics either.
+
 ### A buffer too short — in C
 
 Rules B5 and S5 are the check C cannot make: it is handed bare pointers and
@@ -555,7 +603,7 @@ C and Rust report a code; Java and C# raise. Stated here once so no rule has to.
 | `TA_SUCCESS` | `Ok(OutRange)` | returns `OutRange` | returns `OutRange` |
 | `TA_BAD_PARAM` | `Err(RetCode::BadParam)` | `IllegalArgumentException` | `ArgumentException` |
 | `TA_OUT_OF_RANGE_START_INDEX` | `Err(RetCode::OutOfRangeStartIndex)` | `IndexOutOfBoundsException` | `ArgumentOutOfRangeException("startIdx")` |
-| `TA_OUT_OF_RANGE_END_INDEX` | `Err(RetCode::OutOfRangeEndIndex)` | `IndexOutOfBoundsException` | `ArgumentOutOfRangeException("endIdx")` |
+| `TA_OUT_OF_RANGE_END_INDEX` | `Err(RetCode::OutOfRangeEndIndex)` | `IndexOutOfBoundsException` | `ArgumentOutOfRangeException("endIdx")` [S] |
 | `TA_INSUFFICIENT_HISTORY` | `Err(RetCode::InsufficientHistory)` | `InsufficientHistoryException` | `InsufficientHistoryException` |
 | `TA_ALLOC_ERR` | `Err(RetCode::AllocErr)` | `IllegalStateException` | `InvalidOperationException` |
 | `TA_INTERNAL_ERROR` | `Err(RetCode::InternalError)` | `IllegalStateException` | `InvalidOperationException` |
@@ -572,6 +620,15 @@ than leaving it to the core's shared streaming ladder. Unprobed in both for the
 reason rule S2 is ⚠️ there (footnote [5]): reaching it needs a
 100 000 001-element array.
 
+**[S] U4 takes the same code through each backend's own streaming ladder**, the
+one place a `RetCode` becomes an exception at this tier: Java's `failure(...)`
+gives the table's `IndexOutOfBoundsException`, C#'s `Core.StreamFailure(...)`
+gives an `ArgumentException`. C# deviates from the table on purpose and says so
+in its own source — `Update`, `Peek` and `Advance` have no `endIdx` parameter to
+name, so `ArgumentOutOfRangeException("endIdx")` would name one that does not
+exist. The code is the contract and is identical in all four; the exception type
+is the language's.
+
 **Where the `OutRange` arrives** differs by tier as well as by backend:
 
 | Tier | C | Rust | Java | C# |
@@ -582,8 +639,8 @@ reason rule S2 is ⚠️ there (footnote [5]): reaching it needs a
 
 The stream accessor answers the same question in all four: the bars this handle
 has an output for. An open over `historyLen` bars starts at `(lookback,
-historyLen - lookback)`, and the count saturates at `MAX_INDEX` rather than
-overflowing. `Open`, `Update` and `Peek` still hand back one value rather than a
+historyLen - lookback)`, and `begIdx + count` never passes `MAX_INDEX + 1` —
+rule U4 refuses the bar that would take it there. `Open`, `Update` and `Peek` still hand back one value rather than a
 range. The range's two members are named for each language:
 `beg_idx` / `count` in Rust, `begIdx` / `count` in Java, `BegIdx` / `Count` in
 C#.
@@ -673,12 +730,6 @@ at every cross-call, which is the machinery calling the public tier exists to
 remove. It is narrow in practice: every outer function validates its own
 parameters before it cross-calls, so reaching it needs a fault the outer
 prologue does not screen for first.
-
-**One surface gap, not an error-handling one:** the parameter-default sentinels
-are public API in C (`TA_REAL_DEFAULT`, `TA_INTEGER_DEFAULT`), Java
-(`Core.REAL_DEFAULT`, `Core.INTEGER_DEFAULT`) and Rust
-(`Core::REAL_DEFAULT`, `Core::INTEGER_DEFAULT`), but `internal` in C#. A C#
-caller has no supported way to write rule N3 for a real parameter.
 
 ---
 
@@ -834,17 +885,23 @@ C — and C is the one language where the check is not merely expensive but not
 straightforwardly expressible. Java and Rust satisfy the stronger rule for free by
 making the state unreachable, which is not the same as enforcing it.
 
-**Outputs of different element types: C compares them, the other three cannot.**
-A `double` output and an `int` output can only be the same buffer through a cast,
-and three of the four backends cannot express the comparison at all —
-`double[] == int[]` is "incomparable types" in Java, `*const f64 == *const i32`
-is a type error in Rust, and C#'s `Overlaps` is not defined across element types.
-In C the pair is expressible and **is** checked: the guard compares both through
-`const void *`, which is well defined and is not the `double * == int *`
-constraint violation that reading suggests. C's streaming frames have always done
-this; the batch tier joined them with `SUPERTREND` (#272).
+**Outputs of different element types: C and C# compare them; in Java and Rust
+there is nothing to compare.**
+A `double` output and an `int` output can only be the same buffer through a
+reinterpreting cast, which two of the four backends can express and check:
+C compares both through `const void *` — well defined, and not the
+`double * == int *` constraint violation that reading suggests — and C# compares
+the byte ranges through `MemoryMarshal.AsBytes`, because `MemoryMarshal.Cast`
+lets a caller lay a `Span<int>` over a `Span<double>` without `unsafe`. The other
+two have no such case to catch: a `double[]` and an `int[]` are never the same
+object in Java, and safe Rust has no `MemoryMarshal.Cast` analogue, so a caller
+cannot lay the two over one allocation to begin with. Java's batch tier omits
+the term outright; its streaming tier spells it `(Object)a == (Object)b`, which
+compiles and is always false. C's streaming frames have
+always cast; its batch tier joined them with `SUPERTREND` (#272), and both C#
+tiers with #386.
 
-**Why C is allowed to detect more here.** Two claims used to close this paragraph
+**Why C and C# are allowed to detect more here.** Two claims used to close this paragraph
 and both are retired: that nothing in the corpus mixes the two types, and that
 the frames assert nothing does. `SUPERTREND` mixes them, and the frames carry no
 per-function `outIsInteger` flag at all — `ta_variant_frame` indexes `outReal[]`
@@ -855,13 +912,15 @@ pair answers `TA_BAD_PARAM`, and the one pair a caller has to cast to build
 answered `TA_SUCCESS` and wrote through both. Detecting it is the same asymmetry
 C# already carries below for a partial input↔output overlap — a superset of the
 guarantee, kept because the language can answer the question cheaply. **Callers
-must not rely on it**, for the same reason: three backends cannot say it.
+must not rely on it**, for the same reason: Java and Rust cannot say it.
 
-**Still not detected, in any backend:** two outputs of different types that
-*partially* overlap. That is rule N8, and it is not special to mixed types —
-`TA_BBANDS` with its three bands one element apart returns `TA_SUCCESS` and
-writes a wrong upper band on every bar, no cast required. B6 catches buffer
-identity; everything finer is unspecified.
+**Still not detected in C, Java or Rust:** two outputs that *partially* overlap.
+That is rule N8, and it is not special to mixed types — `TA_BBANDS` with its
+three bands one element apart returns `TA_SUCCESS` and writes a wrong upper band
+on every bar, no cast required. B6 catches buffer identity; everything finer is
+unspecified. C# is the exception: `Overlaps` is a range test, so it rejects a
+partial output↔output overlap as well, cross-typed pairs included — the same
+superset it carries for input↔output below, and relied on no more than that one.
 
 **Test coverage:** `checkOutputAliasRejected` (`test_abstract.c`) sweeps every
 ordered output pair of every function, cross-typed pairs included, binding both
@@ -871,7 +930,10 @@ onto one buffer and requiring `TA_BAD_PARAM`.
 `if (outReal.Overlaps(inReal) && outReal != inReal)`, which rejects a partial
 input↔output overlap while still allowing whole-buffer in place. That is a superset
 of the guarantee, kept because it costs one call on a type that already answers the
-question. **Callers must not rely on it**: the same call is unspecified in C, and
+question. Its `float` overload is stricter again: a `float` input and a `double`
+output are never the same span, so there is no in-place case to carve out and ANY
+overlap between them is rejected, byte range against byte range (#386).
+**Callers must not rely on either**: the same call is unspecified in C, and
 inexpressible in Java and Rust. If uniformity is ever preferred over the extra
 safety, removing it is the change — not adding the check elsewhere.
 

@@ -170,14 +170,12 @@
     * closes (within a tolerance). Treated as a bullish reversal signal. A hit
     * signals a potential bullish reversal (shared support close after two down
     * candles).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Two candles i-1, i. Candle i-1: black (close<open). Candle i: black (close<open). Equal closes: close[i-1]-E <= close[i] <= close[i-1]+E, where E = the Equal average. No shadow, body-size, or gap conditions are checked.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlmatchinglow">ta-lib.org/functions/cdlmatchinglow</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The bullish-reversal reading assumes a prior downtrend, which is not verified.</li>
-    * <li>Although classically read as a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found it actually acts as a bearish continuation 61% of the time — even so, it still ranks a strong 8th of 103 patterns for overall performance. ([thepatternsite.com](https://thepatternsite.com/MatchingLow.html))</li>
+    * <li>Although classically read as a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found it actually acts as a bearish continuation 61% of the time — even so, it still ranks a strong 8th of 103 patterns for overall performance. (<a href="https://thepatternsite.com/MatchingLow.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>Values are written only where the indicator is defined. The returned
     * {@link OutRange} says where they start and how many there are; nothing
@@ -240,14 +238,12 @@
     * closes (within a tolerance). Treated as a bullish reversal signal. A hit
     * signals a potential bullish reversal (shared support close after two down
     * candles).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * Two candles i-1, i. Candle i-1: black (close<open). Candle i: black (close<open). Equal closes: close[i-1]-E <= close[i] <= close[i-1]+E, where E = the Equal average. No shadow, body-size, or gap conditions are checked.
-    * }</pre>
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/cdlmatchinglow">ta-lib.org/functions/cdlmatchinglow</a>.
     * <p><b>Notes</b>
     * <ul>
     * <li>The bullish-reversal reading assumes a prior downtrend, which is not verified.</li>
-    * <li>Although classically read as a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found it actually acts as a bearish continuation 61% of the time — even so, it still ranks a strong 8th of 103 patterns for overall performance. ([thepatternsite.com](https://thepatternsite.com/MatchingLow.html))</li>
+    * <li>Although classically read as a bullish reversal (and TA-Lib only emits +100), Bulkowski's testing found it actually acts as a bearish continuation 61% of the time — even so, it still ranks a strong 8th of 103 patterns for overall performance. (<a href="https://thepatternsite.com/MatchingLow.html">thepatternsite.com</a>)</li>
     * </ul>
     * <p>This is the {@code float[]} overload. The arithmetic is performed in
     * {@code double} before being written to the {@code double[]} output, so a
@@ -325,24 +321,24 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class CdlmatchinglowStream {
-      Core core;
-      double EqualPeriodTotal;
-      double lag1_inOpen;
-      double lag1_inHigh;
-      double lag1_inLow;
-      double lag1_inClose;
-      int ringPos_EqualTrailingIdx;
-      int ringCap_EqualTrailingIdx;
-      int ringLag_EqualTrailingIdx;
-      double[] ring_EqualTrailingIdx_derived;
-      int cs_Equal_rangeType;
-      int cs_Equal_avgPeriod;
-      double cs_Equal_factor;
-      int cur_outInteger;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private double EqualPeriodTotal;
+      private double lag1_inOpen;
+      private double lag1_inHigh;
+      private double lag1_inLow;
+      private double lag1_inClose;
+      private int ringPos_EqualTrailingIdx;
+      private int ringCap_EqualTrailingIdx;
+      private int ringLag_EqualTrailingIdx;
+      private double[] ring_EqualTrailingIdx_derived;
+      private int cs_Equal_rangeType;
+      private int cs_Equal_avgPeriod;
+      private double cs_Equal_factor;
+      private int cur_outInteger;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      CdlmatchinglowStream( Core core ) { this.core = core; }
+      private CdlmatchinglowStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -354,6 +350,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -364,10 +363,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLMATCHINGLOW advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      CdlmatchinglowStream( CdlmatchinglowStream other ) {
+      private CdlmatchinglowStream( CdlmatchinglowStream other ) {
          this.core = other.core;
          this.EqualPeriodTotal = other.EqualPeriodTotal;
          this.lag1_inOpen = other.lag1_inOpen;
@@ -388,7 +395,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -400,12 +406,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public int update( double inOpen, double inHigh, double inLow, double inClose ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("CDLMATCHINGLOW update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
             throw new TaLibArgumentException("CDLMATCHINGLOW update: BadParam", RetCode.BadParam);
          core.cdlmatchinglowStepImpl(this, inOpen, inHigh, inLow, inClose);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outInteger;
       }
 
@@ -414,9 +426,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public int peek( double inOpen, double inHigh, double inLow, double inClose ) {
          if( !Double.isFinite(inOpen) || !Double.isFinite(inHigh) || !Double.isFinite(inLow) || !Double.isFinite(inClose) )
@@ -464,7 +477,7 @@
          return new CdlmatchinglowStream(this);
       }
    }
-   void cdlmatchinglowStepImpl( CdlmatchinglowStream sp, double inOpen, double inHigh, double inLow, double inClose )
+   private void cdlmatchinglowStepImpl( CdlmatchinglowStream sp, double inOpen, double inHigh, double inLow, double inClose )
    {
       int Equal_rangeType = sp.cs_Equal_rangeType;
       int Equal_avgPeriod = sp.cs_Equal_avgPeriod;
@@ -643,9 +656,7 @@
     * to {@link Core#CDLMATCHINGLOW} at that bar.
     * <p>The history must hold at least {@code CDLMATCHINGLOW_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
-    * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * thrown. An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.

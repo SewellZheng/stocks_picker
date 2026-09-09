@@ -1,10 +1,9 @@
 //! Java and C# stream-emitter properties that no runtime gate can see.
 //!
-//! The two managed backends share a shape the other two do not: a multi-output
-//! handle writes a caller-owned sink instead of returning a value, and a peek
-//! frame carries the transition in locals. Three properties follow from that,
-//! and each is invisible to `stream_verify` because each is about text the
-//! emitter did NOT produce -- an absent seed, an absent cache, an ordering.
+//! The two managed backends share a shape the other two do not: a peek frame
+//! carries the transition in locals rather than in the handle. Two properties
+//! follow from that, and each is invisible to `stream_verify` because each is
+//! about text the emitter did NOT produce -- an absent seed, an ordering.
 //! A gate on absence has to be swept, and it has to prove it swept something.
 
 use std::collections::{BTreeSet, HashMap};
@@ -51,10 +50,10 @@ fn streaming_funcs() -> Vec<String> {
 fn section(name: &str, lang: &str) -> String {
     let (func, enums) = load(name);
     let registry = Registry::from_dir(&input_dir());
-    let helpers = HelperRegistry::from_dir(&input_dir().join("helpers"));
+    let helpers = HelperRegistry::from_dir(&input_dir());
     let full = match lang {
         "c" => backends::c_stream::generate(&func, &enums, &registry, &helpers),
-        "rust" => backends::rust_lang::generate(&func, &enums, &registry, &HelperRegistry::empty()),
+        "rust" => backends::rust_lang::generate(&func, &enums, &registry, &helpers),
         "java" => backends::java::generate(&func, &enums, &registry, &helpers),
         "csharp" => backends::csharp::generate(&func, &enums, &registry, &helpers),
         other => panic!("unknown backend {other}"),
@@ -151,86 +150,60 @@ fn no_managed_peek_seeds_a_dead_output_local() {
 /// leaves the fields a mix of two bars and the next `value(out)` hands that
 /// mixture out as a reading.
 #[test]
-fn no_throwing_sub_call_follows_the_cur_capture_in_a_java_step() {
-    let mut with_subs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for name in streaming_funcs() {
-        let base = backends::common::camel_words(&name.to_uppercase());
-        let s = section(&name, "java");
-        let body = body_of(&s, &format!("void {base}StepImpl("));
-        // Only the multi-output handles hold a cache, and only they can publish
-        // a half-written bar. A single-output `value()` is a field read, and the
-        // dispatch tier's `sp.cur_outReal = sub.update(..)` puts the call
-        // textually after the field it assigns while still being atomic.
-        if load(&name).0.outputs.len() < 2 {
-            continue;
+fn no_throwing_sub_call_follows_the_cur_capture_in_a_managed_step() {
+    for lang in ["java", "csharp"] {
+        let mut with_subs: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for name in streaming_funcs() {
+            let upper = name.to_uppercase();
+            let base = if lang == "java" {
+                backends::common::camel_words(&upper)
+            } else {
+                backends::common::pascal_words(&upper)
+            };
+            let s = section(&name, lang);
+            let body = body_of(&s, &format!("void {base}StepImpl("));
+            // Only the multi-output handles hold a cache, and only they can
+            // publish a half-written bar. A single-output `value()` is a field
+            // read, and the dispatch tier's `sp.cur_outReal = sub.update(..)`
+            // puts the call textually after the field it assigns while still
+            // being atomic.
+            if load(&name).0.outputs.len() < 2 {
+                continue;
+            }
+            let Some(first_cur) = body.find("sp.cur_") else {
+                continue;
+            };
+            let last_sub = ["sp.sub", "subOut"]
+                .iter()
+                .filter_map(|p| body.rfind(p))
+                .max();
+            if let Some(last_sub) = last_sub {
+                with_subs.insert(name.to_string());
+                assert!(
+                    last_sub < first_cur,
+                    "{name}: a sub-stream call runs after the first cur_* write in {lang}, so a \
+                     rejection there would leave the fields a mix of two bars and the \
+                     next value read would hand that mixture out as a reading:\n{body}"
+                );
+            }
         }
-        let Some(first_cur) = body.find("sp.cur_") else {
-            continue;
-        };
-        let last_sub = ["sp.sub", "subOut"]
-            .iter()
-            .filter_map(|p| body.rfind(p))
-            .max();
-        if let Some(last_sub) = last_sub {
-            with_subs.insert(name.to_string());
-            assert!(
-                last_sub < first_cur,
-                "{name}: a sub-stream call runs after the first cur_* write, so a \
-                 rejection there would leave the fields a mix of two bars and the \
-                 next value(out) would hand that mixture out as a reading:\n{body}"
-            );
-        }
-    }
-    // The property is only load-bearing where a sub exists to throw, so the
-    // sweep has to have found some — pinned as an exact SET, not a count, so a
-    // function leaving it is as loud as one joining.
-    //
-    // Over the SHIPPED corpus only. `scripts/synth_gate.py` copies its fixtures
-    // into input/, and one of them (SYNTH14) is multi-output, composed and
-    // streamable, so it legitimately joins this set there. A literal that
-    // counted it would turn a correct tree red with a message naming six
-    // shipped functions and nothing to do with the change under test — the
-    // failure mode `StreamSmokeTest` records against corpus literals, and the
-    // reason this one is filtered rather than widened.
-    let shipped: std::collections::BTreeSet<&str> =
-        with_subs.iter().map(String::as_str).filter(|n| !n.starts_with("synth")).collect();
-    let expected: std::collections::BTreeSet<&str> =
-        ["bbands", "kc", "kdj", "macdext", "stoch", "stochf", "stochrsi"].into_iter().collect();
-    assert_eq!(
-        shipped, expected,
-        "the set of multi-output handles driving a sub-stream moved — the pin is \
-         stale or the sweep has gone vacuous"
-    );
-}
-/// A multi-output handle stores no `Value` instance (#310): `update`, `peek` and
-/// `value` each write a caller-owned `<N>Out` / `<N>Value`, so there is nothing
-/// held on the handle to go stale against `outRange()`.
-///
-/// The property is an ABSENCE, so it is swept rather than asserted at one site,
-/// and swept over both managed backends so neither grows a cache back. The
-/// per-function suites pin the presence of the sink; only this pins that the
-/// handle keeps no copy of it.
-#[test]
-fn no_managed_handle_caches_the_multi_output_value() {
-    for (func, lang) in [
-        ("bbands", "java"),
-        ("macd", "java"),
-        ("stoch", "java"),
-        ("bbands", "csharp"),
-    ] {
-        let sect = section(func, lang);
-        assert!(
-            !sect.contains("cachedValue"),
-            "{func}/{lang} still declares or writes a cached value"
-        );
-    }
-
-    // Non-vacuity: these are multi-output handles, so they DO have an out type
-    // to have cached. A single-output handle proves nothing here.
-    for (func, lang, ty) in [("bbands", "java", "BbandsOut"), ("bbands", "csharp", "BbandsValue")] {
-        assert!(
-            section(func, lang).contains(ty),
-            "{func}/{lang} has no {ty}, so its lack of a cache is not evidence"
+        // The property is only load-bearing where a sub exists to throw, so the
+        // sweep has to have found some — pinned as an exact SET, not a count, so a
+        // function leaving it is as loud as one joining.
+        //
+        // Over the SHIPPED corpus only. `scripts/synth_gate.py` copies its fixtures
+        // into input/, and one of them (SYNTH14) is multi-output, composed and
+        // streamable, so it legitimately joins this set there — a run under the
+        // synth gate would otherwise redden with a message naming shipped
+        // functions and nothing to do with the change under test.
+        let shipped: std::collections::BTreeSet<&str> =
+            with_subs.iter().map(String::as_str).filter(|n| !n.starts_with("synth")).collect();
+        let expected: std::collections::BTreeSet<&str> =
+            ["bbands", "kc", "kdj", "macdext", "stoch", "stochf", "stochrsi"].into_iter().collect();
+        assert_eq!(
+            shipped, expected,
+            "the set of multi-output handles driving a sub-stream moved in {lang} — the pin is \
+             stale or the sweep has gone vacuous"
         );
     }
 }

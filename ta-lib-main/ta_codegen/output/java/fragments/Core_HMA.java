@@ -674,25 +674,25 @@
    }
    /**
     * Hull Moving Average, published by Alan Hull in 2005: a moving average
-    * built to track price with far less lag than an
-    * [{@code SMA}](/functions/sma), [{@code WMA}](/functions/wma) or
-    * [{@code EMA}](/functions/ema) of the same length while staying smooth. It
-    * first removes lag by doubling a half-period [{@code WMA}](/functions/wma)
-    * and subtracting the full-period one — extrapolating the average toward
-    * current price — then smooths that de-lagged series with a final WMA over
-    * the square root of the period. HMA is also selectable as a moving-average
-    * type ({@code TA_MAType_HMA}) wherever an {@code optInMAType} parameter is
-    * accepted ([{@code MA}](/functions/ma),
-    * [{@code BBANDS}](/functions/bbands), [{@code STOCH}](/functions/stoch),
-    * [{@code MACDEXT}](/functions/macdext), ...).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * HMA(n) = WMA( 2 * WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
-    * All three averages are the standard linearly-weighted moving average (TA-Lib's WMA). Every output is a closed-form weighted sum of the input window: there is no seeding, no recursion, hence no unstable period.
-    * }</pre>
+    * built to track price with far less lag than an <a
+    * href="https://ta-lib.org/functions/sma">{@code SMA}</a>, <a
+    * href="https://ta-lib.org/functions/wma">{@code WMA}</a> or <a
+    * href="https://ta-lib.org/functions/ema">{@code EMA}</a> of the same length
+    * while staying smooth. It first removes lag by doubling a half-period <a
+    * href="https://ta-lib.org/functions/wma">{@code WMA}</a> and subtracting
+    * the full-period one — extrapolating the average toward current price —
+    * then smooths that de-lagged series with a final WMA over the square root
+    * of the period. HMA is also selectable as a moving-average type
+    * ({@code TA_MAType_HMA}) wherever an {@code optInMAType} parameter is
+    * accepted (<a href="https://ta-lib.org/functions/ma">{@code MA}</a>, <a
+    * href="https://ta-lib.org/functions/bbands">{@code BBANDS}</a>, <a
+    * href="https://ta-lib.org/functions/stoch">{@code STOCH}</a>, <a
+    * href="https://ta-lib.org/functions/macdext">{@code MACDEXT}</a>, ...).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/hma">ta-lib.org/functions/hma</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>The two derived periods {@code n/2} and {@code sqrt(n)} are **truncated** to integers, exactly as in Alan Hull's own statement of the formula ({@code Integer()}); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</li>
+    * <li>The two derived periods {@code n/2} and {@code sqrt(n)} are <b>truncated</b> to integers, exactly as in Alan Hull's own statement of the formula ({@code Integer()}); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</li>
     * <li>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default a charting platform using the other convention still lands on TA-Lib's values.</li>
     * <li>A period of 1 performs no smoothing: the output is a copy of the input.</li>
     * </ul>
@@ -751,25 +751,25 @@
    }
    /**
     * Hull Moving Average, published by Alan Hull in 2005: a moving average
-    * built to track price with far less lag than an
-    * [{@code SMA}](/functions/sma), [{@code WMA}](/functions/wma) or
-    * [{@code EMA}](/functions/ema) of the same length while staying smooth. It
-    * first removes lag by doubling a half-period [{@code WMA}](/functions/wma)
-    * and subtracting the full-period one — extrapolating the average toward
-    * current price — then smooths that de-lagged series with a final WMA over
-    * the square root of the period. HMA is also selectable as a moving-average
-    * type ({@code TA_MAType_HMA}) wherever an {@code optInMAType} parameter is
-    * accepted ([{@code MA}](/functions/ma),
-    * [{@code BBANDS}](/functions/bbands), [{@code STOCH}](/functions/stoch),
-    * [{@code MACDEXT}](/functions/macdext), ...).
-    * <p><b>Formula</b>
-    * <pre>{@code
-    * HMA(n) = WMA( 2 * WMA(price, Integer(n/2)) - WMA(price, n), Integer(SquareRoot(n)) )
-    * All three averages are the standard linearly-weighted moving average (TA-Lib's WMA). Every output is a closed-form weighted sum of the input window: there is no seeding, no recursion, hence no unstable period.
-    * }</pre>
+    * built to track price with far less lag than an <a
+    * href="https://ta-lib.org/functions/sma">{@code SMA}</a>, <a
+    * href="https://ta-lib.org/functions/wma">{@code WMA}</a> or <a
+    * href="https://ta-lib.org/functions/ema">{@code EMA}</a> of the same length
+    * while staying smooth. It first removes lag by doubling a half-period <a
+    * href="https://ta-lib.org/functions/wma">{@code WMA}</a> and subtracting
+    * the full-period one — extrapolating the average toward current price —
+    * then smooths that de-lagged series with a final WMA over the square root
+    * of the period. HMA is also selectable as a moving-average type
+    * ({@code TA_MAType_HMA}) wherever an {@code optInMAType} parameter is
+    * accepted (<a href="https://ta-lib.org/functions/ma">{@code MA}</a>, <a
+    * href="https://ta-lib.org/functions/bbands">{@code BBANDS}</a>, <a
+    * href="https://ta-lib.org/functions/stoch">{@code STOCH}</a>, <a
+    * href="https://ta-lib.org/functions/macdext">{@code MACDEXT}</a>, ...).
+    * <p>Formula and more info at <a
+    * href="https://ta-lib.org/functions/hma">ta-lib.org/functions/hma</a>.
     * <p><b>Notes</b>
     * <ul>
-    * <li>The two derived periods {@code n/2} and {@code sqrt(n)} are **truncated** to integers, exactly as in Alan Hull's own statement of the formula ({@code Integer()}); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</li>
+    * <li>The two derived periods {@code n/2} and {@code sqrt(n)} are <b>truncated</b> to integers, exactly as in Alan Hull's own statement of the formula ({@code Integer()}); Tulip Indicators and pandas-ta do the same. Some other published descriptions round to nearest instead, which changes both the values and, for the square root, the lookback — a visibly different line, not a tolerance-level difference. TA-Lib follows the author.</li>
     * <li>The default period of 20 is Alan Hull's own default. It is also a period on which the truncate and round-to-nearest conventions coincide (20/2 is exact; sqrt(20) = 4.47 truncates and rounds to 4), so at the default a charting platform using the other convention still lands on TA-Lib's values.</li>
     * <li>A period of 1 performs no smoothing: the output is a copy of the input.</li>
     * </ul>
@@ -846,49 +846,49 @@
     * re-open — the result is bit-identical by contract.
     */
    public static final class HmaStream {
-      Core core;
-      int optInTimePeriod;
-      double dividerFull;
-      double periodSubFull;
-      double periodSumFull;
-      double trailingFull;
-      int lookbackFull;
-      int barsSinceReseedFull;
-      int halfPeriod;
-      int sqrtPeriod;
-      int ringSize;
-      double dividerHalf;
-      double dividerSqrt;
-      double periodSubHalf;
-      double periodSumHalf;
-      double trailingHalf;
-      double periodSubSqrt;
-      double periodSumSqrt;
-      double trailingSqrt;
-      int lookbackHalf;
-      int barsSinceReseedHalf;
-      int barsSinceReseedSqrt;
-      int dRing_Idx;
-      int maxIdx_dRing;
-      int ringPos_trailingIdxFull;
-      int ringCap_trailingIdxFull;
-      double[] ring_trailingIdxFull_inReal;
-      int winPos_jFull;
-      int winCap_jFull;
-      double[] win_jFull_inReal;
-      double cur_outReal;
-      int ringPos_trailingIdxHalf;
-      int ringCap_trailingIdxHalf;
-      double[] ring_trailingIdxHalf_inReal;
-      int winPos_jHalf;
-      int winCap_jHalf;
-      double[] win_jHalf_inReal;
-      int cbSize_dRing;
-      double[] cb_dRing;
-      int outRangeBegIdx;
-      int outRangeCount;
+      private Core core;
+      private int optInTimePeriod;
+      private double dividerFull;
+      private double periodSubFull;
+      private double periodSumFull;
+      private double trailingFull;
+      private int lookbackFull;
+      private int barsSinceReseedFull;
+      private int halfPeriod;
+      private int sqrtPeriod;
+      private int ringSize;
+      private double dividerHalf;
+      private double dividerSqrt;
+      private double periodSubHalf;
+      private double periodSumHalf;
+      private double trailingHalf;
+      private double periodSubSqrt;
+      private double periodSumSqrt;
+      private double trailingSqrt;
+      private int lookbackHalf;
+      private int barsSinceReseedHalf;
+      private int barsSinceReseedSqrt;
+      private int dRing_Idx;
+      private int maxIdx_dRing;
+      private int ringPos_trailingIdxFull;
+      private int ringCap_trailingIdxFull;
+      private double[] ring_trailingIdxFull_inReal;
+      private int winPos_jFull;
+      private int winCap_jFull;
+      private double[] win_jFull_inReal;
+      private double cur_outReal;
+      private int ringPos_trailingIdxHalf;
+      private int ringCap_trailingIdxHalf;
+      private double[] ring_trailingIdxHalf_inReal;
+      private int winPos_jHalf;
+      private int winCap_jHalf;
+      private double[] win_jHalf_inReal;
+      private int cbSize_dRing;
+      private double[] cb_dRing;
+      private int outRangeBegIdx;
+      private int outRangeCount;
 
-      HmaStream( Core core ) { this.core = core; }
+      private HmaStream( Core core ) { this.core = core; }
 
       /**
        * The bars this stream has an output for, in the input series'
@@ -900,6 +900,9 @@
        * {@code clone()} carries it verbatim. A plain
        * {@code open} hands back only the last value, a subset of this range,
        * because the caller chose not to take the fill.
+       * <p>The last bar it can reach is {@link Core#MAX_INDEX}; past that
+       * {@code update} and {@code advance} throw
+       * {@link IndexOutOfBoundsException}.
        */
       public OutRange outRange() { return new OutRange(outRangeBegIdx, outRangeCount); }
 
@@ -910,10 +913,18 @@
        * <p>For a bar the caller leaves out: one an {@code update} rejected
        * and that will not be re-fed, or a session with no print. Without it
        * two handles on one feed drift a bar apart when only one of them skips.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, the last one the batch tier
+       * can address and the last this handle will count. {@code update}
+       * throws the same there.
        */
-      public void advance() { if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++; }
+      public void advance() {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("HMA advance", RetCode.OutOfRangeEndIndex);
+         this.outRangeCount++;
+      }
 
-      HmaStream( HmaStream other ) {
+      private HmaStream( HmaStream other ) {
          this.core = other.core;
          this.optInTimePeriod = other.optInTimePeriod;
          this.dividerFull = other.dividerFull;
@@ -959,7 +970,6 @@
 
       /**
        * Commit one closed bar, returning the new current value.
-       * Never allocates handle state.
        * <p>Throws {@link IllegalArgumentException} if any bar value is not
        * finite (NaN or an infinity). That check runs before anything is
        * written, so nothing moves — {@link #outRange()} included — and
@@ -971,12 +981,18 @@
        * the batch API, which computes on whatever it is given: a handle
        * retains its state, so a single non-finite bar would poison every
        * later value it produces.
+       * <p>Throws {@link IndexOutOfBoundsException} once {@link #outRange()}
+       * has reached bar {@link Core#MAX_INDEX}, which no re-feed clears: the
+       * handle has run out of index domain and only a shorter history can
+       * start a new one.
        */
       public double update( double inReal ) {
+         if( this.outRangeBegIdx + this.outRangeCount > MAX_INDEX )
+            throw failure("HMA update", RetCode.OutOfRangeEndIndex);
          if( !Double.isFinite(inReal) )
             throw new TaLibArgumentException("HMA update: BadParam", RetCode.BadParam);
          core.hmaStepImpl(this, inReal);
-         if( this.outRangeCount < MAX_INDEX ) this.outRangeCount++;
+         this.outRangeCount++;
          return this.cur_outReal;
       }
 
@@ -985,9 +1001,10 @@
        * next {@code update} with the same bar would return — the same
        * transition, with every store it would make carried in a local instead.
        * Never writes this handle, so peeks may
-       * run concurrently with each other. It copies nothing: the frame runs against this handle, reading its
-       * buffers and storing what the step would commit into locals, so the cost
-       * does not grow with the period and {@code peek} never allocates.
+       * run concurrently with each other, and its cost does not grow with the
+       * period.
+       * <p>It counts no bar, so it keeps answering past the
+       * {@link Core#MAX_INDEX} ceiling {@code update} stops at.
        */
       public double peek( double inReal ) {
          if( !Double.isFinite(inReal) )
@@ -1188,7 +1205,7 @@
          return new HmaStream(this);
       }
    }
-   void hmaStepImpl( HmaStream sp, double inReal )
+   private void hmaStepImpl( HmaStream sp, double inReal )
    {
       if( sp.optInTimePeriod == 1 ) {
          sp.cur_outReal = inReal;
@@ -2006,8 +2023,8 @@
     * <p>The history must hold at least {@code HMA_Lookback(...) + 1} bars
     * (unstable-period aware), or {@link InsufficientHistoryException} is
     * thrown. Out-of-range parameters throw {@link IllegalArgumentException}
-    * ({@code Integer.MIN_VALUE} selects an integer parameter's documented
-    * default, as in the batch API). An EMPTY history throws
+    * ({@link Integer#MIN_VALUE} selects a parameter's documented default,
+    * as in the batch API). An EMPTY history throws
     * {@link IndexOutOfBoundsException} — its implied {@code startIdx} of 0
     * names no bar — and a null argument {@link IllegalArgumentException},
     * both ahead of everything above.
