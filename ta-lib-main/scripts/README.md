@@ -22,7 +22,7 @@ Pass/fail only — build something, drive it, exit non-zero. Each is one nightly
 | `synth_gate.py` | `synth-gate` | Generator surface no shipped indicator uses, via synthetic functions injected into a throwaway worktree (`ta_codegen/generator/input_synth/`) |
 | `stream_sanitize.py` | `stream-sanitizers` | The C streaming API under ASan/UBSan/LSan — paths the batch sanitizer job never calls |
 | `rust_stream_debug.py` | `cross-language-rust-debug` | The Rust streaming API under debug overflow checks; reuses the request generator from `stream_sanitize.py` |
-| `bench_icount.py` | `perf-nightly` | Retired instructions for all ~1000 C entry points against `.github/perf/icount-baseline-<arch>.tsv`. Counts, not time: exact on a shared runner, which is what lets a 10% threshold mean anything. The baseline only ever moves down, so a sub-threshold regression is never absorbed; raising a row takes `--accept`, which names the rows and leaves every other row's accumulated best alone. Read its header for what a count cannot see |
+| `bench_icount.py` | `dev-nightly` (`icount` job) | Retired instructions for all ~1000 C entry points against `.github/perf/icount-baseline-<arch>.tsv`. Counts, not time: exact on a shared runner, which is what lets a 10% threshold mean anything. The baseline only ever moves down, so a sub-threshold regression is never absorbed; raising a row takes `--accept`, which names the rows and leaves every other row's accumulated best alone. Read its header for what a count cannot see |
 
 Everything else CI gates on lives in `ta_regtest` (C) or is a step inside
 `build.py` / `regtest.py`, not a script here.
@@ -31,13 +31,13 @@ Everything else CI gates on lives in `ta_regtest` (C) or is a step inside
 
 | Script | When |
 |---|---|
-| `sync.py` | Before every commit. Two halves: it merges remote dev/main into local dev, and it refreshes versions + `TA_LIB_SOURCES_DIGEST`. Safe to run from anywhere — the merge half is **skipped automatically** where it cannot run (a `git worktree`, or a detached HEAD) and the metadata half still runs. See the header of the script |
+| `sync.py` | Before every commit. Two halves: it merges remote dev/main into local dev, and it refreshes versions, `TA_LIB_SOURCES_DIGEST` and the website install page (from the latest published release). Safe to run from anywhere — the merge half is **skipped automatically** where it cannot run (a `git worktree`, or a detached HEAD) and the metadata half still runs. See the header of the script |
 | `merge.py` | Merge dev into main (maintainers) |
 | `package.py` | Build this platform's `dist/` assets. Run by both nightlies |
 | `test-dist.py` | Verify those assets as a user would, including a ta-lib-python build. Run by both nightlies |
 | `pre-release-checks.py` | Gate for `release-step-1`/`-2`: version consistency, digest, CHANGELOG entry, assets present |
 | `post-release-vcpkg.py` | Open the microsoft/vcpkg PR after a release |
-| `sync-website.py` | Point the website install page at the latest *published* release; `--check` to test only |
+| `sync-website.py` | The website half of `sync.py` on its own; `--check` exits non-zero if the page is behind or the release could not be looked up |
 
 ## Support (imported or called, never run directly)
 
