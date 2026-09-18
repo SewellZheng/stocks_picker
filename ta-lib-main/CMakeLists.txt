@@ -5,6 +5,7 @@ endif (CMAKE_VERSION VERSION_LESS "3.30" AND WIN32)
 
 project(ta-lib)
 
+# Written by scripts/sync.py from VERSION; do not edit.
 set(TA_LIB_VERSION_MAJOR 0)
 set(TA_LIB_VERSION_MINOR 8)
 set(TA_LIB_VERSION_PATCH 1)
@@ -123,8 +124,6 @@ if(WIN32)
 	if(DEFINED ENV{Platform})
     	set(PLATFORM_ENV $ENV{Platform})
     	message(STATUS "Platform environment variable: ${PLATFORM_ENV}")
-	else()
-    	message(FATAL_ERROR "Platform env variable not set. Did you forget to do vcvarsall.bat?")
 	endif()
 endif()
 message(STATUS "Installation Directory: ${CMAKE_INSTALL_PREFIX}")
@@ -546,12 +545,16 @@ list(GET TA_ABI_TRIPLE 1 TA_ABI_REVISION)
 list(GET TA_ABI_TRIPLE 2 TA_ABI_AGE)
 math(EXPR TA_SOVERSION "${TA_ABI_CURRENT} - ${TA_ABI_AGE}")
 set(TA_ABI_FILE_VERSION "${TA_SOVERSION}.${TA_ABI_AGE}.${TA_ABI_REVISION}")
+# libtool's darwin arithmetic, so both build systems stamp the same dylib versions.
+math(EXPR TA_MACHO_COMPAT "${TA_ABI_CURRENT} + 1")
 
 if(BUILD_SHARED_LIBS)
 	add_library(ta-lib SHARED ${LIB_SOURCES})
 	set_target_properties(ta-lib PROPERTIES
 		VERSION ${TA_ABI_FILE_VERSION}
 		SOVERSION ${TA_SOVERSION}
+		MACHO_COMPATIBILITY_VERSION ${TA_MACHO_COMPAT}
+		MACHO_CURRENT_VERSION ${TA_MACHO_COMPAT}.${TA_ABI_REVISION}
 		DEFINE_SYMBOL TA_LIB_SHARED
 		C_VISIBILITY_PRESET hidden
 		OUTPUT_NAME "ta-lib"
@@ -574,7 +577,13 @@ if(BUILD_SHARED_LIBS)
 		# table survives an incremental build.
 		set_target_properties(ta-lib PROPERTIES LINK_DEPENDS "${TA_VERSION_SCRIPT}")
 	endif()
-	target_include_directories(ta-lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+	# Both spellings are supported, so both are exported. With only include/ta-lib
+	# here, <ta-lib/ta_libc.h> still compiles at a system prefix by resolving
+	# against ANOTHER TA-Lib on the default search path.
+	target_include_directories(ta-lib PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include/ta-lib>
+		$<INSTALL_INTERFACE:include>)
 	if(NOT WIN32)
 		target_link_libraries(ta-lib PRIVATE m)
 	endif()
@@ -599,7 +608,10 @@ if(BUILD_STATIC_LIBS)
 		set_target_properties(ta-lib-static PROPERTIES OUTPUT_NAME ta-lib-static)
 	endif(WIN32)
 
-	target_include_directories(ta-lib-static PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+	target_include_directories(ta-lib-static PUBLIC
+		$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+		$<INSTALL_INTERFACE:include/ta-lib>
+		$<INSTALL_INTERFACE:include>)
 	if(NOT WIN32)
 		target_link_libraries(ta-lib-static PRIVATE m)
 	endif()
@@ -621,8 +633,14 @@ if(BUILD_STATIC_LIBS)
     list(APPEND TA_LIB_INSTALL_TARGETS ta-lib-static)
 endif()
 
+# vcpkg builds one linkage per triplet, so ta-lib::ta-lib has to name whichever
+# library exists or its static and dynamic triplets export different names.
+if(NOT BUILD_SHARED_LIBS)
+    set_target_properties(ta-lib-static PROPERTIES EXPORT_NAME ta-lib)
+endif()
+
 if(WIN32)
-    install(TARGETS ${TA_LIB_INSTALL_TARGETS}
+    install(TARGETS ${TA_LIB_INSTALL_TARGETS} EXPORT ta-lib-targets
 	    RUNTIME DESTINATION bin  # For shared libraries (DLLs on Windows)
         LIBRARY DESTINATION lib  # For import library
         ARCHIVE DESTINATION lib  # For static libraries
@@ -632,7 +650,7 @@ if(WIN32)
         DESTINATION include/ta-lib
     )
 else()
-    install(TARGETS ${TA_LIB_INSTALL_TARGETS}
+    install(TARGETS ${TA_LIB_INSTALL_TARGETS} EXPORT ta-lib-targets
         LIBRARY DESTINATION lib  # For shared libraries (.so on Linux)
         ARCHIVE DESTINATION lib  # For static libraries
     )
@@ -640,6 +658,20 @@ else()
         DESTINATION include/ta-lib
     )
 endif()
+
+install(EXPORT ta-lib-targets
+    NAMESPACE ta-lib::
+    FILE ta-lib-config.cmake
+    DESTINATION lib/cmake/ta-lib)
+include(CMakePackageConfigHelpers)
+# configure.ac owns the ABI generation and moves it independently of this
+# version, so a stricter rule here rejects installs that are ABI-compatible.
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/ta-lib-config-version.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/ta-lib-config-version.cmake"
+    DESTINATION lib/cmake/ta-lib)
 
 # Warn when another TA-Lib installation could shadow this
 # one (pre-0.6.0 "ta_lib" libs, headers directly under include/, or a ta-lib
@@ -1021,7 +1053,13 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
 	  elseif(PLATFORM_ENV STREQUAL "x64")
 	    set(MSI_HOST_ARCH "x86_64")
 	  else()
-	    status(FATAL_ERROR "Unsupported vcvarsall target: ${PLATFORM_ENV}")
+	    # Platform is unset outside a vcvarsall shell and can hold an unrelated OEM
+	    # value; only the MSI package name reads this, so never fail configure on it.
+	    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+	      set(MSI_HOST_ARCH "x86_64")
+	    else()
+	      set(MSI_HOST_ARCH "x86_32")
+	    endif()
       endif()
     else()
 	  set(DEB_HOST_ARCH "amd64")

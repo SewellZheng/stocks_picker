@@ -1,9 +1,7 @@
-# TA-Lib public C ABI. Regenerate with: scripts/build.py check-abi --update
-# A diff here means the ABI moved. Put it back, or bump
-# TALIB_LIBRARY_VERSION in configure.ac -- see the rules beside it.
-format 8
+# Public C ABI of this tree. Written by scripts/sync.py; do not edit.
+# TALIB_LIBRARY_VERSION is derived from this file and ABI.released.
+format 9
 soname libta-lib.so.1
-released-soname libta-lib.so.1
 version-info 2:0:1
 headers ta_abstract.h ta_common.h ta_defs.h ta_func.h ta_libc.h
 function-count 2451
@@ -126,7 +124,7 @@ macro TA_FUNC_FLG_PERIOD1_IDENTITY = 1
 macro TA_FUNC_FLG_STREAM = 33554432
 macro TA_FUNC_FLG_UNST_PER = 134217728
 macro TA_FUNC_FLG_VOLUME = 67108864
-macro TA_FUNC_UNST_COUNT = 27
+macro TA_FUNC_UNST_COUNT = dense-count(TA_FuncUnstId)
 macro TA_INTEGER_DEFAULT = -2147483648
 macro TA_INTEGER_MAX = 2147483647
 macro TA_INTEGER_MIN = -2147483647
@@ -137,8 +135,8 @@ macro TA_IN_PRICE_OPEN = 1
 macro TA_IN_PRICE_OPENINTEREST = 32
 macro TA_IN_PRICE_TIMESTAMP = 64
 macro TA_IN_PRICE_VOLUME = 16
-macro TA_MATYPE_MAX = 13
-macro TA_MATYPE_MIN = 0
+macro TA_MATYPE_MAX = max(TA_MAType)
+macro TA_MATYPE_MIN = min(TA_MAType)
 macro TA_MAX_INDEX = 100000000
 macro TA_OPTIN_ADVANCED = 16777216
 macro TA_OPTIN_IS_CURRENCY = 4194304

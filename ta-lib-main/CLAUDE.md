@@ -27,10 +27,10 @@ Building and testing one needs that language's toolchain, and a missing tool is 
 failure, not a silent skip — narrow with `--backend=` / `build.py --language=`
 instead. Java needs a **JDK and `unzip`**: Maven comes from the committed wrapper
 (`ta_codegen/output/java/library/mvnw`), which downloads the pinned,
-SHA-256-verified Apache distribution itself. `ta_codegen build --backend=java`
-runs `./mvnw clean package` and tests *that jar*, so nothing tests a class
-directory and every machine builds with the same Maven. No credentials are
-involved (signing and the Central upload sit behind the pom's `release` profile);
+SHA-256-verified Apache distribution itself. `ta_codegen build-libraries
+--backend=java` runs `./mvnw clean package` and tests *that jar*, so nothing
+tests a class directory and every machine builds with the same Maven. No
+credentials are involved (signing and the Central upload sit behind the pom's `release` profile);
 only the wrapper's first run needs the network.
 
 The correctness baseline every backend is verified against is the frozen
@@ -67,8 +67,9 @@ the last word:
 Do not hand-edit **generated** files under `ta_codegen/output/` — they are
 overwritten on the next `generate`. The converse trap: some hand-written source
 lives under `output/` too (the Java shared types, `Core.java` outside the GENCODE
-markers, the test suites, the C# `TALib.csproj`); the generator preserves those
-and never overwrites them. `pom.xml` is maintained by `ta_codegen`.
+markers, the test suites, the C# `TALib.csproj`, `pom.xml`); the generator
+preserves those and never overwrites them. Of `pom.xml` only the `<version>` is
+written for you, by `scripts/sync.py`.
 
 ### API tiers and entry points
 
@@ -185,6 +186,8 @@ scripts/build.py generate       # Regenerate every committed source for all back
                                 # so no JDK or .NET SDK for the Java/C# sources)
 scripts/build.py servers        # Generate + compile the JSON-RPC language servers (cargo),
                                 # and refresh bin/ta_regtest so bin/ can be driven by hand
+scripts/build.py libraries      # Build the publishable Java jars + C# library from the
+                                # committed source and run their suites against them
 
 # Test
 scripts/build.py regen-check    # The PR gate: regenerating must change nothing
@@ -208,6 +211,8 @@ cargo run -- generate --func=SMA --backend=rust  # Specific function + backend
 cargo run -- generate-servers                    # Only the JSON-RPC servers (a narrowing
                                                  # of `generate`, for `build`)
 cargo run -- build                               # Compile servers into bin/
+cargo run -- build-libraries                     # Build the publishable Java/C# libraries
+                                                 # and run their suites (no server, no bench)
 cargo test                                       # ta_codegen's own test suite
 
 # ta_regtest directly (from bin/)
@@ -254,6 +259,15 @@ Indicators are methods on a `Core` struct, one file per indicator.
 - Rustdoc, including a runnable doctest per function, is generated from each
   function's canonical `<name>.md`. Verify with `cargo doc --no-deps`
   (warning-free) and `cargo test --doc` in the crate.
+
+## Versions and the shared library soname
+
+Edit only `VERSION`. Everything derived from it, plus the shared library version
+(`ABI.manifest`, `ABI.released`, `TALIB_LIBRARY_VERSION`), is written by
+`scripts/sync.py`: run it any time, as often as you like, and commit what it
+changed. It stops if public API that shipped was removed or changed: put it back,
+or run `scripts/sync.py --accept-break` when the break is intended, and the soname
+changes at the next release.
 
 ## Two build flags that must stay in step
 

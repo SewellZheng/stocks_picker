@@ -21,8 +21,8 @@ Filters (applied to generate AND test):
   --function=SMA,RSI         Filter indicators
 
 Perftest options:
-  --points=5000              Data points (default 5000)
-  --iters=20                 Iterations (default 20)
+  --points=5000              Data points (default: each bench's own)
+  --iters=20                 Iterations (default: each bench's own)
   --shape=trend-chop-1p      Benchmark input class (default randwalk;
                              ta_bench --list-shapes prints them)
   --seed=42                  Corpus seed (default 42)
@@ -375,6 +375,13 @@ def main():
                 "scripts/build.py fuzz-064",
                 "",
             ),
+            (
+                "libraries",
+                "the publishable Java jars and the C# library, built and "
+                "tested as the artifact",
+                "scripts/build.py libraries",
+                "",
+            ),
         ]
         if skipped or func_filter or lang_filter:
             print("\n" + "=" * 60)
@@ -389,7 +396,7 @@ def main():
             if lang_filter:
                 print(f"  --language={lang_filter} narrowed every step above; "
                       "CI runs all four backends.")
-            print("  Full nightly job list: .github/workflows/dev-nightly-tests.yml")
+            print("  Full nightly job list: .github/workflows/nightly-jobs.yml")
 
     sys.exit(rc)
 

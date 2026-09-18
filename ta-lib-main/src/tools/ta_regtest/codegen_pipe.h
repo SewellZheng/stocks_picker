@@ -43,6 +43,31 @@ ErrorNumber codegen_pipe_open(CodegenPipe *cp, const char *const argv[]);
  * response_size: size of response buffer
  * Returns TA_TEST_PASS on success, error code on failure.
  */
+/* Ride-along verdicts seen by the transport, i.e. at EVERY call site rather than
+ * the single one the codegen driver reads. Reset per language. */
+int  codegen_ride_mismatches(void);
+long codegen_ride_verdicts(void);
+long long codegen_ride_bars(void);
+/* How many verdicts declined to replay, per reason. Reason 0 is "replayed";
+ * the reasons are the server's own `ride_skip` numbering. A collapsed total
+ * cannot say whether the ride is walking past a rejection or past empty output.
+ * `codegen_ride_rejects` is the rejection leg's OWN numerator -- streaming
+ * entry points that agreed with a batch rejection -- because the value
+ * comparison cannot fire on a call that was refused, so a shared counter would
+ * let the whole leg die while reading full. */
+#define CODEGEN_RIDE_SKIP_N 8
+long codegen_ride_skips(int reason);
+long codegen_ride_rejects(void);
+void codegen_ride_reset(void);
+/* The same three totals, never reset. `codegen_ride_reset` runs per LANGUAGE,
+ * inside --codegen's own loop, so the counters above cannot speak for a pass
+ * that has no such loop -- and the plain suite, --xlang-hash and the abstract
+ * legs all drive the same servers. A divergence must fail the run that FOUND
+ * it, not only the one pass that happens to read a floor. */
+int  codegen_ride_mismatches_ever(void);
+long codegen_ride_verdicts_ever(void);
+long codegen_ride_rejects_ever(void);
+
 ErrorNumber codegen_pipe_call(CodegenPipe *cp,
                               const char *request,
                               char *response,

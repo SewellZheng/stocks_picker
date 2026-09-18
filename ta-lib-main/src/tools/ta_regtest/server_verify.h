@@ -23,6 +23,9 @@ int server_verify_active(void);
  * pipes (#215). A caller that varies the settings asserts this moved: a sweep
  * whose settings never reached the servers compares every language at the
  * defaults and passes without testing anything it claims to test. */
+int server_verify_ride_silent_pipes(void);
+int server_verify_ride_cases(void);
+
 int server_verify_candle_syncs(void);
 
 /* Comparisons whose verdict was actually taken, summed over pipes. Require this
@@ -30,6 +33,11 @@ int server_verify_candle_syncs(void);
  * compared" are otherwise the same observation, which is how a server erroring
  * every request produced a byte-identical green run. */
 int server_verify_comparisons(void);
+
+/* The subset of those that compared output VALUES. Read this, not the total,
+ * in a floor asking whether a test group verified anything: `comparisons` also
+ * counts server_verify_lookback_parity, which compares no number. */
+int server_verify_value_comparisons(void);
 
 /* Verify a C function call against all active servers.
  *

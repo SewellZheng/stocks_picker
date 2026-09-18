@@ -8,7 +8,7 @@ Modifications (or PR) must be made on the 'dev' branch.
 
 Before committing, run ```scripts/sync.py``` to:
  - Ensure your local dev branch is up-to-date with both remote dev and main branches.
- - Do various check and fixes on your code (e.g. update "x.y.z" versioning in various files).
+ - Bring every version in the repo in step: the release version from the VERSION file, the shared library version from the public headers. It fails if public API that shipped was removed or changed: put it back, or re-run with `--accept-break` if that is intended.
 
 Safe to run from anywhere, including a `git worktree`. The two bullets are
 independent halves: the first needs to check out dev and main, which git refuses
@@ -31,7 +31,7 @@ Repeat whenever you need to refresh the makefiles.
 
 Prerequisites: CMake 3.18+, a C compiler (clang or gcc), and the Rust toolchain (`rustup`).
 
-For cross-language server testing (`servers`, `regtest` targets), also: JDK (`javac` + `java`) and .NET SDK (`dotnet`).
+For cross-language server testing (`servers`, `regtest` targets), also: JDK (`javac` + `java`) and .NET SDK (`dotnet`). The `libraries` target additionally needs `unzip`, for the committed Maven wrapper.
 
 ```
 scripts/build.py                # Build the C library + all C tools (CMake)
@@ -41,6 +41,7 @@ scripts/build.py generate       # Regenerate every committed source for all back
                                 # libraries, JSON-RPC servers, benches (cargo only: writing
                                 # the Java/C# sources needs no JDK or .NET SDK)
 scripts/build.py servers        # Generate + compile JSON-RPC language servers (cargo)
+scripts/build.py libraries      # Build + test the publishable Java/C# libraries (cargo)
 ```
 
 Built binaries go to `bin/`. CMake is configured automatically on first run. The C
@@ -77,6 +78,7 @@ cargo run -- generate                            # Generate everything, all back
 cargo run -- generate --func=SMA --backend=rust  # Specific function + backend
 cargo run -- generate-servers                    # Only the JSON-RPC servers
 cargo run -- build                               # Compile servers
+cargo run -- build-libraries                     # Build + test the publishable Java/C# libraries
 ```
 
 Generated output goes to `ta_codegen/output/` organized by language.
@@ -122,7 +124,12 @@ Any dev with permission to merge to main branch can do a release.
 
 (10) Verify the Github release page shows the new version with all assets attached and downloadable. The website (https://ta-lib.org/install) still shows the previous release until "After a release" below is done.
 
-(11) Run "./scripts/post-release-vcpkg.py". It bumps the version + SHA512, runs x-add-version, opens the microsoft/vcpkg PR, and opens a "[monitor] VCPkg release <ver>" issue here to track it. It does not review the port, and that is where the time goes: before pushing, delete any patch that no longer applies to the new source (a vcpkg PR checklist item) and verify with a local "./vcpkg install talib". vcpkg CI can be green on every triplet and still be sent back by review, and each round costs days rather than a re-run. Close the monitor issue once "vcpkg install talib" installs the new version.
+(11) Update the vcpkg port with "./scripts/post-release-vcpkg.py" from Linux or WSL (needs `gh auth login`), one stage at a time:
+- `plan` (optional) prints the version, asset URL and SHA512. Read-only.
+- `prepare` branches `ta-lib-<ver>` from microsoft/vcpkg master in a local checkout (`--vcpkg-root`, default `temp/post-release-vcpkg/vcpkg`) and bumps the version + SHA512. Nothing is pushed. Now review the port: delete any patch that no longer applies, and fix anything a version bump cannot.
+- Run the local gate `prepare` prints. Each run must print "Building talib:<triplet>@<ver>" and "All feature tests passed", and exit 0. `./vcpkg install talib` is not a gate: its post-build lint only warns.
+- `submit` runs x-add-version and commits. After a confirmation it syncs your fork's master (create the fork once with `gh repo fork microsoft/vcpkg --clone=false`), pushes to it, opens a draft microsoft/vcpkg PR, and opens a "[monitor] VCPkg release <ver>" issue here.
+- Mark the PR ready only once CI is green and the Azure "file lists for <triplet>" artifacts show talib was actually built. Review can still send it back, and each round costs days. Close the monitor issue once "vcpkg install talib" installs the new version.
 
 (12) Monitor homebrew-core. The formula is updated within about an hour:
 https://github.com/Homebrew/homebrew-core/blob/HEAD/Formula/t/ta-lib.rb
@@ -139,7 +146,7 @@ stop advertising an already-released version:
 
 (B) Add a `## [0.7.3] Not Released Yet` entry at the top of CHANGELOG.md.
 
-(C) Run `./scripts/sync.py`. Besides the version, it points the website install page at the release just published. Commit, push dev, then `./scripts/merge.py`; the push to main deploys the website. Confirm with:
+(C) Run `./scripts/sync.py`. Besides the version, it points the website install page at the release just published and records that release in `ABI.released` (needs gcc and network). Commit, push dev, then `./scripts/merge.py`; the push to main deploys the website. Confirm with:
 
 ```bash
 ./scripts/sync-website.py --check   # non-zero if the page is behind, or the release could not be looked up

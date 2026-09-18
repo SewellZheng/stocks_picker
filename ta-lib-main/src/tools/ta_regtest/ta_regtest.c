@@ -140,7 +140,35 @@ static const char *displayTag( const char *tag, const char *label )
 }
 
 /**** Global functions definitions.   ****/
+static ErrorNumber regtest_main( int argc, char **argv );
+
+/* A ride-along divergence fails the run that FOUND it.
+ *
+ * The ride is a passenger on the language servers, so every pass that drives
+ * them computes verdicts -- the plain suite's abstract and server_verify legs,
+ * --xlang-hash, and --codegen. Only --codegen read the verdict, because its
+ * per-language floors are where the read lived; everywhere else a divergence
+ * printed its diagnostic and the run still exited 0. */
 int main( int argc, char **argv )
+{
+   ErrorNumber rideRet = regtest_main( argc, argv );
+
+   if( codegen_ride_mismatches_ever() > 0 && rideRet == TA_TEST_PASS )
+   {
+      printf( "\nFAILED: %d ride-along divergence(s) -- batch and the streaming "
+              "tiers disagreed on the caller's own data.\n",
+              codegen_ride_mismatches_ever() );
+      return TA_CODEGEN_RIDE_MISMATCH;
+   }
+   /* --codegen prints its own per-language census; this is the reach of every
+    * OTHER pass, which had no number at all. */
+   if( !doCodegenTest && codegen_ride_verdicts_ever() > 0 )
+      printf( "  ride-along: %ld verdict(s), %ld rejection leg(s) compared\n",
+              codegen_ride_verdicts_ever(), codegen_ride_rejects_ever() );
+   return rideRet;
+}
+
+static ErrorNumber regtest_main( int argc, char **argv )
 {
    ErrorNumber retValue;
 
@@ -562,6 +590,17 @@ int main( int argc, char **argv )
       if( nbSvPipes > 0 )
       {
          int p;
+         /* The ride-along ran on the hand-written cases' own arrays. A pipe that
+          * offered the check must have compared bars on at least one of them;
+          * per pipe, because a total stays green while one server goes silent. */
+         if( retValue == TA_TEST_PASS && server_verify_ride_cases() > 0 &&
+             server_verify_ride_silent_pipes() > 0 )
+         {
+            printf("RIDE VACUOUS (hand-written cases): %d of %d server(s) offered "
+                   "the batch-vs-stream check but compared no bars\n",
+                   server_verify_ride_silent_pipes(), nbSvPipes);
+            retValue = TA_CODEGEN_RIDE_VACUOUS;
+         }
          server_verify_shutdown();
          for( p = 0; p < nbSvPipes; p++ )
             codegen_pipe_close(&svPipes[p]);
@@ -756,12 +795,31 @@ static ErrorNumber testTAFunction_ALL( void )
 
    initGlobalBuffer();
 
-   /* Make tests for each TA functions. */
-   #define DO_TEST(func,str) DO_TEST_LBL(func,str,NULL)
-   #define DO_TEST_LBL(func,str,label) \
+   /* Make tests for each TA functions.
+    *
+    * Under --codegen every group must hand at least one of its own vectors to
+    * server_verify, so the hand-written case is checked ACROSS languages and
+    * not only against its own constants (#427). The floor lives here because
+    * this macro is the one chokepoint a new test file must already edit, and
+    * because it tests the effect rather than the text: server_verify answers
+    * TA_TEST_PASS without comparing when it has no pipes, when the call was a
+    * rejection, or when it cannot build the request, so a call that is present
+    * and dead reads exactly like no call at all.
+    *
+    * DO_TEST_NOSV is the opt-out, for a group with nothing to route: no public
+    * batch call at all (the streaming tiers, the TA_S_ float tier, no TA
+    * function), or only the corpus and parameters the sweep already sends,
+    * where a routed call duplicates a comparison instead of adding one. The
+    * reason belongs on a SERVER_VERIFY: line in that group's file header. */
+   #define DO_TEST(func,str) DO_TEST_FULL(func,str,NULL,1)
+   #define DO_TEST_LBL(func,str,label) DO_TEST_FULL(func,str,label,1)
+   #define DO_TEST_NOSV(func,str) DO_TEST_FULL(func,str,NULL,0)
+   #define DO_TEST_LBL_NOSV(func,str,label) DO_TEST_FULL(func,str,label,0)
+   #define DO_TEST_FULL(func,str,label,wantSv) \
       { \
       if( matchesFilter(functionFilter, str) ) \
       { \
+         int svBefore = server_verify_value_comparisons(); \
          nbGroupsRun++; \
          printf( "%*s: Testing....", TAG_W, displayTag(str,label) ); \
          fflush(stdout); \
@@ -770,6 +828,15 @@ static ErrorNumber testTAFunction_ALL( void )
          if( retValue != TA_TEST_PASS ) \
             return retValue; \
          hideFeedback(); \
+         if( (wantSv) && server_verify_active() && \
+             server_verify_value_comparisons() == svBefore ) \
+         { \
+            printf( "\nSERVER_VERIFY MISSING [%s]: the group ran under --codegen " \
+                    "and compared no output value against any language server. " \
+                    "Route one of its vectors through server_verify, or mark the " \
+                    "row DO_TEST_NOSV with the reason in the file header.\n", str ); \
+            return TA_SV_ROUTED_VACUOUS; \
+         } \
          printf( "done.\n" ); \
          fflush(stdout); \
       } \
@@ -806,7 +873,7 @@ static ErrorNumber testTAFunction_ALL( void )
     * table took test_func_stddev down first and the one diagnostic that would
     * name the real cause never ran -- the leg would have been silent in exactly
     * the case it exists for. */
-   DO_TEST_LBL( test_func_reference, "REFERENCE,GOLDEN,ORACLE,NUMERICS",
+   DO_TEST_LBL_NOSV( test_func_reference, "REFERENCE,GOLDEN,ORACLE,NUMERICS",
                                 "Statistical reference: NIST StRD, Wilkinson" );
    DO_TEST( test_func_stddev,   "STDDEV,VAR" );
    /* CORREL numerical robustness (#242). Separate from the per_hl group so the
@@ -879,10 +946,10 @@ static ErrorNumber testTAFunction_ALL( void )
             "MIN,MAX,MINMAX,MIDPOINT,MIDPRICE,WILLR,ROLLING,BLOCKSCAN",
             "Rolling extremum block scan" );
    DO_TEST( test_func_legacy,    "LEGACY,064,FROZEN" );
-   DO_TEST_LBL( test_func_stream_finite,
+   DO_TEST_LBL_NOSV( test_func_stream_finite,
             "SMA,MINUS_DI,MA,MAVP,BBANDS,STOCH,CDLDOJI,STREAM,FINITE",
             "Streaming finite-input gate" );
-   DO_TEST_LBL( test_func_open_contract,
+   DO_TEST_LBL_NOSV( test_func_open_contract,
             "STREAM,OPEN,REJECT,CONTRACT",
             "Open rejection write contract" );
 

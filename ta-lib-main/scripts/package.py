@@ -24,9 +24,7 @@
 #
 #    (FYI, all this can optionally be done in a Windows VM)
 #
-# How to change the version?
-#   Edit MAJOR, MINOR, PATCH in src/ta_common/ta_version.c
-#   There is no need to modify other files (they will be updated by this script).
+# How to change the version? Edit VERSION and run scripts/sync.py.
 #
 #   See README-DEVS.md for all the release steps.
 
@@ -370,6 +368,7 @@ def verify_deb_payload(root_dir: str, deb_file: str) -> str:
 
         for required in (f'{prefix}/lib/libta-lib.so -> ',   # the dev symlink
                          f'{prefix}/lib/pkgconfig/ta-lib.pc',
+                         f'{prefix}/lib/cmake/ta-lib/ta-lib-config.cmake',
                          f'{prefix}/include/ta-lib/ta_libc.h'):
             if required not in listing:
                 return f"payload is missing {required}"

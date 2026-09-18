@@ -8,6 +8,10 @@ name: Release (step 2)
 on:
   workflow_dispatch:
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 # Flips the draft release to public via the Releases API.
 permissions:
   contents: write
@@ -51,6 +55,8 @@ jobs:
 
       - name: Pre-release checks
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $PYTHON $GITHUB_WORKSPACE/scripts/pre-release-checks.py
 

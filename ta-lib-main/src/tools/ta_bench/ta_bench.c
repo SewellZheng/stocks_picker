@@ -18,11 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
 
-#ifdef __APPLE__
-#include <mach/mach_time.h>
-#endif
 #if defined(WIN32) || defined(_WIN32)
 #include <windows.h>
 /* MSVC portability: popen/pclose are prefixed, strcasestr is a GNU
@@ -55,29 +51,6 @@ static char *win_strcasestr(const char *haystack, const char *needle)
 #define DEFAULT_ITERS     100
 #define MAX_FUNCTIONS     512
 #define JSON_BUF_SIZE     (32 * 1024 * 1024)
-
-/* ---- Timing ---- */
-
-static long long get_nanotime(void) {
-#ifdef __APPLE__
-    static mach_timebase_info_data_t info = {0, 0};
-    if( info.denom == 0 ) mach_timebase_info(&info);
-    uint64_t t = mach_absolute_time();
-    return (long long)(t * info.numer / info.denom);
-#elif defined(WIN32) || defined(_WIN32)
-    static LARGE_INTEGER freq = {0};
-    LARGE_INTEGER t;
-    if( freq.QuadPart == 0 ) QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&t);
-    return (t.QuadPart / freq.QuadPart) * 1000000000LL
-         + (t.QuadPart % freq.QuadPart) * 1000000000LL / freq.QuadPart;
-#else
-    struct timespec ts;
-    if( clock_gettime(CLOCK_MONOTONIC, &ts) == 0 )
-        return (long long)ts.tv_sec * 1000000000LL + (long long)ts.tv_nsec;
-    return 0;
-#endif
-}
 
 /* ---- Test data (corpus shapes live in bench_corpus.h) ---- */
 
@@ -196,7 +169,7 @@ static int build_bench_request(char *buf, int sz, const TA_FuncInfo *fi,
         const TA_OptInputParameterInfo *optInfo;
         TA_GetOptInputParameterInfo(fi->handle, i, &optInfo);
         if( optInfo->type == TA_OptInput_RealRange ) {
-            pos = codegen_appendf(buf, sz, pos, ",\"%s\":%.15g",
+            pos = codegen_appendf(buf, sz, pos, ",\"%s\":%.17g",
                             optInfo->paramName, optInfo->defaultValue);
         } else {
             int val = (int)optInfo->defaultValue;
@@ -239,10 +212,10 @@ static void thermal_wait(char *respBuf, int respSz) {
     }
 }
 
-/* Spread of the cref arm across BENCH_PASSES, accumulated over all rows. The
- * ratio columns below are only as meaningful as this is small. */
-static double g_spread_sum = 0.0, g_spread_worst = 0.0;
-static int    g_spread_n = 0;
+/* Spread across BENCH_PASSES, per arm. A ratio is no better than the noisier
+ * of its two timings. */
+static double g_spread_sum[NUM_LANGUAGES], g_spread_worst[NUM_LANGUAGES];
+static int    g_spread_n[NUM_LANGUAGES];
 
 /* ---- Per-indicator benchmark callback ---- */
 
@@ -328,20 +301,14 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
         }
     }
 
-    /* Extract ref timing for ratio coloring */
-    double ref_spread = -1.0;
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
-        if( has_timing[li] && strcmp(LANGUAGES[li].name, "cref") == 0 ) {
+        if( !has_timing[li] ) continue;
+        if( strcmp(LANGUAGES[li].name, "cref") == 0 )
             ref_ns = timings[li];
-            if( ref_ns > 0 )
-                ref_spread = (double)(t_max[li] - timings[li]) / (double)ref_ns;
-        }
-    }
-    /* Track the worst row so the footer can say whether the run was quiet. */
-    if( ref_spread >= 0.0 ) {
-        g_spread_sum += ref_spread;
-        g_spread_n++;
-        if( ref_spread > g_spread_worst ) g_spread_worst = ref_spread;
+        double sp = (double)(t_max[li] - timings[li]) / (double)timings[li];
+        g_spread_sum[li] += sp;
+        g_spread_n[li]++;
+        if( sp > g_spread_worst[li] ) g_spread_worst[li] = sp;
     }
 
     /* Print row */
@@ -354,7 +321,7 @@ static void bench_one_function(const TA_FuncInfo *fi, void *opaque) {
         } else if( is_cref ) {
             printf(" %10lld", timings[li]);
         } else {
-            double ratio = (ref_ns > 0) ? (double)timings[li] / (double)ref_ns : 0.0;
+            double ratio = (ref_ns > 0) ? (double)timings[li] / (double)ref_ns : 1.0;
             const char *clr = (ratio > 1.10) ? "\033[31m" : (ratio < 0.90) ? "\033[32m" : "";
             const char *rst = (*clr) ? "\033[0m" : "";
             printf(" %s%10lld%s", clr, timings[li], rst);
@@ -516,24 +483,30 @@ int main(int argc, char *argv[]) {
            ctx.count, n_points, n_iters, bench_shape_name(shape));
     printf("(red >10%% slower, green >10%% faster than C-ref)\n");
 
-    /* Say how quiet the box was. Without this the ratios above look equally
-       authoritative whether the spread was 2% or 200%. */
+    for( unsigned int li = 0; li < NUM_LANGUAGES; li++ ) {
+        if( g_spread_n[li] <= 0 ) continue;
+        printf("%s spread over %d passes: mean %.0f%%, worst %.0f%% (%d rows).\n",
+               LANGUAGES[li].display, BENCH_PASSES,
+               g_spread_sum[li] / (double)g_spread_n[li] * 100.0,
+               g_spread_worst[li] * 100.0, g_spread_n[li]);
+    }
+
+    /* Only cref gates --max-spread: the Java arm exceeds it at any --iters a
+       local regtest.py perftest can afford. */
     int too_noisy = 0;
-    if( g_spread_n > 0 ) {
-        double mean = g_spread_sum / (double)g_spread_n;
-        printf("C-ref spread over %d passes: mean %.0f%%, worst %.0f%% (%d rows).\n",
-               BENCH_PASSES, mean * 100.0, g_spread_worst * 100.0, g_spread_n);
-        if( max_spread > 0.0 && mean > max_spread ) {
+    if( max_spread > 0.0 && g_spread_n[0] > 0 ) {
+        double ref_mean = g_spread_sum[0] / (double)g_spread_n[0];
+        if( ref_mean > max_spread ) {
             fprintf(stderr,
                     "ta_bench: mean C-ref spread %.0f%% exceeds --max-spread=%.0f%% — "
                     "treat the ratios above as unresolved.\n",
-                    mean * 100.0, max_spread * 100.0);
+                    ref_mean * 100.0, max_spread * 100.0);
             too_noisy = 1;
         }
-    } else if( !LANGUAGES[0].active ) {
-        printf("No C-ref column: the ratio colours above are uncalibrated "
-               "(add cref to --language).\n");
     }
+    if( g_spread_n[0] == 0 )
+        printf("No C-ref timings: nothing above is coloured%s.\n",
+               lang_matches(lang_filter, LANGUAGES[0].name) ? "" : " (add cref to --language)");
 
     /* Cleanup */
     for( unsigned int li = 0; li < NUM_LANGUAGES; li++ )

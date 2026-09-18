@@ -41,6 +41,13 @@
  *     wide enough that a third of them cannot see a 0.1% error, and wide enough
  *     that two transcription errors survived in it for two decades (#188).
  *
+ *     SERVER_VERIFY: the rows whose parameter vector is off the ta_abstract
+ *     defaults; the rest are the sweep's own baseline. The sweep moves one
+ *     parameter at a time from a fixed candidate set, so a frozen combination or
+ *     an off-set value reaches no server otherwise. TA_SAREXT's optInStartValue
+ *     is the sharp case: its suggested range collapses onto its default, so the
+ *     sweep never leaves the auto arm.
+ *
  *     Everything about the DATA -- scope, exclusions, sampling, the vacuous
  *     candlestick list -- is documented in ta_test_legacy_data.h. This file
  *     owns the COMPARISON, and the only hand-maintained knob is LEGACY_TOL.
@@ -54,6 +61,7 @@
 #include "ta_test_priv.h"
 #include "ta_test_func.h"
 #include "ta_utility.h"
+#include "server_verify.h"
 #include "ta_test_legacy_data.h"
 
 /**** Local declarations. ****/
@@ -95,6 +103,9 @@
  *       RSI's Wilder step scales by a hoisted 1/period instead of dividing by
  *       period, which is exactly zero where 1/period is representable -- so a
  *       power-of-two period re-measures this row as unnecessary.
+ *       #411 gives CMO and the DM/DI/DX/ADX family the same hoist; ADX, ADXR
+ *       and CMO also change the step's form, so only DM, DI and DX share RSI's
+ *       power-of-two exactness.
  *
  * A blanket contract bound would buy unearned slack: CCI, IMI, KAMA, MACD and
  * MACDEXT are all bit-exact against v0.6.4 on this series, their divergences
@@ -145,11 +156,19 @@ static const TA_LegacyTol LEGACY_TOL[] =
    { "STOCH",               3e-13 },  /* #390  measured 8.53e-14             */
    { "STOCHF",              2e-13 },  /* #390  measured 4.26e-14             */
    { "WILLR",               3e-14 },  /* #395  measured 7.11e-15             */
+   { "PLUS_DI",             4e-14 },  /* #411  measured 1.07e-14             */
+   { "MINUS_DI",            2e-14 },  /* #411  measured 5.33e-15             */
+   { "DX",                  5e-14 },  /* #411  measured 1.60e-14             */
    /* Sized at the frozen periods (14 and 19) and only there: unlike the rows
-    * above, these three grow with the period, so a re-freeze that adds a
-    * longer-period case has to re-measure. ATR's and NATR's are also
-    * output-proportional; RSI's is absolute and unmoved by the price scale. */
+    * above, these grow with the period, so a re-freeze that adds a
+    * longer-period case has to re-measure. ATR's, NATR's and the DMs' are also
+    * output-proportional; the rest are absolute and unmoved by the price scale. */
    { "RSI",                 5e-14 },  /* #410  measured 1.42e-14             */
+   { "CMO",                 2e-13 },  /* #411  measured 3.55e-14             */
+   { "ADX",                 3e-14 },  /* #411  measured 7.11e-15             */
+   { "ADXR",                3e-14 },  /* #411  measured 7.11e-15             */
+   { "PLUS_DM",             3e-14 },  /* #411  measured 7.11e-15             */
+   { "MINUS_DM",            2e-14 },  /* #411  measured 3.55e-15             */
    { "ATR",                 3e-15 },  /* #338  measured 8.88e-16             */
    { "NATR",                2e-15 },  /* #338  measured 4.44e-16             */
 
@@ -236,6 +255,10 @@ static void legacy_setup_inputs( TA_ParamHolder *paramHolder,
 static long g_legacyRealCmp;
 static long g_legacyIntCmp;
 static long g_legacyShapeCmp;
+/* Rows handed to a language server (#427). Its own counter: the three above are
+ * driven by every row, so folding the routed subset into them would let it stop
+ * entirely without moving a number. */
+static long g_legacyRouted;
 
 /* Run one case and check it. */
 static ErrorNumber do_test_legacy_case( const TA_History *history,
@@ -248,6 +271,7 @@ static ErrorNumber do_test_legacy_case( const TA_History *history,
    TA_Integer           outBegIdx = 0, outNbElement = 0;
    unsigned int         i;
    int                  outputIsInteger[3];
+   int                  offDefaults = 0;
    double               tol;
 
    if( TA_GetFuncHandle( c->func, &handle ) != TA_SUCCESS ||
@@ -294,6 +318,11 @@ static ErrorNumber do_test_legacy_case( const TA_History *history,
    {
       const TA_OptInputParameterInfo *optInfo;
       TA_GetOptInputParameterInfo( handle, i, &optInfo );
+      /* Read off the VALUE the row carries, not off the row's own count: a
+       * frozen row that happens to repeat every default is the sweep's own
+       * baseline and must not be routed as if it added a vector. */
+      if( c->opt[i] != optInfo->defaultValue )
+         offDefaults = 1;
       if( optInfo->type == TA_OptInput_RealRange ||
           optInfo->type == TA_OptInput_RealList )
          TA_SetOptInputParamReal( paramHolder, i, c->opt[i] );
@@ -331,6 +360,64 @@ static ErrorNumber do_test_legacy_case( const TA_History *history,
       return TA_REGTEST_LEGACY_BAD_SHAPE;
    }
    g_legacyShapeCmp++;
+
+   if( offDefaults && server_verify_active() )
+   {
+      const TA_Real    *svIn  [8];
+      const TA_Real    *svReal[4];
+      const TA_Integer *svInt [4];
+      int nbIn = 0, nbReal = 0, nbInt = 0, nbRealIn = 0;
+      int cmpBefore = server_verify_comparisons();
+      ErrorNumber svErr;
+
+      /* Mirrors legacy_setup_inputs above: Price in OHLCV+OI order, the first
+       * Real on close and the second on high. The two must not drift. */
+      for( i = 0; i < funcInfo->nbInput; i++ )
+      {
+         const TA_InputParameterInfo *inputInfo;
+         TA_GetInputParameterInfo( funcInfo->handle, i, &inputInfo );
+         if( inputInfo->type == TA_Input_Price )
+         {
+            if( inputInfo->flags & TA_IN_PRICE_OPEN )   svIn[nbIn++] = history->open;
+            if( inputInfo->flags & TA_IN_PRICE_HIGH )   svIn[nbIn++] = history->high;
+            if( inputInfo->flags & TA_IN_PRICE_LOW )    svIn[nbIn++] = history->low;
+            if( inputInfo->flags & TA_IN_PRICE_CLOSE )  svIn[nbIn++] = history->close;
+            if( inputInfo->flags & TA_IN_PRICE_VOLUME ) svIn[nbIn++] = history->volume;
+            if( inputInfo->flags & TA_IN_PRICE_OPENINTEREST )
+               svIn[nbIn++] = history->openInterest;
+         }
+         else if( inputInfo->type == TA_Input_Real )
+            svIn[nbIn++] = ( nbRealIn++ == 0 ) ? history->close : history->high;
+      }
+      svIn[nbIn] = NULL;
+
+      /* Dense per kind: server_verify subscripts the real and integer arrays
+       * with separate counters, and this file's buffers are per position. */
+      for( i = 0; i < funcInfo->nbOutput; i++ )
+      {
+         if( outputIsInteger[i] ) svInt [nbInt++]  = legacyOutInt[i];
+         else                     svReal[nbReal++] = legacyOutReal[i];
+      }
+      svReal[nbReal] = NULL;
+      svInt [nbInt]  = NULL;
+
+      svErr = server_verify( c->func, 0, (int)history->nbBars - 1,
+                             (int)history->nbBars,
+                             retCode, outBegIdx, outNbElement,
+                             svIn,
+                             ( c->nbOpt > 0 ) ? c->opt : NULL, (int)c->nbOpt,
+                             ( nbReal > 0 ) ? svReal : NULL,
+                             ( nbInt  > 0 ) ? svInt  : NULL );
+      if( svErr != TA_TEST_PASS )
+         return svErr;
+      if( server_verify_comparisons() == cmpBefore )
+      {
+         printf( "Fail: [%s] off-default row routed but compared no server "
+                 "despite live pipes\n", c->func );
+         return TA_SV_ROUTED_VACUOUS;
+      }
+      g_legacyRouted++;
+   }
 
    tol = legacy_tol( c->func );
 
@@ -472,6 +559,37 @@ static ErrorNumber check_coverage( void )
       printf( "Fail: %ld case(s) reached the shape check, table has %d\n",
               g_legacyShapeCmp, TA_LEGACY_NB_CASE );
       return TA_REGTEST_LEGACY_VACUOUS;
+   }
+   /* Denominator counted from the TABLE, so deleting the routed call fails this
+    * instead of shrinking both sides of a ratio. */
+   if( server_verify_active() )
+   {
+      long offDefaultRows = 0;
+      for( i = 0; i < TA_LEGACY_NB_CASE; i++ )
+      {
+         const TA_FuncHandle *h;
+         const TA_FuncInfo   *fi;
+         unsigned int         k;
+         if( TA_GetFuncHandle( TA_LEGACY_CASE[i].func, &h ) != TA_SUCCESS ||
+             TA_GetFuncInfo( h, &fi ) != TA_SUCCESS )
+            continue;
+         for( k = 0; k < fi->nbOptInput && k < TA_LEGACY_CASE[i].nbOpt; k++ )
+         {
+            const TA_OptInputParameterInfo *oi;
+            TA_GetOptInputParameterInfo( h, k, &oi );
+            if( TA_LEGACY_CASE[i].opt[k] != oi->defaultValue )
+            {
+               offDefaultRows++;
+               break;
+            }
+         }
+      }
+      if( g_legacyRouted != offDefaultRows )
+      {
+         printf( "Fail: %ld of %ld off-default row(s) reached a language "
+                 "server\n", g_legacyRouted, offDefaultRows );
+         return TA_REGTEST_LEGACY_VACUOUS;
+      }
    }
    if( TA_LEGACY_NB_CASE < LEGACY_FLOOR_CASES ||
        funcs < LEGACY_FLOOR_FUNCS ||

@@ -8,13 +8,19 @@
 #      may need to be resolved manually (an error will be displayed).
 #
 #  (2) METADATA. Sync the TA-Lib versioning (see the VERSION file) consistently
-#      across the files that need it, update the TA-Lib source digest in
-#      ta_common.h as needed, and point the website install page at the latest
-#      *published* GitHub release. That last one is the only thing that puts a new
-#      release on the website: it lands with the post-release commit and deploys
-#      when that commit reaches main.
+#      across the files that need it; record the latest *published* release as
+#      the ABI baseline (ABI.released) and derive the shared library version
+#      (ABI.manifest, TALIB_LIBRARY_VERSION in configure.ac) from the public
+#      headers; update the TA-Lib source digest in ta_common.h; and point the
+#      website install page at the latest published release. That last one is
+#      the only thing that puts a new release on the website: it lands with the
+#      post-release commit and deploys when that commit reaches main.
 #
-# NOOP if nothing to merge or sync.
+#      Exits non-zero, leaving ABI.manifest and TALIB_LIBRARY_VERSION as they
+#      were, when public API that shipped was removed or changed: put it back, or
+#      re-run with --accept-break.
+#
+# NOOP if nothing to merge or sync, so it can be run any time, repeatedly.
 #
 # HALF (1) IS SKIPPED AUTOMATICALLY WHERE IT CANNOT RUN. It has to check out dev
 # and main, and git refuses to check out a branch that a second worktree already
@@ -46,6 +52,7 @@ import sys
 from utilities.common import verify_git_repo, run_command
 from utilities.versions import sync_sources_digest, sync_versions
 from utilities.website import latest_release_version, sync_install_page
+import abi
 
 def generate_short_unique_id(length=20) -> str:
     # Generate a "unique enough" short identifier.
@@ -82,7 +89,17 @@ def branch_merge_blocked_by(root_dir: str, current_branch: str) -> str:
     return None
 
 
-def main():
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Merge remote dev/main into local dev where possible, and bring every "
+                    "version in the repo in step with VERSION and the public headers. Safe to "
+                    "run any time, repeatedly.")
+    parser.add_argument("--accept-break", action="store_true",
+                        help="record removed or changed public API that shipped; the "
+                             "shared library soname then changes at the next release")
+    args = parser.parse_args(argv)
+    abi_ok = True
     try:
         original_branch = None
 
@@ -91,10 +108,8 @@ def main():
         original_branch = run_command(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
 
         # Do nothing if there is staged changes.
-        try:
-            run_command(['git', 'diff', '--cached', '--exit-code'])
-        except subprocess.CalledProcessError:
-            print("Info: staged git changes detected. This script is intended to be run **before** any staging. No sync done.")
+        if subprocess.run(['git', 'diff', '--cached', '--quiet']).returncode != 0:
+            print("Info: staged git changes detected. This script is intended to be run **before** any staging (after a merge, commit it first). No sync done.")
             sys.exit(1)
 
         # Can the branch-merging half run here at all? (See the notes at the top
@@ -104,7 +119,8 @@ def main():
 
         if blocked:
             print(f"Skipping the dev/main merge: {blocked}.")
-            print("Doing the versions + sources digest refresh only. That half needs "
+            print("Doing the metadata half only (versions, shared library version, sources "
+                  "digest, website install page). That half needs "
                   "no branch switching, and updating dev is not what a feature branch "
                   "wants before a commit anyway.")
         else:
@@ -205,6 +221,15 @@ def main():
         if not is_updated:
             print(f"No changes to version [{version}]")
 
+        released = latest_release_version()
+
+        # Before the digest: configure.ac is a digest input.
+        abi_message = abi.advance_released(root_dir, released)
+        if abi_message:
+            print(abi_message)
+        abi_ok, abi_message = abi.sync(root_dir, args.accept_break)
+        print(abi_message or "No changes to shared library version")
+
         # Update TA_LIB_SOURCES_DIGEST in ta_common.h (as needed)
         is_updated, digest = sync_sources_digest(root_dir)
         if is_updated:
@@ -212,13 +237,15 @@ def main():
         else:
             print(f"No changes to sources digest (ta_common.h) [{digest}]")
 
-        released = latest_release_version()
         if released is None:
             print("Warning: website install page NOT synced; re-run once GitHub is reachable.")
         elif sync_install_page(root_dir, released):
             print(f"Updated website install page to released [{released}]")
         else:
             print(f"No changes to website install page [{released}]")
+
+        if not abi_ok:
+            sys.exit(1)
 
     except subprocess.CalledProcessError as e:
         print(f"An error occurred: {e}")
